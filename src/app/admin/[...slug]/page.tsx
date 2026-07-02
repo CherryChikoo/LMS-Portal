@@ -1,6 +1,3 @@
-"use client";
-
-import { use } from "react";
 import DashboardLayout from "@/app/(dashboard)/layout";
 import StudentsPage from "@/app/(dashboard)/students/page";
 import CollegesPage from "@/app/(dashboard)/colleges/page";
@@ -20,8 +17,8 @@ import SettingsPage from "@/app/(dashboard)/settings/page";
 import DashboardHome from "@/app/(dashboard)/page";
 import TakeExamPage from "@/app/exams/[id]/take/page";
 
-export default function AdminCatchAllPage({ params }: { params: Promise<{ slug: string[] }> }) {
-  const resolvedParams = use(params);
+export default async function AdminCatchAllPage({ params }: { params: Promise<{ slug: string[] }> }) {
+  const resolvedParams = await params;
   const slug = resolvedParams.slug || [];
   const primary = slug[0];
   const secondary = slug[1];
