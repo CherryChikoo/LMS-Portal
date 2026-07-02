@@ -50,7 +50,7 @@ export default function AdminLoginPage() {
         department: reg[cleanEmail]?.department || "Faculty Operations"
       };
       setAuthSession(uObj, actualRole as "trainer" | "admin");
-      router.push("/admin");
+      window.location.assign("/admin");
     } catch (err: unknown) {
       if ((cleanEmail === "trainer@lms.dev" && password === "admin123456") || (reg[cleanEmail] && reg[cleanEmail].password === password)) {
         const accInfo = reg[cleanEmail] || { name: "Lead Trainer Faculty", role: "trainer", department: "Faculty Operations" };
@@ -64,7 +64,7 @@ export default function AdminLoginPage() {
           department: accInfo.department || "Faculty Operations"
         };
         setAuthSession(uObj, actualRole as "trainer" | "admin");
-        router.push("/admin");
+        window.location.assign("/admin");
       } else {
         setError(err instanceof Error ? err.message : "Incorrect email or password.");
       }

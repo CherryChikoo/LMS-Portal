@@ -60,7 +60,7 @@ export default function LoginPage() {
         batchIds: (res.profile as any)?.batchIds,
       };
       setAuthSession(uObj, "student");
-      router.push("/");
+      window.location.assign("/student");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to sign in with Google.");
     } finally {
@@ -91,7 +91,7 @@ export default function LoginPage() {
       if (res.mustChangePassword) {
         setShowPasswordModal(true);
       } else {
-        router.push("/");
+        window.location.assign("/student");
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Invalid student credentials.");
@@ -115,7 +115,7 @@ export default function LoginPage() {
     try {
       await updateFirstLoginPassword(newPassword);
       setShowPasswordModal(false);
-      router.push("/");
+      window.location.assign("/student");
     } catch (err: unknown) {
       setModalError(err instanceof Error ? err.message : "Failed to update password.");
     } finally {
