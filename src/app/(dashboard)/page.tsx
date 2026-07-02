@@ -1,0 +1,683 @@
+"use client";
+
+import { motion } from "motion/react";
+import {
+  Users,
+  GraduationCap,
+  ClipboardList,
+  FolderOpen,
+  Clock,
+  FileText,
+  ArrowRight,
+  Sparkles,
+  CheckCircle2,
+  TrendingUp,
+  PlayCircle,
+  Plus,
+  Trophy,
+  BookOpen,
+  AlertCircle,
+} from "lucide-react";
+import Link from "next/link";
+import { StatCard } from "@/components/shared/stat-card";
+import { GlassCard } from "@/components/shared/glass-card";
+import { AreaChartComponent } from "@/components/charts/area-chart";
+import { BarChartComponent } from "@/components/charts/bar-chart";
+import { PieChartComponent } from "@/components/charts/pie-chart";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { useEffect, useState, useMemo } from "react";
+import { staggerContainer, staggerItem } from "@/lib/animations";
+import { getAllExams, getAllStudents, getAllColleges, getAllResources, getEffectiveExamStatus, getStudentAttempts, filterResourcesForStudent, filterExamsForStudent } from "@/lib/services";
+import type { Exam, Student, College, Resource, ExamAttempt } from "@/types";
+
+function StudentPortalDashboard({
+  exams,
+  resources,
+  attempts,
+  loading,
+}: {
+  exams: Exam[];
+  resources: Resource[];
+  attempts: ExamAttempt[];
+  loading: boolean;
+}) {
+  const [studentProfile, setStudentProfile] = useState<any>(() => {
+    try {
+      if (typeof window !== "undefined") {
+        const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+        if (uStr) return JSON.parse(uStr);
+      }
+    } catch (_) {}
+    return { id: "guest", name: "Student Candidate", email: "student@lms.dev", department: "Computer Science & Engineering", rollNumber: "ROLL-2026", batchIds: [] };
+  });
+
+  useEffect(() => {
+    const updateProfile = () => {
+      try {
+        const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+        if (uStr) {
+          const parsed = JSON.parse(uStr);
+          setStudentProfile(parsed);
+        }
+      } catch (_) {}
+    };
+    updateProfile();
+    window.addEventListener("storage", updateProfile);
+    window.addEventListener("pageshow", updateProfile);
+    return () => {
+      window.removeEventListener("storage", updateProfile);
+      window.removeEventListener("pageshow", updateProfile);
+    };
+  }, []);
+
+
+
+  const myAttempts = useMemo(() => {
+    return attempts.filter((a) => {
+      const sId = studentProfile?.id;
+      const sEmail = (studentProfile?.email || "").toLowerCase().trim();
+
+      if (sId && (a.studentId === sId || a.studentId?.toLowerCase() === sEmail)) return true;
+      if (sEmail && (a.studentId?.toLowerCase() === sEmail || (a as any).studentEmail?.toLowerCase() === sEmail)) return true;
+
+      if (sEmail === "student@lms.dev") {
+        return a.studentId === "stud-1" || a.studentName?.toLowerCase() === "student candidate";
+      }
+      return false;
+    });
+  }, [attempts, studentProfile]);
+
+  const avgScore = useMemo(() => {
+    if (myAttempts.length === 0) return 0;
+    const sum = myAttempts.reduce((acc, curr) => acc + (curr.percentage || 0), 0);
+    return Math.round(sum / myAttempts.length);
+  }, [myAttempts]);
+
+  const activeOrScheduledExams = useMemo(() => {
+    return filterExamsForStudent(exams, studentProfile).filter((e) => {
+      const s = getEffectiveExamStatus(e);
+      return s === "active" || s === "scheduled";
+    });
+  }, [exams, studentProfile]);
+
+  const assignedResources = useMemo(() => {
+    return filterResourcesForStudent(resources, studentProfile);
+  }, [resources, studentProfile]);
+
+  return (
+    <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="space-y-6 sm:space-y-8 font-sans">
+      {/* Student Hero Banner */}
+      <motion.div variants={staggerItem}>
+        <div className="relative overflow-hidden rounded-2xl p-6 sm:p-8 lg:p-10 bg-[url('/bg-fluid.jpg')] bg-cover bg-center border border-emerald-500/30 shadow-2xl text-white">
+          <div className="absolute inset-0 bg-black/65 dark:bg-[#03090F]/75 backdrop-blur-[2px]" />
+          <div className="absolute top-0 right-1/4 w-80 h-80 bg-brand/20 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute -bottom-10 right-0 w-96 h-96 bg-emerald-500/15 rounded-full blur-3xl pointer-events-none" />
+
+          <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+            <div className="space-y-3 max-w-2xl">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-xs font-bold text-emerald-300">
+                <GraduationCap className="w-3.5 h-3.5" />
+                <span>{studentProfile.department || "Computer Science"} Portal</span>
+              </div>
+              <h1 className="text-2xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight font-heading text-white">
+                Welcome back, <span className="text-emerald-400">{studentProfile.name || "Student"}</span>
+              </h1>
+              <p className="text-sm sm:text-base text-slate-200/90 font-normal leading-relaxed">
+                Access assigned evaluation papers, study notes for your department, and review real-time academic grade transcripts.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 shrink-0">
+              <Link href="/exams">
+                <Button className="h-11 px-5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/20">
+                  <PlayCircle className="w-4 h-4 stroke-[2.5]" />
+                  <span>Take Assessment</span>
+                </Button>
+              </Link>
+              <Link href="/resources">
+                <Button className="h-11 px-4 rounded-xl border border-white/25 bg-white/10 hover:bg-white/20 text-white font-semibold transition-all shadow-sm">
+                  <BookOpen className="w-4 h-4 mr-2" />
+                  <span>Study Notes</span>
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Student Stat Cards Grid */}
+      <motion.div variants={staggerContainer} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
+        <motion.div variants={staggerItem}>
+          <StatCard
+            title="Assigned Assessments"
+            value={loading ? 0 : activeOrScheduledExams.length}
+            icon={ClipboardList}
+            iconClassName="stat-icon-emerald"
+          />
+        </motion.div>
+        <motion.div variants={staggerItem}>
+          <StatCard
+            title="Completed Attempts"
+            value={loading ? 0 : myAttempts.length}
+            icon={Trophy}
+            iconClassName="stat-icon-blue"
+          />
+        </motion.div>
+        <motion.div variants={staggerItem}>
+          <StatCard
+            title="Average Evaluation Score"
+            value={loading ? 0 : avgScore}
+            suffix="%"
+            icon={TrendingUp}
+            iconClassName="stat-icon-amber"
+          />
+        </motion.div>
+        <motion.div variants={staggerItem}>
+          <StatCard
+            title="Department Study Notes"
+            value={loading ? 0 : assignedResources.length}
+            icon={FolderOpen}
+            iconClassName="stat-icon-purple"
+          />
+        </motion.div>
+      </motion.div>
+
+      {/* 2-Column Student Section */}
+      <motion.div variants={staggerContainer} className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Left: Active & Scheduled Exams */}
+        <motion.div variants={staggerItem} className="lg:col-span-7 space-y-4">
+          <GlassCard className="p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-border/40">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                  <ClipboardList className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-foreground">Assigned Assessment Library</h3>
+                  <p className="text-xs text-muted-foreground">Evaluation papers scheduled for your academic cohort</p>
+                </div>
+              </div>
+              <Link href="/exams" className="text-xs font-bold text-brand hover:underline flex items-center gap-1">
+                View All <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+
+            <div className="space-y-3">
+              {activeOrScheduledExams.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground text-sm">No active assessments scheduled right now.</div>
+              ) : (
+                activeOrScheduledExams.map((ex) => {
+                  const status = getEffectiveExamStatus(ex);
+                  const att = myAttempts.find((a) => a.examId === ex.id);
+                  return (
+                    <div key={ex.id} className="p-4 rounded-xl bg-card/60 border border-border/60 hover:border-brand/40 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          {att ? (
+                            <Badge variant="secondary" className="bg-blue-500/15 text-blue-500 border-blue-500/30 text-[10px] font-bold">
+                              COMPLETED
+                            </Badge>
+                          ) : (
+                            <Badge variant={status === "active" ? "default" : "secondary"} className={status === "active" ? "bg-emerald-500/15 text-emerald-500 border-emerald-500/30 text-[10px]" : "text-[10px]"}>
+                              {status.toUpperCase()}
+                            </Badge>
+                          )}
+                          <span className="text-xs text-muted-foreground flex items-center gap-1">
+                            <Clock className="w-3 h-3" /> {ex.duration} mins
+                          </span>
+                        </div>
+                        <h4 className="text-sm font-bold text-foreground">{ex.title}</h4>
+                        <p className="text-xs text-muted-foreground truncate max-w-sm">{ex.description || "Proctored academic online test."}</p>
+                      </div>
+                      {att ? (
+                        <Link href="/results">
+                          <Button size="sm" variant="outline" className="w-full sm:w-auto border-emerald-500/30 bg-emerald-500/10 text-emerald-500 font-bold text-xs rounded-lg px-4 flex items-center gap-1.5">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            Completed ({att.percentage}%)
+                          </Button>
+                        </Link>
+                      ) : status === "active" ? (
+                        <Link href={`/exams/${ex.id}/take`}>
+                          <Button size="sm" className="w-full sm:w-auto bg-brand hover:bg-brand/90 text-white font-bold text-xs rounded-lg px-4">
+                            Launch Assessment <PlayCircle className="w-3.5 h-3.5 ml-1.5" />
+                          </Button>
+                        </Link>
+                      ) : (
+                        <Button disabled size="sm" variant="outline" className="w-full sm:w-auto text-xs rounded-lg px-4 opacity-70">
+                          Scheduled
+                        </Button>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </GlassCard>
+        </motion.div>
+
+        {/* Right: Recent Attempts Transcript */}
+        <motion.div variants={staggerItem} className="lg:col-span-5 space-y-4">
+          <GlassCard className="p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-border/40">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500">
+                  <Trophy className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-foreground">My Recent Evaluations</h3>
+                  <p className="text-xs text-muted-foreground">Personal score transcript & answers</p>
+                </div>
+              </div>
+              <Link href="/results" className="text-xs font-bold text-brand hover:underline flex items-center gap-1">
+                All Scores <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+
+            <div className="space-y-3">
+              {myAttempts.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground text-sm">No tests completed yet. Launch your first assessment above!</div>
+              ) : (
+                myAttempts.slice(0, 4).map((att) => (
+                  <div key={att.id} className="p-3.5 rounded-xl bg-card/60 border border-border/60 flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-bold text-foreground">{(att as any).examTitle || `Assessment #${att.examId}`}</h4>
+                      <p className="text-xs text-muted-foreground">Submitted: {att.submittedAt ? new Date(att.submittedAt).toLocaleDateString() : "Recent"}</p>
+                    </div>
+                    <div className="text-right">
+                      <span className={`text-sm font-black ${att.passed ? "text-emerald-500" : "text-red-500"}`}>{att.percentage}%</span>
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{att.passed ? "PASSED" : "REVIEW"}</p>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </GlassCard>
+        </motion.div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+export default function DashboardPage() {
+  const [exams, setExams] = useState<Exam[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [colleges, setColleges] = useState<College[]>([]);
+  const [resources, setResources] = useState<Resource[]>([]);
+  const [attempts, setAttempts] = useState<ExamAttempt[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [userRole, setUserRole] = useState<string>("admin");
+
+  useEffect(() => {
+    try {
+      const role = localStorage.getItem("lms_role") || "admin";
+      setUserRole(role.toLowerCase());
+    } catch (e) {}
+
+    async function loadLivePortal() {
+      setLoading(true);
+      try {
+        const [ex, st, cl, rs, att] = await Promise.all([
+          getAllExams(),
+          getAllStudents(),
+          getAllColleges(),
+          getAllResources(),
+          getStudentAttempts(),
+        ]);
+        setExams(ex || []);
+        setStudents(st || []);
+        setColleges(cl || []);
+        setResources(rs || []);
+        setAttempts(att || []);
+      } catch (err) {
+        console.error("Failed loading live portal data:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadLivePortal();
+  }, []);
+
+  const activeOrScheduledExams = useMemo(() => {
+    return exams.filter((e) => {
+      const s = getEffectiveExamStatus(e);
+      return s === "active" || s === "scheduled";
+    });
+  }, [exams]);
+
+  const liveActivity = useMemo(() => {
+    return [
+      ...exams.slice(0, 5).map((ex) => ({
+        id: `ex-${ex.id}`,
+        action: getEffectiveExamStatus(ex) === "active" ? "Live Assessment Active" : "Assessment Scheduled",
+        detail: `${ex.title} (${ex.duration} mins, ${ex.totalMarks} marks)`,
+        time: ex.startTime ? new Date(ex.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Live Now",
+        icon: ClipboardList,
+        color: getEffectiveExamStatus(ex) === "active" ? "stat-icon-emerald" : "stat-icon-amber",
+      })),
+      ...colleges.slice(0, 3).map((c) => ({
+        id: `col-${c.id}`,
+        action: "Partner College Active",
+        detail: `${c.name} (${c.code || "Registered"}) linked to portal`,
+        time: "Active",
+        icon: GraduationCap,
+        color: "stat-icon-blue",
+      })),
+    ];
+  }, [exams, colleges]);
+
+  const dynamicDomainFocus = useMemo(() => {
+    const map = new Map<string, number>();
+    students.forEach((s) => {
+      const dept = (s as any).department || "General Engineering";
+      map.set(dept, (map.get(dept) || 0) + 1);
+    });
+    if (map.size === 0 && colleges.length > 0) {
+      colleges.forEach((c) => {
+        c.departments?.forEach((d) => map.set(d, (map.get(d) || 0) + 1));
+      });
+    }
+    return Array.from(map.entries()).map(([name, value]) => ({ name, value }));
+  }, [students, colleges]);
+
+  const dynamicAssessmentAverages = useMemo(() => {
+    return exams.slice(0, 6).map((ex) => {
+      const examAttempts = attempts.filter((a) => a.examId === ex.id);
+      let avg = 0;
+      if (examAttempts.length > 0) {
+        const sum = examAttempts.reduce((acc, curr) => acc + (curr.percentage || 0), 0);
+        avg = Math.round(sum / examAttempts.length);
+      }
+      return {
+        exam: ex.title.length > 15 ? ex.title.slice(0, 15) + "..." : ex.title,
+        score: avg,
+      };
+    });
+  }, [exams, attempts]);
+
+  const dynamicEnrollmentGrowth = useMemo(() => {
+    // Generate monthly count or realistic progression based on actual student count
+    const total = students.length;
+    if (total === 0) return [];
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"];
+    return months.map((m, idx) => ({
+      month: m,
+      students: Math.round((total / 6) * (idx + 1)),
+    }));
+  }, [students]);
+
+  if (userRole === "student") {
+    return (
+      <StudentPortalDashboard
+        exams={exams}
+        resources={resources}
+        attempts={attempts}
+        loading={loading}
+      />
+    );
+  }
+
+  return (
+    <motion.div
+      variants={staggerContainer}
+      initial="hidden"
+      animate="visible"
+      className="space-y-6 sm:space-y-8 font-sans"
+    >
+      {/* Hero Banner (Coursue Inspired) */}
+      <motion.div variants={staggerItem}>
+        <div className="relative overflow-hidden rounded-md p-6 sm:p-8 lg:p-10 bg-[url('/bg-fluid.jpg')] bg-cover bg-center border border-emerald-500/30 shadow-2xl text-white">
+          <div className="absolute inset-0 bg-black/60 dark:bg-[#03090F]/65 backdrop-blur-[2px]" />
+          
+          <div className="absolute top-0 right-1/4 w-80 h-80 bg-brand/20 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute -bottom-10 right-0 w-96 h-96 bg-emerald-500/15 rounded-full blur-3xl pointer-events-none" />
+
+          <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+            <div className="space-y-3 max-w-2xl">
+              <h1 className="text-2xl sm:text-4xl lg:text-5xl font-semibold tracking-tight font-heading text-white">
+                Elevate <span className="text-emerald-400">Academic & Training</span> Outcomes
+              </h1>
+              <p className="text-sm sm:text-base text-slate-200/90 font-normal leading-relaxed">
+                Manage colleges, automate proctored examinations, and monitor multi-institution analytics in real time.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 shrink-0">
+              <Link href="/exams">
+                <Button className="h-11 px-5 rounded-md bg-emerald-500 hover:bg-emerald-600 text-white font-semibold transition-all flex items-center gap-2 shadow-none">
+                  <Plus className="w-4 h-4 stroke-[3]" />
+                  <span>Create Assessment</span>
+                </Button>
+              </Link>
+              <Link href="/students">
+                <Button className="h-11 px-4 rounded-md border border-white/25 bg-white/10 hover:bg-white/20 text-white font-semibold transition-all shadow-sm">
+                  <span>Invite Students</span>
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Stat Cards Grid */}
+      <motion.div
+        variants={staggerContainer}
+        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5"
+      >
+        <motion.div variants={staggerItem}>
+          <StatCard
+            title="Total Enrolled Students"
+            value={loading ? 0 : students.length}
+            icon={Users}
+            iconClassName="stat-icon-emerald"
+          />
+        </motion.div>
+        <motion.div variants={staggerItem}>
+          <StatCard
+            title="Partner Colleges"
+            value={loading ? 0 : colleges.length}
+            icon={GraduationCap}
+            iconClassName="stat-icon-blue"
+          />
+        </motion.div>
+        <motion.div variants={staggerItem}>
+          <StatCard
+            title="Scheduled & Active Exams"
+            value={loading ? 0 : activeOrScheduledExams.length}
+            icon={ClipboardList}
+            iconClassName="stat-icon-amber"
+          />
+        </motion.div>
+        <motion.div variants={staggerItem}>
+          <StatCard
+            title="Learning Resources"
+            value={loading ? 0 : resources.length}
+            icon={FolderOpen}
+            iconClassName="stat-icon-purple"
+          />
+        </motion.div>
+      </motion.div>
+
+      {/* Charts Section */}
+      <motion.div
+        variants={staggerContainer}
+        className="grid grid-cols-1 lg:grid-cols-12 gap-5"
+      >
+        <motion.div variants={staggerItem} className="lg:col-span-7">
+          <AreaChartComponent
+            title="Annual Student Growth Rate"
+            description="Cumulative student registrations across all colleges over time"
+            data={dynamicEnrollmentGrowth}
+            dataKey="students"
+            xAxisKey="month"
+            height={310}
+          />
+        </motion.div>
+        <motion.div variants={staggerItem} className="lg:col-span-5">
+          <BarChartComponent
+            title="Batch Assessment Overview"
+            description="Total marks allocation across active evaluation papers"
+            data={dynamicAssessmentAverages}
+            dataKey="score"
+            xAxisKey="exam"
+            height={310}
+          />
+        </motion.div>
+      </motion.div>
+
+      {/* Bottom Row - Activity & Schedules */}
+      <motion.div
+        variants={staggerContainer}
+        className="grid grid-cols-1 lg:grid-cols-12 gap-5"
+      >
+        {/* Recent Activity Timeline */}
+        <motion.div variants={staggerItem} className="lg:col-span-5">
+          <GlassCard className="p-6 h-full flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-5">
+                <div>
+                  <h3 className="text-base font-bold text-foreground font-heading">
+                    Realtime Activity Log
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Live system actions and academic updates
+                  </p>
+                </div>
+                <Link href="/results" className="text-xs text-brand hover:text-brand/80 font-semibold flex items-center gap-1 transition-colors">
+                  View full audit <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
+              </div>
+              <div className="space-y-2.5">
+                {liveActivity.length === 0 ? (
+                  <div className="py-8 text-center text-xs text-muted-foreground border border-dashed rounded-md">
+                    No recent activities recorded yet.
+                  </div>
+                ) : (
+                  liveActivity.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <div
+                        key={item.id}
+                        className="flex items-start gap-3.5 p-3 rounded-md hover:bg-accent/40 dark:hover:bg-white/[0.03] border border-transparent hover:border-border/40 transition-all"
+                      >
+                        <div className={`w-9 h-9 rounded-md flex items-center justify-center shrink-0 ${item.color}`}>
+                          <Icon className="w-4.5 h-4.5" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-foreground">
+                            {item.action}
+                          </p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {item.detail}
+                          </p>
+                        </div>
+                        <span className="text-[11px] text-muted-foreground/70 font-mono whitespace-nowrap shrink-0">
+                          {item.time}
+                        </span>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </GlassCard>
+        </motion.div>
+
+        {/* Subject Distribution Donut */}
+        <motion.div variants={staggerItem} className="lg:col-span-3">
+          <PieChartComponent
+            title="Domain Focus"
+            description="Enrolled students by subject area"
+            data={dynamicDomainFocus}
+            height={280}
+            className="h-full"
+          />
+        </motion.div>
+
+        {/* Live & Scheduled Assessments Feed */}
+        <motion.div variants={staggerItem} className="lg:col-span-4">
+          <GlassCard className="p-6 h-full flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-5">
+                <div>
+                  <h3 className="text-base font-bold text-foreground font-heading">
+                    Live Portal Assessments
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Currently active & scheduled examinations
+                  </p>
+                </div>
+                <Clock className="w-4 h-4 text-brand" />
+              </div>
+              <div className="space-y-3.5 max-h-[320px] overflow-y-auto pr-1">
+                {loading ? (
+                  <div className="p-8 text-center text-xs text-muted-foreground">Loading live assessments...</div>
+                ) : exams.length === 0 ? (
+                  <div className="p-8 text-center border border-dashed rounded-xl text-xs text-muted-foreground">
+                    No assessments published right now.
+                  </div>
+                ) : (
+                  exams.slice(0, 5).map((exam) => {
+                    const effStatus = getEffectiveExamStatus(exam);
+                    const isStudent = userRole === "student";
+                    return (
+                      <div
+                        key={exam.id}
+                        className="p-4 rounded-md bg-card/60 dark:bg-white/[0.02] border border-border/50 dark:border-white/[0.06] space-y-2.5 hover:border-brand/30 transition-all group"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-sm font-bold text-foreground group-hover:text-brand transition-colors line-clamp-1">
+                            {exam.title}
+                          </p>
+                          <span
+                            className={
+                              effStatus === "active"
+                                ? "bg-emerald-500/15 text-emerald-500 border border-emerald-500/20 text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md flex items-center gap-1 shrink-0"
+                                : effStatus === "scheduled"
+                                ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 text-[10px] font-bold uppercase px-2 py-0.5 rounded-md shrink-0"
+                                : "bg-muted text-muted-foreground text-[10px] font-semibold uppercase px-2 py-0.5 rounded-md shrink-0"
+                            }
+                          >
+                            {effStatus === "active" && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
+                            {effStatus === "active" ? "LIVE NOW" : effStatus}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs text-muted-foreground font-medium pt-1 border-t border-border/30 dark:border-white/[0.04]">
+                          <div className="flex items-center gap-2">
+                            <span>{exam.startTime ? new Date(exam.startTime).toLocaleDateString() : "Immediate"}</span>
+                            <span className="w-1 h-1 rounded-full bg-muted-foreground/50" />
+                            <span>{exam.duration} mins</span>
+                          </div>
+                          {effStatus === "active" ? (
+                            isStudent ? (
+                              <Link href={`/exams/${exam.id}/take`} className="font-bold text-brand hover:underline">
+                                Take Exam →
+                              </Link>
+                            ) : (
+                              <Link href="/exams" className="font-bold text-brand hover:underline">
+                                Manage Assessment →
+                              </Link>
+                            )
+                          ) : (
+                            <span className="font-semibold text-foreground/80">{exam.totalMarks} marks</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+            <div className="pt-4 mt-2 border-t border-border/40 dark:border-white/[0.06]">
+              <Link href="/calendar">
+                <Button variant="ghost" className="w-full text-xs font-semibold text-brand hover:bg-brand/10 rounded-md h-9">
+                  View Assessment Calendar <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+                </Button>
+              </Link>
+            </div>
+          </GlassCard>
+        </motion.div>
+      </motion.div>
+    </motion.div>
+  );
+}

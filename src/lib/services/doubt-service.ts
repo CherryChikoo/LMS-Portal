@@ -1,0 +1,48 @@
+import {
+  getDocuments,
+  getDocument,
+  addDocument,
+  updateDocument,
+  deleteDocument,
+  where,
+} from "@/lib/firebase/firestore";
+import type { DoubtDiscussion } from "@/types";
+
+const COLLECTION_NAME = "doubts";
+
+export async function getAllDoubts(): Promise<DoubtDiscussion[]> {
+  return getDocuments<DoubtDiscussion>(COLLECTION_NAME);
+}
+
+export async function getDoubtsByStudent(studentId: string): Promise<DoubtDiscussion[]> {
+  return getDocuments<DoubtDiscussion>(COLLECTION_NAME, [where("studentId", "==", studentId)]);
+}
+
+export async function getDoubtById(id: string): Promise<DoubtDiscussion | null> {
+  return getDocument<DoubtDiscussion>(COLLECTION_NAME, id);
+}
+
+export async function createDoubt(data: Omit<DoubtDiscussion, "id">): Promise<string> {
+  return addDocument<DoubtDiscussion>(COLLECTION_NAME, data);
+}
+
+export async function replyToDoubt(id: string, reply: any, repliedBy?: string): Promise<void> {
+  const replyText = typeof reply === "string" ? reply : reply?.text || "";
+  const author = repliedBy || (typeof reply === "object" ? reply.authorName : "Trainer");
+
+  const doubt = await getDoubtById(id);
+  const currentReplies = doubt?.replies || [];
+  const newReply = typeof reply === "object" ? reply : { id: `rep-${Date.now()}`, authorId: "train-1", authorName: author, role: "trainer", text: replyText, createdAt: new Date() };
+
+  return updateDocument<DoubtDiscussion>(COLLECTION_NAME, id, {
+    reply: replyText,
+    repliedBy: author,
+    replies: [...currentReplies, newReply],
+    status: "resolved",
+    updatedAt: new Date(),
+  });
+}
+
+export async function deleteDoubt(id: string): Promise<void> {
+  return deleteDocument(COLLECTION_NAME, id);
+}

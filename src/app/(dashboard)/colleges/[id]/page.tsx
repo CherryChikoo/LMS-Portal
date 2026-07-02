@@ -1,0 +1,779 @@
+"use client";
+
+import { useEffect, useState, use } from "react";
+import Link from "next/link";
+import { motion, AnimatePresence } from "motion/react";
+import { ArrowLeft, Building2, FolderTree, Users, Plus, Trash2, Search, Layers, GraduationCap, CheckCircle2 } from "lucide-react";
+import { PageHeader } from "@/components/shared/page-header";
+import { EmptyState } from "@/components/shared/empty-state";
+import { ConfirmModal } from "@/components/shared/confirm-modal";
+import { Button } from "@/components/ui/button";
+import { fadeInUp } from "@/lib/animations";
+import { getCollegeById, updateCollege, getAllStudents, createStudentProfile, getAllBatches, deleteStudentProfile } from "@/lib/services";
+import type { College, Student, Batch } from "@/types";
+
+interface PageProps {
+  params: Promise<{ id: string }>;
+}
+
+export default function CollegeDetailPage({ params }: PageProps) {
+  const resolvedParams = use(params);
+  const collegeId = resolvedParams.id;
+
+  const [college, setCollege] = useState<College | null>(null);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [batches, setBatches] = useState<Batch[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void } | null>(null);
+
+function getYearBadgeStyle(year?: string) {
+  const y = year || "1st Year";
+  if (y.includes("1")) return "bg-sky-500/15 text-sky-400 border border-sky-500/30";
+  if (y.includes("2")) return "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30";
+  if (y.includes("3")) return "bg-amber-500/15 text-amber-400 border border-amber-500/30";
+  if (y.includes("4")) return "bg-purple-500/15 text-purple-400 border border-purple-500/30";
+  return "bg-brand/15 text-brand border border-brand/30";
+}
+
+  // Filters
+  const [selectedDeptFilter, setSelectedDeptFilter] = useState("ALL");
+  const [selectedYearFilter, setSelectedYearFilter] = useState("ALL");
+  const [selectedSectionFilter, setSelectedSectionFilter] = useState("ALL");
+  const [timeFilter, setTimeFilter] = useState("ALL");
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Add Department Modal
+  const [showAddDeptModal, setShowAddDeptModal] = useState(false);
+  const [newDeptName, setNewDeptName] = useState("");
+  const [addingDept, setAddingDept] = useState(false);
+
+  // Enroll Student Modal
+  const [showEnrollModal, setShowEnrollModal] = useState(false);
+  const [enrolling, setEnrolling] = useState(false);
+  const [studName, setStudName] = useState("");
+  const [studEmail, setStudEmail] = useState("");
+  const [studDept, setStudDept] = useState("");
+  const [studYear, setStudYear] = useState("1st Year");
+  const [studSection, setStudSection] = useState("A");
+  const [customStudSection, setCustomStudSection] = useState("");
+  const [studBatch, setStudBatch] = useState("General Cohort");
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const decodedId = decodeURIComponent(collegeId);
+      const [colDataRaw, allStuds, allBatches] = await Promise.all([
+        getCollegeById(collegeId),
+        getAllStudents(),
+        getAllBatches(),
+      ]);
+
+      let colData = colDataRaw;
+      if (!colData) {
+        const extStuds = allStuds.filter(
+          (s) => s.collegeId === decodedId || s.collegeName?.toLowerCase() === decodedId.toLowerCase()
+        );
+        if (extStuds.length > 0) {
+          const extDepts = Array.from(new Set(extStuds.map((s) => s.department).filter(Boolean)));
+          colData = {
+            id: decodedId,
+            name: decodedId,
+            code: decodedId.slice(0, 6).toUpperCase(),
+            departments: extDepts.length > 0 ? extDepts : ["General"],
+            studentCount: extStuds.length,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          } as any;
+        }
+      }
+
+      setCollege(colData);
+      setBatches(allBatches);
+      if (colData) {
+        // Filter students belonging to this college
+        const colStuds = allStuds.filter(
+          (s) =>
+            s.collegeId === collegeId ||
+            s.collegeId === decodedId ||
+            s.collegeName?.toLowerCase() === colData.name.toLowerCase()
+        );
+        setStudents(colStuds);
+        if (!studDept && colData.departments && colData.departments.length > 0) {
+          setStudDept(colData.departments[0]);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load college details", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, [collegeId]);
+
+  const handleAddDepartment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!college || !newDeptName.trim()) return;
+    setAddingDept(true);
+    try {
+      const updatedDepts = Array.from(new Set([...(college.departments || []), newDeptName.trim()]));
+      await updateCollege(college.id, { departments: updatedDepts });
+      setShowAddDeptModal(false);
+      setNewDeptName("");
+      fetchData();
+    } catch (err) {
+      console.error("Error adding department:", err);
+    } finally {
+      setAddingDept(false);
+    }
+  };
+
+  const handleEnrollStudent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!college || !studName || !studEmail || !studDept) return;
+    setEnrolling(true);
+    try {
+      await createStudentProfile({
+        name: studName,
+        email: studEmail.toLowerCase(),
+        collegeId: college.id,
+        collegeName: college.name,
+        department: studDept,
+        academicYear: studYear,
+        semester: 1,
+        section: studSection === "CUSTOM" ? customStudSection.trim() || "A" : studSection,
+        rollNumber: `STU-${Date.now().toString().slice(-6)}`,
+        batchIds: [studBatch],
+        mustChangePassword: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      await updateCollege(college.id, {
+        studentCount: (college.studentCount || students.length) + 1,
+      });
+      setShowEnrollModal(false);
+      setStudName("");
+      setStudEmail("");
+      setCustomStudSection("");
+      fetchData();
+    } catch (err) {
+      console.error("Error enrolling student:", err);
+    } finally {
+      setEnrolling(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="p-16 text-center flex flex-col items-center justify-center space-y-3">
+        <div className="w-8 h-8 rounded-full border-2 border-brand border-t-transparent animate-spin" />
+        <p className="text-sm text-muted-foreground">Loading college academic hub...</p>
+      </div>
+    );
+  }
+
+  if (!college) {
+    return (
+      <div className="space-y-4">
+        <Link href="/colleges" className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand hover:underline">
+          <ArrowLeft className="w-4 h-4" /> Back to Colleges
+        </Link>
+        <EmptyState
+          icon={Building2}
+          title="College Not Found"
+          description="The requested institution could not be located in your database."
+          actionLabel="Return to College Hub"
+          onAction={() => window.location.assign("/colleges")}
+        />
+      </div>
+    );
+  }
+
+  const departments = college.departments && college.departments.length > 0 ? college.departments : ["General Academy"];
+  const sectionsList = Array.from(new Set(["A", "B", "C", "D", ...students.map((s) => s.section).filter(Boolean)]));
+  const yearsList = Array.from(new Set(["1st Year", "2nd Year", "3rd Year", "4th Year", ...students.map((s) => s.academicYear).filter(Boolean)]));
+
+  const matchesYearFilter = (studentYear: string = "", filter: string): boolean => {
+    if (filter === "ALL") return true;
+    const s = studentYear.trim().toLowerCase();
+    const f = filter.trim().toLowerCase();
+    if (s === f) return true;
+    if (f.startsWith("1") || f.includes("1st")) return s.startsWith("1") || s.includes("1st") || s.includes("first");
+    if (f.startsWith("2") || f.includes("2nd")) return s.startsWith("2") || s.includes("2nd") || s.includes("second");
+    if (f.startsWith("3") || f.includes("3rd")) return s.startsWith("3") || s.includes("3rd") || s.includes("third");
+    if (f.startsWith("4") || f.includes("4th")) return s.startsWith("4") || s.includes("4th") || s.includes("fourth");
+    return s.includes(f) || f.includes(s);
+  };
+
+  const filteredStudents = students
+    .filter((s) => {
+      const matchesDept = selectedDeptFilter === "ALL" || s.department === selectedDeptFilter;
+      const matchesYear = matchesYearFilter(s.academicYear, selectedYearFilter);
+      const matchesSection = selectedSectionFilter === "ALL" || s.section === selectedSectionFilter;
+      const matchesSearch =
+        s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        s.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        s.rollNumber?.toLowerCase().includes(searchQuery.toLowerCase());
+
+      const now = new Date().getTime();
+      const getCreatedTime = (date: any) => {
+        if (!date) return 0;
+        if (typeof date.toMillis === "function") return date.toMillis();
+        if (date.seconds) return date.seconds * 1000;
+        return new Date(date).getTime() || 0;
+      };
+      const createdTime = getCreatedTime(s.createdAt);
+      let matchesTime = false;
+      if (timeFilter === "ALL") matchesTime = true;
+      else if (timeFilter === "RECENT_24H") matchesTime = !!createdTime && now - createdTime <= 24 * 60 * 60 * 1000;
+      else if (timeFilter === "RECENT_7D") matchesTime = !!createdTime && now - createdTime <= 7 * 24 * 60 * 60 * 1000;
+      else if (timeFilter === "CSV") matchesTime = s.enrollmentType === "csv";
+      else if (timeFilter === "MANUAL") matchesTime = s.enrollmentType === "manual" || !s.enrollmentType;
+      else if (timeFilter === "SELF") matchesTime = s.enrollmentType === "self";
+
+      return matchesDept && matchesYear && matchesSection && matchesSearch && matchesTime;
+    })
+    .sort((a, b) => {
+      const getCreatedTime = (date: any) => {
+        if (!date) return 0;
+        if (typeof date.toMillis === "function") return date.toMillis();
+        if (date.seconds) return date.seconds * 1000;
+        return new Date(date).getTime() || 0;
+      };
+      if (timeFilter === "RECENT_24H" || timeFilter === "RECENT_7D") {
+        const timeA = getCreatedTime(a.createdAt);
+        const timeB = getCreatedTime(b.createdAt);
+        return timeB - timeA;
+      }
+      return 0;
+    });
+
+  const handleDeleteSelectedStudents = () => {
+    if (selectedStudentIds.length === 0 || !college) return;
+    setConfirmConfig({
+      isOpen: true,
+      title: "Delete Enrolled Students",
+      message: `Are you sure you want to delete ${selectedStudentIds.length} selected student(s) from ${college.name}?`,
+      onConfirm: async () => {
+        setLoading(true);
+        try {
+          await Promise.all(selectedStudentIds.map((id) => deleteStudentProfile(id)));
+          setSelectedStudentIds([]);
+          await fetchData();
+        } catch (err) {
+          console.error("Failed to delete selected students:", err);
+        } finally {
+          setLoading(false);
+        }
+      }
+    });
+  };
+
+  const handleDeleteSingleStudent = (stud: Student) => {
+    setConfirmConfig({
+      isOpen: true,
+      title: "Delete Student Profile",
+      message: `Are you sure you want to delete student ${stud.name}?`,
+      onConfirm: async () => {
+        setLoading(true);
+        try {
+          await deleteStudentProfile(stud.id);
+          setSelectedStudentIds((prev) => prev.filter((id) => id !== stud.id));
+          await fetchData();
+        } catch (err) {
+          console.error("Failed to delete student:", err);
+        } finally {
+          setLoading(false);
+        }
+      }
+    });
+  };
+
+  return (
+    <motion.div initial="hidden" animate="visible" variants={fadeInUp} className="space-y-8">
+      {/* Top navigation bar */}
+      <div className="flex items-center justify-between">
+        <Link href="/colleges" className="inline-flex items-center gap-1.5 text-xs font-bold text-muted-foreground hover:text-brand transition-colors">
+          <ArrowLeft className="w-4 h-4" /> Back to All Colleges
+        </Link>
+      </div>
+
+      <PageHeader
+        title={`${college.name} Hub`}
+        description={`Manage academic departments, sections, and candidate enrollment inside ${college.name}.`}
+        actions={
+          <div className="flex items-center gap-3">
+            <Button
+              onClick={() => setShowAddDeptModal(true)}
+              variant="outline"
+              className="border border-border hover:bg-accent flex items-center gap-2 text-xs"
+            >
+              <FolderTree className="w-4 h-4 text-brand" />
+              <span>+ Add Department</span>
+            </Button>
+            <Button
+              onClick={() => {
+                if (departments.length > 0 && !studDept) setStudDept(departments[0]);
+                setShowEnrollModal(true);
+              }}
+              className="bg-brand hover:bg-brand/90 text-white flex items-center gap-2 text-xs"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Enroll Student in College</span>
+            </Button>
+          </div>
+        }
+      />
+
+      {/* Department Cards Section */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+            <FolderTree className="w-4 h-4 text-brand" />
+            <span>Departments Created inside {college.name}</span>
+          </h3>
+          <span className="text-xs text-muted-foreground">Click a department to filter or enroll students</span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {departments.map((dept, idx) => {
+            const deptCount = students.filter((s) => s.department === dept).length;
+            const isSelected = selectedDeptFilter === dept;
+            return (
+              <motion.div
+                key={idx}
+                whileHover={{ y: -3 }}
+                onClick={() => setSelectedDeptFilter(isSelected ? "ALL" : dept)}
+                className={`cursor-pointer rounded-2xl border p-5 transition-all flex flex-col justify-between space-y-4 ${
+                  isSelected
+                    ? "border-brand bg-brand/10 shadow-lg"
+                    : "border-border bg-card/60 hover:border-brand/40"
+                }`}
+              >
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="w-9 h-9 rounded-xl bg-accent text-brand flex items-center justify-center font-bold text-xs">
+                      {dept.slice(0, 2).toUpperCase()}
+                    </span>
+                    <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-background border border-border text-muted-foreground">
+                      4 Years • A-D
+                    </span>
+                  </div>
+                  <h4 className="font-bold text-foreground text-base leading-tight break-words">{dept}</h4>
+                </div>
+
+                <div className="pt-3 border-t border-border/60 flex items-center justify-between text-xs">
+                  <span className="flex items-center gap-1.5 font-semibold text-muted-foreground">
+                    <Users className="w-3.5 h-3.5 text-brand" />
+                    <span>{deptCount} Students Enrolled</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setStudDept(dept);
+                      setShowEnrollModal(true);
+                    }}
+                    className="text-brand font-bold text-[11px] hover:underline"
+                  >
+                    + Enroll Here
+                  </button>
+                </div>
+              </motion.div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Students Roster Section */}
+      <div className="space-y-4 pt-2">
+        <div className="flex flex-col sm:flex-row gap-4 items-center justify-between bg-card/40 backdrop-blur-md p-4 rounded-2xl border border-border">
+          <div className="relative w-full sm:w-80">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search enrolled candidate..."
+              className="w-full h-9 pl-10 pr-4 rounded-xl bg-background border border-border text-xs focus:outline-none focus:ring-2 focus:ring-brand/50"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Department:</span>
+              <select
+                value={selectedDeptFilter}
+                onChange={(e) => setSelectedDeptFilter(e.target.value)}
+                className="h-9 px-2.5 rounded-xl bg-background border border-border text-xs font-medium text-foreground focus:outline-none"
+              >
+                <option value="ALL">All Departments ({students.length})</option>
+                {departments.map((d) => (
+                  <option key={d} value={d}>
+                    {d} ({students.filter((s) => s.department === d).length})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Year:</span>
+              <select
+                value={selectedYearFilter}
+                onChange={(e) => setSelectedYearFilter(e.target.value)}
+                className="h-9 px-2.5 rounded-xl bg-background border border-border text-xs font-semibold text-foreground focus:outline-none"
+              >
+                <option value="ALL">All Years ({students.length})</option>
+                {yearsList.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Added:</span>
+              <select
+                value={timeFilter}
+                onChange={(e) => setTimeFilter(e.target.value)}
+                className="h-9 px-2.5 rounded-xl bg-background border border-border text-xs font-semibold text-foreground focus:outline-none"
+              >
+                <option value="ALL">All Time</option>
+                <option value="RECENT_24H">Last 24 Hours</option>
+                <option value="RECENT_7D">Last 7 Days</option>
+                <option value="CSV">CSV Uploads</option>
+                <option value="MANUAL">Manual Entry</option>
+              </select>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Section:</span>
+              <select
+                value={selectedSectionFilter}
+                onChange={(e) => setSelectedSectionFilter(e.target.value)}
+                className="h-9 px-2.5 rounded-xl bg-background border border-border text-xs font-semibold text-foreground focus:outline-none"
+              >
+                <option value="ALL">All Sections</option>
+                {sectionsList.map((sec) => (
+                  <option key={sec} value={sec}>
+                    {["A", "B", "C", "D"].includes(sec) ? `Sec ${sec}` : sec}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {selectedStudentIds.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-foreground"
+          >
+            <div className="flex items-center gap-2 font-semibold">
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse" />
+              <span>{selectedStudentIds.length} Student Profile{selectedStudentIds.length > 1 ? "s" : ""} Selected</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setSelectedStudentIds([])}
+                className="h-7 px-2.5 text-xs border-border hover:bg-background"
+              >
+                Deselect All
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleDeleteSelectedStudents}
+                className="h-7 px-3 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-md"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete Selected</span>
+              </Button>
+            </div>
+          </motion.div>
+        )}
+
+        {filteredStudents.length === 0 ? (
+          <EmptyState
+            icon={Users}
+            title={students.length === 0 ? `No students enrolled in ${college.name} yet` : "No matching candidates found"}
+            description={
+              students.length === 0
+                ? "Click 'Enroll Student in College' or pick a department above to add candidates."
+                : "Try adjusting your search query or department filter."
+            }
+            actionLabel="Enroll First Student"
+            onAction={() => setShowEnrollModal(true)}
+          />
+        ) : (
+          <div className="rounded-2xl border border-border bg-card/60 backdrop-blur-md overflow-hidden">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-border bg-muted/40 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                  <th className="py-3.5 px-4 w-10">
+                    <input
+                      type="checkbox"
+                      checked={filteredStudents.length > 0 && selectedStudentIds.length === filteredStudents.length}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedStudentIds(filteredStudents.map((s) => s.id));
+                        } else {
+                          setSelectedStudentIds([]);
+                        }
+                      }}
+                      className="rounded border-border text-brand focus:ring-brand/50 cursor-pointer"
+                    />
+                  </th>
+                  <th className="py-3.5 px-4">Student Name</th>
+                  <th className="py-3.5 px-4">Email</th>
+                  <th className="py-3.5 px-4">Department & Year</th>
+                  <th className="py-3.5 px-4">Section / Cohort</th>
+                  <th className="py-3.5 px-4">Status</th>
+                  <th className="py-3.5 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border text-xs">
+                {filteredStudents.map((stud) => {
+                  const isSelected = selectedStudentIds.includes(stud.id);
+                  return (
+                    <tr key={stud.id} className={`hover:bg-muted/30 transition-colors ${isSelected ? "bg-brand/5" : ""}`}>
+                      <td className="py-3.5 px-4">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedStudentIds((prev) => [...prev, stud.id]);
+                            } else {
+                              setSelectedStudentIds((prev) => prev.filter((id) => id !== stud.id));
+                            }
+                          }}
+                          className="rounded border-border text-brand focus:ring-brand/50 cursor-pointer"
+                        />
+                      </td>
+                      <td className="py-3.5 px-4 font-bold text-foreground flex items-center gap-2.5">
+                        <div className="w-7 h-7 rounded-full bg-brand/10 text-brand flex items-center justify-center text-xs">
+                          {stud.name.slice(0, 2).toUpperCase()}
+                        </div>
+                        <span>{stud.name}</span>
+                      </td>
+                      <td className="py-3.5 px-4 font-mono text-muted-foreground">{stud.email}</td>
+                      <td className="py-3.5 px-4 flex items-center gap-2">
+                        <span className="font-semibold text-foreground">{stud.department}</span>
+                        <span className={`px-2 py-0.5 rounded-full font-bold text-[11px] ${getYearBadgeStyle(stud.academicYear)}`}>
+                          {stud.academicYear || "1st Year"}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <span className="px-2 py-0.5 rounded bg-accent font-mono">
+                          Sec {stud.section} • {stud.batchIds?.[0] || "General"}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <span className="inline-flex items-center gap-1 text-emerald-500 font-semibold">
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Enrolled
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4 text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeleteSingleStudent(stud)}
+                          className="h-8 w-8 p-0 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10 rounded-lg"
+                          title="Remove Student Profile"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Add Department Modal */}
+      <AnimatePresence>
+        {showAddDeptModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-5"
+            >
+              <div className="flex items-center justify-between border-b border-border pb-3">
+                <h3 className="text-base font-bold text-foreground">Add Department to {college.name}</h3>
+                <button onClick={() => setShowAddDeptModal(false)} className="text-muted-foreground hover:text-foreground">✕</button>
+              </div>
+
+              <form onSubmit={handleAddDepartment} className="space-y-4 text-xs">
+                <div className="space-y-1.5">
+                  <label className="font-semibold text-foreground">Department Name</label>
+                  <input
+                    type="text"
+                    value={newDeptName}
+                    onChange={(e) => setNewDeptName(e.target.value)}
+                    required
+                    placeholder="e.g. Artificial Intelligence & Data Science"
+                    className="w-full h-9 px-3 rounded-xl border border-border bg-background text-foreground"
+                  />
+                </div>
+                <div className="flex justify-end gap-2 pt-2 border-t border-border">
+                  <Button type="button" variant="outline" onClick={() => setShowAddDeptModal(false)}>Cancel</Button>
+                  <Button type="submit" disabled={addingDept} className="bg-brand text-white">
+                    {addingDept ? "Adding..." : "Add Department"}
+                  </Button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Enroll Student Modal */}
+      <AnimatePresence>
+        {showEnrollModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-5"
+            >
+              <div className="flex items-center justify-between border-b border-border pb-3">
+                <div>
+                  <h3 className="text-base font-bold text-foreground">Enroll Student inside {college.name}</h3>
+                  <p className="text-[11px] text-muted-foreground">Assigned exclusively to this college hierarchy</p>
+                </div>
+                <button onClick={() => setShowEnrollModal(false)} className="text-muted-foreground hover:text-foreground">✕</button>
+              </div>
+
+              <form onSubmit={handleEnrollStudent} className="space-y-4 text-xs">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="font-semibold text-foreground">Candidate Name</label>
+                    <input
+                      type="text"
+                      value={studName}
+                      onChange={(e) => setStudName(e.target.value)}
+                      required
+                      placeholder="e.g. Priya Sharma"
+                      className="w-full h-9 px-3 rounded-xl border border-border bg-background text-foreground"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="font-semibold text-foreground">Email Address</label>
+                    <input
+                      type="email"
+                      value={studEmail}
+                      onChange={(e) => setStudEmail(e.target.value)}
+                      required
+                      placeholder="priya@college.edu"
+                      className="w-full h-9 px-3 rounded-xl border border-border bg-background text-foreground"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="font-semibold text-foreground">Department (Created inside {college.name})</label>
+                    <select
+                      value={studDept}
+                      onChange={(e) => setStudDept(e.target.value)}
+                      required
+                      className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground font-semibold"
+                    >
+                      {departments.map((d) => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="font-semibold text-foreground">Academic Year</label>
+                    <select
+                      value={studYear}
+                      onChange={(e) => setStudYear(e.target.value)}
+                      className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground"
+                    >
+                      <option value="1st Year">1st Year</option>
+                      <option value="2nd Year">2nd Year</option>
+                      <option value="3rd Year">3rd Year</option>
+                      <option value="4th Year">4th Year</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="font-semibold text-foreground">Section</label>
+                    <select
+                      value={studSection}
+                      onChange={(e) => setStudSection(e.target.value)}
+                      className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground"
+                    >
+                      {sectionsList.map((sec) => (
+                        <option key={sec} value={sec}>
+                          {["A", "B", "C", "D"].includes(sec) ? `Section ${sec}` : sec}
+                        </option>
+                      ))}
+                      <option value="CUSTOM">+ Custom Section...</option>
+                    </select>
+                    {studSection === "CUSTOM" && (
+                      <input
+                        type="text"
+                        value={customStudSection}
+                        onChange={(e) => setCustomStudSection(e.target.value)}
+                        required
+                        placeholder="Type custom section (e.g. Sec E, Honors)"
+                        className="w-full h-9 px-3 mt-1.5 rounded-xl border border-brand bg-background text-foreground text-xs"
+                      />
+                    )}
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="font-semibold text-foreground">Custom Batch / Cohort</label>
+                    <select
+                      value={studBatch}
+                      onChange={(e) => setStudBatch(e.target.value)}
+                      className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground font-semibold"
+                    >
+                      <option value="General Cohort">General Cohort</option>
+                      {batches.map((b) => (
+                        <option key={b.id} value={b.name}>{b.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-3 border-t border-border">
+                  <Button type="button" variant="outline" onClick={() => setShowEnrollModal(false)}>Cancel</Button>
+                  <Button type="submit" disabled={enrolling} className="bg-brand text-white">
+                    {enrolling ? "Enrolling..." : "Enroll Candidate inside College"}
+                  </Button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <ConfirmModal
+        isOpen={!!confirmConfig?.isOpen}
+        onClose={() => setConfirmConfig(null)}
+        onConfirm={confirmConfig?.onConfirm || (() => {})}
+        title={confirmConfig?.title || ""}
+        message={confirmConfig?.message || ""}
+        confirmText="Delete"
+        variant="destructive"
+      />
+    </motion.div>
+  );
+}
