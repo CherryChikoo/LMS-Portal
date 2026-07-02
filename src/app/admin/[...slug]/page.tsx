@@ -18,12 +18,18 @@ import ReportsPage from "@/app/(dashboard)/reports/page";
 import AnalyticsPage from "@/app/(dashboard)/analytics/page";
 import SettingsPage from "@/app/(dashboard)/settings/page";
 import DashboardHome from "@/app/(dashboard)/page";
+import TakeExamPage from "@/app/exams/[id]/take/page";
 
 export default function AdminCatchAllPage({ params }: { params: Promise<{ slug: string[] }> }) {
   const resolvedParams = use(params);
   const slug = resolvedParams.slug || [];
   const primary = slug[0];
   const secondary = slug[1];
+  const tertiary = slug[2];
+
+  if (primary === "exams" && secondary && tertiary === "take") {
+    return <TakeExamPage params={Promise.resolve({ id: secondary })} />;
+  }
 
   let content = <DashboardHome />;
 

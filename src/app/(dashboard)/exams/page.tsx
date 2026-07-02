@@ -578,7 +578,10 @@ export default function ExamsPage() {
                             <span className={`font-extrabold ${att.passed ? "text-emerald-500" : "text-red-500"}`}>{att.percentage}% ({att.passed ? "PASSED" : "REVIEW"})</span>
                           </div>
                           <Button
-                            onClick={() => router.push("/results")}
+                            onClick={() => {
+                              const prefix = typeof window !== "undefined" && window.location.pathname.startsWith("/admin") ? "/admin" : "/student";
+                              router.push(`${prefix}/results`);
+                            }}
                             variant="outline"
                             className="w-full h-11 rounded-2xl border-brand/40 text-brand hover:bg-brand/10 font-bold flex items-center justify-center gap-2"
                           >
@@ -588,7 +591,10 @@ export default function ExamsPage() {
                         </div>
                       ) : effStatus === "active" ? (
                         <Button
-                          onClick={() => router.push(`/exams/${exam.id}/take`)}
+                          onClick={() => {
+                            const prefix = typeof window !== "undefined" && window.location.pathname.startsWith("/admin") ? "/admin" : "/student";
+                            router.push(`${prefix}/exams/${exam.id}/take`);
+                          }}
                           className="w-full h-11 rounded-2xl bg-brand hover:bg-brand/90 text-white font-bold flex items-center justify-center gap-2 shadow-md shadow-brand/20 scale-[1.01] hover:scale-[1.02] transition-transform"
                         >
                           <Play className="w-4 h-4 fill-white" />

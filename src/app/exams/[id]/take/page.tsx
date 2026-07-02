@@ -219,10 +219,12 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
         createdAt: new Date(),
         updatedAt: new Date(),
       });
-      router.push("/results");
+      const prefix = typeof window !== "undefined" && window.location.pathname.startsWith("/admin") ? "/admin" : "/student";
+      router.push(`${prefix}/results`);
     } catch (err) {
       console.error("Submission failed", err);
-      router.push("/results");
+      const prefix = typeof window !== "undefined" && window.location.pathname.startsWith("/admin") ? "/admin" : "/student";
+      router.push(`${prefix}/results`);
     } finally {
       setSubmitting(false);
     }
@@ -250,11 +252,17 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
           </div>
           <div className="pt-2 flex flex-col gap-2">
             {existingAttempt ? (
-              <Button onClick={() => router.push("/results")} className="w-full h-11 rounded-xl bg-brand hover:bg-brand/90 text-white font-bold">
+              <Button onClick={() => {
+                const prefix = typeof window !== "undefined" && window.location.pathname.startsWith("/admin") ? "/admin" : "/student";
+                router.push(`${prefix}/results`);
+              }} className="w-full h-11 rounded-xl bg-brand hover:bg-brand/90 text-white font-bold">
                 View Transcript & Results
               </Button>
             ) : null}
-            <Button onClick={() => router.push("/exams")} variant="outline" className="w-full h-11 rounded-xl font-bold">
+            <Button onClick={() => {
+              const prefix = typeof window !== "undefined" && window.location.pathname.startsWith("/admin") ? "/admin" : "/student";
+              router.push(`${prefix}/exams`);
+            }} variant="outline" className="w-full h-11 rounded-xl font-bold">
               Return to Exams List
             </Button>
           </div>
@@ -269,7 +277,10 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
         <AlertTriangle className="w-12 h-12 text-amber-500" />
         <h2 className="text-xl font-bold">Examination Not Available</h2>
         <p className="text-sm text-muted-foreground">This test could not be loaded or has no published questions.</p>
-        <Button onClick={() => router.push("/exams")} variant="outline">
+        <Button onClick={() => {
+          const prefix = typeof window !== "undefined" && window.location.pathname.startsWith("/admin") ? "/admin" : "/student";
+          router.push(`${prefix}/exams`);
+        }} variant="outline">
           Return to Dashboard
         </Button>
       </div>

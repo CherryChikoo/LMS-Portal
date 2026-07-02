@@ -3,6 +3,7 @@
 import { use } from "react";
 import DashboardLayout from "@/app/(dashboard)/layout";
 import ExamsPage from "@/app/(dashboard)/exams/page";
+import TakeExamPage from "@/app/exams/[id]/take/page";
 import ResultsPage from "@/app/(dashboard)/results/page";
 import ResourcesPage from "@/app/(dashboard)/resources/page";
 import QuestionBankPage from "@/app/(dashboard)/question-bank/page";
@@ -16,6 +17,12 @@ export default function StudentCatchAllPage({ params }: { params: Promise<{ slug
   const resolvedParams = use(params);
   const slug = resolvedParams.slug || [];
   const primary = slug[0];
+  const secondary = slug[1];
+  const tertiary = slug[2];
+
+  if (primary === "exams" && secondary && tertiary === "take") {
+    return <TakeExamPage params={Promise.resolve({ id: secondary })} />;
+  }
 
   let content = <DashboardHome />;
 
