@@ -1,0 +1,84 @@
+"use client";
+
+import { use } from "react";
+import DashboardLayout from "@/app/(dashboard)/layout";
+import StudentsPage from "@/app/(dashboard)/students/page";
+import CollegesPage from "@/app/(dashboard)/colleges/page";
+import CollegeDetailPage from "@/app/(dashboard)/colleges/[id]/page";
+import BatchesPage from "@/app/(dashboard)/batches/page";
+import BatchDetailPage from "@/app/(dashboard)/batches/[id]/page";
+import ExamsPage from "@/app/(dashboard)/exams/page";
+import ResultsPage from "@/app/(dashboard)/results/page";
+import ResourcesPage from "@/app/(dashboard)/resources/page";
+import QuestionBankPage from "@/app/(dashboard)/question-bank/page";
+import DoubtsPage from "@/app/(dashboard)/doubts/page";
+import AnnouncementsPage from "@/app/(dashboard)/announcements/page";
+import CalendarPage from "@/app/(dashboard)/calendar/page";
+import ReportsPage from "@/app/(dashboard)/reports/page";
+import AnalyticsPage from "@/app/(dashboard)/analytics/page";
+import SettingsPage from "@/app/(dashboard)/settings/page";
+import DashboardHome from "@/app/(dashboard)/page";
+
+export default function AdminCatchAllPage({ params }: { params: Promise<{ slug: string[] }> }) {
+  const resolvedParams = use(params);
+  const slug = resolvedParams.slug || [];
+  const primary = slug[0];
+  const secondary = slug[1];
+
+  let content = <DashboardHome />;
+
+  switch (primary) {
+    case "students":
+      content = <StudentsPage />;
+      break;
+    case "colleges":
+      if (secondary) {
+        content = <CollegeDetailPage params={Promise.resolve({ id: secondary })} />;
+      } else {
+        content = <CollegesPage />;
+      }
+      break;
+    case "batches":
+      if (secondary) {
+        content = <BatchDetailPage params={Promise.resolve({ id: secondary })} />;
+      } else {
+        content = <BatchesPage />;
+      }
+      break;
+    case "exams":
+      content = <ExamsPage />;
+      break;
+    case "results":
+      content = <ResultsPage />;
+      break;
+    case "resources":
+      content = <ResourcesPage />;
+      break;
+    case "question-bank":
+      content = <QuestionBankPage />;
+      break;
+    case "doubts":
+      content = <DoubtsPage />;
+      break;
+    case "announcements":
+      content = <AnnouncementsPage />;
+      break;
+    case "calendar":
+      content = <CalendarPage />;
+      break;
+    case "reports":
+      content = <ReportsPage />;
+      break;
+    case "analytics":
+      content = <AnalyticsPage />;
+      break;
+    case "settings":
+      content = <SettingsPage />;
+      break;
+    default:
+      content = <DashboardHome />;
+      break;
+  }
+
+  return <DashboardLayout>{content}</DashboardLayout>;
+}

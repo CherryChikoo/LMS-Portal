@@ -52,9 +52,7 @@ export function middleware(request: NextRequest) {
     if (roleCookie === "student") {
       return NextResponse.redirect(new URL("/student", request.url));
     }
-    const internalPath = pathname.replace(/^\/admin/, "") || "/";
-    const response = NextResponse.rewrite(new URL(internalPath, request.url));
-    return applyNoCacheHeaders(response);
+    return applyNoCacheHeaders(NextResponse.next());
   }
 
   // Handle /student routes
@@ -67,8 +65,7 @@ export function middleware(request: NextRequest) {
     if (trainerOnlyRoutes.some((r) => stripped === r || stripped.startsWith(`${r}/`))) {
       return NextResponse.redirect(new URL("/student", request.url));
     }
-    const response = NextResponse.rewrite(new URL(stripped, request.url));
-    return applyNoCacheHeaders(response);
+    return applyNoCacheHeaders(NextResponse.next());
   }
 
   // If logged-in user accesses unprefixed root or path directly, redirect to their role prefix
