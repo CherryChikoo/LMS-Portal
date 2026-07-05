@@ -28,7 +28,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState, useMemo } from "react";
 import { staggerContainer, staggerItem } from "@/lib/animations";
-import { getAllExams, getAllStudents, getAllColleges, getAllResources, getEffectiveExamStatus, getStudentAttempts, filterResourcesForStudent, filterExamsForStudent } from "@/lib/services";
+import { getAllExamsIncludingDeleted, getAllStudents, getAllColleges, getAllResources, getEffectiveExamStatus, getStudentAttempts, filterResourcesForStudent, filterExamsForStudent } from "@/lib/services";
+import { toDate } from "@/lib/utils/date";
 import type { Exam, Student, College, Resource, ExamAttempt } from "@/types";
 
 function StudentPortalDashboard({
@@ -49,7 +50,7 @@ function StudentPortalDashboard({
         if (uStr) return JSON.parse(uStr);
       }
     } catch (_) {}
-    return { id: "guest", name: "Student Candidate", email: "student@lms.dev", department: "Computer Science & Engineering", rollNumber: "ROLL-2026", batchIds: [] };
+    return { id: "", name: "", email: "", department: "", rollNumber: "", batchIds: [] };
   });
 
   useEffect(() => {
@@ -81,9 +82,6 @@ function StudentPortalDashboard({
       if (sId && (a.studentId === sId || a.studentId?.toLowerCase() === sEmail)) return true;
       if (sEmail && (a.studentId?.toLowerCase() === sEmail || (a as any).studentEmail?.toLowerCase() === sEmail)) return true;
 
-      if (sEmail === "student@lms.dev") {
-        return a.studentId === "stud-1" || a.studentName?.toLowerCase() === "student candidate";
-      }
       return false;
     });
   }, [attempts, studentProfile]);
@@ -96,6 +94,7 @@ function StudentPortalDashboard({
 
   const activeOrScheduledExams = useMemo(() => {
     return filterExamsForStudent(exams, studentProfile).filter((e) => {
+      if (e.deletedAt) return false;
       const s = getEffectiveExamStatus(e);
       return s === "active" || s === "scheduled";
     });
@@ -281,8 +280,8 @@ function StudentPortalDashboard({
                 myAttempts.slice(0, 4).map((att) => (
                   <div key={att.id} className="p-3.5 rounded-xl bg-card/60 border border-border/60 flex items-center justify-between">
                     <div>
-                      <h4 className="text-sm font-bold text-foreground">{(att as any).examTitle || `Assessment #${att.examId}`}</h4>
-                      <p className="text-xs text-muted-foreground">Submitted: {att.submittedAt ? new Date(att.submittedAt).toLocaleDateString() : "Recent"}</p>
+                      <h4 className="text-sm font-bold text-foreground">{att.examTitle || "Deleted Assessment"}</h4>
+                      <p className="text-xs text-muted-foreground">Submitted: {(() => { const d = toDate(att.submittedAt); return d ? d.toLocaleDateString([], { month: "short", day: "numeric" }) : "Recent"; })()}</p>
                     </div>
                     <div className="text-right">
                       <span className={`text-sm font-black ${att.passed ? "text-emerald-500" : "text-red-500"}`}>{att.percentage}%</span>
@@ -318,7 +317,7 @@ export default function DashboardPage() {
       setLoading(true);
       try {
         const [ex, st, cl, rs, att] = await Promise.all([
-          getAllExams(),
+          getAllExamsIncludingDeleted(),
           getAllStudents(),
           getAllColleges(),
           getAllResources(),
@@ -340,6 +339,7 @@ export default function DashboardPage() {
 
   const activeOrScheduledExams = useMemo(() => {
     return exams.filter((e) => {
+      if (e.deletedAt) return false;
       const s = getEffectiveExamStatus(e);
       return s === "active" || s === "scheduled";
     });
@@ -351,7 +351,7 @@ export default function DashboardPage() {
         id: `ex-${ex.id}`,
         action: getEffectiveExamStatus(ex) === "active" ? "Live Assessment Active" : "Assessment Scheduled",
         detail: `${ex.title} (${ex.duration} mins, ${ex.totalMarks} marks)`,
-        time: ex.startTime ? new Date(ex.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Live Now",
+        time: ex.startTime ? (() => { const d = toDate(ex.startTime); return d ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Live Now"; })() : "Live Now",
         icon: ClipboardList,
         color: getEffectiveExamStatus(ex) === "active" ? "stat-icon-emerald" : "stat-icon-amber",
       })),
@@ -644,7 +644,7 @@ export default function DashboardPage() {
                         </div>
                         <div className="flex items-center justify-between text-xs text-muted-foreground font-medium pt-1 border-t border-border/30 dark:border-white/[0.04]">
                           <div className="flex items-center gap-2">
-                            <span>{exam.startTime ? new Date(exam.startTime).toLocaleDateString() : "Immediate"}</span>
+                            <span>{exam.startTime ? (() => { const d = toDate(exam.startTime); return d ? d.toLocaleDateString() : "Immediate"; })() : "Immediate"}</span>
                             <span className="w-1 h-1 rounded-full bg-muted-foreground/50" />
                             <span>{exam.duration} mins</span>
                           </div>

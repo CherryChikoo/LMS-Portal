@@ -1,17 +1,16 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { motion, AnimatePresence } from "motion/react";
-import { GraduationCap, ArrowRight, Eye, EyeOff, Sparkles, Check, AlertCircle, KeyRound } from "lucide-react";
+import { motion } from "motion/react";
+import { GraduationCap, ArrowRight, Eye, EyeOff, Sparkles, Check, AlertCircle } from "lucide-react";
 import Link from "next/link";
 import { APP_NAME } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
-import { studentLogin, updateFirstLoginPassword, studentGoogleLogin } from "@/lib/services/auth-service";
+import { studentLogin, studentGoogleLogin } from "@/lib/services/auth-service";
 import { setAuthSession } from "@/lib/utils/auth-session";
+import type { Student } from "@/types";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -19,13 +18,6 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // First-login password change modal state
-  const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [modalError, setModalError] = useState<string | null>(null);
-  const [changingPass, setChangingPass] = useState(false);
 
   // Auto-dismiss red error warning after 4 seconds
   useEffect(() => {
@@ -35,32 +27,13 @@ export default function LoginPage() {
     }
   }, [error]);
 
-  useEffect(() => {
-    if (modalError) {
-      const timer = setTimeout(() => setModalError(null), 4000);
-      return () => clearTimeout(timer);
-    }
-  }, [modalError]);
-
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
     setError(null);
     try {
       const res = await studentGoogleLogin();
-      const uObj = {
-        id: res.user.uid,
-        name: res.profile?.displayName || res.user.displayName || "Student",
-        email: (res.profile as any)?.email || res.user.email || "",
-        role: "student",
-        department: (res.profile as any)?.department || "Computer Science & Engineering",
-        collegeId: (res.profile as any)?.collegeId,
-        collegeName: (res.profile as any)?.collegeName || "Global Institute",
-        academicYear: (res.profile as any)?.academicYear,
-        section: (res.profile as any)?.section,
-        batchIds: (res.profile as any)?.batchIds,
-      };
-      setAuthSession(uObj, "student");
-      window.location.assign("/student");
+      const target = res.role === "student" ? "/student" : "/admin";
+      window.location.assign(target);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to sign in with Google.");
     } finally {
@@ -74,52 +47,26 @@ export default function LoginPage() {
     setError(null);
     try {
       const res = await studentLogin(email, password);
+      const profile = res.profile as Partial<Student>;
       const uObj = {
         id: res.user.uid,
         name: res.profile?.displayName || res.user.displayName || email.split("@")[0] || "Student",
-        email: (res.profile as any)?.email || res.user.email || email,
+        email: profile?.email || res.user.email || email,
         role: "student",
-        department: (res.profile as any)?.department || "Computer Science & Engineering",
-        collegeId: (res.profile as any)?.collegeId,
-        collegeName: (res.profile as any)?.collegeName || "Global Institute",
-        academicYear: (res.profile as any)?.academicYear,
-        section: (res.profile as any)?.section,
-        batchIds: (res.profile as any)?.batchIds,
+        department: profile?.department || "Computer Science & Engineering",
+        collegeId: profile?.collegeId,
+        collegeName: profile?.collegeName || "Global Institute",
+        academicYear: profile?.academicYear,
+        section: profile?.section,
+        batchIds: profile?.batchIds,
       };
-      setAuthSession(uObj, "student");
+      await setAuthSession(uObj, "student");
 
-      if (res.mustChangePassword) {
-        setShowPasswordModal(true);
-      } else {
-        window.location.assign("/student");
-      }
+      window.location.assign("/student");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Invalid student credentials.");
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handlePasswordUpdate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setModalError(null);
-    if (newPassword.length < 6) {
-      setModalError("Password must be at least 6 characters long.");
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setModalError("New passwords do not match.");
-      return;
-    }
-    setChangingPass(true);
-    try {
-      await updateFirstLoginPassword(newPassword);
-      setShowPasswordModal(false);
-      window.location.assign("/student");
-    } catch (err: unknown) {
-      setModalError(err instanceof Error ? err.message : "Failed to update password.");
-    } finally {
-      setChangingPass(false);
     }
   };
 
@@ -129,56 +76,22 @@ export default function LoginPage() {
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-        className="double-bezel-outer p-2 sm:p-3"
+        className="double-bezel-outer w-full p-2 sm:p-3"
       >
-        <div className="double-bezel-inner grid grid-cols-1 lg:grid-cols-12 overflow-hidden min-h-[640px]">
-          {/* Left Canvas */}
-          <div className="lg:col-span-6 relative p-8 sm:p-12 flex flex-col justify-between overflow-hidden bg-[#05080F] text-white">
-            <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
-              <div className="absolute -top-24 -left-24 w-96 h-96 bg-gradient-to-br from-emerald-500/40 via-teal-500/20 to-transparent rounded-full blur-3xl animate-pulse" />
-              <div className="absolute top-1/3 -right-20 w-80 h-80 bg-gradient-to-tr from-emerald-600/30 via-cyan-500/20 to-transparent rounded-full blur-2xl" />
-              <div className="absolute -bottom-20 left-10 w-96 h-96 bg-gradient-to-t from-[#10B981]/30 via-emerald-950/40 to-transparent rounded-full blur-3xl" />
-            </div>
-
-            <div className="relative z-10 flex items-center gap-3">
-              <span className="text-[10px] uppercase font-semibold tracking-[0.25em] text-emerald-400">
-                STUDENT LEARNING PORTAL
-              </span>
-              <div className="h-px w-12 bg-gradient-to-r from-emerald-500/50 to-transparent" />
-            </div>
-
-            <div className="relative z-10 my-auto py-12 space-y-6 max-w-md">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.07] border border-white/10 backdrop-blur-md text-xs font-medium text-emerald-300">
-                <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-                <span>One Student Account Per Email</span>
-              </div>
-              <h1 className="text-4xl sm:text-5xl font-bold tracking-tight leading-[1.1] font-sans text-transparent bg-clip-text bg-gradient-to-b from-white via-white to-slate-300">
-                Welcome to Your Classroom
-              </h1>
-              <p className="text-sm sm:text-base text-slate-300/80 leading-relaxed font-light">
-                Access your assigned study resources, interactive markdown examinations, and real-time performance analytics.
-              </p>
-            </div>
-
-            <div className="relative z-10 pt-6 border-t border-white/10 flex items-center justify-between text-xs text-slate-400">
-              <span className="font-medium text-slate-300">Verified College Access Only</span>
-              <span className="font-mono text-[11px] text-emerald-400/80">v1.0 Secure</span>
-            </div>
-          </div>
-
-          {/* Right Form */}
-          <div className="lg:col-span-6 p-8 sm:p-12 lg:p-14 flex flex-col justify-between bg-card/40 backdrop-blur-xl">
+        <div className="double-bezel-inner grid grid-cols-1 lg:grid-cols-12 overflow-hidden min-h-[auto] lg:min-h-[640px]">
+          {/* Right Form - first on mobile, right on desktop */}
+          <div className="order-1 lg:order-2 lg:col-span-6 p-5 sm:p-8 lg:p-14 flex flex-col justify-between bg-card/40 backdrop-blur-xl">
             <div className="flex items-center justify-between">
-              <Link href="/" className="flex items-center gap-2.5 group">
-                <div className="w-9 h-9 rounded-md bg-brand flex items-center justify-center group-hover:scale-105 transition-transform">
-                  <GraduationCap className="w-5 h-5 text-white" />
+              <Link href="/" className="flex items-center gap-2 group">
+                <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-md bg-brand flex items-center justify-center group-hover:scale-105 transition-transform">
+                  <GraduationCap className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
                 </div>
-                <span className="font-bold text-lg text-foreground tracking-tight">{APP_NAME}</span>
+                <span className="font-bold text-base sm:text-lg text-foreground tracking-tight">{APP_NAME}</span>
               </Link>
-              <span className="text-xs text-muted-foreground">Student SSO Portal</span>
+              <span className="text-[10px] sm:text-xs text-muted-foreground">Student SSO Portal</span>
             </div>
 
-            <div className="my-auto py-8 max-w-sm w-full mx-auto space-y-6">
+            <div className="my-auto py-6 sm:py-8 w-full max-w-sm sm:max-w-md mx-auto space-y-5 sm:space-y-6">
               <div className="space-y-1.5">
                 <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">Student Login</h2>
                 <p className="text-sm text-muted-foreground">Enter your college email and password</p>
@@ -193,7 +106,7 @@ export default function LoginPage() {
 
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-foreground/80 uppercase tracking-wider">
+                  <label className="text-[10px] sm:text-xs font-semibold text-foreground/80 uppercase tracking-wider">
                     College Email Address
                   </label>
                   <input
@@ -201,27 +114,22 @@ export default function LoginPage() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
-                    className="w-full h-11 px-4 rounded-xl border border-border bg-card/50 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-brand/50"
+                    className="w-full h-10 sm:h-11 min-h-[44px] px-3 sm:px-4 rounded-xl border border-border bg-card/50 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-brand/50"
                     placeholder="student@college.edu"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold text-foreground/80 uppercase tracking-wider">
-                      Password
-                    </label>
-                    <a href="#" className="text-xs font-medium text-brand hover:underline">
-                      Forgot Password?
-                    </a>
-                  </div>
+                  <label className="text-[10px] sm:text-xs font-semibold text-foreground/80 uppercase tracking-wider">
+                    Password
+                  </label>
                   <div className="relative">
                     <input
                       type={showPassword ? "text" : "password"}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       required
-                      className="w-full h-11 pl-4 pr-11 rounded-xl border border-border bg-card/50 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-brand/50"
+                      className="w-full h-10 sm:h-11 min-h-[44px] pl-3 sm:pl-4 pr-11 rounded-xl border border-border bg-card/50 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-brand/50"
                       placeholder="••••••••"
                     />
                     <button
@@ -258,7 +166,7 @@ export default function LoginPage() {
                   <Button
                     type="submit"
                     disabled={loading}
-                    className="w-full h-11 rounded-md bg-brand text-white font-medium hover:bg-brand/90 transition-all flex items-center justify-center gap-2 group"
+                    className="w-full h-10 sm:h-11 min-h-[44px] rounded-md bg-brand text-white font-medium hover:bg-brand/90 transition-all flex items-center justify-center gap-2 group text-sm sm:text-base"
                   >
                     {loading ? (
                       <span className="flex items-center gap-2">
@@ -293,7 +201,7 @@ export default function LoginPage() {
                   variant="outline"
                   onClick={handleGoogleLogin}
                   disabled={loading || googleLoading}
-                  className="w-full h-11 rounded-xl border border-border bg-card hover:bg-muted font-semibold text-foreground flex items-center justify-center gap-3 transition-all shadow-sm"
+                  className="w-full h-10 sm:h-11 min-h-[44px] rounded-xl border border-border bg-card hover:bg-muted font-semibold text-foreground flex items-center justify-center gap-2 sm:gap-3 transition-all shadow-sm text-xs sm:text-sm"
                 >
                   {googleLoading ? (
                     <span className="flex items-center gap-2 text-xs">
@@ -337,72 +245,42 @@ export default function LoginPage() {
               </Link>
             </div>
           </div>
+
+          {/* Left Canvas - second on mobile, left on desktop */}
+          <div className="order-2 lg:order-1 lg:col-span-6 relative p-4 sm:p-6 lg:p-12 flex flex-col justify-between overflow-hidden bg-[#05080F] text-white min-h-[120px] sm:min-h-[160px] lg:min-h-[640px]">
+            <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+              <div className="absolute -top-24 -left-24 w-96 h-96 bg-gradient-to-br from-emerald-500/40 via-teal-500/20 to-transparent rounded-full blur-3xl animate-pulse" />
+              <div className="absolute top-1/3 -right-20 w-80 h-80 bg-gradient-to-tr from-emerald-600/30 via-cyan-500/20 to-transparent rounded-full blur-2xl" />
+              <div className="absolute -bottom-20 left-10 w-96 h-96 bg-gradient-to-t from-[#10B981]/30 via-emerald-950/40 to-transparent rounded-full blur-3xl" />
+            </div>
+
+            <div className="relative z-10 flex items-center gap-3">
+              <span className="text-[10px] uppercase font-semibold tracking-[0.25em] text-emerald-400">
+                STUDENT LEARNING PORTAL
+              </span>
+              <div className="hidden sm:block h-px w-12 bg-gradient-to-r from-emerald-500/50 to-transparent" />
+            </div>
+
+            <div className="relative z-10 my-auto py-4 sm:py-6 lg:py-12 space-y-2 sm:space-y-4 lg:space-y-6 max-w-md">
+              <div className="hidden sm:inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.07] border border-white/10 backdrop-blur-md text-[10px] sm:text-xs font-medium text-emerald-300">
+                <Sparkles className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-400" />
+                <span>One Student Account Per Email</span>
+              </div>
+              <h1 className="text-xl sm:text-3xl lg:text-5xl font-bold tracking-tight leading-[1.1] font-sans text-transparent bg-clip-text bg-gradient-to-b from-white via-white to-slate-300">
+                Welcome to Your Classroom
+              </h1>
+              <p className="hidden sm:block text-xs sm:text-sm lg:text-base text-slate-300/80 leading-relaxed font-light">
+                Access your assigned study resources, interactive markdown examinations, and real-time performance analytics.
+              </p>
+            </div>
+
+            <div className="relative z-10 pt-4 lg:pt-6 border-t border-white/10 hidden sm:flex items-center justify-between text-xs text-slate-400">
+              <span className="font-medium text-slate-300">Verified College Access Only</span>
+              <span className="font-mono text-[11px] text-emerald-400/80">v1.0 Secure</span>
+            </div>
+          </div>
         </div>
       </motion.div>
-
-      {/* Mandatory First-Login Password Change Modal */}
-      <AnimatePresence>
-        {showPasswordModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-5"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-brand/10 text-brand flex items-center justify-center">
-                  <KeyRound className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-foreground">First Login Password Change</h3>
-                  <p className="text-xs text-muted-foreground">For security, please replace your temporary password.</p>
-                </div>
-              </div>
-
-              {modalError && (
-                <div className="p-3 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-xs">
-                  {modalError}
-                </div>
-              )}
-
-              <form onSubmit={handlePasswordUpdate} className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-foreground">New Password</label>
-                  <input
-                    type="password"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    required
-                    placeholder="Enter new secure password"
-                    className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-foreground">Confirm New Password</label>
-                  <input
-                    type="password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    required
-                    placeholder="Repeat new password"
-                    className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
-                  />
-                </div>
-
-                <Button
-                  type="submit"
-                  disabled={changingPass}
-                  className="w-full h-10 rounded-xl bg-brand text-white font-medium hover:bg-brand/90 transition-all"
-                >
-                  {changingPass ? "Updating Password..." : "Update Password & Continue"}
-                </Button>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
     </>
   );
 }

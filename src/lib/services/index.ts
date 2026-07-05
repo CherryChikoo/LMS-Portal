@@ -6,3 +6,4 @@ export * from "./exam-service";
 export * from "./doubt-service";
 export * from "./csv-import-service";
 export * from "./markdown-test-parser";
+export * from "./announcement-service";

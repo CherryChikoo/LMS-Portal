@@ -55,6 +55,7 @@ export interface Student {
   batchIds: string[];
   photoURL?: string;
   mustChangePassword?: boolean;
+  initialPassword?: string;
   enrollmentType?: "csv" | "manual" | "self";
   createdAt: Date;
   updatedAt: Date;
@@ -84,10 +85,12 @@ export interface AssignmentTarget {
   names?: string[];
   // Composite filter fields (used when type === "composite")
   collegeId?: string;
+  collegeName?: string;
   department?: string;
   academicYear?: string;
   section?: string;
   batchId?: string;
+  batchName?: string;
 }
 
 // Resource
@@ -148,6 +151,7 @@ export interface Exam {
   createdBy?: string;
   createdAt: Date;
   updatedAt: Date;
+  deletedAt?: Date;
 }
 
 export type ExamStatus = "draft" | "scheduled" | "active" | "completed" | "cancelled";
@@ -165,6 +169,7 @@ export interface ExamSettings {
 export interface ExamResult {
   id: string;
   examId: string;
+  examTitle?: string;
   studentId: string;
   studentName?: string;
   score: number;
@@ -175,11 +180,12 @@ export interface ExamResult {
   status?: string;
   correctCount?: number;
   incorrectCount?: number;
-  answers: Record<string, any>;
+  answers: Record<string, unknown>;
   submittedAt?: Date;
   createdAt?: Date;
   updatedAt?: Date;
   timeTaken?: number;
+  startTime?: Date;
 }
 
 export type ExamAttempt = ExamResult;

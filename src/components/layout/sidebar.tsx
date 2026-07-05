@@ -8,13 +8,11 @@ import {
   PanelLeftClose,
   PanelLeft,
   LogOut,
-  GraduationCap,
   Settings,
   LayoutDashboard,
   ClipboardList,
   Trophy,
   FolderOpen,
-  HelpCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSidebar } from "@/hooks/use-sidebar";
@@ -26,22 +24,30 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { auth } from "@/lib/firebase/config";
-import { signOut } from "firebase/auth";
-import { clearAuthSession } from "@/lib/utils/auth-session";
+import { logoutUser } from "@/lib/services/auth-service";
 
 export function Sidebar() {
   const pathname = usePathname();
   const { isExpanded, toggle } = useSidebar();
   const isDesktop = useIsDesktop();
-  const [userRole, setUserRole] = useState<string>("admin");
+  const [userRole, setUserRole] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const role = localStorage.getItem("lms_role");
+      return role ? role.toLowerCase() : null;
+    } catch {
+      return null;
+    }
+  });
 
   useEffect(() => {
     const checkRole = () => {
       try {
-        const role = localStorage.getItem("lms_role") || "admin";
-        setUserRole(role.toLowerCase());
-      } catch (_) {}
+        const role = localStorage.getItem("lms_role");
+        setUserRole(role ? role.toLowerCase() : null);
+      } catch {
+        setUserRole(null);
+      }
     };
     checkRole();
     window.addEventListener("storage", checkRole);
@@ -49,11 +55,11 @@ export function Sidebar() {
   }, []);
 
   const handleLogout = async () => {
-    try { await signOut(auth); } catch {}
-    clearAuthSession();
+    try { await logoutUser(); } catch {}
   };
 
   const effectiveNav = useMemo(() => {
+    if (!userRole) return [];
     const base = userRole === "student" ? [
       {
         title: "Academic Portal",
@@ -104,7 +110,7 @@ export function Sidebar() {
                 {APP_NAME}
               </span>
               <span className="text-[10px] font-medium text-emerald-500 uppercase tracking-widest whitespace-nowrap">
-                {userRole === "student" ? "Student Portal" : "Enterprise v2.4"}
+                {userRole === "student" ? "Student Portal" : userRole ? "Enterprise v2.4" : ""}
               </span>
             </div>
           </Link>
@@ -198,26 +204,19 @@ export function Sidebar() {
           ))}
 
           {/* Settings Section directly inside scrollable nav */}
-          <div className="pt-4 mt-2 border-t border-border/40 space-y-1">
-            <AnimatePresence>
-              {isExpanded && (
-                <motion.p
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground/60 mb-2 px-3.5"
-                >
-                  SETTINGS
-                </motion.p>
-              )}
-            </AnimatePresence>
+          <div className="pt-4 mt-2 border-t border-border/40 px-2 space-y-1">
+            {isExpanded && (
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground/60 mb-2 px-3.5">
+                SETTINGS
+              </p>
+            )}
 
             {!isExpanded ? (
               <Tooltip>
                 <TooltipTrigger
                   render={
                     <Link
-                      href="/settings"
+                      href={userRole === "student" ? "/student/settings" : "/admin/settings"}
                       className="group relative flex items-center justify-center w-11 h-11 mx-auto rounded-md font-heading text-sm font-medium transition-all duration-200 text-muted-foreground hover:text-foreground hover:bg-accent/60 dark:hover:bg-white/[0.04]"
                     >
                       <Settings className="w-4.5 h-4.5 shrink-0 text-muted-foreground group-hover:text-foreground transition-colors" />
@@ -225,16 +224,16 @@ export function Sidebar() {
                   }
                 />
                 <TooltipContent side="right" sideOffset={14} className="glass-popover font-heading">
-                  Setting
+                  Settings
                 </TooltipContent>
               </Tooltip>
             ) : (
               <Link
-                href="/settings"
+                href={userRole === "student" ? "/student/settings" : "/admin/settings"}
                 className="group relative flex items-center gap-3.5 px-3.5 py-2.5 rounded-md font-heading text-sm font-medium transition-all duration-200 text-muted-foreground hover:text-foreground hover:bg-accent/60 dark:hover:bg-white/[0.04]"
               >
                 <Settings className="w-4.5 h-4.5 shrink-0 text-muted-foreground group-hover:text-foreground transition-colors" />
-                <span className="whitespace-nowrap">Setting</span>
+                <span className="whitespace-nowrap">Settings</span>
               </Link>
             )}
 

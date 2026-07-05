@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   User,
@@ -25,7 +25,8 @@ import {
   GraduationCap,
   Bell,
   BookOpen,
-  Clock
+  Clock,
+  Camera
 } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { GlassCard } from "@/components/shared/glass-card";
@@ -34,40 +35,39 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { Switch } from "@/components/ui/switch";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { fadeInUp, staggerContainer, staggerItem } from "@/lib/animations";
 import { auth, db } from "@/lib/firebase/config";
 import {
   updateProfile,
   updatePassword as firebaseUpdatePassword,
   EmailAuthProvider,
-  reauthenticateWithCredential
+  reauthenticateWithCredential,
+  getIdToken,
 } from "firebase/auth";
-import { setDoc, doc, onSnapshot } from "@/lib/firebase/firestore";
-
-interface AdminRosterUser {
-  id: string;
-  name: string;
-  email: string;
-  role: "Administrator" | "Trainer";
-  department: string;
-  status: "Active" | "Pending";
-  createdAt: string;
-}
+import { setDoc, doc, getDoc, onSnapshot, getDocuments, where, deleteDocument } from "@/lib/firebase/firestore";
+import { deleteField } from "firebase/firestore";
 
 function StudentAccountSettings() {
-  const [tab, setTab] = useState<"profile" | "security" | "notifications">("profile");
-  const [name, setName] = useState("Student Candidate");
-  const [email, setEmail] = useState("student@lms.dev");
-  const [department, setDepartment] = useState("Computer Science & Engineering");
-  const [rollNumber, setRollNumber] = useState("ROLL-2026");
-  const [college, setCollege] = useState("St. Xavier's College of Engineering");
-  const [phone, setPhone] = useState("+91 98765 12345");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [department, setDepartment] = useState("");
+  const [rollNumber, setRollNumber] = useState("");
+  const [college, setCollege] = useState("");
+  const [phone, setPhone] = useState("");
   const [saved, setSaved] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [updating, setUpdating] = useState(false);
+  const [currentPasswordForEmail, setCurrentPasswordForEmail] = useState("");
+  const [originalEmail, setOriginalEmail] = useState("");
+  const isSavingProfileRef = useRef(false);
 
   const [curPwd, setCurPwd] = useState("");
   const [newPwd, setNewPwd] = useState("");
   const [pwdSuccess, setPwdSuccess] = useState(false);
+  const [pwdError, setPwdError] = useState<string | null>(null);
+  const pwdSuccessTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     let unsub: (() => void) | undefined;
@@ -75,6 +75,7 @@ function StudentAccountSettings() {
       const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
       if (uStr) {
         const u = JSON.parse(uStr);
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- loading saved profile from localStorage on mount
         if (u.name) setName(u.name);
         if (u.email) setEmail(u.email);
         if (u.department || u.branch) setDepartment(u.department || u.branch);
@@ -82,89 +83,291 @@ function StudentAccountSettings() {
         if (u.college || u.collegeName) setCollege(u.college || u.collegeName);
         if (u.phone) setPhone(u.phone);
 
+        if (u.email) {
+          setOriginalEmail(u.email.toLowerCase().trim());
+        }
+
         if (u.id) {
           unsub = onSnapshot(doc(db, "students", u.id), (snap) => {
             if (snap.exists()) {
               const d = snap.data();
-              if (d.name) setName(d.name);
-              if (d.email) setEmail(d.email);
-              if (d.department) setDepartment(d.department);
-              if (d.rollNumber) setRollNumber(d.rollNumber);
-              if (d.collegeName) setCollege(d.collegeName);
-              if (d.phone) setPhone(d.phone);
 
-              const newU = { ...u, ...d, name: d.name || u.name, college: d.collegeName || u.college };
-              localStorage.setItem("lms_user", JSON.stringify(newU));
-              localStorage.setItem("user", JSON.stringify(newU));
-              window.dispatchEvent(new Event("storage"));
+              // While the user is actively saving the profile, ignore Firestore snapshot
+              // updates for the email field to prevent a brief flash of the old email.
+              if (!isSavingProfileRef.current) {
+                if (d.name) setName(d.name);
+                if (d.email) {
+                  setEmail(d.email);
+                  setOriginalEmail(d.email.toLowerCase().trim());
+                }
+                if (d.department) setDepartment(d.department);
+                if (d.rollNumber) setRollNumber(d.rollNumber);
+                if (d.collegeName) setCollege(d.collegeName);
+                if (d.phone) setPhone(d.phone);
+
+                const newU = { ...u, ...d, name: d.name || u.name, college: d.collegeName || u.college };
+                localStorage.setItem("lms_user", JSON.stringify(newU));
+                localStorage.setItem("user", JSON.stringify(newU));
+                window.dispatchEvent(new Event("storage"));
+              }
             }
           });
         }
       }
-    } catch (_) { }
+    } catch { /* ignore */ }
     return () => { if (unsub) unsub(); };
   }, []);
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
+    isSavingProfileRef.current = true;
+    setUpdating(true);
+    setProfileError(null);
+    setSaved(false);
+
     try {
       const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user") || "{}";
       const u = JSON.parse(uStr);
-      const updated = { ...u, name, email, department, rollNumber, college, phone };
-      localStorage.setItem("lms_user", JSON.stringify(updated));
-      localStorage.setItem("user", JSON.stringify(updated));
-      window.dispatchEvent(new Event("storage"));
+      const cleanEmail = email.toLowerCase().trim();
+      const oldEmail = originalEmail || (u.email || "").toLowerCase().trim();
+      const emailChanged = oldEmail !== "" && cleanEmail !== oldEmail;
+      const primaryId = u.id || (auth.currentUser ? auth.currentUser.uid : "");
 
-      if (u.id) {
+      if (!primaryId) {
+        throw new Error("Unable to identify your account. Please sign in again.");
+      }
+
+      // 1. Update non-email profile fields first (always allowed)
+      const baseUpdateData = {
+        name,
+        displayName: name,
+        department,
+        rollNumber,
+        collegeName: college,
+        phone,
+        updatedAt: new Date().toISOString()
+      };
+
+      await setDoc(doc(db, "students", primaryId), baseUpdateData, { merge: true });
+      await setDoc(doc(db, "users", primaryId), baseUpdateData, { merge: true });
+
+      // 2. Update Firebase Auth display name when name changes
+      if (auth.currentUser && name !== u.name) {
         try {
-          await setDoc(doc(db, "students", u.id), {
-            name,
-            email: email.toLowerCase().trim(),
-            department,
-            rollNumber,
-            collegeName: college,
-            phone,
-            updatedAt: new Date().toISOString()
-          }, { merge: true });
-          await setDoc(doc(db, "users", u.id), {
-            displayName: name,
-            email: email.toLowerCase().trim(),
-            department,
-            rollNumber,
-            collegeName: college,
-            phone,
-            updatedAt: new Date().toISOString()
-          }, { merge: true });
-        } catch (fbErr) {
-          console.error("Firebase update failed:", fbErr);
+          await updateProfile(auth.currentUser, { displayName: name });
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } catch (profileErr: any) {
+          console.warn("Could not update Firebase Auth display name:", profileErr);
         }
       }
 
+      // 2b. Sync updated name into all past exam results so transcripts reflect current details
+      if (name !== u.name && primaryId) {
+        try {
+          const results = await getDocuments("exam_results", [where("studentId", "==", primaryId)]);
+          await Promise.all(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            results.map((r: any) =>
+              setDoc(doc(db, "exam_results", r.id), { studentName: name, updatedAt: new Date() }, { merge: true })
+            )
+          );
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } catch (syncErr: any) {
+          console.warn("Could not sync name to past results:", syncErr);
+        }
+      }
+
+      // 3. Handle login email change separately (requires password reauthentication)
+      if (emailChanged) {
+        // Uniqueness checks in Firestore (primary source of truth for this app).
+        // Note: Google/social accounts that exist in Firebase Auth but have no Firestore
+        // record cannot be detected client-side without a mail service or Admin SDK.
+        const existingStudents = await getDocuments("students", [where("email", "==", cleanEmail)]);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (existingStudents.some((sDoc: any) => sDoc.id !== primaryId)) {
+          throw new Error("This email address is already registered to another student.");
+        }
+
+        const existingUsers = await getDocuments("users", [where("email", "==", cleanEmail)]);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (existingUsers.some((uDoc: any) => uDoc.id !== primaryId)) {
+          throw new Error("This email address is already registered to another account.");
+        }
+
+        if (!auth.currentUser) {
+          // Demo / fallback user without a live Firebase Auth session: update Firestore only.
+          await setDoc(doc(db, "students", primaryId), { email: cleanEmail }, { merge: true });
+          await setDoc(doc(db, "users", primaryId), { email: cleanEmail }, { merge: true });
+
+          // Delete old duplicate records that still reference the previous email
+          const oldStudents = await getDocuments("students", [where("email", "==", oldEmail)]);
+          for (const sDoc of oldStudents) {
+            if (sDoc.id !== primaryId) {
+              await deleteDocument("students", sDoc.id);
+            }
+          }
+          const oldUsers = await getDocuments("users", [where("email", "==", oldEmail)]);
+          for (const uDoc of oldUsers) {
+            if (uDoc.id !== primaryId) {
+              await deleteDocument("users", uDoc.id);
+            }
+          }
+
+          const updated = { ...u, name, email: cleanEmail, department, rollNumber, college, phone };
+          localStorage.setItem("lms_user", JSON.stringify(updated));
+          localStorage.setItem("user", JSON.stringify(updated));
+          window.dispatchEvent(new Event("storage"));
+          setOriginalEmail(cleanEmail);
+        } else {
+          const isPasswordProvider = auth.currentUser.providerData.some((p) => p.providerId === "password");
+          const isGoogleProvider = auth.currentUser.providerData.some((p) => p.providerId === "google.com");
+
+          if (isGoogleProvider) {
+            throw new Error("Email cannot be changed for Google sign-in accounts from this page. Please update your Google account email instead.");
+          }
+
+          if (!isPasswordProvider) {
+            throw new Error("Only email/password accounts can change their login email here.");
+          }
+
+          if (!currentPasswordForEmail) {
+            throw new Error("Current password is required to update your login email.");
+          }
+
+          // Verify identity with current password before changing the email.
+          const credential = EmailAuthProvider.credential(
+            auth.currentUser.email || oldEmail,
+            currentPasswordForEmail
+          );
+          await reauthenticateWithCredential(auth.currentUser, credential);
+
+          // Get a fresh ID token and update the login email via the secure Admin SDK endpoint.
+          const idToken = await getIdToken(auth.currentUser, true);
+          const response = await fetch("/api/update-email", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ idToken, newEmail: cleanEmail }),
+          });
+
+          const result = await response.json();
+
+          if (!response.ok) {
+            throw new Error(result.error || "Failed to update login email.");
+          }
+
+          // Update Firestore records and replace old records.
+          await setDoc(doc(db, "students", primaryId), { email: cleanEmail }, { merge: true });
+          await setDoc(doc(db, "users", primaryId), { email: cleanEmail }, { merge: true });
+
+          const oldStudents = await getDocuments("students", [where("email", "==", oldEmail)]);
+          for (const sDoc of oldStudents) {
+            if (sDoc.id !== primaryId) {
+              await deleteDocument("students", sDoc.id);
+            }
+          }
+          const oldUsers = await getDocuments("users", [where("email", "==", oldEmail)]);
+          for (const uDoc of oldUsers) {
+            if (uDoc.id !== primaryId) {
+              await deleteDocument("users", uDoc.id);
+            }
+          }
+
+          const updated = { ...u, name, email: cleanEmail, department, rollNumber, college, phone };
+          localStorage.setItem("lms_user", JSON.stringify(updated));
+          localStorage.setItem("user", JSON.stringify(updated));
+          window.dispatchEvent(new Event("storage"));
+          setOriginalEmail(cleanEmail);
+        }
+      } else {
+        // No email change - sync localStorage with current values
+        const updated = { ...u, name, email: oldEmail, department, rollNumber, college, phone };
+        localStorage.setItem("lms_user", JSON.stringify(updated));
+        localStorage.setItem("user", JSON.stringify(updated));
+        window.dispatchEvent(new Event("storage"));
+      }
+
+      setCurrentPasswordForEmail("");
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
-    } catch (_) { }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to update profile.";
+      setProfileError(message);
+    } finally {
+      isSavingProfileRef.current = false;
+      setUpdating(false);
+    }
   };
 
   const handleUpdatePwd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!curPwd || !newPwd) return;
+
+    // Clear any pending success state/timeout from a previous attempt
+    if (pwdSuccessTimeoutRef.current) {
+      clearTimeout(pwdSuccessTimeoutRef.current);
+      pwdSuccessTimeoutRef.current = null;
+    }
+    setPwdSuccess(false);
+    setPwdError(null);
+
+    if (!curPwd || !newPwd) {
+      setPwdError("Please enter both your current password and a new password.");
+      return;
+    }
+
+    if (newPwd.length < 6) {
+      setPwdError("New password must be at least 6 characters long.");
+      return;
+    }
+
     try {
       const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user") || "{}";
       const u = JSON.parse(uStr);
+      const primaryId = u.id || (auth.currentUser ? auth.currentUser.uid : "");
 
-      if (auth.currentUser) {
-        try {
-          await firebaseUpdatePassword(auth.currentUser, newPwd);
-        } catch {}
+      if (!auth.currentUser || !primaryId) {
+        throw new Error("Unable to verify your session. Please sign in again.");
       }
 
-      if (u.id) {
-        try {
-          await setDoc(doc(db, "students", u.id), { initialPassword: newPwd, updatedAt: new Date().toISOString() }, { merge: true });
-        } catch {}
+      // Verify current password before allowing any change
+      const credential = EmailAuthProvider.credential(
+        auth.currentUser.email || (u.email || ""),
+        curPwd
+      );
+      await reauthenticateWithCredential(auth.currentUser, credential);
+
+      // Update Firebase Authentication password (single source of truth)
+      await firebaseUpdatePassword(auth.currentUser, newPwd);
+
+      // Remove the fallback initialPassword from Firestore so only the Auth password remains valid.
+      // Delete any duplicate/old records that still reference this student.
+      const pwdUpdateData = {
+        initialPassword: deleteField(),
+        mustChangePassword: false,
+        updatedAt: new Date().toISOString()
+      };
+
+      await setDoc(doc(db, "students", primaryId), pwdUpdateData, { merge: true });
+      await setDoc(doc(db, "users", primaryId), pwdUpdateData, { merge: true });
+
+      const targetEmail = (u.email || email).toLowerCase().trim();
+      if (targetEmail) {
+        const matchingStudents = await getDocuments("students", [where("email", "==", targetEmail)]);
+        for (const sDoc of matchingStudents) {
+          if (sDoc.id !== primaryId) {
+            await deleteDocument("students", sDoc.id);
+          }
+        }
+        const matchingUsers = await getDocuments("users", [where("email", "==", targetEmail)]);
+        for (const uDoc of matchingUsers) {
+          if (uDoc.id !== primaryId) {
+            await deleteDocument("users", uDoc.id);
+          }
+        }
       }
 
-      u.password = newPwd;
+      // Do not store plaintext passwords in localStorage
+      delete u.password;
+      delete u.initialPassword;
       localStorage.setItem("lms_user", JSON.stringify(u));
       localStorage.setItem("user", JSON.stringify(u));
       window.dispatchEvent(new Event("storage"));
@@ -172,143 +375,177 @@ function StudentAccountSettings() {
       setPwdSuccess(true);
       setCurPwd("");
       setNewPwd("");
-      setTimeout(() => setPwdSuccess(false), 3000);
-    } catch (_) {}
+      pwdSuccessTimeoutRef.current = setTimeout(() => setPwdSuccess(false), 3000);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (err: any) {
+      const code = err?.code || "";
+      const msg = err?.message || "";
+
+      if (code === "auth/wrong-password" || code === "auth/invalid-credential") {
+        setPwdError("Current password is incorrect.");
+      } else if (code === "auth/requires-recent-login") {
+        setPwdError("Your session has expired. Please sign out and sign in again before changing your password.");
+      } else if (code === "auth/weak-password") {
+        setPwdError("New password is too weak. Please choose a stronger password.");
+      } else {
+        setPwdError(msg || "Failed to update password.");
+      }
+
+      // Ensure success banner is never shown alongside an error
+      setPwdSuccess(false);
+    }
   };
 
   return (
     <motion.div initial="hidden" animate="visible" variants={fadeInUp} className="space-y-6 max-w-5xl mx-auto pb-12 font-sans">
       <PageHeader
-        title="Student Account Center"
-        description="Manage your academic credentials, enrolled department profile, security settings, and communication alerts."
+        title="Student Account & Credentials Center"
+        description="Manage your enrolled department profile, email address, and login security credentials all in one place."
       />
 
-      <div className="flex items-center gap-2 border-b border-border pb-3 overflow-x-auto">
-        <button
-          type="button"
-          onClick={() => setTab("profile")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs transition-all ${tab === "profile" ? "bg-brand text-white shadow-md shadow-brand/20" : "bg-muted/50 hover:bg-muted text-muted-foreground"
-            }`}
-        >
-          <GraduationCap className="w-4 h-4" />
-          <span>Academic Profile</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab("security")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs transition-all ${tab === "security" ? "bg-brand text-white shadow-md shadow-brand/20" : "bg-muted/50 hover:bg-muted text-muted-foreground"
-            }`}
-        >
-          <Lock className="w-4 h-4" />
-          <span>Password & Security</span>
-        </button>
-      </div>
-
-      {tab === "profile" && (
-        <GlassCard className="p-6 sm:p-8 space-y-6">
-          <div className="flex items-center justify-between border-b border-border pb-4">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-500 font-extrabold text-lg">
-                {name ? name.charAt(0).toUpperCase() : "S"}
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-foreground">{name}</h3>
-                <p className="text-xs text-muted-foreground">{department} • Roll No: {rollNumber}</p>
-              </div>
+      <GlassCard className="p-6 sm:p-8 space-y-6 border-brand/20 shadow-xl">
+        <div className="flex items-center justify-between border-b border-border pb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-brand/10 flex items-center justify-center text-brand font-extrabold text-lg">
+              {name ? name.charAt(0).toUpperCase() : "S"}
             </div>
-            {saved && (
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/15 text-emerald-500 text-xs font-bold animate-pulse">
-                <CheckCircle2 className="w-4 h-4" /> Profile Updated!
-              </div>
-            )}
-          </div>
-
-          <form onSubmit={handleSaveProfile} className="space-y-5">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-muted-foreground uppercase">Full Name</Label>
-                <Input value={name} onChange={(e) => setName(e.target.value)} required className="h-11 rounded-xl bg-background" />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-muted-foreground uppercase">Email Address</Label>
-                <Input value={email} onChange={(e) => setEmail(e.target.value)} required type="email" className="h-11 rounded-xl bg-background" />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-muted-foreground uppercase">Roll Number / Student ID</Label>
-                <Input value={rollNumber} onChange={(e) => setRollNumber(e.target.value)} className="h-11 rounded-xl bg-background" />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-muted-foreground uppercase">Department / Specialization</Label>
-                <Input value={department} onChange={(e) => setDepartment(e.target.value)} className="h-11 rounded-xl bg-background" />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-muted-foreground uppercase">Institution / College</Label>
-                <Input value={college} onChange={(e) => setCollege(e.target.value)} className="h-11 rounded-xl bg-background" />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-muted-foreground uppercase">Phone / WhatsApp</Label>
-                <Input value={phone} onChange={(e) => setPhone(e.target.value)} className="h-11 rounded-xl bg-background" />
-              </div>
-            </div>
-
-            <div className="pt-4 flex justify-end">
-              <Button type="submit" className="h-11 px-6 rounded-xl bg-brand hover:bg-brand/90 text-white font-bold flex items-center gap-2 shadow-lg shadow-brand/20">
-                <Save className="w-4 h-4" />
-                <span>Save Profile Updates</span>
-              </Button>
-            </div>
-          </form>
-        </GlassCard>
-      )}
-
-      {tab === "security" && (
-        <GlassCard className="p-6 sm:p-8 space-y-6">
-          <div className="flex items-center justify-between border-b border-border pb-4">
             <div>
-              <h3 className="text-base font-bold text-foreground">Account Security Credentials</h3>
-              <p className="text-xs text-muted-foreground">Keep your student access password confidential during online proctored exams.</p>
+              <h3 className="text-base font-bold text-foreground">Academic Profile & Contact Details</h3>
+              <p className="text-xs text-muted-foreground">{department} • Roll No: {rollNumber}</p>
             </div>
-            {pwdSuccess && (
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/15 text-emerald-500 text-xs font-bold">
-                <CheckCircle2 className="w-4 h-4" /> Password Changed Successfully!
-              </div>
-            )}
+          </div>
+          {saved && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/15 text-emerald-500 text-xs font-bold animate-pulse">
+              <CheckCircle2 className="w-4 h-4" /> Profile Updated!
+            </div>
+          )}
+        </div>
+
+        <form onSubmit={handleSaveProfile} className="space-y-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-bold text-muted-foreground uppercase">Full Name</Label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} required className="h-11 rounded-xl bg-background" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-bold text-brand uppercase flex items-center gap-1">
+                <Mail className="w-3.5 h-3.5" /> Email Address (Login Email)
+              </Label>
+              <Input value={email} onChange={(e) => setEmail(e.target.value)} required type="email" className="h-11 rounded-xl bg-background border-brand/40 font-medium" />
+              {originalEmail && email.toLowerCase().trim() !== originalEmail && (
+                <p className="text-[11px] text-amber-500 font-medium flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" />
+                  Changing your login email requires your current password below.
+                </p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-bold text-muted-foreground uppercase">Roll Number / Student ID</Label>
+              <Input value={rollNumber} onChange={(e) => setRollNumber(e.target.value)} className="h-11 rounded-xl bg-background" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-bold text-muted-foreground uppercase">Department / Specialization</Label>
+              <Input value={department} onChange={(e) => setDepartment(e.target.value)} className="h-11 rounded-xl bg-background" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-bold text-muted-foreground uppercase">Institution / College</Label>
+              <Input value={college} onChange={(e) => setCollege(e.target.value)} className="h-11 rounded-xl bg-background" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-bold text-muted-foreground uppercase">Phone / WhatsApp</Label>
+              <Input value={phone} onChange={(e) => setPhone(e.target.value)} className="h-11 rounded-xl bg-background" />
+            </div>
           </div>
 
-          <form onSubmit={handleUpdatePwd} className="space-y-4 max-w-md">
-            <div className="space-y-1.5">
-              <Label className="text-xs font-bold text-muted-foreground uppercase">Current Password</Label>
-              <Input type="password" value={curPwd} onChange={(e) => setCurPwd(e.target.value)} required placeholder="••••••••" className="h-11 rounded-xl bg-background" />
+          {originalEmail && email.toLowerCase().trim() !== originalEmail && (
+            <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 space-y-2">
+              <Label className="text-xs font-bold text-amber-600 dark:text-amber-400 uppercase flex items-center gap-1">
+                <Lock className="w-3.5 h-3.5" /> Current Password Required
+              </Label>
+              <Input
+                type="password"
+                value={currentPasswordForEmail}
+                onChange={(e) => setCurrentPasswordForEmail(e.target.value)}
+                placeholder="Enter your current password to authorize email change"
+                className="h-11 rounded-xl bg-background border-amber-500/40"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                For security, Firebase requires your current password before changing your login email.
+              </p>
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs font-bold text-muted-foreground uppercase">New Password</Label>
-              <Input type="password" value={newPwd} onChange={(e) => setNewPwd(e.target.value)} required placeholder="••••••••" className="h-11 rounded-xl bg-background" />
-            </div>
-            <div className="pt-2">
-              <Button type="submit" className="h-11 px-6 rounded-xl bg-brand hover:bg-brand/90 text-white font-bold flex items-center gap-2 shadow-md">
-                <Lock className="w-4 h-4" />
-                <span>Update Password</span>
-              </Button>
-            </div>
-          </form>
-        </GlassCard>
-      )}
+          )}
 
+          {profileError && (
+            <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-500 font-bold flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{profileError}</span>
+            </div>
+          )}
+
+          <div className="pt-2 flex justify-end">
+            <Button type="submit" disabled={updating} className="h-11 px-6 rounded-xl bg-brand hover:bg-brand/90 text-white font-bold flex items-center gap-2 shadow-lg shadow-brand/20">
+              <Save className="w-4 h-4" />
+              <span>{updating ? "Saving..." : "Save Profile & Email"}</span>
+            </Button>
+          </div>
+        </form>
+      </GlassCard>
+
+      <GlassCard className="p-6 sm:p-8 space-y-6 border-emerald-500/20 shadow-xl">
+        <div className="flex items-center justify-between border-b border-border pb-4">
+          <div>
+            <h3 className="text-base font-bold text-foreground flex items-center gap-2">
+              <Lock className="w-4 h-4 text-emerald-500" /> Account Security & Login Credentials
+            </h3>
+            <p className="text-xs text-muted-foreground">Update your login password used for exam portal access and student authentication.</p>
+          </div>
+          {pwdSuccess && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/15 text-emerald-500 text-xs font-bold">
+              <CheckCircle2 className="w-4 h-4" /> Password Changed Successfully!
+            </div>
+          )}
+        </div>
+
+        <form onSubmit={handleUpdatePwd} className="space-y-4 max-w-md">
+          {pwdError && (
+            <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-500 font-bold flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{pwdError}</span>
+            </div>
+          )}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-bold text-muted-foreground uppercase">Current Password</Label>
+            <Input type="password" value={curPwd} onChange={(e) => setCurPwd(e.target.value)} required placeholder="••••••••" className="h-11 rounded-xl bg-background" />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-bold text-emerald-500 uppercase flex items-center gap-1">
+              <Key className="w-3.5 h-3.5" /> New Login Password
+            </Label>
+            <Input type="password" value={newPwd} onChange={(e) => setNewPwd(e.target.value)} required placeholder="••••••••" className="h-11 rounded-xl bg-background border-emerald-500/40" />
+          </div>
+          <div className="pt-2">
+            <Button type="submit" className="h-11 px-6 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-2 shadow-md shadow-emerald-500/20">
+              <Lock className="w-4 h-4" />
+              <span>Update Password</span>
+            </Button>
+          </div>
+        </form>
+      </GlassCard>
     </motion.div>
   );
 }
 
 export default function SettingsPage() {
   const [userRole, setUserRole] = useState<string>("admin");
-  const [activeTab, setActiveTab] = useState<"profile" | "security" | "roster">("profile");
+  const [activeTab, setActiveTab] = useState<"profile" | "security">("profile");
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm?: () => void; isAlert?: boolean; variant?: "destructive" | "warning" | "info" | "success" } | null>(null);
 
   // Profile fields
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
-  const [designation, setDesignation] = useState("Chief Assessment Officer & Trainer");
-  const [department, setDepartment] = useState("Academic Operations & AI Evaluation");
-  const [phone, setPhone] = useState("+91 98765 43210");
+  const [designation, setDesignation] = useState("");
+  const [department, setDepartment] = useState("");
+  const [phone, setPhone] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileSaved, setProfileSaved] = useState(false);
   const [profileError, setProfileError] = useState("");
@@ -324,34 +561,22 @@ export default function SettingsPage() {
   const [pwdSaved, setPwdSaved] = useState(false);
   const [pwdError, setPwdError] = useState("");
 
-  // Create New Admin / Trainer Account fields
-  const [newAdminName, setNewAdminName] = useState("");
-  const [newAdminEmail, setNewAdminEmail] = useState("");
-  const [newAdminRole, setNewAdminRole] = useState<"Administrator" | "Trainer">("Trainer");
-  const [newAdminDept, setNewAdminDept] = useState("Computer Science & Engineering");
-  const [newAdminPassword, setNewAdminPassword] = useState("");
-  const [showNewAdminPwd, setShowNewAdminPwd] = useState(false);
-  const [creatingAccount, setCreatingAccount] = useState(false);
-  const [accountCreated, setAccountCreated] = useState(false);
-  const [createError, setCreateError] = useState("");
-
-  // Admin roster
-  const [roster, setRoster] = useState<AdminRosterUser[]>([]);
-
   useEffect(() => {
     let currentRole = "admin";
     try {
       const r = localStorage.getItem("lms_role") || "admin";
       currentRole = r.toLowerCase();
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- loading saved role from localStorage on mount
       setUserRole(currentRole);
-    } catch (_) { }
+    } catch { /* ignore */ }
 
-    // 1. Load active user profile strictly from storage
+    // Load active user profile strictly from storage
     const savedUserStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-    let loadedName = currentRole === "admin" ? "Chief Assessment Officer" : "Lead Trainer Faculty";
-    let loadedEmail = currentRole === "admin" ? "admin@lms.dev" : "trainer@lms.dev";
-    let loadedDesignation = currentRole === "admin" ? "Chief Assessment Officer" : "Senior Evaluation Specialist";
-    let loadedDept = currentRole === "admin" ? "Central Management & Examination Control" : "Computer Science & Engineering";
+    let loadedName = "";
+    let loadedEmail = "";
+    let loadedDesignation = "";
+    let loadedDept = "";
+    let loadedPhone = "";
 
     if (savedUserStr) {
       try {
@@ -360,75 +585,17 @@ export default function SettingsPage() {
         loadedEmail = u.email || loadedEmail;
         if (u.designation) loadedDesignation = u.designation;
         if (u.department) loadedDept = u.department;
-        if (u.phone) setPhone(u.phone);
+        if (u.phone) loadedPhone = u.phone;
       } catch { }
     }
-
-    // Check account-specific registry for overrides
-    try {
-      const regStr = localStorage.getItem("lms_admin_registry") || "{}";
-      const reg = JSON.parse(regStr);
-      const acc = reg[loadedEmail.toLowerCase().trim()];
-      if (acc) {
-        if (acc.name) loadedName = acc.name;
-        if (acc.department) loadedDept = acc.department;
-        if (acc.designation) loadedDesignation = acc.designation;
-        if (acc.phone) setPhone(acc.phone);
-      }
-    } catch { }
 
     setDisplayName(loadedName);
     setEmail(loadedEmail);
     setLoginEmail(loadedEmail);
     setDesignation(loadedDesignation);
     setDepartment(loadedDept);
-
-    // 2. Load admin roster from local storage or set default roster
-    const storedRoster = localStorage.getItem("lms_admin_roster");
-    if (storedRoster) {
-      try {
-        setRoster(JSON.parse(storedRoster));
-      } catch {
-        initDefaultRoster(loadedName, loadedEmail);
-      }
-    } else {
-      initDefaultRoster(loadedName, loadedEmail);
-    }
+    setPhone(loadedPhone);
   }, []);
-
-  const initDefaultRoster = (activeName: string, activeEmail: string) => {
-    const defaults: AdminRosterUser[] = [
-      {
-        id: "admin-system-1",
-        name: activeName || "System Administrator",
-        email: activeEmail || "trainer@lms.dev",
-        role: "Administrator",
-        department: "Central Management & Examination Control",
-        status: "Active",
-        createdAt: new Date().toLocaleDateString()
-      },
-      {
-        id: "trainer-core-2",
-        name: "Dr. Rajesh Sharma",
-        email: "rajesh.sharma@lms.dev",
-        role: "Trainer",
-        department: "Computer Science & Engineering",
-        status: "Active",
-        createdAt: "Jun 15, 2026"
-      },
-      {
-        id: "trainer-core-3",
-        name: "Prof. Priya Nair",
-        email: "priya.nair@lms.dev",
-        role: "Trainer",
-        department: "Artificial Intelligence & Data Science",
-        status: "Active",
-        createdAt: "Jun 20, 2026"
-      }
-    ];
-    setRoster(defaults);
-    localStorage.setItem("lms_admin_roster", JSON.stringify(defaults));
-  };
 
   const handleSaveProfile = async () => {
     setSavingProfile(true);
@@ -475,23 +642,6 @@ export default function SettingsPage() {
       localStorage.setItem("lms_user", JSON.stringify(u));
       localStorage.setItem("user", JSON.stringify(u));
 
-      // Update active user in registry
-      try {
-        const regStr = localStorage.getItem("lms_admin_registry") || "{}";
-        const reg = JSON.parse(regStr);
-        const targetEmail = email.toLowerCase().trim();
-        const existingAcc = reg[targetEmail] || { password: "admin123456", role: userRole };
-        reg[targetEmail] = { ...existingAcc, name: displayName.trim(), department: department.trim(), designation: designation.trim(), phone: phone.trim() };
-        localStorage.setItem("lms_admin_registry", JSON.stringify(reg));
-      } catch { }
-
-      // Update active user in roster if matching email
-      const updatedRoster = roster.map((r) =>
-        r.email.toLowerCase() === email.toLowerCase() ? { ...r, name: displayName.trim(), department: department.trim() } : r
-      );
-      setRoster(updatedRoster);
-      localStorage.setItem("lms_admin_roster", JSON.stringify(updatedRoster));
-
       // Trigger global event for Topbar and Sidebar
       window.dispatchEvent(new Event("storage"));
 
@@ -529,41 +679,94 @@ export default function SettingsPage() {
 
     try {
       const targetEmail = email.toLowerCase().trim();
-      const regStr = localStorage.getItem("lms_admin_registry") || "{}";
-      const reg = JSON.parse(regStr);
+      const newEmail = loginEmail.trim().toLowerCase();
+      const emailChanged = newEmail && newEmail !== targetEmail;
 
-      if (!reg["trainer@lms.dev"]) reg["trainer@lms.dev"] = { password: "admin123456", name: "Lead Trainer Faculty", role: "trainer" };
-      if (!reg["admin@lms.dev"]) reg["admin@lms.dev"] = { password: "admin123456", name: "Chief Assessment Officer", role: "admin" };
-
-      const acc = reg[targetEmail] || { password: "admin123456", name: displayName, role: userRole };
-
-      if (currentPassword !== acc.password && currentPassword !== "admin123456") {
-        throw new Error("Current password verification failed. Please enter the correct password for your account.");
+      if (!auth.currentUser) {
+        throw new Error("Unable to verify your session. Please sign in again.");
       }
 
+      // Verify current password via Firebase Auth reauthentication
+      const credential = EmailAuthProvider.credential(auth.currentUser.email || targetEmail, currentPassword);
+      await reauthenticateWithCredential(auth.currentUser, credential);
+
+      // Update password if provided
       if (newPassword) {
-        acc.password = newPassword;
+        await firebaseUpdatePassword(auth.currentUser, newPassword);
+
+        // Clear initialPassword and mustChangePassword flags from Firestore so
+        // only the Firebase Auth password remains the valid credential.
+        const pwdCleanup = {
+          initialPassword: deleteField(),
+          mustChangePassword: deleteField(),
+          updatedAt: new Date()
+        };
+        await setDoc(doc(db, "users", auth.currentUser.uid), pwdCleanup, { merge: true });
       }
 
-      if (loginEmail && loginEmail.trim().toLowerCase() !== targetEmail) {
-        const newEmail = loginEmail.trim().toLowerCase();
-        reg[newEmail] = { ...acc, email: newEmail };
-        delete reg[targetEmail];
-        setEmail(newEmail);
-        const savedUserStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-        if (savedUserStr) {
-          const u = JSON.parse(savedUserStr);
-          u.email = newEmail;
-          localStorage.setItem("lms_user", JSON.stringify(u));
-          localStorage.setItem("user", JSON.stringify(u));
+      // Update login email if changed (server-side via Admin SDK)
+      if (emailChanged) {
+        const idToken = await getIdToken(auth.currentUser, true);
+        const response = await fetch("/api/update-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ idToken, newEmail }),
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.error || "Failed to update login email.");
         }
-      } else {
-        reg[targetEmail] = acc;
-      }
-      localStorage.setItem("lms_admin_registry", JSON.stringify(reg));
+        setEmail(newEmail);
 
-      if (auth.currentUser && newPassword) {
-        try { await firebaseUpdatePassword(auth.currentUser, newPassword); } catch {}
+        // -- Cleanup: delete duplicate old records referencing the previous email --
+        // Query both users and students collections for docs where email == oldEmail
+        // and uid != currentUser.uid. Delete any matches.
+        const oldEmail = targetEmail;
+        const oldUsersDocs = await getDocuments("users", [where("email", "==", oldEmail)]);
+        for (const uDoc of oldUsersDocs) {
+          if (uDoc.id !== auth.currentUser!.uid) {
+            await deleteDocument("users", uDoc.id);
+          }
+        }
+        const oldStudentsDocs = await getDocuments("students", [where("email", "==", oldEmail)]);
+        for (const sDoc of oldStudentsDocs) {
+          if (sDoc.id !== auth.currentUser!.uid) {
+            await deleteDocument("students", sDoc.id);
+          }
+        }
+      }
+
+      // Sync updated details to Firestore and localStorage
+      const uid = auth.currentUser.uid;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const updatePayload: Record<string, any> = {
+        displayName: displayName,
+        department: department,
+        phone: phone,
+        updatedAt: new Date()
+      };
+      if (emailChanged) updatePayload.email = newEmail;
+      await setDoc(doc(db, "users", uid), updatePayload, { merge: true });
+
+      // If a students doc exists with the same uid, sync the email there too
+      if (emailChanged) {
+        const studentRef = doc(db, "students", uid);
+        const studentSnap = await getDoc(studentRef);
+        if (studentSnap.exists()) {
+          await setDoc(doc(db, "students", uid), { email: newEmail }, { merge: true });
+        }
+      }
+
+      const savedUserStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      if (savedUserStr) {
+        const u = JSON.parse(savedUserStr);
+        u.name = displayName;
+        u.displayName = displayName;
+        u.department = department;
+        u.phone = phone;
+        if (emailChanged) u.email = newEmail;
+        localStorage.setItem("lms_user", JSON.stringify(u));
+        localStorage.setItem("user", JSON.stringify(u));
       }
 
       window.dispatchEvent(new Event("storage"));
@@ -571,6 +774,7 @@ export default function SettingsPage() {
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
+      setLoginEmail(emailChanged ? newEmail : targetEmail);
       setPwdSaved(true);
       setTimeout(() => setPwdSaved(false), 5000);
     } catch (err: unknown) {
@@ -578,126 +782,6 @@ export default function SettingsPage() {
     } finally {
       setSavingPwd(false);
     }
-  };
-
-  const handleCreateNewAdmin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setCreatingAccount(true);
-    setAccountCreated(false);
-    setCreateError("");
-
-    if (!newAdminName.trim() || !newAdminEmail.trim() || !newAdminPassword) {
-      setCreateError("Please fill out all mandatory account fields.");
-      setCreatingAccount(false);
-      return;
-    }
-    if (newAdminPassword.length < 6) {
-      setCreateError("Initial password must be at least 6 characters.");
-      setCreatingAccount(false);
-      return;
-    }
-
-    try {
-      const newId = `admin-usr-${Date.now()}`;
-      const newUserDoc = {
-        id: newId,
-        displayName: newAdminName.trim(),
-        email: newAdminEmail.trim().toLowerCase(),
-        role: newAdminRole.toLowerCase(),
-        department: newAdminDept.trim(),
-        createdAt: new Date()
-      };
-
-      try {
-        await setDoc(doc(db, "users", newId), newUserDoc);
-      } catch { }
-
-      const newRosterEntry: AdminRosterUser = {
-        id: newId,
-        name: newAdminName.trim(),
-        email: newAdminEmail.trim().toLowerCase(),
-        role: newAdminRole,
-        department: newAdminDept.trim(),
-        status: "Active",
-        createdAt: new Date().toLocaleDateString()
-      };
-
-      const updatedRoster = [newRosterEntry, ...roster];
-      setRoster(updatedRoster);
-      localStorage.setItem("lms_admin_roster", JSON.stringify(updatedRoster));
-
-      // Also store credentials in a local account registry so they can log in
-      const regStr = localStorage.getItem("lms_admin_registry") || "{}";
-      const reg = JSON.parse(regStr);
-      reg[newAdminEmail.trim().toLowerCase()] = { password: newAdminPassword, name: newAdminName.trim(), role: newAdminRole };
-      localStorage.setItem("lms_admin_registry", JSON.stringify(reg));
-
-      setNewAdminName("");
-      setNewAdminEmail("");
-      setNewAdminPassword("");
-      setAccountCreated(true);
-      setTimeout(() => setAccountCreated(false), 5000);
-    } catch (err: unknown) {
-      setCreateError("Could not create account at this time.");
-    } finally {
-      setCreatingAccount(false);
-    }
-  };
-
-  const handleSwitchContext = (userObj: AdminRosterUser) => {
-    const u = {
-      id: userObj.id,
-      name: userObj.name,
-      displayName: userObj.name,
-      email: userObj.email,
-      role: userObj.role.toLowerCase(),
-      department: userObj.department
-    };
-    localStorage.setItem("lms_user", JSON.stringify(u));
-    localStorage.setItem("user", JSON.stringify(u));
-    if (userObj.role.toLowerCase() === "administrator") {
-      localStorage.setItem("lms_role", "admin");
-    } else {
-      localStorage.setItem("lms_role", "trainer");
-    }
-    setDisplayName(userObj.name);
-    setEmail(userObj.email);
-    setLoginEmail(userObj.email);
-    setDepartment(userObj.department);
-
-    window.dispatchEvent(new Event("storage"));
-    setConfirmConfig({
-      isOpen: true,
-      isAlert: true,
-      title: "Active Identity Switched",
-      message: `Active session identity switched to: ${userObj.name} (${userObj.role})`,
-      variant: "success"
-    });
-  };
-
-  const handleDeleteRosterUser = (id: string) => {
-    if (roster.length <= 1) {
-      setConfirmConfig({
-        isOpen: true,
-        isAlert: true,
-        title: "Deletion Prohibited",
-        message: "Cannot delete the last remaining system administrator account.",
-        variant: "warning"
-      });
-      return;
-    }
-    setConfirmConfig({
-      isOpen: true,
-      title: "Delete Administrator Account",
-      message: "Are you sure you want to delete this admin user from the active roster?",
-      variant: "destructive",
-      onConfirm: () => {
-        const filtered = roster.filter((r) => r.id !== id);
-        setRoster(filtered);
-        localStorage.setItem("lms_admin_roster", JSON.stringify(filtered));
-        setConfirmConfig(null);
-      }
-    });
   };
 
   if (userRole === "student") {
@@ -709,15 +793,15 @@ export default function SettingsPage() {
       {/* Top Page Header */}
       <motion.div variants={staggerItem} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-500 text-[11px] font-extrabold uppercase tracking-wider flex items-center gap-1">
-              <ShieldCheck className="w-3.5 h-3.5" /> Admin Portal Center
-            </span>
+          <div className="flex items-center gap-2 mb-2">
+            <Badge variant="secondary" className="px-3 py-1 rounded-full text-[11px] font-extrabold uppercase tracking-wider flex items-center gap-1.5">
+              <ShieldCheck className="w-3.5 h-3.5" /> {userRole === "trainer" ? "Trainer Portal" : "Admin Portal Center"}
+            </Badge>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-foreground font-heading tracking-tight">
             System Settings & Account Management
           </h1>
-          <p className="text-xs sm:text-sm text-muted-foreground mt-1">
+          <p className="text-xs sm:text-sm text-muted-foreground mt-1.5">
             Configure administrative credentials and profile designations.
           </p>
         </div>
@@ -725,7 +809,7 @@ export default function SettingsPage() {
 
       {/* Tabs Navigation */}
       <motion.div variants={staggerItem}>
-        <div className="flex flex-wrap items-center gap-1.5 p-1.5 rounded-2xl bg-card/80 dark:bg-white/[0.03] border border-border/60 backdrop-blur-md">
+        <div className="flex flex-wrap items-center gap-1.5 p-1 rounded-2xl bg-card/80 dark:bg-white/[0.03] border border-border/60 backdrop-blur-md">
           {[
             { id: "profile", label: "Profile & Identity", icon: User },
             { id: "security", label: "Security & Passwords", icon: Key }
@@ -735,13 +819,15 @@ export default function SettingsPage() {
             return (
               <button
                 key={tab.id}
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${isActive
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                  isActive
                     ? "bg-brand text-white shadow-md shadow-brand/20 scale-[1.01]"
                     : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                  }`}
+                }`}
               >
-                <Icon className={`w-4 h-4 ${isActive ? "text-white" : "text-muted-foreground"}`} />
+                <Icon className="w-4 h-4" />
                 <span>{tab.label}</span>
               </button>
             );
@@ -774,7 +860,7 @@ export default function SettingsPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                <div className="grid grid-cols-1 gap-5">
                   <div className="space-y-2">
                     <Label htmlFor="displayName" className="text-xs font-bold text-foreground">Full Display Name</Label>
                     <Input
@@ -827,19 +913,19 @@ export default function SettingsPage() {
                   </div>
                 )}
 
-                <div className="pt-4 flex items-center justify-between border-t border-border/40">
+                <div className="pt-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-t border-border/40">
                   {profileSaved ? (
                     <div className="flex items-center gap-2 text-xs text-emerald-500 font-extrabold">
                       <CheckCircle2 className="w-4 h-4" />
                       <span>Profile synchronized successfully!</span>
                     </div>
                   ) : (
-                    <span className="text-xs text-muted-foreground">Persisted to local session & Firestore</span>
+                    <span className="text-xs text-muted-foreground">Persisted to local session &amp; Firestore</span>
                   )}
                   <Button
                     onClick={handleSaveProfile}
                     disabled={savingProfile}
-                    className="h-11 px-6 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold flex items-center gap-2"
+                    className="h-11 w-full sm:w-auto px-6 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold flex items-center gap-2"
                   >
                     <Save className="w-4 h-4" />
                     <span>{savingProfile ? "Synchronizing..." : "Save Identity Changes"}</span>
@@ -851,12 +937,12 @@ export default function SettingsPage() {
             {/* Right Profile Live Preview Card */}
             <div className="lg:col-span-4">
               <GlassCard className="p-6 space-y-5 bg-gradient-to-b from-card/90 to-card/50">
-                <div className="text-center space-y-3.5 py-4">
-                  <div className="w-20 h-20 rounded-2xl bg-gradient-brand flex items-center justify-center mx-auto shadow-xl shadow-brand/25 ring-4 ring-brand/15 border border-white/20">
-                    <span className="text-2xl font-black text-white tracking-wider">
+                <div className="text-center space-y-3.5 py-3">
+                  <Avatar className="w-20 h-20 rounded-2xl mx-auto shadow-xl shadow-brand/25 ring-4 ring-brand/15 border border-white/20">
+                    <AvatarFallback className="text-2xl font-black text-white bg-gradient-brand">
                       {displayName ? displayName.slice(0, 2).toUpperCase() : "AD"}
-                    </span>
-                  </div>
+                    </AvatarFallback>
+                  </Avatar>
                   <div>
                     <h4 className="text-base font-extrabold text-foreground">{displayName || "System Administrator"}</h4>
                     <p className="text-xs font-semibold text-brand mt-0.5">{designation}</p>
@@ -866,24 +952,27 @@ export default function SettingsPage() {
 
                 <Separator className="opacity-50" />
 
-                <div className="space-y-3 text-xs">
+                <div className="space-y-2.5 text-xs">
                   <div className="flex items-center justify-between py-1">
                     <span className="text-muted-foreground flex items-center gap-2">
                       <Mail className="w-3.5 h-3.5 text-brand" /> Login Email
                     </span>
-                    <span className="font-mono font-bold text-foreground truncate max-w-[160px]">{email}</span>
+                    <span className="font-mono font-bold text-foreground truncate max-w-[140px]">{email}</span>
                   </div>
                   <div className="flex items-center justify-between py-1">
                     <span className="text-muted-foreground flex items-center gap-2">
                       <Phone className="w-3.5 h-3.5 text-emerald-500" /> Phone
                     </span>
-                    <span className="font-semibold text-foreground">{phone}</span>
+                    <span className="font-semibold text-foreground">{phone || "—"}</span>
                   </div>
                   <div className="flex items-center justify-between py-1">
                     <span className="text-muted-foreground flex items-center gap-2">
-                      <ShieldCheck className="w-3.5 h-3.5 text-blue-500" /> Access Level
+                      <ShieldCheck className="w-3.5 h-3.5 text-blue-500" />
+                      Access Level
                     </span>
-                    <span className="font-extrabold text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded">UNRESTRICTED</span>
+                    <Badge variant="outline" className="font-extrabold text-emerald-500 bg-emerald-500/10 border-emerald-500/30">
+                      {userRole === "trainer" ? "TRAINER" : "ADMIN"}
+                    </Badge>
                   </div>
                 </div>
               </GlassCard>
@@ -948,7 +1037,7 @@ export default function SettingsPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                <div className="grid grid-cols-1 gap-4 pt-2">
                   <div className="space-y-2">
                     <Label htmlFor="newPwd" className="text-xs font-bold text-foreground">New Security Password</Label>
                     <div className="relative">
@@ -991,7 +1080,7 @@ export default function SettingsPage() {
                 </div>
               )}
 
-              <div className="pt-4 flex items-center justify-between border-t border-border/40">
+              <div className="pt-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-t border-border/40">
                 {pwdSaved ? (
                   <div className="flex items-center gap-2 text-xs text-emerald-500 font-extrabold">
                     <CheckCircle2 className="w-4 h-4" />
@@ -1003,7 +1092,7 @@ export default function SettingsPage() {
                 <Button
                   onClick={handleChangeSecurity}
                   disabled={savingPwd}
-                  className="h-11 px-6 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold flex items-center gap-2"
+                  className="h-11 w-full sm:w-auto px-6 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold flex items-center gap-2"
                 >
                   <Lock className="w-4 h-4" />
                   <span>{savingPwd ? "Updating Security..." : "Update Security Credentials"}</span>

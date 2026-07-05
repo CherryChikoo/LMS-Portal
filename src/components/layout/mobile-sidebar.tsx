@@ -5,15 +5,12 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { motion } from "motion/react";
 import {
-  GraduationCap,
   LogOut,
   Settings,
   LayoutDashboard,
   ClipboardList,
   Trophy,
   FolderOpen,
-  Megaphone,
-  HelpCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSidebar } from "@/hooks/use-sidebar";
@@ -24,14 +21,24 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 export function MobileSidebar() {
   const pathname = usePathname();
   const { isMobileOpen, closeMobile } = useSidebar();
-  const [userRole, setUserRole] = useState<string>("admin");
+  const [userRole, setUserRole] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const role = localStorage.getItem("lms_role");
+      return role ? role.toLowerCase() : null;
+    } catch {
+      return null;
+    }
+  });
 
   useEffect(() => {
     const checkRole = () => {
       try {
-        const role = localStorage.getItem("lms_role") || "admin";
-        setUserRole(role.toLowerCase());
-      } catch (_) {}
+        const role = localStorage.getItem("lms_role");
+        setUserRole(role ? role.toLowerCase() : null);
+      } catch {
+        setUserRole(null);
+      }
     };
     checkRole();
     window.addEventListener("storage", checkRole);
@@ -39,6 +46,7 @@ export function MobileSidebar() {
   }, []);
 
   const effectiveNav = useMemo(() => {
+    if (!userRole) return [];
     if (userRole === "student") {
       return [
         {
@@ -74,7 +82,7 @@ export function MobileSidebar() {
             <div className="flex flex-col">
               <span className="font-bold text-lg text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-teal-300 to-emerald-200 tracking-tight">{APP_NAME}</span>
               <span className="text-[10px] font-medium text-emerald-500 uppercase tracking-widest">
-                {userRole === "student" ? "Student Portal" : "Enterprise v2.4"}
+                {userRole === "student" ? "Student Portal" : userRole ? "Enterprise v2.4" : ""}
               </span>
             </div>
           </Link>
@@ -132,12 +140,12 @@ export function MobileSidebar() {
               </p>
 
               <Link
-                href="/settings"
+                href={userRole === "student" ? "/student/settings" : "/admin/settings"}
                 onClick={closeMobile}
                 className="group relative flex items-center gap-3.5 px-3.5 py-2.5 rounded-md font-heading text-sm font-medium transition-all duration-200 text-muted-foreground hover:text-foreground hover:bg-accent/60 dark:hover:bg-white/[0.04]"
               >
                 <Settings className="w-4.5 h-4.5 shrink-0 text-muted-foreground group-hover:text-foreground transition-colors" />
-                <span>Setting</span>
+                <span>Settings</span>
               </Link>
 
               <button

@@ -9,6 +9,7 @@ import { GlassCard } from "@/components/shared/glass-card";
 import { Badge } from "@/components/ui/badge";
 import { fadeInUp, staggerContainer, staggerItem } from "@/lib/animations";
 import { getAllExams, getAllResources, filterExamsForStudent, filterResourcesForStudent } from "@/lib/services";
+import { toDate } from "@/lib/utils/date";
 import type { Exam, Resource } from "@/types";
 import Link from "next/link";
 
@@ -27,7 +28,7 @@ export default function CalendarPage() {
         
         const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
         if (uStr) setStudentUser(JSON.parse(uStr));
-        else setStudentUser({ id: "guest", name: "Student Candidate", email: "student@lms.dev", department: "Computer Science & Engineering", college: "St. Xavier's College of Engineering", batchIds: [] });
+        else setStudentUser({ id: "", name: "", email: "", department: "", college: "", batchIds: [] });
 
         const [exData, resData] = await Promise.all([
           getAllExams(),
@@ -61,7 +62,7 @@ export default function CalendarPage() {
           id: `ex-${ex.id}`,
           title: ex.title,
           type: "exam",
-          date: new Date(ex.startTime),
+          date: toDate(ex.startTime) || new Date(),
           extra: `Scheduled for ${ex.duration} mins`,
         });
       } else {
@@ -69,7 +70,7 @@ export default function CalendarPage() {
           id: `ex-created-${ex.id}`,
           title: ex.title,
           type: "exam",
-          date: ex.createdAt instanceof Date ? ex.createdAt : new Date(ex.createdAt || Date.now()),
+          date: toDate(ex.createdAt) || new Date(),
           extra: `Created Exam`,
         });
       }
@@ -80,7 +81,7 @@ export default function CalendarPage() {
         id: `res-${res.id}`,
         title: res.title,
         type: "resource",
-        date: res.createdAt instanceof Date ? res.createdAt : new Date(res.createdAt || Date.now()),
+        date: toDate(res.createdAt) || new Date(),
         extra: `New Resource Added`,
       });
     });

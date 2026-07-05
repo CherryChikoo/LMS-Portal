@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { motion } from "motion/react";
 import { useSidebar } from "@/hooks/use-sidebar";
 import { useIsDesktop } from "@/hooks/use-media-query";
@@ -15,6 +15,8 @@ export default function DashboardLayout({
 }) {
   const { width } = useSidebar();
   const isDesktop = useIsDesktop();
+  // Used to throttle the storage event dispatch to at most once per 2 seconds.
+  const lastDispatchRef = useRef<number>(0);
 
   useEffect(() => {
     const verifyAuth = () => {
@@ -30,6 +32,7 @@ export default function DashboardLayout({
     const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
     if (!uStr) return () => window.removeEventListener("pageshow", verifyAuth);
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- parsedUser shape comes from a JSON.parse() of the locally stored session blob
     let parsedUser: any = null;
     try {
       parsedUser = JSON.parse(uStr);
@@ -40,6 +43,42 @@ export default function DashboardLayout({
     if (!parsedUser || !parsedUser.id) return () => window.removeEventListener("pageshow", verifyAuth);
 
     const unsubs: (() => void)[] = [];
+
+    // Helper: only commit + dispatch when the parsed relevant fields actually changed.
+    // Storage event dispatch is also throttled to at most once per 2 seconds.
+    const commitIfChanged = (updated: Record<string, unknown>, relevantKeys: string[]) => {
+      const existingStr = localStorage.getItem("lms_user");
+      const existingRelevant: Record<string, unknown> = {};
+      if (existingStr) {
+        try {
+          const parsed = JSON.parse(existingStr);
+          for (const k of relevantKeys) existingRelevant[k] = parsed[k];
+        } catch {
+          // ignore parse errors and treat as no existing data
+        }
+      }
+
+      let changed = false;
+      for (const k of relevantKeys) {
+        const a = JSON.stringify(existingRelevant[k] ?? null);
+        const b = JSON.stringify(updated[k] ?? null);
+        if (a !== b) {
+          changed = true;
+          break;
+        }
+      }
+      if (!changed) return;
+
+      const strNew = JSON.stringify(updated);
+      localStorage.setItem("lms_user", strNew);
+      localStorage.setItem("user", strNew);
+
+      const now = Date.now();
+      if (now - lastDispatchRef.current > 2000) {
+        lastDispatchRef.current = now;
+        window.dispatchEvent(new Event("storage"));
+      }
+    };
 
     if (parsedUser.role === "student") {
       import("firebase/firestore").then(({ doc, onSnapshot }) => {
@@ -58,9 +97,16 @@ export default function DashboardLayout({
                 section: s.section || parsedUser.section,
                 batchIds: s.batchIds || parsedUser.batchIds,
               };
-              localStorage.setItem("lms_user", JSON.stringify(updated));
-              localStorage.setItem("user", JSON.stringify(updated));
-              window.dispatchEvent(new Event("storage"));
+              commitIfChanged(updated, [
+                "name",
+                "email",
+                "department",
+                "collegeId",
+                "collegeName",
+                "academicYear",
+                "section",
+                "batchIds",
+              ]);
             }
           });
           unsubs.push(unsubId);
@@ -77,9 +123,7 @@ export default function DashboardLayout({
                 name: u.displayName || parsedUser.name,
                 email: u.email || parsedUser.email,
               };
-              localStorage.setItem("lms_user", JSON.stringify(updated));
-              localStorage.setItem("user", JSON.stringify(updated));
-              window.dispatchEvent(new Event("storage"));
+              commitIfChanged(updated, ["name", "email"]);
             }
           });
           unsubs.push(unsubUser);

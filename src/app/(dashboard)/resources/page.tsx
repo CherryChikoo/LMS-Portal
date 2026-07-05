@@ -2,14 +2,16 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { FolderOpen, Upload, Link as LinkIcon, FileText, FileSpreadsheet, Video, Image as ImageIcon, Download, Eye, Trash2, Shield, Search, Filter, CheckCircle2, Target, Users, Loader2, File } from "lucide-react";
+import { FolderOpen, Upload, Link as LinkIcon, FileText, FileSpreadsheet, Video, Image as ImageIcon, Download, Eye, ExternalLink, Trash2, Search, CheckCircle2, Target, Loader2, File } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
 import { getAllResources, createResource, deleteResource, filterResourcesForStudent, getAllStudents, getAllColleges, getAllBatches } from "@/lib/services";
-import type { Resource, ResourceType, Student, AssignmentTargetType, College, Batch } from "@/types";
+import { getCurrentUser } from "@/lib/utils/auth-session";
+import { ResourcePreviewModal, isPreviewable } from "@/components/resources/resource-preview-modal";
+import type { Resource, ResourceType, Student, AssignmentTarget, College, Batch } from "@/types";
 
 export default function ResourcesPage() {
   const [resources, setResources] = useState<Resource[]>([]);
@@ -18,10 +20,12 @@ export default function ResourcesPage() {
   const [loading, setLoading] = useState(true);
   const [userRole, setUserRole] = useState<string>("admin");
   const [students, setStudents] = useState<Student[]>([]);
+  const [currentUser, setCurrentUser] = useState<{ uid: string; email: string; profile: Record<string, unknown> } | null>(null);
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm?: () => void; isAlert?: boolean; variant?: "destructive" | "warning" | "info" | "success" } | null>(null);
 
   // Modal State
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [previewResource, setPreviewResource] = useState<Resource | null>(null);
   const [title, setTitle] = useState("");
   const [desc, setDesc] = useState("");
   const [resType, setResType] = useState<ResourceType>("pdf");
@@ -64,30 +68,79 @@ export default function ResourcesPage() {
     try {
       const storedRole = localStorage.getItem("lms_role");
       if (storedRole) setUserRole(storedRole.toLowerCase());
-    } catch (_) {}
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    } catch (_) {
+    }
+    getCurrentUser().then((u) => {
+      if (u) setCurrentUser(u);
+    });
   }, []);
 
-  const availableCollegeNames = Array.from(
-    new Set([
-      "Global Institute",
-      ...colleges.map((c) => c.name),
-      ...students.map((s) => s.collegeName || s.collegeId),
-    ])
-  ).filter((n) => Boolean(n) && n !== "ALL" && n !== "GLOBAL");
+  const availableCollegeOptions = useMemo(() => {
+    const options = new Map<string, string>();
+    options.set("ALL", "All Colleges");
+    colleges.forEach((c) => options.set(c.id, c.name));
+    if (colleges.length === 0) {
+      students.forEach((s) => {
+        const id = s.collegeId || s.collegeName;
+        if (id) options.set(id, s.collegeName || id);
+      });
+    }
+    const hasGlobal = Array.from(options.keys()).some((id) => id.toUpperCase() === "GLOBAL")
+      || students.some((s) => s.collegeId?.toUpperCase() === "GLOBAL" || s.collegeName?.toUpperCase() === "GLOBAL INSTITUTE");
+    if (hasGlobal && !options.has("GLOBAL")) {
+      options.set("GLOBAL", "Global Institute");
+    }
+    return Array.from(options.entries()).map(([id, name]) => ({ id, name }));
+  }, [colleges, students]);
+
+  // Cascading option lists for the Upload modal's Assignment Target section.
+  // When `targetCollege` is set to a specific college, derive child options from
+  // that college's students only (no hardcoded defaults).
+  const modalStudentsByCollege = useMemo(() => {
+    if (targetCollege === "ALL") return students;
+    return students.filter((s) => s.collegeId === targetCollege || s.collegeName === targetCollege);
+  }, [students, targetCollege]);
+
+  const modalDepartmentsList = useMemo(() => {
+    if (targetCollege === "ALL") {
+      return Array.from(new Set([
+        ...colleges.flatMap((c) => c.departments || []),
+        ...modalStudentsByCollege.map((s) => s.department),
+      ])).filter(Boolean);
+    }
+    return Array.from(new Set(modalStudentsByCollege.map((s) => s.department))).filter(Boolean);
+  }, [colleges, modalStudentsByCollege, targetCollege]);
+
+  const modalYearsList = useMemo(() => {
+    const base = modalStudentsByCollege.map((s) => s.academicYear);
+    if (targetCollege === "ALL") base.push("1st Year", "2nd Year", "3rd Year", "4th Year");
+    return Array.from(new Set(base.filter(Boolean)));
+  }, [modalStudentsByCollege, targetCollege]);
+
+  const modalSectionsList = useMemo(() => {
+    const base = modalStudentsByCollege.map((s) => s.section);
+    if (targetCollege === "ALL") base.push("A", "B", "C", "D");
+    return Array.from(new Set(base.filter(Boolean)));
+  }, [modalStudentsByCollege, targetCollege]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !url) return;
     setCreating(true);
     try {
-      const compositeTarget = {
-        type: "composite" as const,
+      const selectedCollege = availableCollegeOptions.find((c) => c.id === targetCollege);
+      const selectedBatch = batches.find((b) => b.id === targetBatch);
+      const compositeTarget: AssignmentTarget = {
+        type: "composite",
         ids: ["composite"],
-        collegeId: targetCollege,
-        department: targetDepartment,
-        academicYear: targetYear,
-        section: targetSection,
-        batchId: targetBatch,
+        collegeId: targetCollege === "ALL" ? "" : targetCollege,
+        collegeName: selectedCollege?.name || (targetCollege === "ALL" ? "" : targetCollege),
+        department: targetDepartment === "ALL" ? "" : targetDepartment,
+        academicYear: targetYear === "ALL" ? "" : targetYear,
+        section: targetSection === "ALL" ? "" : targetSection,
+        batchId: targetBatch === "ALL" ? "" : targetBatch,
+        batchName: selectedBatch?.name || (targetBatch === "ALL" ? "" : targetBatch),
       };
       await createResource({
         title,
@@ -147,28 +200,32 @@ export default function ResourcesPage() {
     }
   };
 
-  // Filter if student view
+  // Filter if student view using the resolved Firebase uid/email so students
+  // only see resources assigned to them by hierarchy or direct targeting.
   const displayResources = useMemo(() => {
     if (userRole !== "student") return resources;
-    let studentProfile = {
-      id: "stud-1",
-      name: "Demo Student",
-      email: "student@demo.edu",
-      collegeId: "ALL",
-      department: "Computer Science",
+    const baseProfile = {
+      id: currentUser?.uid || "",
+      name: "",
+      email: currentUser?.email || "",
+      collegeId: "",
+      department: "",
       semester: 1,
-      section: "A",
-      rollNumber: "ROLL-01",
-      batchIds: ["2026"],
+      section: "",
+      rollNumber: "",
+      batchIds: [] as string[],
       createdAt: new Date(),
       updatedAt: new Date(),
     };
+    let studentProfile = baseProfile;
     try {
       const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-      if (uStr) studentProfile = { ...studentProfile, ...JSON.parse(uStr) };
-    } catch (_) {}
-    return filterResourcesForStudent(resources, studentProfile);
-  }, [resources, userRole]);
+      if (uStr) studentProfile = { ...baseProfile, ...JSON.parse(uStr) };
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    } catch (_) {
+    }
+    return filterResourcesForStudent(resources, studentProfile as Student);
+  }, [resources, userRole, currentUser]);
 
   return (
     <motion.div initial="hidden" animate="visible" variants={fadeInUp} className="space-y-6">
@@ -209,8 +266,8 @@ export default function ResourcesPage() {
                 className="h-10 px-3 rounded-xl bg-background border border-border text-xs font-semibold text-foreground focus:outline-none"
               >
                 <option value="ALL">All Colleges ({displayResources.length})</option>
-                {availableCollegeNames.map((colName) => (
-                  <option key={colName} value={colName}>{colName}</option>
+                {availableCollegeOptions.map((col) => (
+                  <option key={col.id} value={col.id}>{col.name}</option>
                 ))}
               </select>
             </div>
@@ -241,7 +298,8 @@ export default function ResourcesPage() {
             .filter((res) => {
               const q = resourceSearch.toLowerCase();
               const matchesSearch = !q || res.title.toLowerCase().includes(q) || (res.category || "").toLowerCase().includes(q) || (res.description || "").toLowerCase().includes(q);
-              const matchesCollege = resourceCollegeFilter === "ALL" || (res.targets?.[0]?.ids?.includes(resourceCollegeFilter)) || (res.targets?.[0]?.ids?.includes("ALL"));
+              const t = res.targets?.[0];
+              const matchesCollege = resourceCollegeFilter === "ALL" || t?.collegeId === resourceCollegeFilter;
               return matchesSearch && matchesCollege;
             })
             .map((res) => (
@@ -278,7 +336,13 @@ export default function ResourcesPage() {
                       const t = res.targets?.[0];
                       if (!t) return "All Students";
                       if (t.type === "composite") {
-                        const parts = [t.collegeId && t.collegeId !== "ALL" ? t.collegeId : null, t.department && t.department !== "ALL" ? t.department : null, t.academicYear && t.academicYear !== "ALL" ? t.academicYear : null, t.section && t.section !== "ALL" ? `Sec ${t.section}` : null, t.batchId && t.batchId !== "ALL" ? t.batchId : null].filter(Boolean);
+                        const parts = [
+                          t.collegeId && t.collegeId !== "ALL" ? (t.collegeName || t.collegeId) : null,
+                          t.department && t.department !== "ALL" ? t.department : null,
+                          t.academicYear && t.academicYear !== "ALL" ? t.academicYear : null,
+                          t.section && t.section !== "ALL" ? `Sec ${t.section}` : null,
+                          t.batchId && t.batchId !== "ALL" ? (t.batchName || t.batchId) : null,
+                        ].filter(Boolean);
                         return parts.length > 0 ? parts.join(" → ") : "All Students";
                       }
                       return `${t.type} • ${t.ids?.[0] || "Public"}`;
@@ -288,15 +352,25 @@ export default function ResourcesPage() {
               )}
 
               <div className="pt-2 border-t border-border flex items-center justify-between">
-                <a
-                  href={res.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand hover:underline"
-                >
-                  <Eye className="w-3.5 h-3.5" />
-                  <span>Preview / Access</span>
-                </a>
+                {isPreviewable(res) ? (
+                  <button
+                    onClick={() => setPreviewResource(res)}
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand hover:underline"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>Preview</span>
+                  </button>
+                ) : (
+                  <a
+                    href={res.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand hover:underline"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Open</span>
+                  </a>
+                )}
 
                 <div className="flex items-center gap-2">
                   <a
@@ -503,10 +577,9 @@ export default function ResourcesPage() {
                         onChange={(e) => setTargetCollege(e.target.value)}
                         className="w-full h-9 px-2.5 rounded-lg border border-border bg-background text-foreground text-xs font-semibold"
                       >
-                        <option value="ALL">All Colleges</option>
-                        {availableCollegeNames.map((colName) => (
-                          <option key={colName} value={colName}>
-                            {colName}
+                        {availableCollegeOptions.map((col) => (
+                          <option key={col.id} value={col.id}>
+                            {col.name}
                           </option>
                         ))}
                       </select>
@@ -520,10 +593,7 @@ export default function ResourcesPage() {
                         className="w-full h-9 px-2.5 rounded-lg border border-border bg-background text-foreground text-xs font-semibold"
                       >
                         <option value="ALL">All Departments</option>
-                        {Array.from(new Set([
-                          ...colleges.flatMap((c) => c.departments || []),
-                          ...students.map((s) => s.department),
-                        ])).filter(Boolean).map((d) => (
+                        {modalDepartmentsList.map((d) => (
                           <option key={d} value={d}>{d}</option>
                         ))}
                       </select>
@@ -537,7 +607,7 @@ export default function ResourcesPage() {
                         className="w-full h-9 px-2.5 rounded-lg border border-border bg-background text-foreground text-xs font-semibold"
                       >
                         <option value="ALL">All Years</option>
-                        {Array.from(new Set(["1st Year", "2nd Year", "3rd Year", "4th Year", ...students.map((s) => s.academicYear).filter(Boolean)])).map((y) => (
+                        {modalYearsList.map((y) => (
                           <option key={y} value={y}>{y}</option>
                         ))}
                       </select>
@@ -551,7 +621,7 @@ export default function ResourcesPage() {
                         className="w-full h-9 px-2.5 rounded-lg border border-border bg-background text-foreground text-xs font-semibold"
                       >
                         <option value="ALL">All Sections</option>
-                        {Array.from(new Set(students.map((s) => s.section))).filter(Boolean).map((sec) => (
+                        {modalSectionsList.map((sec) => (
                           <option key={sec} value={sec}>{["A", "B", "C", "D"].includes(sec) ? `Section ${sec}` : sec}</option>
                         ))}
                       </select>
@@ -566,7 +636,7 @@ export default function ResourcesPage() {
                       >
                         <option value="ALL">All Batches</option>
                         {batches.map((b) => (
-                          <option key={b.id} value={b.name}>{b.name}</option>
+                          <option key={b.id} value={b.id}>{b.name}</option>
                         ))}
                       </select>
                     </div>
@@ -577,7 +647,11 @@ export default function ResourcesPage() {
                     <CheckCircle2 className="w-3.5 h-3.5 text-brand" />
                     <span className="text-muted-foreground">Targeting:</span>
                     <span className="font-bold text-foreground">
-                      {[targetCollege !== "ALL" ? targetCollege : null, targetDepartment !== "ALL" ? targetDepartment : null, targetYear !== "ALL" ? targetYear : null, targetSection !== "ALL" ? `Sec ${targetSection}` : null, targetBatch !== "ALL" ? targetBatch : null].filter(Boolean).join(" → ") || "All Students (Global)"}
+                      {(() => {
+                      const collegeLabel = targetCollege !== "ALL" ? (availableCollegeOptions.find((c) => c.id === targetCollege)?.name || targetCollege) : null;
+                      const batchLabel = targetBatch !== "ALL" ? (batches.find((b) => b.id === targetBatch)?.name || targetBatch) : null;
+                      return [collegeLabel, targetDepartment !== "ALL" ? targetDepartment : null, targetYear !== "ALL" ? targetYear : null, targetSection !== "ALL" ? `Sec ${targetSection}` : null, batchLabel].filter(Boolean).join(" → ") || "All Students (Global)";
+                    })()}
                     </span>
                   </div>
                 </div>
@@ -595,6 +669,12 @@ export default function ResourcesPage() {
           </div>
         )}
       </AnimatePresence>
+
+      <ResourcePreviewModal
+        resource={previewResource}
+        isOpen={!!previewResource}
+        onClose={() => setPreviewResource(null)}
+      />
 
       <ConfirmModal
         isOpen={!!confirmConfig?.isOpen}

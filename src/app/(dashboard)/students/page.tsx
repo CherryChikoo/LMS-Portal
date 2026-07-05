@@ -1,16 +1,27 @@
 "use client";
 
-import { useEffect, useState, useRef, Suspense } from "react";
+import { useEffect, useMemo, useState, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import { Users, Plus, Upload, Download, Search, CheckCircle2, AlertTriangle, XCircle, FileSpreadsheet, Sparkles, Trash2, Clock, StopCircle, Edit2 } from "lucide-react";
+import { Users, Plus, Upload, Download, Search, FileSpreadsheet, Sparkles, Trash2, StopCircle, Edit2 } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
-import { getAllStudents, parseStudentsCSV, importStudentsCSV, generateCredentialsCSV, getAllColleges, getAllBatches, createStudentProfile, updateCollege, deleteStudentProfile, updateStudentProfile, subscribeToAllStudents, subscribeToAllColleges, subscribeToAllBatches } from "@/lib/services";
+import { getAllStudents, parseStudentsCSV, importStudentsCSV, generateCredentialsCSV, getAllColleges, getAllBatches, createStudentAuthProfile, updateCollege, deleteStudentProfile, updateStudentProfile, subscribeToAllStudents, subscribeToAllColleges, subscribeToAllBatches } from "@/lib/services";
+import { uniqueOptions } from "@/lib/utils/array";
 import type { Student, CSVImportSummary, College, Batch } from "@/types";
+
+type TimestampLike = Date | { toMillis(): number } | { seconds: number } | string | number | null | undefined;
+
+function getCreatedTime(date: TimestampLike): number {
+  if (!date) return 0;
+  if (typeof date === "object" && "toMillis" in date && typeof date.toMillis === "function") return date.toMillis();
+  if (typeof date === "object" && "seconds" in date && typeof date.seconds === "number") return date.seconds * 1000;
+  if (date instanceof Date) return date.getTime();
+  return new Date(date as string | number).getTime() || 0;
+}
 
 function StudentsContent() {
   const searchParams = useSearchParams();
@@ -23,6 +34,7 @@ function StudentsContent() {
   const [loading, setLoading] = useState(true);
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm?: () => void; isAlert?: boolean; variant?: "destructive" | "warning" | "info" | "success" } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchRaw, setSearchRaw] = useState("");
   const [selectedCollege, setSelectedCollege] = useState(initialCollegeId || "ALL");
   const [selectedYear, setSelectedYear] = useState("ALL");
   const [selectedSection, setSelectedSection] = useState("ALL");
@@ -68,6 +80,7 @@ function StudentsContent() {
   const [editYear, setEditYear] = useState("");
   const [editSection, setEditSection] = useState("");
   const [editBatch, setEditBatch] = useState("");
+  const [editPassword, setEditPassword] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
 
   const fetchStudents = async () => {
@@ -94,6 +107,7 @@ function StudentsContent() {
 
   // Real-time Firebase listeners for live synchronization
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- existing pattern: shows loader until first snapshot arrives
     setLoading(true);
     let loadedCount = 0;
     const checkLoaded = () => {
@@ -134,6 +148,7 @@ function StudentsContent() {
     setEditYear(student.academicYear || "1st Year");
     setEditSection(student.section || "A");
     setEditBatch(student.batchIds?.[0] || "General Cohort");
+    setEditPassword(student.initialPassword || "");
   };
 
   const handleSaveEdit = async () => {
@@ -142,7 +157,7 @@ function StudentsContent() {
     try {
       const selectedColObj = colleges.find((c) => c.id === editCollegeId);
       const colName = selectedColObj ? selectedColObj.name : "Global Institute";
-      await updateStudentProfile(editingStudent.id, {
+      const payload: Partial<Student> = {
         name: editName.trim(),
         email: editEmail.toLowerCase().trim(),
         collegeId: editCollegeId,
@@ -151,7 +166,12 @@ function StudentsContent() {
         academicYear: editYear,
         section: editSection.trim(),
         batchIds: [editBatch],
-      });
+      };
+      if (editPassword && editPassword.trim() !== "") {
+        payload.initialPassword = editPassword.trim();
+      }
+      await updateStudentProfile(editingStudent.id, payload);
+      await fetchStudents();
       setEditingStudent(null);
     } catch (err) {
       console.error("Failed to update student profile:", err);
@@ -212,57 +232,97 @@ function StudentsContent() {
     try {
       const colObj = colleges.find((c) => c.id === newCollegeId);
       const colName = colObj ? colObj.name : newCollegeId === "GLOBAL" ? "Global Institute" : newCollegeId;
-      
-      const singleRow = {
-         studentName: newName,
-         collegeEmail: newEmail.toLowerCase(),
-         college: colName,
-         department: newDepartment,
-         academicYear: newYear,
-         section: newSection === "CUSTOM" ? customNewSection.trim() || "A" : newSection,
-         batch: newBatch
-      };
-      
-      const summary = await importStudentsCSV([singleRow], undefined, undefined, "manual");
-      
-      if (summary.failedCount > 0) {
-        setConfirmConfig({
-          isOpen: true,
-          isAlert: true,
-          title: "Account Creation Failed",
-          message: "Failed to create student account. " + (summary.results[0]?.reason || ""),
-          variant: "warning"
+
+      await createStudentAuthProfile({
+        email: newEmail,
+        name: newName,
+        collegeName: colName,
+        department: newDepartment,
+        academicYear: newYear,
+        section: newSection === "CUSTOM" ? customNewSection.trim() || "A" : newSection,
+        batch: newBatch,
+      });
+
+      if (colObj) {
+        await updateCollege(colObj.id, {
+          studentCount: (colObj.studentCount || 0) + 1,
         });
-      } else if (summary.duplicateCount > 0) {
-        setConfirmConfig({
-          isOpen: true,
-          isAlert: true,
-          title: "Duplicate Student Account",
-          message: "An account already exists with this email address.",
-          variant: "info"
-        });
-      } else {
-        if (colObj) {
-          await updateCollege(colObj.id, {
-            studentCount: (colObj.studentCount || 0) + 1,
-          });
-        }
-        setShowAddModal(false);
-        setNewName("");
-        setNewEmail("");
-        setCustomNewSection("");
-        fetchStudents();
       }
-    } catch (err) {
-      console.error("Failed to create student:", err);
+
+      setShowAddModal(false);
+      setNewName("");
+      setNewEmail("");
+      setCustomNewSection("");
+      fetchStudents();
+      setConfirmConfig({
+        isOpen: true,
+        isAlert: true,
+        title: "Student Enrolled",
+        message: `The student can sign in with ${newEmail.toLowerCase().trim()} and the default password Welcome@123.`,
+        variant: "success",
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to create student account.";
+      setConfirmConfig({
+        isOpen: true,
+        isAlert: true,
+        title: "Account Creation Failed",
+        message,
+        variant: "warning",
+      });
     } finally {
       setCreating(false);
     }
   };
 
-  const collegesList = Array.from(new Set([...colleges.map((c) => c.name), ...students.map((s) => s.collegeName || s.collegeId)])).filter(Boolean);
-  const departmentsList = Array.from(new Set([...students.map((s) => s.department)])).filter(Boolean);
-  const yearsList = Array.from(new Set(["1st Year", "2nd Year", "3rd Year", "4th Year", ...students.map((s) => s.academicYear).filter(Boolean)]));
+  const collegesList = useMemo(() => {
+    const raw = [
+      ...colleges.map((c) => c.name),
+      ...students.map((s) => s.collegeName || s.collegeId),
+    ];
+    return uniqueOptions(raw, (v) => v.toLowerCase());
+  }, [colleges, students]);
+
+  const filteredByCollege = useMemo(
+    () =>
+      selectedCollege === "ALL"
+        ? students
+        : students.filter((s) => s.collegeName === selectedCollege || s.collegeId === selectedCollege),
+    [students, selectedCollege]
+  );
+
+  const departmentsList = useMemo(
+    () => uniqueOptions(filteredByCollege.map((s) => s.department)),
+    [filteredByCollege]
+  );
+
+  const yearsList = useMemo(() => {
+    const base = filteredByCollege.map((s) => s.academicYear);
+    if (selectedCollege === "ALL") base.push("1st Year", "2nd Year", "3rd Year", "4th Year");
+    return uniqueOptions(base.filter(Boolean));
+  }, [filteredByCollege, selectedCollege]);
+
+  const sectionsList = useMemo(() => {
+    const base = filteredByCollege.map((s) => s.section);
+    if (selectedCollege === "ALL") base.push("A", "B", "C", "D");
+    return uniqueOptions(base.filter(Boolean));
+  }, [filteredByCollege, selectedCollege]);
+
+  // Reset child filters when the current selection is no longer present in the narrowed lists
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- cascading reset: child filters must reset when the parent filter narrows the available options
+    if (selectedDepartment !== "ALL" && !departmentsList.includes(selectedDepartment)) setSelectedDepartment("ALL");
+    if (selectedYear !== "ALL" && !yearsList.includes(selectedYear)) setSelectedYear("ALL");
+    if (selectedSection !== "ALL" && !sectionsList.includes(selectedSection)) setSelectedSection("ALL");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally exclude selected* values so the reset only fires when the parent filter narrows the option list
+  }, [selectedCollege, departmentsList, yearsList, sectionsList]);
+
+  // Debounce the raw search input into the filter state (300ms) so heavy filter
+  // recomputations do not run on every keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => setSearchQuery(searchRaw), 300);
+    return () => clearTimeout(t);
+  }, [searchRaw]);
 
   const matchesYearFilter = (studentYear: string = "", filter: string): boolean => {
     if (filter === "ALL") return true;
@@ -276,57 +336,49 @@ function StudentsContent() {
     return s.includes(f) || f.includes(s);
   };
 
-  const filteredStudents = students
-    .filter((s) => {
-      const matchesSearch =
-        s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        s.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        s.department.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesCollege = selectedCollege === "ALL" || s.collegeName === selectedCollege || s.collegeId === selectedCollege;
-      const matchesYear = matchesYearFilter(s.academicYear, selectedYear);
-      const matchesSection = selectedSection === "ALL" || s.section === selectedSection;
-      const matchesDepartment = selectedDepartment === "ALL" || s.department === selectedDepartment;
-      const matchesBatch = !initialBatchId || (s.batchIds && s.batchIds.includes(initialBatchId));
+  const filteredStudents = useMemo(
+    () =>
+      students
+        .filter((s) => {
+          const matchesSearch =
+            s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            s.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            s.department.toLowerCase().includes(searchQuery.toLowerCase());
+          const matchesCollege = selectedCollege === "ALL" || s.collegeName === selectedCollege || s.collegeId === selectedCollege;
+          const matchesYear = matchesYearFilter(s.academicYear, selectedYear);
+          const matchesSection = selectedSection === "ALL" || s.section === selectedSection;
+          const matchesDepartment = selectedDepartment === "ALL" || s.department === selectedDepartment;
+          const matchesBatch = !initialBatchId || (s.batchIds && s.batchIds.includes(initialBatchId));
 
-      const now = new Date().getTime();
-      const getCreatedTime = (date: any) => {
-        if (!date) return 0;
-        if (typeof date.toMillis === "function") return date.toMillis();
-        if (date.seconds) return date.seconds * 1000;
-        return new Date(date).getTime() || 0;
-      };
-      const createdTime = getCreatedTime(s.createdAt);
-      let matchesTime = false;
-      if (timeFilter === "ALL") matchesTime = true;
-      else if (timeFilter === "RECENT_24H") matchesTime = !!createdTime && now - createdTime <= 24 * 60 * 60 * 1000;
-      else if (timeFilter === "RECENT_7D") matchesTime = !!createdTime && now - createdTime <= 7 * 24 * 60 * 60 * 1000;
-      else if (timeFilter === "CSV") matchesTime = s.enrollmentType === "csv";
-      else if (timeFilter === "MANUAL") matchesTime = s.enrollmentType === "manual" || !s.enrollmentType;
-      else if (timeFilter === "SELF") matchesTime = s.enrollmentType === "self";
+          const now = new Date().getTime();
+          const createdTime = getCreatedTime(s.createdAt);
+          let matchesTime = false;
+          if (timeFilter === "ALL") matchesTime = true;
+          else if (timeFilter === "RECENT_24H") matchesTime = !!createdTime && now - createdTime <= 24 * 60 * 60 * 1000;
+          else if (timeFilter === "RECENT_7D") matchesTime = !!createdTime && now - createdTime <= 7 * 24 * 60 * 60 * 1000;
+          else if (timeFilter === "CSV") matchesTime = s.enrollmentType === "csv";
+          else if (timeFilter === "MANUAL") matchesTime = s.enrollmentType === "manual" || !s.enrollmentType;
+          else if (timeFilter === "SELF") matchesTime = s.enrollmentType === "self";
 
-      return matchesSearch && matchesCollege && matchesYear && matchesSection && matchesDepartment && matchesBatch && matchesTime;
-    })
-    .sort((a, b) => {
-      const getCreatedTime = (date: any) => {
-        if (!date) return 0;
-        if (typeof date.toMillis === "function") return date.toMillis();
-        if (date.seconds) return date.seconds * 1000;
-        return new Date(date).getTime() || 0;
-      };
-      if (timeFilter === "RECENT_24H" || timeFilter === "RECENT_7D") {
-        const timeA = getCreatedTime(a.createdAt);
-        const timeB = getCreatedTime(b.createdAt);
-        return timeB - timeA;
-      }
-      return 0;
-    });
+          return matchesSearch && matchesCollege && matchesYear && matchesSection && matchesDepartment && matchesBatch && matchesTime;
+        })
+        .sort((a, b) => {
+          if (timeFilter === "RECENT_24H" || timeFilter === "RECENT_7D") {
+            const timeA = getCreatedTime(a.createdAt);
+            const timeB = getCreatedTime(b.createdAt);
+            return timeB - timeA;
+          }
+          return 0;
+        }),
+    [students, searchQuery, selectedCollege, selectedYear, selectedSection, selectedDepartment, timeFilter, initialBatchId]
+  );
 
   const handleDeleteSelected = () => {
     if (selectedIds.length === 0) return;
     setConfirmConfig({
       isOpen: true,
-      title: "Delete Selected Profiles",
-      message: `Are you sure you want to permanently delete ${selectedIds.length} selected student profile(s)? This action cannot be undone.`,
+      title: "Delete Selected Student Accounts",
+      message: `This will permanently delete ${selectedIds.length} selected student account(s) from Firebase Auth and the database. The student will lose all access and must create a new account. Exam results will remain and be marked as "Student Deleted Data". This action cannot be undone.`,
       variant: "destructive",
       onConfirm: async () => {
         setLoading(true);
@@ -346,8 +398,8 @@ function StudentsContent() {
   const handleDeleteStudent = (student: Student) => {
     setConfirmConfig({
       isOpen: true,
-      title: "Delete Student Profile",
-      message: `Are you sure you want to permanently delete ${student.name} (${student.email})?`,
+      title: "Delete Student Account",
+      message: `This will permanently remove ${student.name} (${student.email}) from Firebase Auth and the database. The student will no longer have access and must create a new account to regain access. Exam results will remain and be labelled "Student Deleted Data".`,
       variant: "destructive",
       onConfirm: async () => {
         setLoading(true);
@@ -363,8 +415,6 @@ function StudentsContent() {
       }
     });
   };
-
-  const sectionsList = Array.from(new Set(["A", "B", "C", "D", ...students.map((s) => s.section).filter(Boolean)]));
 
   return (
     <motion.div initial="hidden" animate="visible" variants={fadeInUp} className="space-y-6">
@@ -402,8 +452,8 @@ function StudentsContent() {
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <input
               type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={searchRaw}
+              onChange={(e) => setSearchRaw(e.target.value)}
               placeholder="Search student name, email address or department..."
               className="w-full h-10 pl-10 pr-4 rounded-xl bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand/50 font-medium"
             />
@@ -607,7 +657,7 @@ function StudentsContent() {
                       </td>
                       <td className="py-3.5 px-4 text-xs">
                         <span className="px-2 py-0.5 rounded-md bg-accent font-mono text-foreground">
-                          Sec {student.section} • {student.batchIds[0] || "General"}
+                          Sec {student.section} • {student.batchIds?.[0] || "General"}
                         </span>
                       </td>
                       <td className="py-3.5 px-4">
@@ -1077,6 +1127,19 @@ function StudentsContent() {
                       ))}
                     </select>
                   </div>
+                </div>
+
+                <div className="space-y-1.5 pt-1">
+                  <label className="font-semibold text-foreground flex items-center gap-1.5 text-emerald-500">
+                    Login Password (Leave empty to keep unchanged)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Enter new login password for student..."
+                    value={editPassword}
+                    onChange={(e) => setEditPassword(e.target.value)}
+                    className="w-full h-9 px-3 rounded-xl border border-emerald-500/40 bg-background text-foreground font-mono text-xs"
+                  />
                 </div>
 
                 <div className="flex justify-end gap-2 pt-3 border-t border-border">

@@ -1,9 +1,90 @@
 import type { AssignmentTarget, Student } from "@/types";
 
+function normalize(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  return String(value).toLowerCase().trim();
+}
+
+function isAllValue(value: string): boolean {
+  return !value || value === "all" || value === "all colleges" || value === "global";
+}
+
+/**
+ * Evaluate a single composite target using AND matching across specified dimensions.
+ * A student matches only when EVERY specified (non-ALL) dimension matches.
+ * Unspecified dimensions (empty, "all", "all colleges", "global") are wildcards
+ * and do not constrain the match. If no dimensions are specified at all, the
+ * target is treated as public/global and matches every student.
+ */
+function matchesCompositeTarget(target: AssignmentTarget, student: Student): boolean {
+  const tCollegeId = normalize(target.collegeId);
+  const tCollegeName = normalize(target.collegeName);
+  const tBatchId = normalize(target.batchId);
+  const tBatchName = normalize(target.batchName);
+  const tDept = normalize(target.department);
+  const tYear = normalize(target.academicYear);
+  const tSection = normalize(target.section);
+
+  const collegeSpecified = !isAllValue(tCollegeId) || !isAllValue(tCollegeName);
+  const batchSpecified = !isAllValue(tBatchId) || !isAllValue(tBatchName);
+  const deptSpecified = !isAllValue(tDept);
+  const yearSpecified = !isAllValue(tYear);
+  const sectionSpecified = !isAllValue(tSection);
+
+  // No constraints means the target is public/global.
+  if (!collegeSpecified && !batchSpecified && !deptSpecified && !yearSpecified && !sectionSpecified) {
+    return true;
+  }
+
+  const sCollegeId = normalize(student.collegeId);
+  const sCollegeName = normalize(student.collegeName);
+  const sDept = normalize(student.department);
+  const sYear = normalize(student.academicYear);
+  const sSection = normalize(student.section);
+  const sBatchIds = (student.batchIds || []).map((b) => normalize(b));
+
+  const collegeIds = new Set([tCollegeId, tCollegeName].filter(Boolean));
+  const batchIds = new Set([tBatchId, tBatchName].filter(Boolean));
+
+  const matchCollege = collegeSpecified && (
+    collegeIds.has("global") ||
+    collegeIds.has(sCollegeId) ||
+    collegeIds.has(sCollegeName)
+  );
+
+  const matchBatch = batchSpecified && sBatchIds.some((b) => batchIds.has(b));
+
+  const matchDept = deptSpecified && sDept === tDept;
+  const matchYear = yearSpecified && sYear === tYear;
+  const matchSection = sectionSpecified && sSection === tSection;
+
+  // AND across specified dimensions: every specified dimension must match.
+  const required: boolean[] = [];
+  if (collegeSpecified) required.push(matchCollege);
+  if (batchSpecified) required.push(matchBatch);
+  if (deptSpecified) required.push(matchDept);
+  if (yearSpecified) required.push(matchYear);
+  if (sectionSpecified) required.push(matchSection);
+
+  if (required.length === 0) return true;
+  return required.every(Boolean);
+}
+
 /**
  * Reusable assignment evaluation engine.
  * Evaluates whether a resource, test, or announcement is assigned to the given student
  * based on hierarchy: College, Department, Academic Year, Section, Batch, Selected Students.
+ *
+ * Matching semantics:
+ * - Direct student targeting (id/email) always grants access.
+ * - Single-dimension targets (college, department, year, section, batch) match on
+ *   that single dimension against the student.
+ * - Composite targets use AND matching across every specified (non-wildcard)
+ *   dimension: ALL specified dimensions must match. Unspecified dimensions
+ *   (empty, "all", "global") are wildcards and do not constrain the match.
+ *   If a composite target specifies no dimensions, it is treated as public/global.
+ * - Legacy `sharedWith` list is consulted as a fallback only when no structured
+ *   targets are provided; it retains its previous inclusive matching semantics.
  */
 export function isAssignedToStudent(
   targets: AssignmentTarget[] | undefined,
@@ -14,12 +95,17 @@ export function isAssignedToStudent(
   if (!targets || targets.length === 0) {
     if (legacySharedWith && legacySharedWith.length > 0) {
       const lowerShared = legacySharedWith.map((s) => s.toLowerCase());
+      const sId = normalize(student.id);
+      const sEmail = normalize(student.email);
+      const sCollegeId = normalize(student.collegeId);
+      const sCollegeName = normalize(student.collegeName);
+
       if (
         lowerShared.includes("all") ||
-        lowerShared.includes(student.id.toLowerCase()) ||
-        (student.email && lowerShared.includes(student.email.toLowerCase())) ||
-        (student.collegeId && lowerShared.includes(student.collegeId.toLowerCase())) ||
-        (student.collegeName && lowerShared.includes(student.collegeName.toLowerCase()))
+        lowerShared.includes(sId) ||
+        (sEmail && lowerShared.includes(sEmail)) ||
+        (sCollegeId && lowerShared.includes(sCollegeId)) ||
+        (sCollegeName && lowerShared.includes(sCollegeName))
       ) {
         return true;
       }
@@ -29,18 +115,18 @@ export function isAssignedToStudent(
     return true;
   }
 
-  const sId = student.id.toLowerCase();
-  const sEmail = (student.email || "").toLowerCase();
-  const sCollegeId = (student.collegeId || "").toLowerCase();
-  const sCollegeName = (student.collegeName || "").toLowerCase();
-  const sDept = (student.department || "").toLowerCase();
-  const sYear = (student.academicYear || "").toLowerCase();
-  const sSection = (student.section || "").toLowerCase();
-  const sBatchIds = (student.batchIds || []).map((b) => b.toLowerCase());
+  const sId = normalize(student.id);
+  const sEmail = normalize(student.email);
+  const sCollegeId = normalize(student.collegeId);
+  const sCollegeName = normalize(student.collegeName);
+  const sDept = normalize(student.department);
+  const sYear = normalize(student.academicYear);
+  const sSection = normalize(student.section);
+  const sBatchIds = (student.batchIds || []).map((b) => normalize(b));
 
   for (const target of targets) {
-    const type = (target.type || "").toLowerCase();
-    const ids = (target.ids || []).map((id) => id.toLowerCase());
+    const type = normalize(target.type);
+    const ids = (target.ids || []).map((id) => normalize(id));
 
     // Check "students" explicit target
     if (type === "students") {
@@ -54,8 +140,8 @@ export function isAssignedToStudent(
       if (
         ids.includes("all") ||
         ids.includes("all colleges") ||
-        (sCollegeId && ids.includes(sCollegeId)) ||
-        (sCollegeName && ids.includes(sCollegeName))
+        ids.includes(sCollegeId) ||
+        ids.includes(sCollegeName)
       ) {
         return true;
       }
@@ -63,53 +149,39 @@ export function isAssignedToStudent(
 
     // Check "department" target
     if (type === "department") {
-      if (ids.includes("all") || (sDept && ids.includes(sDept))) {
+      if (ids.includes("all") || ids.includes(sDept)) {
         return true;
       }
     }
 
     // Check "year" target
     if (type === "year") {
-      if (ids.includes("all") || (sYear && ids.includes(sYear))) {
+      if (ids.includes("all") || ids.includes(sYear)) {
         return true;
       }
     }
 
     // Check "section" target
     if (type === "section") {
-      if (ids.includes("all") || (sSection && ids.includes(sSection))) {
+      if (ids.includes("all") || ids.includes(sSection)) {
         return true;
       }
     }
 
     // Check "batch" target
     if (type === "batch") {
-      if (ids.includes("all") || sBatchIds.some((b) => ids.includes(b))) {
+      const names = (target.names || []).map((n) => normalize(n));
+      if (
+        ids.includes("all") ||
+        sBatchIds.some((b) => ids.includes(b) || names.includes(b))
+      ) {
         return true;
       }
     }
 
-    // Check "composite" target (intersection of defined filters)
+    // Check "composite" target (AND across specified dimensions)
     if (type === "composite") {
-      const tCollege = (target.collegeId || "").toLowerCase();
-      const tDept = (target.department || "").toLowerCase();
-      const tYear = (target.academicYear || "").toLowerCase();
-      const tSection = (target.section || "").toLowerCase();
-      const tBatch = (target.batchId || "").toLowerCase();
-
-      const matchCollege =
-        !tCollege ||
-        tCollege === "all" ||
-        tCollege === "all colleges" ||
-        sCollegeId === tCollege ||
-        sCollegeName === tCollege;
-
-      const matchDept = !tDept || tDept === "all" || sDept === tDept;
-      const matchYear = !tYear || tYear === "all" || sYear === tYear;
-      const matchSection = !tSection || tSection === "all" || sSection === tSection;
-      const matchBatch = !tBatch || tBatch === "all" || sBatchIds.includes(tBatch);
-
-      if (matchCollege && matchDept && matchYear && matchSection && matchBatch) {
+      if (matchesCompositeTarget(target, student)) {
         return true;
       }
     }

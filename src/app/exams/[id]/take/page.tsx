@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useEffect, useState, use, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import { Clock, AlertTriangle, CheckCircle2, Bookmark, ArrowLeft, ArrowRight, Send, ShieldCheck } from "lucide-react";
+import { Clock, AlertTriangle, CheckCircle2, Bookmark, ArrowLeft, ArrowRight, Send, ShieldCheck, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/shared/theme-toggle";
-import { getExamById, submitExamAttempt, getStudentAttempts, getEffectiveExamStatus } from "@/lib/services";
-import type { Exam, Question, QuestionPaletteState } from "@/types";
+import { getExamById, submitExamAttempt, getStudentAttemptsForCurrentUser, getEffectiveExamStatus, filterExamsForStudent } from "@/lib/services";
+import { getCurrentUser } from "@/lib/utils/auth-session";
+import type { Exam, QuestionPaletteState, Student, ExamAttempt } from "@/types";
 
 export default function TakeExamPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
@@ -15,7 +16,7 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
   const [exam, setExam] = useState<Exam | null>(null);
   const [loading, setLoading] = useState(true);
   const [accessDeniedReason, setAccessDeniedReason] = useState<string | null>(null);
-  const [existingAttempt, setExistingAttempt] = useState<any>(null);
+  const [existingAttempt, setExistingAttempt] = useState<ExamAttempt | null>(null);
 
   // Exam Progress State
   const [currentIdx, setCurrentIdx] = useState(0);
@@ -24,24 +25,32 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
   const [timeLeft, setTimeLeft] = useState<number>(1800); // in seconds
   const [submitting, setSubmitting] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [showLeaveModal, setShowLeaveModal] = useState(false);
+  const [showStartOverlay, setShowStartOverlay] = useState(true);
   const [candidateName, setCandidateName] = useState("");
+  const [startTime, setStartTime] = useState<Date | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const submitLockRef = useRef(false);
 
   useEffect(() => {
     try {
       const savedRole = localStorage.getItem("lms_role");
       const savedUser = localStorage.getItem("lms_user") || localStorage.getItem("user");
-      let name = "Student Candidate";
+      let name = "";
       if (savedUser) {
         const u = JSON.parse(savedUser);
         if (u.name) name = u.name;
       }
-      if (savedRole === "admin" || savedRole === "trainer") {
-        setCandidateName(name !== "Student Candidate" ? `${name} (Preview Mode)` : "Trainer Preview Mode");
-      } else {
-        setCandidateName(name);
-      }
-    } catch (e) {
-      setCandidateName("Student Candidate");
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- loading saved candidate name from localStorage on mount
+      setCandidateName(
+        savedRole === "admin" || savedRole === "trainer"
+          ? name
+            ? `${name} (Preview Mode)`
+            : "Trainer Preview Mode"
+          : name
+      );
+    } catch {
+      setCandidateName("");
     }
 
     async function load() {
@@ -49,17 +58,51 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
       try {
         const data = await getExamById(resolvedParams.id);
         if (data) {
-          let role = "student";
-          let sId = "stud-1";
-          let sEmail = "student@lms.dev";
+          if (data?.deletedAt) {
+            setAccessDeniedReason("Assessment Unavailable. This assessment has been removed.");
+            setLoading(false);
+            return;
+          }
+          let role = "";
           try {
-            role = localStorage.getItem("lms_role") || "student";
-            const u = JSON.parse(localStorage.getItem("lms_user") || localStorage.getItem("user") || "{}");
-            if (u.id || u.uid) sId = u.id || u.uid;
-            if (u.email) sEmail = u.email;
+            role = localStorage.getItem("lms_role") || "";
           } catch {}
 
           if (role !== "admin" && role !== "trainer") {
+            // Resolve the current Firebase user instead of relying only on localStorage.
+            const me = await getCurrentUser();
+            const sId = me?.uid || "";
+            const sEmail = me?.email || "";
+
+            // Non-admin/trainer users must be authenticated students
+            if (role !== "student" || !sId || !sEmail) {
+              setAccessDeniedReason("Authentication Required. Please sign in as a registered student to take this assessment.");
+              setLoading(false);
+              return;
+            }
+
+            // Verify this exam is actually assigned to the current student.
+            const studentProfile: Student = {
+              id: sId,
+              name: (me?.profile?.name as string) || (me?.profile?.displayName as string) || "",
+              email: sEmail,
+              collegeId: (me?.profile?.collegeId as string) || "",
+              collegeName: (me?.profile?.collegeName as string) || "",
+              department: (me?.profile?.department as string) || "",
+              academicYear: (me?.profile?.academicYear as string) || "",
+              section: (me?.profile?.section as string) || "",
+              rollNumber: (me?.profile?.rollNumber as string) || "",
+              batchIds: (me?.profile?.batchIds as string[]) || [],
+              semester: (me?.profile?.semester as number) || 1,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            };
+            if (filterExamsForStudent([data], studentProfile).length === 0) {
+              setAccessDeniedReason("Assessment Not Assigned. This evaluation is not assigned to your batch or academic hierarchy.");
+              setLoading(false);
+              return;
+            }
+
             const effStatus = getEffectiveExamStatus(data);
             if (effStatus === "completed" || effStatus === "cancelled" || (data.status as string) === "closed") {
               setAccessDeniedReason("Assessment Closed. The scheduled timeline for this evaluation has expired.");
@@ -68,14 +111,8 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
             }
 
             try {
-              const attempts = await getStudentAttempts();
-              const found = attempts.find((a) => {
-                if (a.examId !== resolvedParams.id) return false;
-                if (a.studentId === sId || a.studentId?.toLowerCase() === sEmail.toLowerCase()) return true;
-                if ((a as any).studentEmail?.toLowerCase() === sEmail.toLowerCase()) return true;
-                if (sEmail.toLowerCase() === "student@lms.dev" && (a.studentId === "stud-1" || a.studentName?.toLowerCase() === "student candidate")) return true;
-                return false;
-              });
+              const attempts = await getStudentAttemptsForCurrentUser(sId, sEmail);
+              const found = attempts.find((a) => a.examId === resolvedParams.id);
               if (found) {
                 setExistingAttempt(found);
                 setAccessDeniedReason(`You have already completed this evaluation. Earned Score: ${found.percentage}% (${found.passed ? "PASSED" : "REVIEW"}).`);
@@ -88,12 +125,42 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
           setExam(data);
           setTimeLeft((data.duration || 30) * 60);
 
+          // Attempt to restore persisted progress from sessionStorage (active exam only)
+          let restoredAnswers: Record<string, string> = {};
+          let restoredPalette: Record<string, QuestionPaletteState> = {};
+          try {
+            const raw = typeof window !== "undefined" ? sessionStorage.getItem("lms_exam_" + data.id) : null;
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              if (parsed && typeof parsed === "object") {
+                if (parsed.answers && typeof parsed.answers === "object") {
+                  restoredAnswers = parsed.answers as Record<string, string>;
+                }
+                if (parsed.paletteStates && typeof parsed.paletteStates === "object") {
+                  restoredPalette = parsed.paletteStates as Record<string, QuestionPaletteState>;
+                }
+              }
+            }
+          } catch {
+            // Ignore corrupt session storage payload; fall back to fresh state
+          }
+
           // Initialize palette states as 'not_visited' except index 0 as 'not_answered'
+          // Merge with any restored palette so the user resumes where they left off
           const initPalette: Record<string, QuestionPaletteState> = {};
           data.questions?.forEach((q, idx) => {
-            initPalette[q.id] = idx === 0 ? "not_answered" : "not_visited";
+            initPalette[q.id] = restoredPalette[q.id] ?? (idx === 0 ? "not_answered" : "not_visited");
           });
           setPaletteStates(initPalette);
+
+          // Restore answers, keeping only entries that still correspond to a known question
+          const restoredAnswerMap: Record<string, string> = {};
+          data.questions?.forEach((q) => {
+            if (restoredAnswers[q.id] !== undefined) {
+              restoredAnswerMap[q.id] = restoredAnswers[q.id];
+            }
+          });
+          setAnswers(restoredAnswerMap);
         }
       } catch (err) {
         console.error("Failed to load exam", err);
@@ -104,9 +171,245 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
     load();
   }, [resolvedParams.id]);
 
+  // Request fullscreen once the student starts the exam
+  const enterFullscreen = useCallback(async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const docEl = document.documentElement as any;
+    if (docEl.requestFullscreen) {
+      try {
+        await docEl.requestFullscreen();
+      } catch {
+        // Fullscreen may be blocked by browser policy; ignore silently
+      }
+    } else if (docEl.webkitRequestFullscreen) {
+      try {
+        await docEl.webkitRequestFullscreen();
+      } catch {}
+    } else if (docEl.msRequestFullscreen) {
+      try {
+        await docEl.msRequestFullscreen();
+      } catch {}
+    }
+  }, []);
+
+  const handleStartExam = useCallback(async () => {
+    setShowStartOverlay(false);
+    setStartTime(new Date());
+    await enterFullscreen();
+  }, [enterFullscreen]);
+
+  // Warn / intercept attempts to leave the page while the exam is active
+  useEffect(() => {
+    if (!exam || submitting) return;
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+      return "";
+    };
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden && !showStartOverlay && !submitting) {
+        const isFullscreen =
+          Boolean(document.fullscreenElement) ||
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          Boolean((document as any).webkitFullscreenElement) ||
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          Boolean((document as any).msFullscreenElement);
+        if (!isFullscreen) {
+          setShowLeaveModal(true);
+        }
+      }
+    };
+
+    const handleFullscreenChange = () => {
+      const isFullscreen =
+        Boolean(document.fullscreenElement) ||
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        Boolean((document as any).webkitFullscreenElement) ||
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        Boolean((document as any).msFullscreenElement);
+      if (!isFullscreen && !showStartOverlay && !submitting) {
+        setShowLeaveModal(true);
+      }
+    };
+
+    const handlePopState = (e: PopStateEvent) => {
+      e.preventDefault();
+      setShowLeaveModal(true);
+      // Push the current state back so the back button does not navigate away
+      window.history.pushState(null, "", window.location.href);
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+    window.addEventListener("popstate", handlePopState);
+    // Prevent back navigation while in the exam
+    window.history.pushState(null, "", window.location.href);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, [exam, submitting, showStartOverlay]);
+
+  const questions = exam?.questions || [];
+  const currentQ = questions[currentIdx];
+
+  async function handleFinalSubmit(_autoTimedOut = false) {
+    void _autoTimedOut;
+    if (!exam || submitting) return;
+    if (submitLockRef.current || submitting) return;
+    submitLockRef.current = true;
+    setSubmitting(true);
+    setSubmitError(null);
+    setShowConfirmModal(false);
+    setShowLeaveModal(false);
+
+    // Calculate scores and counts (handles string or string[] correctAnswer)
+    let score = 0;
+    let correctCount = 0;
+    let incorrectCount = 0;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- computed for diagnostics; correctCount/incorrectCount are persisted per the ExamResult contract
+    let unansweredCount = 0;
+    const ansObj: Record<string, string> = {};
+    questions.forEach((q) => {
+      const studentAns = answers[q.id];
+      if (studentAns && studentAns.trim() !== "") {
+        ansObj[q.id] = studentAns;
+        const normalized = studentAns.trim().toLowerCase();
+        const correct = q.correctAnswer;
+        let matched = false;
+        if (Array.isArray(correct)) {
+          matched = correct.some((c) => (c || "").trim().toLowerCase() === normalized);
+        } else if (typeof correct === "string") {
+          matched = correct.trim().toLowerCase() === normalized;
+        }
+        if (matched) {
+          score += q.marks || 2;
+          correctCount += 1;
+        } else {
+          incorrectCount += 1;
+        }
+      } else {
+        unansweredCount += 1;
+      }
+    });
+
+    const percentage = Math.round((score / (exam.totalMarks || 100)) * 100);
+    const passed = percentage >= (exam.passingMarks || 40);
+
+    let currentStudId = "";
+    let currentStudEmail = "";
+    let currentStudName = candidateName || "";
+    try {
+      const savedRole = localStorage.getItem("lms_role");
+      const savedUser = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      if (savedRole === "admin" || savedRole === "trainer") {
+        currentStudId = "admin-1";
+        currentStudName = candidateName || "Trainer Preview Mode";
+      } else if (savedUser) {
+        const u = JSON.parse(savedUser);
+        if (u.id || u.uid) currentStudId = u.id || u.uid;
+        if (u.email) currentStudEmail = u.email;
+        if (u.name) currentStudName = u.name;
+      }
+    } catch {}
+
+    if (!currentStudId) {
+      setSubmitting(false);
+      setAccessDeniedReason("Authentication Required. Unable to identify the candidate. Please sign in again.");
+      return;
+    }
+
+    // Duplicate submission guard: re-query attempts before writing
+    try {
+      const recentAttempts = await getStudentAttemptsForCurrentUser(currentStudId, currentStudEmail);
+      const duplicate = recentAttempts.find(
+        (a) => a.examId === exam.id && a.status === "submitted"
+      );
+      if (duplicate) {
+        const dupPct = typeof duplicate.percentage === "number" ? duplicate.percentage : percentage;
+        const dupPassed = duplicate.passed ?? passed;
+        setAccessDeniedReason(
+          `Assessment Already Completed. You have already submitted this evaluation. Earned Score: ${dupPct}% (${dupPassed ? "PASSED" : "REVIEW"}).`
+        );
+        setSubmitting(false);
+        return;
+      }
+    } catch (dupErr) {
+      // If the duplicate-check query fails, log it but still allow submission rather than blocking the student
+      console.error("Duplicate-check query failed", dupErr);
+    }
+
+    try {
+      await submitExamAttempt({
+        examId: exam.id,
+        examTitle: exam.title,
+        studentId: currentStudId,
+        studentName: currentStudName,
+        answers: ansObj,
+        score,
+        totalMarks: exam.totalMarks,
+        percentage,
+        passed,
+        correctCount,
+        incorrectCount,
+        startTime: startTime ?? new Date(),
+        submittedAt: new Date(),
+        timeTakenMinutes: Math.ceil(((exam.duration * 60) - timeLeft) / 60),
+        status: "submitted",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      // Clear persisted in-progress state for this exam so it cannot be restored after submission
+      try {
+        if (typeof window !== "undefined") {
+          sessionStorage.removeItem(`lms_exam_${exam.id}`);
+        }
+      } catch {}
+      // Exit fullscreen only AFTER the write succeeded so the student cannot lose
+      // fullscreen on a failed submit and lose the ability to retry.
+      try {
+        if (document.fullscreenElement && document.exitFullscreen) {
+          await document.exitFullscreen();
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } else if ((document as any).webkitFullscreenElement && (document as any).webkitExitFullscreen) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await (document as any).webkitExitFullscreen();
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } else if ((document as any).msFullscreenElement && (document as any).msExitFullscreen) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await (document as any).msExitFullscreen();
+        }
+      } catch {}
+      const prefix = typeof window !== "undefined" && window.location.pathname.startsWith("/admin") ? "/admin" : "/student";
+      router.push(`${prefix}/results`);
+      // Intentionally leave submitting=true so the blocking overlay remains
+      // visible until the navigation away from this page completes.
+      return;
+    } catch (err) {
+      console.error("Submission failed", err);
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : "Unable to submit your assessment. Please try again.";
+      setSubmitError(`Submission failed: ${message}`);
+      // Keep the user on the exam page so they can retry; do not redirect
+      // and do not exit fullscreen. Clear the submission lock so a retry works.
+      setSubmitting(false);
+      submitLockRef.current = false;
+    }
+  }
+
   // Countdown timer
   useEffect(() => {
-    if (!exam || timeLeft <= 0 || submitting) return;
+    if (!exam || timeLeft <= 0 || submitting || showStartOverlay) return;
 
     const interval = setInterval(() => {
       setTimeLeft((prev) => {
@@ -120,10 +423,8 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [exam, timeLeft, submitting]);
-
-  const questions = exam?.questions || [];
-  const currentQ = questions[currentIdx];
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleFinalSubmit is a stable function declaration referencing current closures
+  }, [exam, timeLeft, submitting, showStartOverlay]);
 
   const updatePaletteState = (qId: string, state: QuestionPaletteState) => {
     setPaletteStates((prev) => ({ ...prev, [qId]: state }));
@@ -166,68 +467,6 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
       updatePaletteState(nextQ.id, "not_answered");
     }
     setCurrentIdx(targetIdx);
-  };
-
-  const handleFinalSubmit = async (autoTimedOut = false) => {
-    if (!exam || submitting) return;
-    setSubmitting(true);
-    setShowConfirmModal(false);
-
-    // Calculate scores
-    let score = 0;
-    const ansObj: Record<string, string> = {};
-    questions.forEach((q) => {
-      const studentAns = answers[q.id];
-      if (studentAns) {
-        ansObj[q.id] = studentAns;
-        if (studentAns.trim().toLowerCase() === (q.correctAnswer as string)?.trim().toLowerCase()) {
-          score += q.marks || 2;
-        }
-      }
-    });
-
-    const percentage = Math.round((score / (exam.totalMarks || 100)) * 100);
-    const passed = percentage >= (exam.passingMarks || 40);
-
-    let currentStudId = "stud-1";
-    let currentStudName = candidateName || "Student Candidate";
-    try {
-      const savedRole = localStorage.getItem("lms_role");
-      const savedUser = localStorage.getItem("lms_user") || localStorage.getItem("user");
-      if (savedRole === "admin" || savedRole === "trainer") {
-        currentStudId = "admin-1";
-        currentStudName = candidateName || "Trainer Preview Mode";
-      } else if (savedUser) {
-        const u = JSON.parse(savedUser);
-        if (u.id || u.uid) currentStudId = u.id || u.uid;
-        if (u.name) currentStudName = u.name;
-      }
-    } catch (_) {}
-
-    try {
-      await submitExamAttempt({
-        examId: exam.id,
-        studentId: currentStudId,
-        studentName: currentStudName,
-        answers: ansObj,
-        score,
-        totalMarks: exam.totalMarks,
-        percentage,
-        passed,
-        timeTakenMinutes: Math.ceil(((exam.duration * 60) - timeLeft) / 60),
-        status: "submitted",
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-      const prefix = typeof window !== "undefined" && window.location.pathname.startsWith("/admin") ? "/admin" : "/student";
-      router.push(`${prefix}/results`);
-    } catch (err) {
-      console.error("Submission failed", err);
-      const prefix = typeof window !== "undefined" && window.location.pathname.startsWith("/admin") ? "/admin" : "/student";
-      router.push(`${prefix}/results`);
-    } finally {
-      setSubmitting(false);
-    }
   };
 
   if (loading) {
@@ -302,7 +541,7 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
         <div className="flex items-center">
           <div>
             <h1 className="font-bold text-sm sm:text-base leading-tight text-foreground">{exam.title}</h1>
-            <p className="text-[11px] text-muted-foreground">Candidate: {candidateName} • Roll: ROLL-2026</p>
+            <p className="text-[11px] text-muted-foreground">Candidate: {candidateName || "Registered Student"}</p>
           </div>
         </div>
 
@@ -324,6 +563,24 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
           </Button>
         </div>
       </header>
+
+      {/* Submission Error Banner (dismissible, non-intrusive) */}
+      {submitError && (
+        <div className="bg-destructive/10 border-b border-destructive/30 px-4 sm:px-6 py-3">
+          <div className="max-w-7xl mx-auto flex items-start gap-3">
+            <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+            <p className="text-xs sm:text-sm text-foreground flex-1 leading-relaxed">{submitError}</p>
+            <button
+              type="button"
+              onClick={() => setSubmitError(null)}
+              className="shrink-0 text-muted-foreground hover:text-foreground transition-colors p-1 -m-1 rounded-md focus:outline-none focus:ring-2 focus:ring-destructive/40"
+              aria-label="Dismiss submission error"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main Examination Workspace */}
       <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 max-w-7xl w-full mx-auto p-4 sm:p-6 gap-6">
@@ -536,6 +793,138 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
                 >
                   {submitting ? "Submitting..." : "Yes, Submit Final Answers"}
                 </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Fullscreen / Exit Intercept Modal */}
+      <AnimatePresence>
+        {showLeaveModal && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-md rounded-2xl border border-destructive/30 bg-card p-6 shadow-2xl space-y-5"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-destructive/10 text-destructive flex items-center justify-center">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-foreground">Exit Full Screen Detected</h3>
+                  <p className="text-xs text-muted-foreground">The assessment must remain fullscreen.</p>
+                </div>
+              </div>
+
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Leaving the exam area pauses the assessment. You can re-enter fullscreen to continue, or end the exam now. If you choose to end, your current answers will be submitted.
+              </p>
+
+              <div className="flex flex-col sm:flex-row justify-end gap-2 pt-2">
+                <Button
+                  onClick={() => {
+                    setShowLeaveModal(false);
+                    enterFullscreen();
+                  }}
+                  variant="outline"
+                  className="border-border text-foreground font-semibold"
+                >
+                  Re-enter Full Screen
+                </Button>
+                <Button
+                  onClick={() => handleFinalSubmit(true)}
+                  disabled={submitting}
+                  className="bg-destructive hover:bg-destructive/90 text-white font-bold shadow-sm"
+                >
+                  {submitting ? "Ending Exam..." : "End Exam & Submit"}
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Start Exam Fullscreen Overlay */}
+      <AnimatePresence>
+        {showStartOverlay && !loading && exam && questions.length > 0 && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-[#05080F]/95 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              className="w-full max-w-lg rounded-3xl border border-emerald-500/30 bg-card p-8 shadow-2xl space-y-6 text-center"
+            >
+              <div className="w-16 h-16 rounded-2xl bg-emerald-500/15 text-emerald-500 flex items-center justify-center mx-auto">
+                <ShieldCheck className="w-8 h-8" />
+              </div>
+              <div className="space-y-2">
+                <h2 className="text-2xl font-bold text-foreground">Start Secure Assessment</h2>
+                <p className="text-sm text-muted-foreground">
+                  {exam.title}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-left text-xs">
+                <div className="p-3 rounded-xl bg-muted/40 border border-border">
+                  <span className="text-muted-foreground font-semibold">Questions</span>
+                  <p className="text-lg font-bold text-foreground">{questions.length}</p>
+                </div>
+                <div className="p-3 rounded-xl bg-muted/40 border border-border">
+                  <span className="text-muted-foreground font-semibold">Duration</span>
+                  <p className="text-lg font-bold text-foreground">{exam.duration || 30} mins</p>
+                </div>
+                <div className="p-3 rounded-xl bg-muted/40 border border-border">
+                  <span className="text-muted-foreground font-semibold">Total Marks</span>
+                  <p className="text-lg font-bold text-foreground">{exam.totalMarks || 100}</p>
+                </div>
+                <div className="p-3 rounded-xl bg-muted/40 border border-border">
+                  <span className="text-muted-foreground font-semibold">Passing Marks</span>
+                  <p className="text-lg font-bold text-foreground">{exam.passingMarks || 40}</p>
+                </div>
+              </div>
+
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                This assessment runs in fullscreen mode. Do not refresh, switch tabs, or press Escape. Doing so will trigger an exit confirmation and may end the exam.
+              </p>
+
+              <Button
+                onClick={handleStartExam}
+                className="w-full h-12 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-md"
+              >
+                Enter Full Screen & Begin Exam
+              </Button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Submission Loading Overlay - blocks all interaction until redirect completes */}
+      <AnimatePresence>
+        {submitting && (
+          <div
+            className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+            role="dialog"
+            aria-modal="true"
+            aria-live="assertive"
+            aria-busy="true"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-md rounded-2xl border border-border bg-card p-8 shadow-2xl space-y-5 text-center"
+            >
+              <div className="flex items-center justify-center">
+                <div className="w-14 h-14 rounded-full border-4 border-brand border-t-transparent animate-spin" />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-lg font-bold text-foreground">Submitting your assessment...</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Please wait. Do not close this window, refresh the page, or press the back button.
+                </p>
               </div>
             </motion.div>
           </div>

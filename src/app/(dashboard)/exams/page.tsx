@@ -1,34 +1,24 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import { ClipboardList, Plus, FileCode, Play, Eye, Edit3, Trash2, Target, Clock, CheckCircle2, AlertCircle, ArrowLeft, ArrowRight, Save, Sparkles, Send, Search, Calendar } from "lucide-react";
+import { ClipboardList, Plus, FileCode, Play, Eye, Edit3, Trash2, Target, Clock, CheckCircle2, ArrowLeft, ArrowRight, Sparkles, Send, Search, Calendar } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
-import { getAllExams, createExam, deleteExam, parseMarkdownTest, getAllStudents, getAllColleges, getAllBatches, getEffectiveExamStatus, getStudentAttempts, filterExamsForStudent } from "@/lib/services";
-import type { Exam, Question, QuestionType, Student, AssignmentTargetType, College, Batch, ExamAttempt } from "@/types";
+import { getAllExams, createExam, deleteExam, parseMarkdownTest, getAllStudents, getAllColleges, getAllBatches, getEffectiveExamStatus, getStudentAttempts, getStudentAttemptsForCurrentUser, filterExamsForStudent } from "@/lib/services";
+import { getCurrentUser } from "@/lib/utils/auth-session";
+import { uniqueOptions } from "@/lib/utils/array";
+import { toDate } from "@/lib/utils/date";
+import type { Exam, Question, QuestionType, Student, AssignmentTarget, College, Batch, ExamAttempt } from "@/types";
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const formatSafeDate = (val: any, options?: Intl.DateTimeFormatOptions): string => {
-  if (!val || val === "Invalid Date" || (typeof val === "string" && val.toLowerCase().includes("invalid"))) return "Live Active";
-  try {
-    let d: Date | null = null;
-    if (typeof val === "number") d = new Date(val);
-    else if (val?.seconds) d = new Date(val.seconds * 1000);
-    else if (val?._seconds) d = new Date(val._seconds * 1000);
-    else if (typeof val?.toDate === "function") d = val.toDate();
-    else if (typeof val === "string") d = new Date(val);
-    else if (val instanceof Date) d = val;
-    
-    if (!d || isNaN(d.getTime()) || d.toString() === "Invalid Date") {
-      return "Live Active";
-    }
-    return d.toLocaleDateString([], options || { month: "short", day: "numeric", year: "numeric" });
-  } catch {
-    return "Live Active";
-  }
+  const d = toDate(val);
+  if (!d) return "Live Active";
+  return d.toLocaleDateString([], options || { month: "short", day: "numeric", year: "numeric" });
 };
 
 export default function ExamsPage() {
@@ -39,10 +29,11 @@ export default function ExamsPage() {
   const [loading, setLoading] = useState(true);
   const [students, setStudents] = useState<Student[]>([]);
   const [attempts, setAttempts] = useState<ExamAttempt[]>([]);
-  const [studentUser, setStudentUser] = useState<any>(null);
+  const [studentUser, setStudentUser] = useState<Student | null>(null);
   const [userRole, setUserRole] = useState<string>("admin");
   const [studentTab, setStudentTab] = useState<"active" | "upcoming" | "pending" | "completed" | "expired">("pending");
   const [examSearch, setExamSearch] = useState("");
+  const [examSearchRaw, setExamSearchRaw] = useState("");
   const [examCollegeFilter, setExamCollegeFilter] = useState("ALL");
   const [examDeptFilter, setExamDeptFilter] = useState("ALL");
   const [examYearFilter, setExamYearFilter] = useState("ALL");
@@ -84,8 +75,8 @@ export default function ExamsPage() {
       const sName = (studentUser?.name || "").toLowerCase().trim();
 
       if (sId && (a.studentId === sId || a.studentId === sEmail)) return true;
-      if (sEmail && (a.studentId?.toLowerCase() === sEmail || (a as any).studentEmail?.toLowerCase() === sEmail)) return true;
-      if (sEmail && sEmail !== "student@lms.dev" && sName && a.studentName?.toLowerCase() === sName) return true;
+      if (sEmail && (a.studentId?.toLowerCase() === sEmail || (a as unknown as { studentEmail?: string }).studentEmail?.toLowerCase() === sEmail)) return true;
+      if (sEmail && sName && a.studentName?.toLowerCase() === sName) return true;
       return false;
     });
   };
@@ -93,18 +84,28 @@ export default function ExamsPage() {
   const fetchExams = async () => {
     setLoading(true);
     try {
-      const [exData, studData, colData, batData, attData] = await Promise.all([
+      const [exData, studData, colData, batData] = await Promise.all([
         getAllExams(),
         getAllStudents(),
         getAllColleges(),
         getAllBatches(),
-        getStudentAttempts(),
       ]);
       setExams(exData);
       setStudents(studData);
       setColleges(colData);
       setBatches(batData);
-      setAttempts(attData || []);
+
+      const role = (typeof window !== "undefined" && localStorage.getItem("lms_role") || "").toLowerCase();
+      if (role === "student") {
+        const me = await getCurrentUser();
+        const attData = me
+          ? await getStudentAttemptsForCurrentUser(me.uid, me.email)
+          : [];
+        setAttempts(attData);
+      } else {
+        const attData = await getStudentAttempts();
+        setAttempts(attData || []);
+      }
     } catch (err) {
       console.error("Failed to fetch exams", err);
     } finally {
@@ -113,6 +114,7 @@ export default function ExamsPage() {
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial data load from Firestore on mount
     fetchExams();
     try {
       const storedRole = localStorage.getItem("lms_role");
@@ -121,20 +123,110 @@ export default function ExamsPage() {
       }
       const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
       if (uStr) {
-        setStudentUser(JSON.parse(uStr));
+        setStudentUser(JSON.parse(uStr) as Student);
       } else {
-        setStudentUser({ id: "guest", name: "Student Candidate", email: "student@lms.dev", department: "Computer Science & Engineering", college: "St. Xavier's College of Engineering", batchIds: [] });
+        setStudentUser({ id: "", name: "", email: "", department: "", collegeId: "", collegeName: "", batchIds: [], semester: 0, section: "", rollNumber: "", createdAt: new Date(), updatedAt: new Date() } as Student);
       }
-    } catch (_) {}
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    } catch (_err) {
+    }
   }, []);
 
-  const availableCollegeNames = Array.from(
-    new Set([
-      "Global Institute",
-      ...colleges.map((c) => c.name),
-      ...students.map((s) => s.collegeName || s.collegeId),
-    ])
-  ).filter((n) => Boolean(n) && n !== "ALL" && n !== "GLOBAL");
+  // Compute the target details route for an exam card. Students always go
+  // to the student pre-exam page; trainers/admins respect the /admin prefix
+  // when present (otherwise they land on the dashboard route).
+  const getExamDetailsPath = (examId: string): string => {
+    if (userRole === "student") return `/student/exams/${examId}`;
+    if (typeof window !== "undefined" && window.location.pathname.startsWith("/admin")) {
+      return `/admin/exams/${examId}`;
+    }
+    return `/exams/${examId}`;
+  };
+
+  const availableCollegeOptions = useMemo(() => {
+    const options = new Map<string, string>();
+    options.set("ALL", "All Colleges");
+    colleges.forEach((c) => options.set(c.id, c.name));
+    if (colleges.length === 0) {
+      students.forEach((s) => {
+        const id = s.collegeId || s.collegeName;
+        if (id) options.set(id, s.collegeName || id);
+      });
+    }
+    // Only add GLOBAL if a college or student actually uses it
+    const hasGlobal = Array.from(options.keys()).some((id) => id.toUpperCase() === "GLOBAL")
+      || students.some((s) => s.collegeId?.toUpperCase() === "GLOBAL" || s.collegeName?.toUpperCase() === "GLOBAL INSTITUTE");
+    if (hasGlobal && !options.has("GLOBAL")) {
+      options.set("GLOBAL", "Global Institute");
+    }
+    return Array.from(options.entries()).map(([id, name]) => ({ id, name }));
+  }, [colleges, students]);
+
+  // Subset of exams/students that match the currently selected college filter.
+  // Used to cascade Department/Year/Section/Batch options.
+  const filteredByCollege = useMemo(() => {
+    if (examCollegeFilter === "ALL") {
+      return { exams, students };
+    }
+    const isCollegeScope = examCollegeFilter !== "GLOBAL";
+    return {
+      exams: exams.filter((exam) => {
+        const t = exam.targets?.[0];
+        if (isCollegeScope) {
+          return t?.collegeId === examCollegeFilter;
+        }
+        // GLOBAL: include only global/composite-scoped exams
+        return !t || t.ids?.includes("ALL") || t.ids?.includes("composite");
+      }),
+      students: isCollegeScope
+        ? students.filter((s) => s.collegeId === examCollegeFilter)
+        : [],
+    };
+  }, [exams, students, examCollegeFilter]);
+
+  const departmentsList = useMemo(() => {
+    const source =
+      examCollegeFilter === "ALL"
+        ? [
+            ...colleges.flatMap((c) => c.departments || []),
+            ...filteredByCollege.students.map((s) => s.department),
+          ]
+        : filteredByCollege.students.map((s) => s.department);
+    return uniqueOptions(source, (d) => String(d).toLowerCase());
+  }, [colleges, filteredByCollege.students, examCollegeFilter]);
+
+  const yearsList = useMemo(() => {
+    const base = filteredByCollege.students.map((s) => s.academicYear);
+    if (examCollegeFilter === "ALL") base.unshift("1st Year", "2nd Year", "3rd Year", "4th Year");
+    return uniqueOptions(base.filter(Boolean), (y) => String(y).toLowerCase());
+  }, [filteredByCollege.students, examCollegeFilter]);
+
+  const sectionsList = useMemo(() => {
+    const base = filteredByCollege.students.map((s) => s.section);
+    if (examCollegeFilter === "ALL") base.unshift("A", "B", "C", "D");
+    return uniqueOptions(base.filter(Boolean), (sec) => String(sec).toLowerCase());
+  }, [filteredByCollege.students, examCollegeFilter]);
+
+  const batchesList = useMemo(() => {
+    return uniqueOptions(filteredByCollege.students.flatMap((s) => s.batchIds || []));
+  }, [filteredByCollege.students]);
+
+  // Reset child filters when they are no longer valid for the selected college.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- cascading reset: child filters must reset when the parent filter narrows the available options
+    if (examDeptFilter !== "ALL" && !departmentsList.includes(examDeptFilter)) setExamDeptFilter("ALL");
+    if (examYearFilter !== "ALL" && !yearsList.includes(examYearFilter)) setExamYearFilter("ALL");
+    if (examSectionFilter !== "ALL" && !sectionsList.includes(examSectionFilter)) setExamSectionFilter("ALL");
+    if (examBatchFilter !== "ALL" && !batchesList.includes(examBatchFilter)) setExamBatchFilter("ALL");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- cascading reset: child filters must reset when parent filter narrows; including selected*Filter values would cause a loop
+  }, [examCollegeFilter, departmentsList, yearsList, sectionsList, batchesList]);
+
+  // Debounce the raw search input into the filter state (300ms) so heavy filter
+  // recomputations do not run on every keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => setExamSearch(examSearchRaw), 300);
+    return () => clearTimeout(t);
+  }, [examSearchRaw]);
 
   const handleParseMarkdown = () => {
     const parsed = parseMarkdownTest(mdText);
@@ -164,14 +256,18 @@ export default function ExamsPage() {
   const handlePublish = async () => {
     if (!title || questions.length === 0) return;
     const totalMarks = questions.reduce((acc, q) => acc + (q.marks || 2), 0);
-    const compositeTarget = {
-      type: "composite" as const,
+    const selectedCollege = availableCollegeOptions.find((c) => c.id === targetCollege);
+    const selectedBatch = batches.find((b) => b.id === targetBatch);
+    const compositeTarget: AssignmentTarget = {
+      type: "composite",
       ids: ["composite"],
-      collegeId: targetCollege,
-      department: targetDepartment,
-      academicYear: targetYear,
-      section: targetSection,
-      batchId: targetBatch,
+      collegeId: targetCollege === "ALL" ? "" : targetCollege,
+      collegeName: selectedCollege?.name || (targetCollege === "ALL" ? "" : targetCollege),
+      department: targetDepartment === "ALL" ? "" : targetDepartment,
+      academicYear: targetYear === "ALL" ? "" : targetYear,
+      section: targetSection === "ALL" ? "" : targetSection,
+      batchId: targetBatch === "ALL" ? "" : targetBatch,
+      batchName: selectedBatch?.name || (targetBatch === "ALL" ? "" : targetBatch),
     };
 
     const startDt = scheduleMode === "scheduled" && startTimeStr ? new Date(startTimeStr) : null;
@@ -262,7 +358,7 @@ export default function ExamsPage() {
       {userRole === "student" && (
         <div className="flex items-center gap-2 border-b border-border pb-3 overflow-x-auto">
           {(["upcoming", "active", "pending", "completed", "expired"] as const).map((tab) => {
-            const count = filterExamsForStudent(exams, studentUser).filter((e) => {
+            const count = (studentUser ? filterExamsForStudent(exams, studentUser) : []).filter((e) => {
               const eff = getEffectiveExamStatus(e);
               const att = getStudentAttemptForExam(e.id);
               if (tab === "upcoming") return eff === "scheduled";
@@ -297,8 +393,8 @@ export default function ExamsPage() {
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <input
                 type="text"
-                value={examSearch}
-                onChange={(e) => setExamSearch(e.target.value)}
+                value={examSearchRaw}
+                onChange={(e) => setExamSearchRaw(e.target.value)}
                 placeholder="Search assessments by title or description..."
                 className="w-full h-10 pl-10 pr-4 rounded-xl bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand/50 shadow-sm"
               />
@@ -307,11 +403,19 @@ export default function ExamsPage() {
               <div className="text-xs font-semibold text-muted-foreground">
                 Showing <span className="text-foreground font-extrabold">
                   {exams.filter(exam => {
-                    if (examCollegeFilter !== "ALL" && !exam.targets?.[0]?.collegeId?.includes(examCollegeFilter) && !exam.targets?.[0]?.ids?.includes(examCollegeFilter)) return false;
-                    if (examDeptFilter !== "ALL" && exam.targets?.[0]?.department !== examDeptFilter) return false;
-                    if (examYearFilter !== "ALL" && exam.targets?.[0]?.academicYear !== examYearFilter) return false;
-                    if (examSectionFilter !== "ALL" && exam.targets?.[0]?.section !== examSectionFilter) return false;
-                    if (examBatchFilter !== "ALL" && exam.targets?.[0]?.batchId !== examBatchFilter) return false;
+                    const t = exam.targets?.[0];
+                    if (examCollegeFilter !== "ALL") {
+                      if (examCollegeFilter === "GLOBAL") {
+                        const isGlobal = !t || t.ids?.includes("ALL") || t.ids?.includes("composite");
+                        if (!isGlobal) return false;
+                      } else if (t?.collegeId !== examCollegeFilter) {
+                        return false;
+                      }
+                    }
+                    if (examDeptFilter !== "ALL" && t?.department !== examDeptFilter) return false;
+                    if (examYearFilter !== "ALL" && t?.academicYear !== examYearFilter) return false;
+                    if (examSectionFilter !== "ALL" && t?.section !== examSectionFilter) return false;
+                    if (examBatchFilter !== "ALL" && t?.batchId !== examBatchFilter) return false;
                     return true;
                   }).length}
                 </span> of {exams.length} Assessments
@@ -328,9 +432,8 @@ export default function ExamsPage() {
                   onChange={(e) => setExamCollegeFilter(e.target.value)}
                   className="w-full h-9 px-2.5 rounded-lg border border-border bg-background text-foreground text-xs font-semibold"
                 >
-                  <option value="ALL">All Colleges</option>
-                  {availableCollegeNames.map((colName) => (
-                    <option key={colName} value={colName}>{colName}</option>
+                  {availableCollegeOptions.map((col) => (
+                    <option key={col.id} value={col.id}>{col.name}</option>
                   ))}
                 </select>
               </div>
@@ -343,10 +446,7 @@ export default function ExamsPage() {
                   className="w-full h-9 px-2.5 rounded-lg border border-border bg-background text-foreground text-xs font-semibold"
                 >
                   <option value="ALL">All Departments</option>
-                  {Array.from(new Set([
-                    ...colleges.flatMap((c) => c.departments || []),
-                    ...students.map((s) => s.department),
-                  ])).filter(Boolean).map((d) => (
+                  {departmentsList.map((d) => (
                     <option key={d} value={d}>{d}</option>
                   ))}
                 </select>
@@ -360,7 +460,7 @@ export default function ExamsPage() {
                   className="w-full h-9 px-2.5 rounded-lg border border-border bg-background text-foreground text-xs font-semibold"
                 >
                   <option value="ALL">All Years</option>
-                  {Array.from(new Set(["1st Year", "2nd Year", "3rd Year", "4th Year", ...students.map((s) => s.academicYear).filter(Boolean)])).map((y) => (
+                  {yearsList.map((y) => (
                     <option key={y} value={y}>{y}</option>
                   ))}
                 </select>
@@ -374,7 +474,7 @@ export default function ExamsPage() {
                   className="w-full h-9 px-2.5 rounded-lg border border-border bg-background text-foreground text-xs font-semibold"
                 >
                   <option value="ALL">All Sections</option>
-                  {Array.from(new Set(students.map((s) => s.section))).filter(Boolean).map((sec) => (
+                  {sectionsList.map((sec) => (
                     <option key={sec} value={sec}>{["A", "B", "C", "D"].includes(sec) ? `Section ${sec}` : sec}</option>
                   ))}
                 </select>
@@ -388,8 +488,8 @@ export default function ExamsPage() {
                   className="w-full h-9 px-2.5 rounded-lg border border-border bg-background text-foreground text-xs font-semibold"
                 >
                   <option value="ALL">All Batches</option>
-                  {batches.map((b) => (
-                    <option key={b.id} value={b.name}>{b.name}</option>
+                  {batches.filter((b) => batchesList.includes(b.id)).map((b) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
                   ))}
                 </select>
               </div>
@@ -422,9 +522,10 @@ export default function ExamsPage() {
               const q = examSearch.toLowerCase();
               const matchesSearch = !q || exam.title.toLowerCase().includes(q) || (exam.description || "").toLowerCase().includes(q);
               if (!matchesSearch) return false;
+              if (exam.deletedAt) return false;
 
               if (userRole === "student") {
-                if (filterExamsForStudent([exam], studentUser).length === 0) return false;
+                if (!studentUser || filterExamsForStudent([exam], studentUser).length === 0) return false;
                 const eff = getEffectiveExamStatus(exam);
                 const att = getStudentAttemptForExam(exam.id);
                 if (studentTab === "upcoming") return eff === "scheduled";
@@ -434,7 +535,14 @@ export default function ExamsPage() {
                 if (studentTab === "expired") return (eff === "completed" || eff === "cancelled") && !att;
               } else {
                 const t = exam.targets?.[0];
-                if (examCollegeFilter !== "ALL" && t?.collegeId !== examCollegeFilter && !t?.ids?.includes(examCollegeFilter) && !t?.ids?.includes("ALL")) return false;
+                if (examCollegeFilter !== "ALL") {
+                  if (examCollegeFilter === "GLOBAL") {
+                    const isGlobal = !t || t.ids?.includes("ALL") || t.ids?.includes("composite");
+                    if (!isGlobal) return false;
+                  } else if (t?.collegeId !== examCollegeFilter) {
+                    return false;
+                  }
+                }
                 if (examDeptFilter !== "ALL" && t?.department !== examDeptFilter) return false;
                 if (examYearFilter !== "ALL" && t?.academicYear !== examYearFilter) return false;
                 if (examSectionFilter !== "ALL" && t?.section !== examSectionFilter) return false;
@@ -451,11 +559,11 @@ export default function ExamsPage() {
                 if (!t) return "All Students (Global)";
                 if (t.type === "composite") {
                   const parts = [
-                    t.collegeId && t.collegeId !== "ALL" ? t.collegeId : null,
+                    t.collegeId && t.collegeId !== "ALL" ? (t.collegeName || t.collegeId) : null,
                     t.department && t.department !== "ALL" ? t.department : null,
                     t.academicYear && t.academicYear !== "ALL" ? `Year ${t.academicYear}` : null,
                     t.section && t.section !== "ALL" ? `Sec ${t.section}` : null,
-                    t.batchId && t.batchId !== "ALL" ? t.batchId : null,
+                    t.batchId && t.batchId !== "ALL" ? (t.batchName || t.batchId) : null,
                   ].filter(Boolean);
                   return parts.length > 0 ? parts.join(" → ") : "All Students (Global)";
                 }
@@ -496,7 +604,10 @@ export default function ExamsPage() {
                       </h3>
                       <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed font-normal">
                         {exam.startTime
-                          ? `Active window: ${new Date(exam.startTime).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}`
+                          ? `Active window: ${(() => {
+                              const d = toDate(exam.startTime);
+                              return d ? d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "Live Active";
+                            })()}`
                           : exam.description || "Assessment ready for students."}
                       </p>
                     </div>
@@ -558,13 +669,25 @@ export default function ExamsPage() {
                             </span>
                           )}
                         </div>
-                        <button
-                          onClick={() => handleDelete(exam.id)}
-                          className="p-2 rounded-xl bg-destructive/10 hover:bg-destructive text-destructive hover:text-white transition-all duration-200"
-                          title="Delete Assessment"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <Button
+                            onClick={() => router.push(getExamDetailsPath(exam.id))}
+                            variant="outline"
+                            size="sm"
+                            className="h-8 px-3 text-xs font-bold border-brand/40 text-brand hover:bg-brand/10 flex items-center gap-1.5"
+                            title="View Assessment Details"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>Details</span>
+                          </Button>
+                          <button
+                            onClick={() => handleDelete(exam.id)}
+                            className="p-2 rounded-xl bg-destructive/10 hover:bg-destructive text-destructive hover:text-white transition-all duration-200"
+                            title="Delete Assessment"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ) : (
@@ -607,7 +730,7 @@ export default function ExamsPage() {
                           className="w-full h-11 rounded-2xl border-amber-500/30 text-amber-600 dark:text-amber-400 font-bold flex items-center justify-center gap-2 opacity-80"
                         >
                           <Clock className="w-4 h-4" />
-                          <span>Scheduled ({exam.startTime ? new Date(exam.startTime).toLocaleDateString() : "Later"})</span>
+                          <span>Scheduled ({exam.startTime ? (() => { const d = toDate(exam.startTime); return d ? d.toLocaleDateString() : "Later"; })() : "Later"})</span>
                         </Button>
                       ) : (
                         <Button
@@ -618,6 +741,16 @@ export default function ExamsPage() {
                           <span>Assessment Closed</span>
                         </Button>
                       )}
+                      <Button
+                        onClick={() => router.push(getExamDetailsPath(exam.id))}
+                        variant="outline"
+                        size="sm"
+                        className="w-full h-9 rounded-xl border-brand/40 text-brand hover:bg-brand/10 text-xs font-bold flex items-center justify-center gap-1.5"
+                        title="View Assessment Details"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>View Details</span>
+                      </Button>
                     </div>
                   )}
                 </motion.div>
@@ -791,7 +924,7 @@ export default function ExamsPage() {
                             <select
                               value={q.type || "mcq"}
                               onChange={(e) => {
-                                const newType = e.target.value as any;
+                                const newType = e.target.value as QuestionType;
                                 setQuestions(questions.map((item, i) => (i === idx ? {
                                   ...item,
                                   type: newType,
@@ -901,10 +1034,9 @@ export default function ExamsPage() {
                       onChange={(e) => setTargetCollege(e.target.value)}
                       className="w-full h-9 px-2.5 rounded-lg border border-border bg-background text-foreground text-xs font-semibold"
                     >
-                      <option value="ALL">All Colleges</option>
-                      {availableCollegeNames.map((colName) => (
-                        <option key={colName} value={colName}>
-                          {colName}
+                      {availableCollegeOptions.map((col) => (
+                        <option key={col.id} value={col.id}>
+                          {col.name}
                         </option>
                       ))}
                     </select>
@@ -964,7 +1096,7 @@ export default function ExamsPage() {
                     >
                       <option value="ALL">All Batches</option>
                       {batches.map((b) => (
-                        <option key={b.id} value={b.name}>{b.name}</option>
+                        <option key={b.id} value={b.id}>{b.name}</option>
                       ))}
                     </select>
                   </div>
@@ -975,7 +1107,11 @@ export default function ExamsPage() {
                   <CheckCircle2 className="w-3.5 h-3.5 text-brand" />
                   <span className="text-muted-foreground">Targeting:</span>
                   <span className="font-bold text-foreground">
-                    {[targetCollege !== "ALL" ? targetCollege : null, targetDepartment !== "ALL" ? targetDepartment : null, targetYear !== "ALL" ? targetYear : null, targetSection !== "ALL" ? `Sec ${targetSection}` : null, targetBatch !== "ALL" ? targetBatch : null].filter(Boolean).join(" → ") || "All Students (Global)"}
+                    {(() => {
+                      const collegeLabel = targetCollege !== "ALL" ? (availableCollegeOptions.find((c) => c.id === targetCollege)?.name || targetCollege) : null;
+                      const batchLabel = targetBatch !== "ALL" ? (batches.find((b) => b.id === targetBatch)?.name || targetBatch) : null;
+                      return [collegeLabel, targetDepartment !== "ALL" ? targetDepartment : null, targetYear !== "ALL" ? targetYear : null, targetSection !== "ALL" ? `Sec ${targetSection}` : null, batchLabel].filter(Boolean).join(" → ") || "All Students (Global)";
+                    })()}
                   </span>
                 </div>
               </div>

@@ -40,4 +40,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-.vercel
+# local runtime / agent working files
+.kimchi/
+dev-server.log
+dev-server.pid

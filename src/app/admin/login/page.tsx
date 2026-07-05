@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { GraduationCap, ArrowRight, Eye, EyeOff, ShieldCheck, Check, AlertCircle, Sparkles } from "lucide-react";
 import Link from "next/link";
@@ -11,7 +10,6 @@ import { trainerLogin } from "@/lib/services/auth-service";
 import { setAuthSession } from "@/lib/utils/auth-session";
 
 export default function AdminLoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -33,41 +31,21 @@ export default function AdminLoginPage() {
     setError(null);
     const cleanEmail = email.trim().toLowerCase();
 
-    let reg: any = {};
-    try {
-      reg = JSON.parse(localStorage.getItem("lms_admin_registry") || "{}");
-    } catch {}
-
     try {
       const res = await trainerLogin(cleanEmail, password);
       const actualRole = res.profile?.role === "admin" ? "admin" : "trainer";
       const uObj = {
         id: res.user?.uid || res.profile?.id || `${actualRole}-${Date.now()}`,
-        name: res.profile?.displayName || res.user?.displayName || reg[cleanEmail]?.name || (actualRole === "admin" ? "Chief Assessment Officer" : "Lead Trainer Faculty"),
-        displayName: res.profile?.displayName || res.user?.displayName || reg[cleanEmail]?.name || (actualRole === "admin" ? "Chief Assessment Officer" : "Lead Trainer Faculty"),
+        name: res.profile?.displayName || res.user?.displayName || (actualRole === "admin" ? "Chief Assessment Officer" : "Lead Trainer Faculty"),
+        displayName: res.profile?.displayName || res.user?.displayName || (actualRole === "admin" ? "Chief Assessment Officer" : "Lead Trainer Faculty"),
         email: cleanEmail,
         role: actualRole,
-        department: reg[cleanEmail]?.department || "Faculty Operations"
+        department: ((res.profile as { department?: string } | null)?.department) || "Faculty Operations"
       };
-      setAuthSession(uObj, actualRole as "trainer" | "admin");
+      await setAuthSession(uObj, actualRole as "trainer" | "admin");
       window.location.assign("/admin");
     } catch (err: unknown) {
-      if ((cleanEmail === "trainer@lms.dev" && password === "admin123456") || (reg[cleanEmail] && reg[cleanEmail].password === password)) {
-        const accInfo = reg[cleanEmail] || { name: "Lead Trainer Faculty", role: "trainer", department: "Faculty Operations" };
-        const actualRole = accInfo.role === "admin" ? "admin" : "trainer";
-        const uObj = {
-          id: `admin-${Date.now()}`,
-          name: accInfo.name || "Faculty Admin",
-          displayName: accInfo.name || "Faculty Admin",
-          email: cleanEmail,
-          role: actualRole,
-          department: accInfo.department || "Faculty Operations"
-        };
-        setAuthSession(uObj, actualRole as "trainer" | "admin");
-        window.location.assign("/admin");
-      } else {
-        setError(err instanceof Error ? err.message : "Incorrect email or password.");
-      }
+      setError(err instanceof Error ? err.message : "Incorrect email or password.");
     } finally {
       setLoading(false);
     }
@@ -78,11 +56,11 @@ export default function AdminLoginPage() {
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-      className="double-bezel-outer p-2 sm:p-3"
+      className="double-bezel-outer w-full p-2 sm:p-3"
     >
-      <div className="double-bezel-inner grid grid-cols-1 lg:grid-cols-12 overflow-hidden min-h-[640px]">
+      <div className="double-bezel-inner grid grid-cols-1 lg:grid-cols-12 overflow-hidden min-h-[480px] sm:min-h-[560px] lg:min-h-[640px]">
         {/* Left Canvas - Purple / Red Theme */}
-        <div className="lg:col-span-6 relative p-8 sm:p-12 flex flex-col justify-between overflow-hidden bg-[#0A050F] text-white">
+        <div className="lg:col-span-6 relative p-5 sm:p-8 lg:p-12 flex flex-col justify-between overflow-hidden bg-[#0A050F] text-white min-h-[160px] sm:min-h-[200px]">
           <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
             <div className="absolute -top-24 -left-24 w-96 h-96 bg-gradient-to-br from-purple-600/40 via-rose-500/25 to-transparent rounded-full blur-3xl animate-pulse" />
             <div className="absolute top-1/3 -right-20 w-80 h-80 bg-gradient-to-tr from-fuchsia-600/30 via-red-500/20 to-transparent rounded-full blur-2xl" />
@@ -97,15 +75,15 @@ export default function AdminLoginPage() {
             <div className="h-px w-12 bg-gradient-to-r from-purple-500/50 via-rose-500/50 to-transparent" />
           </div>
 
-          <div className="relative z-10 my-auto py-12 space-y-6 max-w-md">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.07] border border-white/10 backdrop-blur-md text-xs font-medium text-purple-300">
-              <Sparkles className="w-3.5 h-3.5 text-rose-400" />
+          <div className="relative z-10 my-auto py-6 sm:py-10 lg:py-12 space-y-4 sm:space-y-6 max-w-md">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.07] border border-white/10 backdrop-blur-md text-[10px] sm:text-xs font-medium text-purple-300">
+              <Sparkles className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-rose-400" />
               <span>Strict Governance Portal</span>
             </div>
-            <h1 className="text-4xl sm:text-5xl font-bold tracking-tight leading-[1.1] font-sans text-transparent bg-clip-text bg-gradient-to-b from-white via-white to-slate-300">
+            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight leading-[1.1] font-sans text-transparent bg-clip-text bg-gradient-to-b from-white via-white to-slate-300">
               Manage Academic Excellence
             </h1>
-            <p className="text-sm sm:text-base text-slate-300/80 leading-relaxed font-light">
+            <p className="text-xs sm:text-sm lg:text-base text-slate-300/80 leading-relaxed font-light">
               Full control over colleges, student CSV provisioning, dynamic Markdown examinations, hierarchical resource distribution, and live assessments.
             </p>
           </div>
@@ -117,18 +95,18 @@ export default function AdminLoginPage() {
         </div>
 
         {/* Right Form */}
-        <div className="lg:col-span-6 p-8 sm:p-12 lg:p-14 flex flex-col justify-between bg-card/40 backdrop-blur-xl">
-          <div className="flex items-center justify-between">
-            <Link href="/" className="flex items-center gap-2.5 group">
-              <div className="w-9 h-9 rounded-md bg-gradient-to-r from-purple-600 to-rose-600 flex items-center justify-center group-hover:scale-105 transition-transform shadow-md">
-                <GraduationCap className="w-5 h-5 text-white" />
+        <div className="lg:col-span-6 p-5 sm:p-8 lg:p-14 flex flex-col justify-between bg-card/40 backdrop-blur-xl">
+          <div className="flex items-center justify-between gap-2">
+            <Link href="/" className="flex items-center gap-2 group">
+              <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-md bg-gradient-to-r from-purple-600 to-rose-600 flex items-center justify-center group-hover:scale-105 transition-transform shadow-md">
+                <GraduationCap className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
               </div>
-              <span className="font-bold text-lg text-foreground tracking-tight">{APP_NAME} Admin</span>
+              <span className="font-bold text-base sm:text-lg text-foreground tracking-tight">{APP_NAME} Admin</span>
             </Link>
-            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20">Trainer Portal</span>
+            <span className="text-[10px] sm:text-xs font-semibold px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20">Trainer Portal</span>
           </div>
 
-          <div className="my-auto py-8 max-w-sm w-full mx-auto space-y-6">
+          <div className="my-auto py-6 sm:py-8 w-full max-w-sm sm:max-w-md mx-auto space-y-5 sm:space-y-6">
             <div className="space-y-1.5">
               <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">Admin Login</h2>
               <p className="text-sm text-muted-foreground">Sign in with authorized trainer or admin credentials</p>
@@ -143,7 +121,7 @@ export default function AdminLoginPage() {
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-foreground/80 uppercase tracking-wider">
+                <label className="text-[10px] sm:text-xs font-semibold text-foreground/80 uppercase tracking-wider">
                   Admin / Trainer Email
                 </label>
                 <input
@@ -151,13 +129,13 @@ export default function AdminLoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  className="w-full h-11 px-4 rounded-xl border border-border bg-card/50 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                  className="w-full h-10 sm:h-11 min-h-[44px] px-3 sm:px-4 rounded-xl border border-border bg-card/50 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-purple-500/50"
                   placeholder="Enter admin or trainer email"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-foreground/80 uppercase tracking-wider">
+                <label className="text-[10px] sm:text-xs font-semibold text-foreground/80 uppercase tracking-wider">
                   Password
                 </label>
                 <div className="relative">
@@ -166,7 +144,7 @@ export default function AdminLoginPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
-                    className="w-full h-11 pl-4 pr-11 rounded-xl border border-border bg-card/50 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                    className="w-full h-10 sm:h-11 min-h-[44px] pl-3 sm:pl-4 pr-11 rounded-xl border border-border bg-card/50 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-purple-500/50"
                     placeholder="••••••••"
                   />
                   <button
@@ -203,7 +181,7 @@ export default function AdminLoginPage() {
                 <Button
                   type="submit"
                   disabled={loading}
-                  className="w-full h-11 rounded-xl bg-gradient-to-r from-purple-600 to-rose-600 hover:from-purple-700 hover:to-rose-700 text-white font-medium transition-all shadow-md flex items-center justify-center gap-2 group"
+                  className="w-full h-10 sm:h-11 min-h-[44px] rounded-xl bg-gradient-to-r from-purple-600 to-rose-600 hover:from-purple-700 hover:to-rose-700 text-white font-medium transition-all shadow-md flex items-center justify-center gap-2 group text-sm sm:text-base"
                 >
                   {loading ? (
                     <span className="flex items-center gap-2">
@@ -223,6 +201,7 @@ export default function AdminLoginPage() {
                   )}
                 </Button>
               </div>
+
             </form>
           </div>
 

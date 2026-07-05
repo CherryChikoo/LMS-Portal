@@ -125,7 +125,7 @@ export default function RegisterPage() {
     try {
       await completeStudentAcademicDetails(registeredUid, {
         fullName: fullName.trim(),
-        collegeName: collegeName.trim(),
+        collegeName: collegeName.trim().toLowerCase(),
         department: department.trim(),
         section: section.trim(),
       });
@@ -135,7 +135,7 @@ export default function RegisterPage() {
         email: email.trim(),
         role: "student",
         department: department.trim(),
-        collegeName: collegeName.trim(),
+        collegeName: collegeName.trim().toLowerCase(),
         section: section.trim() || "A"
       };
       localStorage.setItem("lms_role", "student");
@@ -447,7 +447,7 @@ export default function RegisterPage() {
                     value={fullName}
                     onBlur={() => handleBlur("name")}
                     onChange={(e) => setFullName(e.target.value)}
-                    placeholder="e.g. Jason Ranti"
+                    placeholder="e.g. John Doe"
                     className={`w-full h-10 px-3 rounded-xl border bg-background/80 text-sm text-foreground focus:outline-none transition-all ${
                       touched.name && !nameValid
                         ? "border-destructive ring-1 ring-destructive/40"

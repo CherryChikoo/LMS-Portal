@@ -1,4 +1,3 @@
-import DashboardLayout from "@/app/(dashboard)/layout";
 import ExamsPage from "@/app/(dashboard)/exams/page";
 import TakeExamPage from "@/app/exams/[id]/take/page";
 import ResultsPage from "@/app/(dashboard)/results/page";
@@ -53,5 +52,5 @@ export default async function StudentCatchAllPage({ params }: { params: Promise<
       break;
   }
 
-  return <DashboardLayout>{content}</DashboardLayout>;
+  return content;
 }

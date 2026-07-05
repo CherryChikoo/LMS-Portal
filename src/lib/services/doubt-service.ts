@@ -32,7 +32,7 @@ export async function replyToDoubt(id: string, reply: any, repliedBy?: string): 
 
   const doubt = await getDoubtById(id);
   const currentReplies = doubt?.replies || [];
-  const newReply = typeof reply === "object" ? reply : { id: `rep-${Date.now()}`, authorId: "train-1", authorName: author, role: "trainer", text: replyText, createdAt: new Date() };
+  const newReply = typeof reply === "object" ? reply : { id: `rep-${Date.now()}`, authorId: "", authorName: author, role: "trainer", text: replyText, createdAt: new Date() };
 
   return updateDocument<DoubtDiscussion>(COLLECTION_NAME, id, {
     reply: replyText,

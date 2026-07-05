@@ -1,19 +1,34 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useEffect, useMemo, useState, use } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
-import { ArrowLeft, Building2, FolderTree, Users, Plus, Trash2, Search, Layers, GraduationCap, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Building2, FolderTree, Users, Plus, Trash2, Search, CheckCircle2, Pencil } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
-import { getCollegeById, updateCollege, getAllStudents, createStudentProfile, getAllBatches, deleteStudentProfile } from "@/lib/services";
+import { uniqueOptions } from "@/lib/utils/array";
+import { getCollegeById, updateCollege, getAllStudents, createStudentProfile, getAllBatches, deleteStudentProfile, getStudentByEmail, getStudentsByCollege, updateStudentProfile } from "@/lib/services";
+import { getDocuments, where } from "@/lib/firebase/firestore";
 import type { College, Student, Batch } from "@/types";
 
 interface PageProps {
   params: Promise<{ id: string }>;
+}
+
+type MaybeTimestamp = Date | { toMillis: () => number } | { seconds: number } | string | number | null | undefined;
+
+function getCreatedTime(date: MaybeTimestamp) {
+  if (!date) return 0;
+  if (typeof date === "object" && "toMillis" in date && typeof (date as { toMillis: () => number }).toMillis === "function") {
+    return (date as { toMillis: () => number }).toMillis();
+  }
+  if (typeof date === "object" && "seconds" in date && typeof (date as { seconds: number }).seconds === "number") {
+    return (date as { seconds: number }).seconds * 1000;
+  }
+  return new Date(date as string | number | Date).getTime() || 0;
 }
 
 export default function CollegeDetailPage({ params }: PageProps) {
@@ -48,9 +63,16 @@ function getYearBadgeStyle(year?: string) {
   const [newDeptName, setNewDeptName] = useState("");
   const [addingDept, setAddingDept] = useState(false);
 
+  // Rename Department Modal
+  const [editingDept, setEditingDept] = useState<string | null>(null);
+  const [editDeptName, setEditDeptName] = useState("");
+  const [renamingDept, setRenamingDept] = useState(false);
+  const [renameDeptError, setRenameDeptError] = useState<string | null>(null);
+
   // Enroll Student Modal
   const [showEnrollModal, setShowEnrollModal] = useState(false);
   const [enrolling, setEnrolling] = useState(false);
+  const [enrollError, setEnrollError] = useState<string | null>(null);
   const [studName, setStudName] = useState("");
   const [studEmail, setStudEmail] = useState("");
   const [studDept, setStudDept] = useState("");
@@ -59,7 +81,62 @@ function getYearBadgeStyle(year?: string) {
   const [customStudSection, setCustomStudSection] = useState("");
   const [studBatch, setStudBatch] = useState("General Cohort");
 
-  const fetchData = async () => {
+  useEffect(() => {
+    const loadCollege = async () => {
+      setLoading(true);
+      try {
+        const decodedId = decodeURIComponent(collegeId);
+        const [colDataRaw, allStuds, allBatches] = await Promise.all([
+          getCollegeById(collegeId),
+          getAllStudents(),
+          getAllBatches(),
+        ]);
+
+        let colData = colDataRaw;
+        if (!colData) {
+          const extStuds = allStuds.filter(
+            (s) => s.collegeId === decodedId || s.collegeName?.toLowerCase() === decodedId.toLowerCase()
+          );
+          if (extStuds.length > 0) {
+            const extDepts = Array.from(new Set(extStuds.map((s) => s.department).filter(Boolean)));
+            colData = {
+              id: decodedId,
+              name: decodedId,
+              code: decodedId.slice(0, 6).toUpperCase(),
+              departments: extDepts.length > 0 ? extDepts : ["General"],
+              studentCount: extStuds.length,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            } as College;
+          }
+        }
+
+        setCollege(colData);
+        setBatches(allBatches);
+        if (colData) {
+          // Filter students belonging to this college
+          const colStuds = allStuds.filter(
+            (s) =>
+              s.collegeId === collegeId ||
+              s.collegeId === decodedId ||
+              s.collegeName?.toLowerCase() === colData.name.toLowerCase()
+          );
+          setStudents(colStuds);
+          if (!studDept && colData.departments && colData.departments.length > 0) {
+            setStudDept(colData.departments[0]);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load college details", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadCollege();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- studDept is set conditionally on first load; adding it would re-trigger fetch when the enroll form changes
+  }, [collegeId]);
+
+  const refreshData = async () => {
     setLoading(true);
     try {
       const decodedId = decodeURIComponent(collegeId);
@@ -84,14 +161,13 @@ function getYearBadgeStyle(year?: string) {
             studentCount: extStuds.length,
             createdAt: new Date(),
             updatedAt: new Date(),
-          } as any;
+          } as College;
         }
       }
 
       setCollege(colData);
       setBatches(allBatches);
       if (colData) {
-        // Filter students belonging to this college
         const colStuds = allStuds.filter(
           (s) =>
             s.collegeId === collegeId ||
@@ -104,15 +180,11 @@ function getYearBadgeStyle(year?: string) {
         }
       }
     } catch (err) {
-      console.error("Failed to load college details", err);
+      console.error("Failed to refresh college details", err);
     } finally {
       setLoading(false);
     }
   };
-
-  useEffect(() => {
-    fetchData();
-  }, [collegeId]);
 
   const handleAddDepartment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -123,7 +195,7 @@ function getYearBadgeStyle(year?: string) {
       await updateCollege(college.id, { departments: updatedDepts });
       setShowAddDeptModal(false);
       setNewDeptName("");
-      fetchData();
+      await refreshData();
     } catch (err) {
       console.error("Error adding department:", err);
     } finally {
@@ -131,16 +203,72 @@ function getYearBadgeStyle(year?: string) {
     }
   };
 
+  const handleRenameDepartment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!college || !editingDept || !editDeptName.trim()) return;
+    const trimmedNewName = editDeptName.trim().toLowerCase();
+    const oldName = editingDept;
+
+    if (trimmedNewName === oldName.toLowerCase()) {
+      setRenameDeptError("The new name must be different from the current one.");
+      return;
+    }
+    const duplicateExists = (college.departments || []).some(
+      (d) => d.toLowerCase() === trimmedNewName && d.toLowerCase() !== oldName.toLowerCase()
+    );
+    if (duplicateExists) {
+      setRenameDeptError("A department with this name already exists.");
+      return;
+    }
+
+    setRenamingDept(true);
+    setRenameDeptError(null);
+    try {
+      const updatedDepts = (college.departments || []).map((d) =>
+        d.toLowerCase() === oldName.toLowerCase() ? trimmedNewName : d
+      );
+      await updateCollege(college.id, { departments: updatedDepts, updatedAt: new Date() });
+
+      const collegeStudents = await getStudentsByCollege(college.id);
+      const affectedStudents = collegeStudents.filter(
+        (s) => (s.department || "").toLowerCase() === oldName.toLowerCase()
+      );
+      await Promise.all(
+        affectedStudents.map((s) =>
+          updateStudentProfile(s.id, { department: trimmedNewName, updatedAt: new Date() })
+        )
+      );
+
+      setEditingDept(null);
+      setEditDeptName("");
+      await refreshData();
+    } catch (err) {
+      console.error("Error renaming department:", err);
+    } finally {
+      setRenamingDept(false);
+    }
+  };
+
   const handleEnrollStudent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!college || !studName || !studEmail || !studDept) return;
+    const normalizedEmail = studEmail.toLowerCase().trim();
+    const [existingStudent, existingUsers] = await Promise.all([
+      getStudentByEmail(normalizedEmail),
+      getDocuments<Record<string, unknown>>("users", [where("email", "==", normalizedEmail)]),
+    ]);
+    if (existingStudent || existingUsers.length > 0) {
+      setEnrollError("A student or user account with this email already exists.");
+      setEnrolling(false);
+      return;
+    }
     setEnrolling(true);
     try {
       await createStudentProfile({
         name: studName,
-        email: studEmail.toLowerCase(),
+        email: normalizedEmail,
         collegeId: college.id,
-        collegeName: college.name,
+        collegeName: college.name.toLowerCase(),
         department: studDept,
         academicYear: studYear,
         semester: 1,
@@ -155,16 +283,53 @@ function getYearBadgeStyle(year?: string) {
         studentCount: (college.studentCount || students.length) + 1,
       });
       setShowEnrollModal(false);
+      setEnrollError(null);
       setStudName("");
       setStudEmail("");
       setCustomStudSection("");
-      fetchData();
+      await refreshData();
     } catch (err) {
       console.error("Error enrolling student:", err);
     } finally {
       setEnrolling(false);
     }
   };
+
+  // Cascading subset: students narrowed by selected Department filter.
+  const filteredByDepartment = useMemo(() =>
+    selectedDeptFilter === "ALL"
+      ? students
+      : students.filter((s) => s.department === selectedDeptFilter),
+    [students, selectedDeptFilter]
+  );
+
+  // Department list derived from actual students in this college.
+  const departmentsList = useMemo(() =>
+    uniqueOptions(students.map((s) => s.department).filter(Boolean)),
+    [students]
+  );
+
+  // Year/Section options narrowed by selected Department. Defaults are only added when no
+  // Department is selected so that picking a department shows data-first options only.
+  const yearsList = useMemo(() => {
+    const base = filteredByDepartment.map((s) => s.academicYear);
+    if (selectedDeptFilter === "ALL") base.push("1st Year", "2nd Year", "3rd Year", "4th Year");
+    return uniqueOptions(base.filter(Boolean));
+  }, [filteredByDepartment, selectedDeptFilter]);
+
+  const sectionsList = useMemo(() => {
+    const base = filteredByDepartment.map((s) => s.section);
+    if (selectedDeptFilter === "ALL") base.push("A", "B", "C", "D");
+    return uniqueOptions(base.filter(Boolean));
+  }, [filteredByDepartment, selectedDeptFilter]);
+
+  // Reset child filters when the Department selection makes them invalid.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- cascading reset: child filters must reset when the parent filter narrows the available options
+    if (selectedYearFilter !== "ALL" && !yearsList.includes(selectedYearFilter)) setSelectedYearFilter("ALL");
+    if (selectedSectionFilter !== "ALL" && !sectionsList.includes(selectedSectionFilter)) setSelectedSectionFilter("ALL");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally exclude selected* values so the reset only fires when the parent filter narrows the option list
+  }, [selectedDeptFilter, yearsList, sectionsList]);
 
   if (loading) {
     return (
@@ -193,8 +358,6 @@ function getYearBadgeStyle(year?: string) {
   }
 
   const departments = college.departments && college.departments.length > 0 ? college.departments : ["General Academy"];
-  const sectionsList = Array.from(new Set(["A", "B", "C", "D", ...students.map((s) => s.section).filter(Boolean)]));
-  const yearsList = Array.from(new Set(["1st Year", "2nd Year", "3rd Year", "4th Year", ...students.map((s) => s.academicYear).filter(Boolean)]));
 
   const matchesYearFilter = (studentYear: string = "", filter: string): boolean => {
     if (filter === "ALL") return true;
@@ -219,12 +382,6 @@ function getYearBadgeStyle(year?: string) {
         s.rollNumber?.toLowerCase().includes(searchQuery.toLowerCase());
 
       const now = new Date().getTime();
-      const getCreatedTime = (date: any) => {
-        if (!date) return 0;
-        if (typeof date.toMillis === "function") return date.toMillis();
-        if (date.seconds) return date.seconds * 1000;
-        return new Date(date).getTime() || 0;
-      };
       const createdTime = getCreatedTime(s.createdAt);
       let matchesTime = false;
       if (timeFilter === "ALL") matchesTime = true;
@@ -237,12 +394,6 @@ function getYearBadgeStyle(year?: string) {
       return matchesDept && matchesYear && matchesSection && matchesSearch && matchesTime;
     })
     .sort((a, b) => {
-      const getCreatedTime = (date: any) => {
-        if (!date) return 0;
-        if (typeof date.toMillis === "function") return date.toMillis();
-        if (date.seconds) return date.seconds * 1000;
-        return new Date(date).getTime() || 0;
-      };
       if (timeFilter === "RECENT_24H" || timeFilter === "RECENT_7D") {
         const timeA = getCreatedTime(a.createdAt);
         const timeB = getCreatedTime(b.createdAt);
@@ -262,7 +413,7 @@ function getYearBadgeStyle(year?: string) {
         try {
           await Promise.all(selectedStudentIds.map((id) => deleteStudentProfile(id)));
           setSelectedStudentIds([]);
-          await fetchData();
+          await refreshData();
         } catch (err) {
           console.error("Failed to delete selected students:", err);
         } finally {
@@ -282,7 +433,7 @@ function getYearBadgeStyle(year?: string) {
         try {
           await deleteStudentProfile(stud.id);
           setSelectedStudentIds((prev) => prev.filter((id) => id !== stud.id));
-          await fetchData();
+          await refreshData();
         } catch (err) {
           console.error("Failed to delete student:", err);
         } finally {
@@ -317,6 +468,7 @@ function getYearBadgeStyle(year?: string) {
             <Button
               onClick={() => {
                 if (departments.length > 0 && !studDept) setStudDept(departments[0]);
+                setEnrollError(null);
                 setShowEnrollModal(true);
               }}
               className="bg-brand hover:bg-brand/90 text-white flex items-center gap-2 text-xs"
@@ -370,17 +522,34 @@ function getYearBadgeStyle(year?: string) {
                     <Users className="w-3.5 h-3.5 text-brand" />
                     <span>{deptCount} Students Enrolled</span>
                   </span>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setStudDept(dept);
-                      setShowEnrollModal(true);
-                    }}
-                    className="text-brand font-bold text-[11px] hover:underline"
-                  >
-                    + Enroll Here
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingDept(dept);
+                        setEditDeptName(dept);
+                        setRenameDeptError(null);
+                      }}
+                      className="inline-flex items-center gap-1 text-brand font-bold text-[11px] hover:underline"
+                      title="Rename Department"
+                    >
+                      <Pencil className="w-3 h-3" />
+                      <span>Edit</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setStudDept(dept);
+                        setEnrollError(null);
+                        setShowEnrollModal(true);
+                      }}
+                      className="text-brand font-bold text-[11px] hover:underline"
+                    >
+                      + Enroll Here
+                    </button>
+                  </div>
                 </div>
               </motion.div>
             );
@@ -411,7 +580,7 @@ function getYearBadgeStyle(year?: string) {
                 className="h-9 px-2.5 rounded-xl bg-background border border-border text-xs font-medium text-foreground focus:outline-none"
               >
                 <option value="ALL">All Departments ({students.length})</option>
-                {departments.map((d) => (
+                {departmentsList.map((d) => (
                   <option key={d} value={d}>
                     {d} ({students.filter((s) => s.department === d).length})
                   </option>
@@ -509,7 +678,10 @@ function getYearBadgeStyle(year?: string) {
                 : "Try adjusting your search query or department filter."
             }
             actionLabel="Enroll First Student"
-            onAction={() => setShowEnrollModal(true)}
+            onAction={() => {
+              setEnrollError(null);
+              setShowEnrollModal(true);
+            }}
           />
         ) : (
           <div className="rounded-2xl border border-border bg-card/60 backdrop-blur-md overflow-hidden">
@@ -639,6 +811,72 @@ function getYearBadgeStyle(year?: string) {
         )}
       </AnimatePresence>
 
+      {/* Rename Department Modal */}
+      <AnimatePresence>
+        {editingDept && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-5"
+            >
+              <div className="flex items-center justify-between border-b border-border pb-3">
+                <h3 className="text-base font-bold text-foreground">Rename Department</h3>
+                <button
+                  onClick={() => {
+                    setEditingDept(null);
+                    setEditDeptName("");
+                    setRenameDeptError(null);
+                  }}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handleRenameDepartment} className="space-y-4 text-xs">
+                <div className="space-y-1.5">
+                  <label className="font-semibold text-foreground">Department Name</label>
+                  <input
+                    type="text"
+                    value={editDeptName}
+                    onChange={(e) => {
+                      setEditDeptName(e.target.value);
+                      setRenameDeptError(null);
+                    }}
+                    required
+                    placeholder="e.g. Artificial Intelligence & Data Science"
+                    className="w-full h-9 px-3 rounded-xl border border-border bg-background text-foreground"
+                  />
+                </div>
+                {renameDeptError && (
+                  <div className="bg-rose-500/10 border border-rose-500/30 text-rose-500 p-3 rounded-xl text-sm" role="alert">
+                    {renameDeptError}
+                  </div>
+                )}
+                <div className="flex justify-end gap-2 pt-2 border-t border-border">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setEditingDept(null);
+                      setEditDeptName("");
+                      setRenameDeptError(null);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={renamingDept} className="bg-brand text-white">
+                    {renamingDept ? "Saving..." : "Save Changes"}
+                  </Button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Enroll Student Modal */}
       <AnimatePresence>
         {showEnrollModal && (
@@ -752,6 +990,12 @@ function getYearBadgeStyle(year?: string) {
                     </select>
                   </div>
                 </div>
+
+                {enrollError && (
+                  <div className="bg-rose-500/10 border border-rose-500/30 text-rose-500 p-3 rounded-xl text-sm" role="alert">
+                    {enrollError}
+                  </div>
+                )}
 
                 <div className="flex justify-end gap-2 pt-3 border-t border-border">
                   <Button type="button" variant="outline" onClick={() => setShowEnrollModal(false)}>Cancel</Button>

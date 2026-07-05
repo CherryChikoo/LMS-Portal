@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Trophy,
@@ -11,7 +12,6 @@ import {
   Search,
   Eye,
   X,
-  Shield,
   Trash2,
   RefreshCw,
   RotateCcw,
@@ -24,14 +24,19 @@ import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { fadeInUp } from "@/lib/animations";
 import {
   getStudentAttempts,
-  getAllExams,
+  getStudentAttemptsForCurrentUser,
+  getAllExamsIncludingDeleted,
   getAllStudents,
   getAllColleges,
+  subscribeToAllStudents,
   deleteResultById,
   clearAllResults,
 } from "@/lib/services";
+import { getCurrentUser } from "@/lib/utils/auth-session";
+import { uniqueOptions } from "@/lib/utils/array";
 import type { ExamAttempt, Exam, Student, College } from "@/types";
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function formatLiveDate(val: any): string {
   if (!val) return "Live Attempt";
   try {
@@ -69,20 +74,48 @@ function formatLiveDate(val: any): string {
   return "Live Attempt";
 }
 
+function toTimestampSeconds(val: unknown): number {
+  if (!val) return 0;
+  try {
+    if (typeof (val as { toDate?: () => Date }).toDate === "function") {
+      return (val as { toDate: () => Date }).toDate().getTime() / 1000;
+    }
+    if (typeof (val as { seconds?: number }).seconds === "number") {
+      return (val as { seconds: number }).seconds;
+    }
+    const d = new Date(val as string | number);
+    if (!isNaN(d.getTime())) return d.getTime() / 1000;
+  } catch {
+    // ignore
+  }
+  return 0;
+}
+
 export default function ResultsPage() {
+  const router = useRouter();
+  const pathname = usePathname();
   const [attempts, setAttempts] = useState<ExamAttempt[]>([]);
   const [exams, setExams] = useState<Exam[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [colleges, setColleges] = useState<College[]>([]);
   const [loading, setLoading] = useState(true);
   const [actualRole, setActualRole] = useState<string>("admin");
-  const [currentStudentUser, setCurrentStudentUser] = useState<any>(null);
+  const [currentStudentUser, setCurrentStudentUser] = useState<Student | null>(null);
+
+  // Compute the route for an attempt's answer sheet. Trainers/admins see
+  // /admin/results/<id> when the dashboard is mounted under /admin, otherwise
+  // the dashboard route /results/<id>. Students do not use this helper.
+  const getAnswerSheetPath = (attemptId: string): string => {
+    if (pathname?.startsWith("/admin")) return `/admin/results/${attemptId}`;
+    return `/results/${attemptId}`;
+  };
 
   // Role toggle: default to "student" so trainers instantly view student evaluation records
   const [userRole, setUserRole] = useState<"admin" | "student">("student");
 
   // Powerful Filters
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchQueryRaw, setSearchQueryRaw] = useState("");
   const [examFilter, setExamFilter] = useState("ALL");
   const [studentFilter, setStudentFilter] = useState("ALL");
   const [collegeFilter, setCollegeFilter] = useState("ALL");
@@ -103,16 +136,28 @@ export default function ResultsPage() {
   async function loadData() {
     setLoading(true);
     try {
-      const [attData, examData, studData, colData] = await Promise.all([
-        getStudentAttempts(),
-        getAllExams(),
-        getAllStudents(),
-        getAllColleges(),
-      ]);
-      setAttempts(attData);
-      setExams(examData);
-      setStudents(studData);
-      setColleges(colData);
+      if (actualRole === "student") {
+        const me = await getCurrentUser();
+        if (me) {
+          const [attData, examData] = await Promise.all([
+            getStudentAttemptsForCurrentUser(me.uid, me.email),
+            getAllExamsIncludingDeleted(),
+          ]);
+          setAttempts(attData);
+          setExams(examData);
+        }
+      } else {
+        const [attData, examData, studData, colData] = await Promise.all([
+          getStudentAttempts(),
+          getAllExamsIncludingDeleted(),
+          getAllStudents(),
+          getAllColleges(),
+        ]);
+        setAttempts(attData);
+        setExams(examData);
+        setStudents(studData);
+        setColleges(colData);
+      }
     } catch (err) {
       console.error("Failed to fetch results analytics", err);
     } finally {
@@ -123,91 +168,152 @@ export default function ResultsPage() {
   useEffect(() => {
     try {
       const role = localStorage.getItem("lms_role") || "admin";
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- loading persisted role/user snapshot from localStorage on mount
       setActualRole(role.toLowerCase());
       if (role.toLowerCase() === "student") {
         setUserRole("student");
         const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-        if (uStr) setCurrentStudentUser(JSON.parse(uStr));
+        if (uStr) setCurrentStudentUser(JSON.parse(uStr) as Student);
       } else {
         setUserRole("student"); // Trainers look at students by default
       }
-    } catch (_) {}
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    } catch (_err) {}
 
     loadData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- initial load: only runs once on mount
   }, []);
 
-  // Unique student names from attempts and students list
-  const studentNamesList = useMemo(() => {
-    const names = new Set<string>();
-    attempts.forEach((a) => {
-      const name = a.studentName || "Student Candidate";
-      const isAdmin =
-        name.toLowerCase().includes("admin") ||
-        name.toLowerCase().includes("simulator") ||
-        name.toLowerCase().includes("ranti") ||
-        name.toLowerCase().includes("trainer") ||
-        a.studentId === "admin-1";
-      if (!isAdmin) names.add(name);
+  // Live updates: keep the student list in sync so deleted accounts are
+  // immediately reflected as "Student Deleted Data" in the results table.
+  // Only trainers/admins need the global student list; students never see it.
+  useEffect(() => {
+    if (actualRole === "student") return;
+    const unsubscribe = subscribeToAllStudents((studData) => {
+      setStudents(studData);
     });
-    students.forEach((s) => {
-      if (s.name) names.add(s.name);
-    });
-    return Array.from(names);
-  }, [attempts, students]);
+    return () => unsubscribe();
+  }, [actualRole]);
 
-  // Compute live evaluation attempt counts directly from live submission records
-  const { liveStudentAttemptsCount, liveTrainerAttemptsCount } = useMemo(() => {
-    let sCount = 0;
-    let tCount = 0;
-    attempts.forEach((a) => {
-      const name = a.studentName || "Student Candidate";
-      const isAdmin =
-        name.toLowerCase().includes("admin") ||
-        name.toLowerCase().includes("simulator") ||
-        name.toLowerCase().includes("ranti") ||
-        name.toLowerCase().includes("trainer") ||
-        a.studentId === "admin-1" ||
-        (a as any).attemptedBy === "admin";
-      if (isAdmin) tCount++;
-      else sCount++;
+  // Build college name <-> ID maps so we can normalize student.collegeName /
+  // collegeId values to a single canonical college name used by the College filter.
+  const { collegeIdToName } = useMemo(() => {
+    const nameToId = new Map<string, string>();
+    const idToName = new Map<string, string>();
+    colleges.forEach((c) => {
+      nameToId.set(c.name.toLowerCase(), c.id);
+      idToName.set(c.id, c.name);
     });
-    return { liveStudentAttemptsCount: sCount, liveTrainerAttemptsCount: tCount };
-  }, [attempts]);
+    return { collegeNameToId: nameToId, collegeIdToName: idToName };
+  }, [colleges]);
 
-  // Unique exam IDs / titles from attempts and exams list
-  const examSubjectsList = useMemo(() => {
-    const set = new Set<string>();
-    attempts.forEach((a) => {
-      if (a.examId) set.add(a.examId);
-    });
-    exams.forEach((e) => {
-      if (e.id) set.add(e.id);
-      if (e.title) set.add(e.title);
-    });
-    return Array.from(set);
-  }, [attempts, exams]);
-
-  // Map student name to college
+  // Map student name (lowercased) to a resolved college name. When a student
+  // record only carries a collegeId we look it up in collegeIdToName so the
+  // College filter (which keys off college names) can still match.
   const studentCollegeMap = useMemo(() => {
     const map = new Map<string, string>();
     students.forEach((s) => {
-      if (s.name) map.set(s.name.toLowerCase(), s.collegeName || s.collegeId || "General College");
+      if (!s.name) return;
+      const raw = s.collegeName || s.collegeId || "General College";
+      const resolved = collegeIdToName.get(raw) || raw;
+      map.set(s.name.toLowerCase(), resolved);
     });
     return map;
+  }, [students, collegeIdToName]);
+
+  // Map examId to human-readable title. Prefer live exam titles (which persist
+  // even after soft-deletion) so deleted exams still render their real name,
+  // then fall back to the title persisted on the attempt, then "Deleted Assessment".
+  const examTitleMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    attempts.forEach((a) => {
+      if (a.examId) map[a.examId] = a.examTitle || "Deleted Assessment";
+    });
+    exams.forEach((e) => {
+      if (e.id) map[e.id] = e.title || map[e.id] || "Deleted Assessment";
+    });
+    return map;
+  }, [attempts, exams]);
+
+  // Attempts narrowed by the current College selection. Used to derive the
+  // cascading Exam and Student dropdown options.
+  const filteredAttemptsByCollege = useMemo(() => {
+    if (collegeFilter === "ALL") return attempts;
+    return attempts.filter((att) => {
+      const sName = (att.studentName || "").toLowerCase();
+      const col = studentCollegeMap.get(sName) || "General College";
+      return col === collegeFilter;
+    });
+  }, [attempts, collegeFilter, studentCollegeMap]);
+
+  // Unique exam IDs / titles derived from the college-filtered attempts.
+  const examSubjectsList = useMemo(() => {
+    return uniqueOptions(
+      filteredAttemptsByCollege
+        .filter((a) => Boolean(a.examId))
+        .map((a) => ({ id: a.examId as string, title: examTitleMap[a.examId] || a.examTitle || "Deleted Assessment" })),
+      (e) => e.id
+    );
+  }, [filteredAttemptsByCollege, examTitleMap]);
+
+  // Unique student names: college-filtered attempt student names (admin attempts
+  // excluded) plus all live student records. Case-insensitively deduplicated.
+  const studentNamesList = useMemo(() => {
+    const isAdminAttempt = (a: ExamAttempt) => {
+      const name = (a.studentName || "").toLowerCase();
+      return (
+        name.includes("admin") ||
+        name.includes("simulator") ||
+        name.includes("ranti") ||
+        name.includes("trainer") ||
+        a.studentId === "admin-1"
+      );
+    };
+
+    const attemptNames = filteredAttemptsByCollege
+      .filter((a) => a.studentName && !isAdminAttempt(a))
+      .map((a) => a.studentName as string);
+
+    const studentNames = students
+      .map((s) => s.name)
+      .filter((n): n is string => Boolean(n));
+
+    return uniqueOptions([...attemptNames, ...studentNames], (n) => n.toLowerCase());
+  }, [filteredAttemptsByCollege, students]);
+
+  // Track which student accounts still exist so deleted-student records can be labelled
+  const existingStudentIds = useMemo(() => {
+    return new Set(students.map((s) => s.id).filter(Boolean));
   }, [students]);
+
+  // Reset child filters (Exam, Student) when the College selection or the derived
+  // cascading lists change such that the currently selected value is no longer valid.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- cascading reset: child filters must reset when the parent filter narrows the available options
+    if (examFilter !== "ALL" && !examSubjectsList.some((e) => e.id === examFilter)) setExamFilter("ALL");
+    if (studentFilter !== "ALL" && !studentNamesList.includes(studentFilter)) setStudentFilter("ALL");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally exclude selected* values so the reset only fires when the parent filter narrows the option list
+  }, [collegeFilter, examSubjectsList, studentNamesList]);
+
+  // Debounce the raw search input into the filter state (300ms) so heavy filter
+  // recomputations do not run on every keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => setSearchQuery(searchQueryRaw), 300);
+    return () => clearTimeout(t);
+  }, [searchQueryRaw]);
 
   // Filter and sort logic
   const filteredAttempts = useMemo(() => {
     return attempts
       .filter((att) => {
-        const name = att.studentName || "Student Candidate";
+        const name = att.studentName || "Unknown Student";
         const isAdminAttempt =
           name.toLowerCase().includes("admin") ||
           name.toLowerCase().includes("simulator") ||
           name.toLowerCase().includes("ranti") ||
           name.toLowerCase().includes("trainer") ||
           att.studentId === "admin-1" ||
-          (att as any).attemptedBy === "admin";
+          (att as unknown as { attemptedBy?: string }).attemptedBy === "admin";
 
         if (actualRole === "student") {
           if (isAdminAttempt) return false;
@@ -219,15 +325,9 @@ export default function ResultsPage() {
           else if (
             sEmail &&
             (att.studentId?.toLowerCase() === sEmail ||
-              (att as any).studentEmail?.toLowerCase() === sEmail)
+              (att as unknown as { studentEmail?: string }).studentEmail?.toLowerCase() === sEmail)
           )
             belongsToMe = true;
-          else if (
-            sEmail === "student@lms.dev" &&
-            (att.studentId === "stud-1" || name.toLowerCase().includes("candidate"))
-          )
-            belongsToMe = true;
-
           if (!belongsToMe) return false;
         } else if (userRole === "admin") {
           if (!isAdminAttempt) return false;
@@ -238,11 +338,12 @@ export default function ResultsPage() {
           }
         }
 
-        // Search Query filter (candidate name, exam ID, or college)
+        // Search Query filter (candidate name, exam title, or college)
         if (searchQuery.trim()) {
           const q = searchQuery.trim().toLowerCase();
           const nameMatch = name.toLowerCase().includes(q);
-          const examMatch = att.examId.toLowerCase().includes(q);
+          const examTitle = examTitleMap[att.examId] || "";
+          const examMatch = (att.examId || "").toLowerCase().includes(q) || examTitle.toLowerCase().includes(q);
           const colName = (studentCollegeMap.get(name.toLowerCase()) || "").toLowerCase();
           const colMatch = colName.includes(q);
           if (!nameMatch && !examMatch && !colMatch) return false;
@@ -268,14 +369,8 @@ export default function ResultsPage() {
         if (sortBy === "score_desc") return b.percentage - a.percentage;
         if (sortBy === "score_asc") return a.percentage - b.percentage;
         // date_desc
-        const timeA =
-          (a.submittedAt as any)?.seconds ||
-          (a.createdAt as any)?.seconds ||
-          new Date(a.submittedAt || a.createdAt || 0).getTime() / 1000;
-        const timeB =
-          (b.submittedAt as any)?.seconds ||
-          (b.createdAt as any)?.seconds ||
-          new Date(b.submittedAt || b.createdAt || 0).getTime() / 1000;
+        const timeA = toTimestampSeconds(a.submittedAt || a.createdAt);
+        const timeB = toTimestampSeconds(b.submittedAt || b.createdAt);
         return timeB - timeA;
       });
   }, [
@@ -290,6 +385,7 @@ export default function ResultsPage() {
     collegeFilter,
     sortBy,
     studentCollegeMap,
+    examTitleMap,
   ]);
 
   const resetAllFilters = () => {
@@ -427,36 +523,13 @@ export default function ResultsPage() {
         {/* Tier 1: Record Scope Toggle & Search */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-border/60">
           <div className="flex flex-wrap items-center gap-3 flex-1">
-            {actualRole !== "student" && (
-              <div className="flex items-center rounded-xl bg-muted p-1 border border-border text-xs shadow-sm">
-                <button
-                  onClick={() => setUserRole("student")}
-                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-bold transition-all ${
-                    userRole === "student" ? "bg-brand text-white shadow" : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  <Users className="w-3.5 h-3.5" />
-                  Students ({liveStudentAttemptsCount})
-                </button>
-                <button
-                  onClick={() => setUserRole("admin")}
-                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-bold transition-all ${
-                    userRole === "admin" ? "bg-brand text-white shadow" : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  <Shield className="w-3.5 h-3.5" />
-                  Trainer Simulators ({liveTrainerAttemptsCount})
-                </button>
-              </div>
-            )}
-
             <div className="relative w-full sm:w-80 md:w-96">
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <input
                 type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search candidate name, roll no, or exam ID..."
+                value={searchQueryRaw}
+                onChange={(e) => setSearchQueryRaw(e.target.value)}
+                placeholder="Search candidate name, roll no, or exam title..."
                 className="w-full h-9 pl-10 pr-4 rounded-xl bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand/50 shadow-sm"
               />
             </div>
@@ -485,17 +558,17 @@ export default function ResultsPage() {
             >
               <option value="ALL">All Exam Sections</option>
               {examSubjectsList.map((exam) => (
-                <option key={exam} value={exam}>
-                  {exam}
+                <option key={exam.id} value={exam.id}>
+                  {exam.title}
                 </option>
               ))}
             </select>
           </div>
 
-          {/* Student Candidate Filter */}
+          {/* Unknown Student Filter */}
           {actualRole !== "student" && userRole === "student" && (
             <div className="flex flex-col gap-1">
-              <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Student Candidate</span>
+              <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Unknown Student</span>
               <select
                 value={studentFilter}
                 onChange={(e) => setStudentFilter(e.target.value)}
@@ -520,10 +593,9 @@ export default function ResultsPage() {
                 onChange={(e) => setCollegeFilter(e.target.value)}
                 className="h-9 px-3 rounded-xl bg-background border border-border text-xs font-bold text-foreground focus:outline-none focus:ring-1 focus:ring-brand shadow-sm truncate"
               >
-                <option value="ALL">All Colleges</option>
-                {colleges.map((c) => (
-                  <option key={c.id} value={c.name}>
-                    {c.name}
+                {["All Colleges", ...uniqueOptions(colleges.map((c) => c.name))].map((name) => (
+                  <option key={name} value={name === "All Colleges" ? "ALL" : name}>
+                    {name}
                   </option>
                 ))}
               </select>
@@ -549,7 +621,7 @@ export default function ResultsPage() {
             <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Sort By</span>
             <select
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
+              onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
               className="h-9 px-3 rounded-xl bg-background border border-border text-xs font-bold text-foreground focus:outline-none focus:ring-1 focus:ring-brand shadow-sm"
             >
               <option value="date_desc">Latest Submissions</option>
@@ -604,7 +676,7 @@ export default function ResultsPage() {
               <thead>
                 <tr className="border-b border-border bg-muted/20 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                   <th className="py-3.5 px-4">Candidate Name</th>
-                  <th className="py-3.5 px-4">Exam ID / Subject</th>
+                  <th className="py-3.5 px-4">Exam Title / Subject</th>
                   <th className="py-3.5 px-4">Live Submission Date</th>
                   <th className="py-3.5 px-4">Score Achieved</th>
                   <th className="py-3.5 px-4">Performance Progress</th>
@@ -615,7 +687,7 @@ export default function ResultsPage() {
               </thead>
               <tbody className="divide-y divide-border">
                 {filteredAttempts.map((att) => {
-                  const sName = att.studentName || "Student Candidate";
+                  const sName = att.studentName || "Unknown Student";
                   const liveDateStr = formatLiveDate(att.submittedAt || att.createdAt || att.updatedAt);
                   return (
                     <tr key={att.id} className="hover:bg-muted/30 transition-colors">
@@ -630,9 +702,14 @@ export default function ResultsPage() {
                               {studentCollegeMap.get(sName.toLowerCase()) || "General College"}
                             </span>
                           )}
+                          {!existingStudentIds.has(att.studentId) && (
+                            <span className="block text-[10px] text-destructive font-semibold uppercase tracking-wide mt-0.5">
+                              Student Deleted Data
+                            </span>
+                          )}
                         </div>
                       </td>
-                      <td className="py-3.5 px-4 font-mono text-xs text-muted-foreground font-semibold">{att.examId}</td>
+                      <td className="py-3.5 px-4 text-xs text-muted-foreground font-semibold">{examTitleMap[att.examId] || att.examTitle || "Deleted Assessment"}</td>
                       <td className="py-3.5 px-4 text-xs font-medium text-muted-foreground flex items-center gap-1.5 pt-4">
                         <Calendar className="w-3.5 h-3.5 text-brand" />
                         <span>{liveDateStr}</span>
@@ -667,25 +744,48 @@ export default function ResultsPage() {
                         </span>
                       </td>
                       <td className="py-3.5 px-4 text-right space-x-2">
-                        <Button
-                          onClick={() => setSelectedAttempt(att)}
-                          size="sm"
-                          variant="outline"
-                          className="text-xs font-bold h-8 border-border hover:bg-accent"
-                        >
-                          <Eye className="w-3.5 h-3.5 mr-1" />
-                          Details
-                        </Button>
-                        {actualRole !== "student" && (
+                        {actualRole === "student" ? (
                           <Button
-                            onClick={(e) => handleDeleteAttempt(att.id, e)}
+                            onClick={() => router.push(`/student/exams/${att.examId}/review`)}
                             size="sm"
-                            variant="ghost"
-                            className="text-xs font-bold h-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                            title="Delete record"
+                            variant="outline"
+                            className="text-xs font-bold h-8 border-border hover:bg-accent"
+                            title="View Review Transcript"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Eye className="w-3.5 h-3.5 mr-1" />
+                            Details
                           </Button>
+                        ) : (
+                          <>
+                            <Button
+                              onClick={() => setSelectedAttempt(att)}
+                              size="sm"
+                              variant="outline"
+                              className="text-xs font-bold h-8 border-border hover:bg-accent"
+                            >
+                              <Eye className="w-3.5 h-3.5 mr-1" />
+                              Details
+                            </Button>
+                            <Button
+                              onClick={() => router.push(getAnswerSheetPath(att.id))}
+                              size="sm"
+                              variant="outline"
+                              className="text-xs font-bold h-8 border-brand/40 text-brand hover:bg-brand/10"
+                              title="View Answer Sheet"
+                            >
+                              <Eye className="w-3.5 h-3.5 mr-1" />
+                              View Answer Sheet
+                            </Button>
+                            <Button
+                              onClick={(e) => handleDeleteAttempt(att.id, e)}
+                              size="sm"
+                              variant="ghost"
+                              className="text-xs font-bold h-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                              title="Delete record"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          </>
                         )}
                       </td>
                     </tr>
@@ -725,11 +825,11 @@ export default function ResultsPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="p-4 rounded-xl bg-muted/40 border border-border space-y-1">
                   <span className="text-xs font-bold text-muted-foreground uppercase">Candidate</span>
-                  <p className="font-bold text-sm text-foreground">{selectedAttempt.studentName || "Student Candidate"}</p>
+                  <p className="font-bold text-sm text-foreground">{selectedAttempt.studentName || "Unknown Student"}</p>
                 </div>
                 <div className="p-4 rounded-xl bg-muted/40 border border-border space-y-1">
                   <span className="text-xs font-bold text-muted-foreground uppercase">Exam Subject</span>
-                  <p className="font-mono font-bold text-sm text-foreground">{selectedAttempt.examId}</p>
+                  <p className="font-bold text-sm text-foreground">{examTitleMap[selectedAttempt.examId] || selectedAttempt.examTitle || "Deleted Assessment"}</p>
                 </div>
                 <div className="p-4 rounded-xl bg-muted/40 border border-border space-y-1">
                   <span className="text-xs font-bold text-muted-foreground uppercase">Total Score Achieved</span>
@@ -760,7 +860,17 @@ export default function ResultsPage() {
                 </div>
               </div>
 
-              <div className="flex justify-end pt-2">
+              <div className="flex justify-end gap-2 pt-2">
+                {actualRole !== "student" && (
+                  <Button
+                    onClick={() => router.push(getAnswerSheetPath(selectedAttempt.id))}
+                    variant="outline"
+                    className="border-brand/40 text-brand hover:bg-brand/10 font-bold px-4 flex items-center gap-1.5"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    View Answer Sheet
+                  </Button>
+                )}
                 <Button onClick={() => setSelectedAttempt(null)} className="bg-brand text-white font-bold px-6">
                   Close Breakdown
                 </Button>

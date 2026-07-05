@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { GraduationCap, Plus, Building2, Layers, Users, FolderTree, ChevronRight, Trash2 } from "lucide-react";
+import { GraduationCap, Plus, Building2, Layers, Users, FolderTree, ChevronRight, Trash2, Pencil } from "lucide-react";
 import Link from "next/link";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
-import { getAllColleges, createCollege, getAllStudents, deleteCollege, deleteStudentProfile } from "@/lib/services";
+import { getAllColleges, createCollege, getAllStudents, deleteCollege, deleteStudentProfile, updateCollege } from "@/lib/services";
 import type { College, Student } from "@/types";
 
 export default function CollegesPage() {
@@ -24,6 +24,10 @@ export default function CollegesPage() {
   const [name, setName] = useState("");
   const [deptsStr, setDeptsStr] = useState("Computer Science, Information Technology, Electronics, Mechanical");
   const [creating, setCreating] = useState(false);
+
+  const [editingCollege, setEditingCollege] = useState<College | null>(null);
+  const [editCollegeName, setEditCollegeName] = useState("");
+  const [updatingCollege, setUpdatingCollege] = useState(false);
 
   const fetchColleges = async () => {
     setLoading(true);
@@ -225,6 +229,25 @@ export default function CollegesPage() {
     }
   };
 
+  const handleUpdateCollege = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCollege || !editCollegeName.trim()) return;
+    setUpdatingCollege(true);
+    try {
+      await updateCollege(editingCollege.id, {
+        name: editCollegeName.trim().toLowerCase(),
+        updatedAt: new Date(),
+      });
+      setEditingCollege(null);
+      setEditCollegeName("");
+      await fetchColleges();
+    } catch (err) {
+      console.error("Failed to update college", err);
+    } finally {
+      setUpdatingCollege(false);
+    }
+  };
+
   return (
     <motion.div initial="hidden" animate="visible" variants={fadeInUp} className="space-y-6">
       <PageHeader
@@ -308,15 +331,29 @@ export default function CollegesPage() {
                         </div>
                       </div>
 
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDeleteAdminCollege(col)}
-                        className="h-8 w-8 p-0 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10 rounded-lg"
-                        title="Delete College"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setEditingCollege(col);
+                            setEditCollegeName(col.name);
+                          }}
+                          className="h-8 w-8 p-0 text-brand hover:text-brand/90 hover:bg-brand/10 rounded-lg"
+                          title="Edit College Name"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeleteAdminCollege(col)}
+                          className="h-8 w-8 p-0 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10 rounded-lg"
+                          title="Delete College"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
                     </div>
                     <h3 className="text-xl font-bold text-foreground break-words leading-tight">{col.name}</h3>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -546,6 +583,63 @@ export default function CollegesPage() {
                   </Button>
                   <Button type="submit" disabled={creating} className="bg-brand text-white hover:bg-brand/90">
                     {creating ? "Creating..." : "Save College"}
+                  </Button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Edit College Name Modal */}
+      <AnimatePresence>
+        {editingCollege && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-5"
+            >
+              <div className="flex items-center justify-between border-b border-border pb-3">
+                <h3 className="text-lg font-bold text-foreground">Edit College Name</h3>
+                <button
+                  onClick={() => {
+                    setEditingCollege(null);
+                    setEditCollegeName("");
+                  }}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handleUpdateCollege} className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-foreground">College Name</label>
+                  <input
+                    type="text"
+                    value={editCollegeName}
+                    onChange={(e) => setEditCollegeName(e.target.value)}
+                    required
+                    placeholder="e.g. Stanford Institute of Tech"
+                    className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setEditingCollege(null);
+                      setEditCollegeName("");
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={updatingCollege} className="bg-brand text-white hover:bg-brand/90">
+                    {updatingCollege ? "Saving..." : "Save Changes"}
                   </Button>
                 </div>
               </form>

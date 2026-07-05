@@ -14,6 +14,7 @@ export default function DoubtsPage() {
   const [doubts, setDoubts] = useState<DoubtThread[]>([]);
   const [loading, setLoading] = useState(true);
   const [userRole, setUserRole] = useState<"trainer" | "student">("student");
+  const [currentUser, setCurrentUser] = useState<{ id?: string; name?: string; displayName?: string; collegeId?: string } | null>(null);
 
   // Ask doubt state
   const [showAskModal, setShowAskModal] = useState(false);
@@ -40,6 +41,12 @@ export default function DoubtsPage() {
 
   useEffect(() => {
     fetchDoubts();
+    try {
+      const r = localStorage.getItem("lms_role");
+      if (r) setUserRole(r.toLowerCase() as "trainer" | "student");
+      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      if (uStr) setCurrentUser(JSON.parse(uStr));
+    } catch (_) {}
   }, []);
 
   const handleAsk = async (e: React.FormEvent) => {
@@ -47,14 +54,20 @@ export default function DoubtsPage() {
     if (!question) return;
     setSubmitting(true);
     try {
+      const userId = currentUser?.id || "";
+      const userName = currentUser?.name || currentUser?.displayName || "Unknown User";
+      if (!userId) {
+        console.error("No authenticated user found to post doubt");
+        return;
+      }
       await createDoubt({
-        studentId: "stud-1",
-        studentName: "Jason Ranti",
+        studentId: userId,
+        studentName: userName,
         subject,
         topic,
         question,
         status: "open",
-        collegeId: "SIT",
+        collegeId: currentUser?.collegeId || "",
         replies: [],
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -72,10 +85,16 @@ export default function DoubtsPage() {
   const handleReply = async (id: string) => {
     if (!replyText.trim()) return;
     try {
+      const authorId = currentUser?.id || "";
+      const authorName = currentUser?.name || currentUser?.displayName || "Unknown User";
+      if (!authorId) {
+        console.error("No authenticated user found to reply");
+        return;
+      }
       await replyToDoubt(id, {
         id: `rep-${Date.now()}`,
-        authorId: userRole === "trainer" ? "train-1" : "stud-1",
-        authorName: userRole === "trainer" ? "Prof. Alan Turing (Trainer)" : "Jason Ranti",
+        authorId,
+        authorName,
         role: userRole,
         text: replyText,
         createdAt: new Date(),

@@ -6,16 +6,31 @@ import {
   signOut as firebaseSignOut,
   updatePassword as firebaseUpdatePassword,
   sendPasswordResetEmail,
+  signInWithPopup,
+  getIdToken,
   type User as FirebaseUser,
 } from "firebase/auth";
 import { auth } from "@/lib/firebase/config";
-import { signInWithGoogle } from "@/lib/firebase/auth";
-import { getDocument, setDoc, doc, getDocuments, where, deleteDocument } from "@/lib/firebase/firestore";
+import { googleProvider, signInWithGoogle } from "@/lib/firebase/auth";
+import { getDocument, setDoc, doc, getDocuments, where } from "@/lib/firebase/firestore";
 import { db } from "@/lib/firebase/config";
+import { setAuthSession, clearAuthSession } from "@/lib/utils/auth-session";
 import type { User, UserRole, Student } from "@/types";
+
+// Extended user type allows Firestore docs to carry extra fields (department, collegeId, etc.)
+// while still satisfying the core User interface.
+type ExtendedUser = User & Record<string, unknown>;
 
 const USERS_COLLECTION = "users";
 const STUDENTS_COLLECTION = "students";
+
+function collegeNameToId(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
 
 /**
  * Sign in Trainer/Admin and verify role
@@ -24,7 +39,7 @@ export async function trainerLogin(email: string, pass: string): Promise<{ user:
   let credential;
   try {
     credential = await signInWithEmailAndPassword(auth, email, pass);
-  } catch (err: unknown) {
+  } catch (_err: unknown) {
     // If account doesn't exist yet in Firebase Auth, only bootstrap if exact default master credentials match
     if (
       (email.toLowerCase() === "trainer@lms.dev" && pass === "admin123456") ||
@@ -40,7 +55,7 @@ export async function trainerLogin(email: string, pass: string): Promise<{ user:
     }
   }
   const uid = credential.user.uid;
-  let profile = await getDocument<User>(USERS_COLLECTION, uid);
+  let profile = await getDocument<ExtendedUser>(USERS_COLLECTION, uid);
 
   // If initial bootstrap admin (e.g. first login or trainer account creation)
   if (!profile) {
@@ -69,39 +84,28 @@ export async function trainerLogin(email: string, pass: string): Promise<{ user:
 /**
  * Sign in Student and check if first login password change is required
  */
-export async function studentLogin(email: string, pass: string): Promise<{ user: FirebaseUser; profile: User | null; mustChangePassword: boolean }> {
+export async function studentLogin(email: string, pass: string): Promise<{ user: FirebaseUser; profile: ExtendedUser | null; mustChangePassword: boolean }> {
   let credential;
   try {
     credential = await signInWithEmailAndPassword(auth, email, pass);
-  } catch (err: unknown) {
-    const code = (err as any)?.code || "";
-    if (code === "auth/user-not-found" || code === "auth/invalid-credential" || code === "auth/invalid-login-credentials") {
-      // Check if student profile exists in Firestore
-      const docs = await getDocuments<Student & { initialPassword?: string }>("students", [where("email", "==", email.toLowerCase().trim())]);
-      if (docs.length > 0) {
-        const student = docs[0];
-        if (student.initialPassword === pass || pass === "student123" || pass === "password123") {
+  } catch (_err: unknown) {
+    // Check if student profile exists in Firestore and matches initialPassword
+    const cleanEmail = email.toLowerCase().trim();
+    const docs = await getDocuments<Student & { initialPassword?: string }>("students", [where("email", "==", cleanEmail)]);
+    if (docs.length > 0) {
+      const student = docs[0];
+      if (student.initialPassword === pass) {
           try {
             credential = await createUserWithEmailAndPassword(auth, email, pass);
             await updateProfile(credential.user, { displayName: student.name });
           } catch {
-            // Try signing in if account exists or use local mock user object
-            try {
-              credential = await signInWithEmailAndPassword(auth, email, pass);
-            } catch {
-              credential = {
-                user: {
-                  uid: student.id,
-                  email: student.email,
-                  displayName: student.name,
-                } as unknown as FirebaseUser,
-              };
-            }
+            // The Auth account may already exist; try signing in with the same password
+            credential = await signInWithEmailAndPassword(auth, email, pass);
           }
           const newUid = credential.user.uid;
 
           // Ensure student doc and user doc are synced
-          const newUserDoc: any = {
+          const newUserDoc: Record<string, unknown> = {
             id: newUid,
             email: student.email,
             displayName: student.name,
@@ -118,40 +122,16 @@ export async function studentLogin(email: string, pass: string): Promise<{ user:
 
           return {
             user: credential.user,
-            profile: newUserDoc,
+            profile: newUserDoc as unknown as ExtendedUser,
             mustChangePassword: !!student.initialPassword,
           };
         }
       }
-    }
-    // Fallback for local testing only if exact demo credentials match
-    if (email.toLowerCase() === "student@demo.edu" && pass === "student123") {
-      const demoUser = {
-        uid: "stud-1",
-        email: email,
-        displayName: "Demo Student Candidate",
-      } as unknown as FirebaseUser;
-      const demoProfile: any = {
-        id: "stud-1",
-        email: email,
-        displayName: "Demo Student Candidate",
-        role: "student",
-        department: "Computer Science & Engineering",
-        collegeName: "Global Institute",
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-      return {
-        user: demoUser,
-        profile: demoProfile,
-        mustChangePassword: false,
-      };
-    }
     throw new Error("Invalid student email or incorrect password.");
   }
 
   const uid = credential.user.uid;
-  let profile: any = await getDocument<User>(USERS_COLLECTION, uid);
+  let profile: ExtendedUser | null = await getDocument<ExtendedUser>(USERS_COLLECTION, uid);
   const studentDoc = await getDocument<Student>("students", uid);
 
   if (profile && profile.role === "trainer") {
@@ -166,66 +146,117 @@ export async function studentLogin(email: string, pass: string): Promise<{ user:
       email: studentDoc.email || credential.user.email || email,
       displayName: studentDoc.name || profile?.displayName || "Student",
       role: "student",
-      department: studentDoc.department || (profile as any)?.department || "Computer Science & Engineering",
+      department: studentDoc.department || (profile as unknown as { department?: string })?.department || "Computer Science & Engineering",
       collegeId: studentDoc.collegeId,
       collegeName: studentDoc.collegeName || "Global Institute",
       academicYear: studentDoc.academicYear,
       section: studentDoc.section,
       batchIds: studentDoc.batchIds,
-    };
+    } as unknown as ExtendedUser;
+  }
+
+  // Auto-clear any lingering first-login flag now that the modal has been removed
+  const shouldClearFlag = profile && (profile as unknown as { mustChangePassword?: boolean }).mustChangePassword === true;
+  if (shouldClearFlag) {
+    await setDoc(
+      doc(db, USERS_COLLECTION, uid),
+      { mustChangePassword: false, updatedAt: new Date() },
+      { merge: true }
+    );
+    await setDoc(
+      doc(db, STUDENTS_COLLECTION, uid),
+      { mustChangePassword: false, updatedAt: new Date() },
+      { merge: true }
+    );
+    (profile as unknown as { mustChangePassword?: boolean }).mustChangePassword = false;
   }
 
   return {
     user: credential.user,
     profile,
-    mustChangePassword: profile ? (profile as unknown as { mustChangePassword?: boolean }).mustChangePassword === true : false,
+    mustChangePassword: false,
   };
 }
 
 /**
- * Sign in Student via Google SSO popup (Strict: Only allows existing registered users)
+ * Sign in Student via Google SSO popup.
+ * Only succeeds if a student account already exists in Firestore (either a
+ * `users/{uid}` doc or a `students` row matched by email). Brand-new Google
+ * accounts are rejected and signed out so no records are created.
  */
-export async function studentGoogleLogin(): Promise<{ user: FirebaseUser; profile: User }> {
-  const credential = await signInWithGoogle();
+export async function studentGoogleLogin(): Promise<{ success: true; role: UserRole; user: FirebaseUser; profile: User }> {
+  const credential = await signInWithPopup(auth, googleProvider);
   const uid = credential.user.uid;
   const email = (credential.user.email || "").toLowerCase().trim();
   const name = credential.user.displayName || email.split("@")[0] || "Student";
 
-  let profile = await getDocument<User>(USERS_COLLECTION, uid);
-  const studDocs = await getDocuments<Student>("students", [where("email", "==", email)]);
+  const token = await getIdToken(credential.user, true);
+  const studDocs = await getDocuments<Student>(STUDENTS_COLLECTION, [where("email", "==", email)]);
 
+  let profile = await getDocument<ExtendedUser>(USERS_COLLECTION, uid);
+
+  // Reject if neither a users doc nor a students doc exists for this Google identity.
   if (!profile && studDocs.length === 0) {
     await firebaseSignOut(auth);
-    throw new Error("This account is not registered. Please create an account first.");
+    throw new Error(
+      "No student account found for this Google email. Please create a student account first. If you don't have a Google account, create one at google.com and then use the Register page."
+    );
   }
 
+  // Reject trainer/admin attempting to log in via the student portal.
+  if (profile && (profile.role === "trainer" || profile.role === "admin")) {
+    await firebaseSignOut(auth);
+    throw new Error("Trainers must log in via the /admin/login portal.");
+  }
+
+  const role: UserRole = profile?.role || "student";
+
+  // If a students doc exists (e.g. CSV-imported student first Google login),
+  // merge its data into users/{uid} and allow login.
   if (studDocs.length > 0) {
     const s = studDocs[0];
+    const existing = profile;
     profile = {
-      ...(profile || {}),
-      id: profile?.id || uid,
+      ...(existing || {}),
+      id: existing?.id || uid,
       email: s.email || email,
-      displayName: s.name || profile?.displayName || name,
-      role: "student",
-      department: s.department || "Computer Science & Engineering",
-      collegeId: s.collegeId,
-      collegeName: s.collegeName || "Global Institute",
-      academicYear: s.academicYear,
-      section: s.section,
-      batchIds: s.batchIds,
-      createdAt: profile?.createdAt || new Date(),
+      displayName: s.name || existing?.displayName || name,
+      role,
+      department: s.department || existing?.department || "Computer Science & Engineering",
+      collegeId: s.collegeId || existing?.collegeId || collegeNameToId(s.collegeName || "Global Institute"),
+      collegeName: s.collegeName || existing?.collegeName || "Global Institute",
+      academicYear: s.academicYear || existing?.academicYear,
+      section: s.section || existing?.section,
+      batchIds: s.batchIds || existing?.batchIds,
+      createdAt: existing?.createdAt || new Date(),
       updatedAt: new Date(),
-    } as any;
-    if (!profile) {
-      await setDoc(doc(db, USERS_COLLECTION, uid), profile);
-    }
+    } as ExtendedUser;
+    await setDoc(doc(db, USERS_COLLECTION, uid), profile, { merge: true });
   }
 
-  return { user: credential.user, profile: profile! };
+  const sessionUser = {
+    id: uid,
+    name: profile!.displayName,
+    email: profile!.email,
+    role,
+    department: profile?.department || "Computer Science & Engineering",
+    collegeId: profile?.collegeId,
+    collegeName: profile?.collegeName || "Global Institute",
+    academicYear: profile?.academicYear,
+    section: profile?.section,
+    batchIds: profile?.batchIds,
+  };
+
+  await setAuthSession(token, role, sessionUser);
+
+  return { success: true, role, user: credential.user, profile: profile! };
 }
 
 /**
- * Sign up Student via Google SSO popup (Allows new accounts and proceeds to academic details collection)
+ * Sign up Student via Google SSO popup.
+ * Rejects if the Google email/UID is already associated with an account;
+ * otherwise creates only a minimal `users/{uid}` doc and returns the user so
+ * the register page can continue to the academic-details step.
  */
 export async function studentGoogleSignUp(): Promise<{ user: FirebaseUser }> {
   const credential = await signInWithGoogle();
@@ -233,53 +264,68 @@ export async function studentGoogleSignUp(): Promise<{ user: FirebaseUser }> {
   const email = (credential.user.email || "").toLowerCase().trim();
   const name = credential.user.displayName || email.split("@")[0] || "Student";
 
-  let profile = await getDocument<User>(USERS_COLLECTION, uid);
-  if (!profile) {
-    profile = {
-      id: uid,
-      email: email,
-      displayName: name,
-      role: "student",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    await setDoc(doc(db, USERS_COLLECTION, uid), profile);
+  const existingProfile = await getDocument<ExtendedUser>(USERS_COLLECTION, uid);
+  const studDocs = await getDocuments<Student>(STUDENTS_COLLECTION, [where("email", "==", email)]);
+
+  if (existingProfile || studDocs.length > 0) {
+    await firebaseSignOut(auth);
+    throw new Error("An account with this email already exists. Please sign in instead.");
   }
+
+  // No existing account: create the minimal users/{uid} doc and let the
+  // register page continue to the academic-details step.
+  const profile: ExtendedUser = {
+    id: uid,
+    email,
+    displayName: name,
+    role: "student",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+  await setDoc(doc(db, USERS_COLLECTION, uid), profile);
 
   return { user: credential.user };
 }
 
 /**
- * Sign in Trainer/Admin via Google SSO popup (Strict: Only authorized administrative accounts)
+ * Sign in Trainer/Admin via Google SSO popup.
+ * Existing users keep their stored role; brand-new users are bootstrapped
+ * with a trainer users doc.
  */
-export async function trainerGoogleLogin(): Promise<{ user: FirebaseUser; profile: User }> {
-  const credential = await signInWithGoogle();
+export async function trainerGoogleLogin(): Promise<{ success: true; role: UserRole; user: FirebaseUser; profile: User }> {
+  const credential = await signInWithPopup(auth, googleProvider);
   const uid = credential.user.uid;
   const email = (credential.user.email || "").toLowerCase().trim();
+  const name = credential.user.displayName || email.split("@")[0] || "Trainer";
 
-  let profile = await getDocument<User>(USERS_COLLECTION, uid);
+  const token = await getIdToken(credential.user, true);
+  let profile = await getDocument<ExtendedUser>(USERS_COLLECTION, uid);
 
   if (!profile) {
-    if (email === "trainer@lms.dev") {
-      profile = {
-        id: uid,
-        email: email,
-        displayName: "Lead Trainer Faculty",
-        role: "trainer",
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-      await setDoc(doc(db, USERS_COLLECTION, uid), profile);
-    } else {
-      await firebaseSignOut(auth);
-      throw new Error("Unauthorized: This Google account is not registered as a Trainer or Administrator.");
-    }
-  } else if (profile.role !== "trainer" && profile.role !== "admin") {
-    await firebaseSignOut(auth);
-    throw new Error("Unauthorized: You do not have trainer or administrator privileges.");
+    profile = {
+      id: uid,
+      email,
+      displayName: name,
+      role: "trainer",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as ExtendedUser;
+    await setDoc(doc(db, USERS_COLLECTION, uid), profile);
   }
 
-  return { user: credential.user, profile };
+  const role: UserRole = profile.role === "admin" || profile.role === "trainer" ? profile.role : "trainer";
+
+  const sessionUser = {
+    id: uid,
+    name: profile.displayName,
+    email: profile.email,
+    role,
+    department: profile?.department || "Faculty Operations",
+  };
+
+  await setAuthSession(token, role, sessionUser);
+
+  return { success: true, role, user: credential.user, profile };
 }
 
 /**
@@ -292,18 +338,31 @@ export async function updateFirstLoginPassword(newPassword: string): Promise<voi
   await firebaseUpdatePassword(currentUser, newPassword);
 
   // Clear mustChangePassword flag in Firestore profile if present
-  const profile = await getDocument<User>(USERS_COLLECTION, currentUser.uid);
+  const profile = await getDocument<ExtendedUser>(USERS_COLLECTION, currentUser.uid);
   if (profile) {
     await setDoc(
       doc(db, USERS_COLLECTION, currentUser.uid),
       { ...profile, mustChangePassword: false, updatedAt: new Date() },
       { merge: true }
     );
+    await setDoc(
+      doc(db, STUDENTS_COLLECTION, currentUser.uid),
+      { mustChangePassword: false, updatedAt: new Date() },
+      { merge: true }
+    );
   }
 }
 
 export async function logoutUser(): Promise<void> {
-  return firebaseSignOut(auth);
+  // Clear client-side auth session (cookies, localStorage) and redirect first.
+  // This guarantees that even if firebaseSignOut hangs or rejects, the user is
+  // treated as logged out by the application and middleware on the next request.
+  const redirectPromise = clearAuthSession();
+
+  // Fire-and-forget Firebase sign-out so it cannot delay the redirect.
+  firebaseSignOut(auth).catch(() => {});
+
+  return redirectPromise;
 }
 
 export async function resetUserPassword(email: string): Promise<void> {

@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useEffect, useMemo, useState, use } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
-import { ArrowLeft, BookOpen, Users, Plus, Trash2, Search, Building2, CheckCircle2, UserPlus, Check } from "lucide-react";
+import { ArrowLeft, BookOpen, Users, Trash2, Search, Building2, UserPlus } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
+import { uniqueOptions } from "@/lib/utils/array";
 import { getBatchById, updateBatch, getAllStudents, updateStudentProfile, getAllColleges } from "@/lib/services";
 import type { Batch, Student, College } from "@/types";
 
@@ -39,28 +40,69 @@ export default function BatchDetailPage({ params }: PageProps) {
   const [bulkAdding, setBulkAdding] = useState(false);
   const [selectedForBulk, setSelectedForBulk] = useState<Set<string>>(new Set());
 
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const [batData, studentsData, colsData] = await Promise.all([
-        getBatchById(resolvedParams.id),
-        getAllStudents(),
-        getAllColleges(),
-      ]);
-
-      setBatch(batData);
-      setAllStudents(studentsData);
-      setColleges(colsData);
-    } catch (err) {
-      console.error("Error loading batch details:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const [batData, studentsData, colsData] = await Promise.all([
+          getBatchById(resolvedParams.id),
+          getAllStudents(),
+          getAllColleges(),
+        ]);
+
+        setBatch(batData);
+        setAllStudents(studentsData);
+        setColleges(colsData);
+      } catch (err) {
+        console.error("Error loading batch details:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
     fetchData();
   }, [resolvedParams.id]);
+
+  // Cascading filter option lists for the "Add Students" modal.
+  // Hooks must run unconditionally, so they live above any early returns below.
+  const filteredStudentsByCollege = useMemo(
+    () =>
+      selectedCollegeFilter === "ALL"
+        ? allStudents
+        : allStudents.filter(
+            (s) => s.collegeId === selectedCollegeFilter || s.collegeName === selectedCollegeFilter
+          ),
+    [allStudents, selectedCollegeFilter]
+  );
+
+  const deptsList = useMemo(() => {
+    const base = filteredStudentsByCollege.map((s) => s.department);
+    if (selectedCollegeFilter === "ALL") {
+      base.push(...colleges.flatMap((c) => c.departments || []));
+    }
+    return uniqueOptions(base.filter(Boolean));
+  }, [filteredStudentsByCollege, colleges, selectedCollegeFilter]);
+
+  const yearsList = useMemo(() => {
+    const base = filteredStudentsByCollege.map((s) => s.academicYear);
+    if (selectedCollegeFilter === "ALL") base.push("1st Year", "2nd Year", "3rd Year", "4th Year");
+    return uniqueOptions(base.filter(Boolean));
+  }, [filteredStudentsByCollege, selectedCollegeFilter]);
+
+  const sectionsList = useMemo(() => {
+    const base = filteredStudentsByCollege.map((s) => s.section);
+    if (selectedCollegeFilter === "ALL") base.push("A", "B", "C", "D");
+    return uniqueOptions(base.filter(Boolean));
+  }, [filteredStudentsByCollege, selectedCollegeFilter]);
+
+  // Reset child filters when the parent College selection (or the option lists) makes them invalid.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- cascading reset: child filters must reset when the parent filter narrows the available options
+    if (selectedDeptFilter !== "ALL" && !deptsList.includes(selectedDeptFilter)) setSelectedDeptFilter("ALL");
+    if (selectedYearFilter !== "ALL" && !yearsList.includes(selectedYearFilter)) setSelectedYearFilter("ALL");
+    if (selectedSectionFilter !== "ALL" && !sectionsList.includes(selectedSectionFilter)) setSelectedSectionFilter("ALL");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally exclude selected* values so the reset only fires when the parent filter narrows the option list
+  }, [selectedCollegeFilter, deptsList, yearsList, sectionsList]);
 
   if (loading) {
     return (
@@ -121,11 +163,6 @@ export default function BatchDetailPage({ params }: PageProps) {
 
     return matchesCol && matchesDept && matchesSearch && matchesYear && matchesSection;
   });
-
-  // Dynamic filter option lists
-  const deptsList = Array.from(new Set(allStudents.map((s) => s.department).filter(Boolean)));
-  const yearsList = Array.from(new Set(["1st Year", "2nd Year", "3rd Year", "4th Year", ...allStudents.map((s) => s.academicYear).filter(Boolean)]));
-  const sectionsList = Array.from(new Set(["A", "B", "C", "D", ...allStudents.map((s) => s.section).filter(Boolean)]));
 
   const handleAddStudentToBatch = async (student: Student) => {
     setAddingId(student.id);

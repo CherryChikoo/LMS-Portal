@@ -11,6 +11,7 @@ import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
 import { getAllBatches, createBatch, deleteBatch, getAllColleges, getAllStudents } from "@/lib/services";
+import { getCurrentUser } from "@/lib/utils/auth-session";
 import type { Batch, College } from "@/types";
 
 function BatchesContent() {
@@ -21,6 +22,8 @@ function BatchesContent() {
   const [colleges, setColleges] = useState<College[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCollegeId, setSelectedCollegeId] = useState<string>(initialCollegeId);
+  const [userRole, setUserRole] = useState<string>("admin");
+  const [currentStudent, setCurrentStudent] = useState<{ uid: string; email: string; profile?: Record<string, unknown> } | null>(null);
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void } | null>(null);
 
   // Modal State
@@ -32,7 +35,7 @@ function BatchesContent() {
   const [academicYear, setAcademicYear] = useState("3rd Year");
   const [creating, setCreating] = useState(false);
 
-  const fetchData = async () => {
+  const fetchData = async (studentUser?: { uid: string; email: string; profile?: Record<string, unknown> } | null) => {
     setLoading(true);
     try {
       const [bData, cData, sData] = await Promise.all([getAllBatches(), getAllColleges(), getAllStudents()]);
@@ -40,7 +43,35 @@ function BatchesContent() {
         ...b,
         studentCount: sData.filter((s) => s.batchIds && (s.batchIds.includes(b.id) || s.batchIds.includes(b.name))).length,
       }));
-      setBatches(computedBatches);
+
+      const role = (typeof window !== "undefined" && localStorage.getItem("lms_role")) || "admin";
+      const isStudentView = role.toLowerCase() === "student";
+
+      if (isStudentView && studentUser) {
+        const uid = studentUser.uid.toLowerCase().trim();
+        const email = studentUser.email.toLowerCase().trim();
+        const profileBatchIds = new Set(((studentUser.profile?.batchIds as string[]) || []).map((x) => x.toLowerCase()));
+        const meStudent = sData.find(
+          (s) =>
+            s.id.toLowerCase() === uid ||
+            s.email.toLowerCase() === email
+        );
+        const enrolledBatchIds = new Set([
+          ...Array.from(profileBatchIds),
+          ...((meStudent?.batchIds || []).map((x) => x.toLowerCase())),
+        ]);
+
+        const visibleBatches = computedBatches.filter((b) => {
+          const batchStudentIds = (b.studentIds || []).map((x) => x.toLowerCase());
+          if (batchStudentIds.includes(uid) || (email && batchStudentIds.includes(email))) return true;
+          if (enrolledBatchIds.has(b.id.toLowerCase()) || enrolledBatchIds.has(b.name.toLowerCase())) return true;
+          return false;
+        });
+        setBatches(visibleBatches);
+      } else {
+        setBatches(computedBatches);
+      }
+
       setColleges(cData);
       if (!collegeId && cData.length > 0) {
         setCollegeId(cData[0].id);
@@ -53,12 +84,28 @@ function BatchesContent() {
   };
 
   useEffect(() => {
-    fetchData();
+    const role = (typeof window !== "undefined" && localStorage.getItem("lms_role")) || "admin";
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reading initial role from localStorage
+    setUserRole(role.toLowerCase());
+    if (role.toLowerCase() === "student") {
+      getCurrentUser().then((u) => {
+        if (u) {
+          setCurrentStudent({ uid: u.uid, email: u.email, profile: u.profile });
+          fetchData({ uid: u.uid, email: u.email, profile: u.profile });
+        } else {
+          fetchData(null);
+        }
+      });
+    } else {
+      fetchData(null);
+    }
   }, []);
 
   useEffect(() => {
     if (initialCollegeId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing state with URL search param
       setSelectedCollegeId(initialCollegeId);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing state with URL search param
       setCollegeId(initialCollegeId);
     }
   }, [initialCollegeId]);
@@ -82,7 +129,7 @@ function BatchesContent() {
       setShowAddModal(false);
       setName("");
       setDescription("");
-      fetchData();
+      fetchData(currentStudent);
     } catch (err) {
       console.error("Failed to create batch:", err);
     } finally {
@@ -98,7 +145,7 @@ function BatchesContent() {
       onConfirm: async () => {
         try {
           await deleteBatch(id);
-          fetchData();
+          fetchData(currentStudent);
         } catch (err) {
           console.error("Failed to delete batch:", err);
         }
@@ -114,12 +161,18 @@ function BatchesContent() {
     <motion.div initial="hidden" animate="visible" variants={fadeInUp} className="space-y-6">
       <PageHeader
         title="Custom Batches & Student Cohorts"
-        description="Create custom training cohorts, placement batches, or global elective squads to group students across departments or colleges."
+        description={
+          userRole === "student"
+            ? "Batches and cohorts you are currently enrolled in."
+            : "Create custom training cohorts, placement batches, or global elective squads to group students across departments or colleges."
+        }
         actions={
-          <Button onClick={() => setShowAddModal(true)} className="bg-brand hover:bg-brand/90 text-white">
-            <Plus className="w-4 h-4 mr-1.5" />
-            Create Custom Batch
-          </Button>
+          userRole !== "student" ? (
+            <Button onClick={() => setShowAddModal(true)} className="bg-brand hover:bg-brand/90 text-white">
+              <Plus className="w-4 h-4 mr-1.5" />
+              Create Custom Batch
+            </Button>
+          ) : undefined
         }
       />
 
@@ -157,10 +210,14 @@ function BatchesContent() {
       ) : filteredBatches.length === 0 ? (
         <EmptyState
           icon={Layers}
-          title="No batches found"
-          description="Create custom cohorts like Placement Batch 2026 or Advanced React Bootcamp to easily group students."
-          actionLabel="Create Your First Batch"
-          onAction={() => setShowAddModal(true)}
+          title={userRole === "student" ? "No enrolled batches found" : "No batches found"}
+          description={
+            userRole === "student"
+              ? "You are not currently enrolled in any batch cohort. Contact your trainer if you believe this is incorrect."
+              : "Create custom cohorts like Placement Batch 2026 or Advanced React Bootcamp to easily group students."
+          }
+          actionLabel={userRole !== "student" ? "Create Your First Batch" : undefined}
+          onAction={userRole !== "student" ? () => setShowAddModal(true) : undefined}
         />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -178,13 +235,15 @@ function BatchesContent() {
                       <Building2 className="w-3.5 h-3.5" />
                       <span>{colName}</span>
                     </div>
-                    <button
-                      onClick={() => handleDelete(b.id)}
-                      className="text-muted-foreground hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-1"
-                      title="Delete Batch"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {userRole !== "student" && (
+                      <button
+                        onClick={() => handleDelete(b.id)}
+                        className="text-muted-foreground hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-1"
+                        title="Delete Batch"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                   <h3 className="text-xl font-bold text-foreground break-words leading-tight">{b.name}</h3>
                   {b.description && (
@@ -208,12 +267,14 @@ function BatchesContent() {
                     <Users className="w-4 h-4 text-brand" />
                     <span className="font-semibold text-foreground">{b.studentCount || 0} Students Enrolled</span>
                   </span>
-                  <Link
-                    href={`/batches/${b.id}`}
-                    className="text-brand font-semibold flex items-center gap-0.5 hover:underline cursor-pointer"
-                  >
-                    Manage Students <ChevronRight className="w-3.5 h-3.5" />
-                  </Link>
+                  {userRole !== "student" && (
+                    <Link
+                      href={`/batches/${b.id}`}
+                      className="text-brand font-semibold flex items-center gap-0.5 hover:underline cursor-pointer"
+                    >
+                      Manage Students <ChevronRight className="w-3.5 h-3.5" />
+                    </Link>
+                  )}
                 </div>
               </motion.div>
             );

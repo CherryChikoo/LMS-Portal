@@ -11,7 +11,7 @@ import {
 } from "firebase/auth";
 import { auth } from "./config";
 
-const googleProvider = new GoogleAuthProvider();
+export const googleProvider = new GoogleAuthProvider();
 
 export async function signIn(email: string, password: string) {
   return signInWithEmailAndPassword(auth, email, password);
@@ -34,6 +34,8 @@ export async function signOut() {
 export async function resetPassword(email: string) {
   return sendPasswordResetEmail(auth, email);
 }
+
+export { signInWithPopup };
 
 export async function signInWithGoogle() {
   return signInWithPopup(auth, googleProvider);

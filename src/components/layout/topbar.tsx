@@ -21,9 +21,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { auth } from "@/lib/firebase/config";
-import { signOut } from "firebase/auth";
-import { clearAuthSession } from "@/lib/utils/auth-session";
+import { logoutUser } from "@/lib/services/auth-service";
 
 export function Topbar() {
   const { theme, setTheme } = useTheme();
@@ -186,8 +184,7 @@ export function Topbar() {
             <DropdownMenuSeparator className="bg-border/40 dark:bg-white/[0.06]" />
             <DropdownMenuItem
               onClick={async () => {
-                try { await signOut(auth); } catch { }
-                clearAuthSession();
+                await logoutUser();
               }}
               className="rounded-md cursor-pointer text-destructive focus:text-destructive"
             >

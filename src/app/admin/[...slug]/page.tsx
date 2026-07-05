@@ -1,4 +1,3 @@
-import DashboardLayout from "@/app/(dashboard)/layout";
 import StudentsPage from "@/app/(dashboard)/students/page";
 import CollegesPage from "@/app/(dashboard)/colleges/page";
 import CollegeDetailPage from "@/app/(dashboard)/colleges/[id]/page";
@@ -83,5 +82,5 @@ export default async function AdminCatchAllPage({ params }: { params: Promise<{ 
       break;
   }
 
-  return <DashboardLayout>{content}</DashboardLayout>;
+  return content;
 }

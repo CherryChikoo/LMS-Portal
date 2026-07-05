@@ -109,4 +109,4 @@ export function subscribeToDocuments<T extends DocumentData>(
   });
 }
 
-export { where, orderBy, limit, collection, doc, query, setDoc, writeBatch, onSnapshot };
+export { where, orderBy, limit, collection, doc, query, setDoc, writeBatch, onSnapshot, getDoc, serverTimestamp };
