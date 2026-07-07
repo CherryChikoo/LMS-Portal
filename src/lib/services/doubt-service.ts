@@ -46,3 +46,7 @@ export async function replyToDoubt(id: string, reply: any, repliedBy?: string): 
 export async function deleteDoubt(id: string): Promise<void> {
   return deleteDocument(COLLECTION_NAME, id);
 }
+
+export async function updateDoubt(id: string, data: Partial<DoubtDiscussion>): Promise<void> {
+  return updateDocument<DoubtDiscussion>(COLLECTION_NAME, id, data);
+}

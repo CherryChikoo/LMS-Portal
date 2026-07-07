@@ -6,20 +6,19 @@ import { FolderOpen, Upload, Link as LinkIcon, FileText, FileSpreadsheet, Video,
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
+import { AcademicHierarchyFilters } from "@/components/shared/academic-hierarchy-filters";
+import { useAcademicHierarchy } from "@/lib/hierarchy/use-academic-hierarchy";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
-import { getAllResources, createResource, deleteResource, filterResourcesForStudent, getAllStudents, getAllColleges, getAllBatches } from "@/lib/services";
+import { getAllResources, createResource, deleteResource, filterResourcesForStudent } from "@/lib/services";
 import { getCurrentUser } from "@/lib/utils/auth-session";
 import { ResourcePreviewModal, isPreviewable } from "@/components/resources/resource-preview-modal";
-import type { Resource, ResourceType, Student, AssignmentTarget, College, Batch } from "@/types";
+import type { Resource, ResourceType, AssignmentTarget, Student } from "@/types";
 
 export default function ResourcesPage() {
   const [resources, setResources] = useState<Resource[]>([]);
-  const [colleges, setColleges] = useState<College[]>([]);
-  const [batches, setBatches] = useState<Batch[]>([]);
   const [loading, setLoading] = useState(true);
   const [userRole, setUserRole] = useState<string>("admin");
-  const [students, setStudents] = useState<Student[]>([]);
   const [currentUser, setCurrentUser] = useState<{ uid: string; email: string; profile: Record<string, unknown> } | null>(null);
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm?: () => void; isAlert?: boolean; variant?: "destructive" | "warning" | "info" | "success" } | null>(null);
 
@@ -34,28 +33,32 @@ export default function ResourcesPage() {
   const [category, setCategory] = useState("Lectures");
   const [creating, setCreating] = useState(false);
   const [resourceSearch, setResourceSearch] = useState("");
-  const [resourceCollegeFilter, setResourceCollegeFilter] = useState("ALL");
 
-  // Composite Assignment Targeting State
-  const [targetCollege, setTargetCollege] = useState("ALL");
-  const [targetDepartment, setTargetDepartment] = useState("ALL");
-  const [targetYear, setTargetYear] = useState("ALL");
-  const [targetSection, setTargetSection] = useState("ALL");
-  const [targetBatch, setTargetBatch] = useState("ALL");
+  // Single shared cascading hierarchy used by both the page filter bar and the
+  // upload/assignment modal. Avoids duplicate subscriptions and ensures the
+  // institution dropdown surfaces official, external (self-registered), and
+  // Global entries.
+  const {
+    filters: resourceFilters,
+    setFilters: setResourceFilters,
+    reset: resetResourceFilters,
+    institutionOptions,
+    collegeOptions,
+    departmentOptions,
+    academicYearOptions,
+    sectionOptions,
+    batchOptions,
+    buildAssignmentTarget,
+    getInstitutionName,
+  } = useAcademicHierarchy({
+    levels: ["institution", "department", "academicYear", "section", "batch"],
+  });
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [resData, studData, colData, batData] = await Promise.all([
-        getAllResources(),
-        getAllStudents(),
-        getAllColleges(),
-        getAllBatches(),
-      ]);
+      const resData = await getAllResources();
       setResources(resData);
-      setStudents(studData);
-      setColleges(colData);
-      setBatches(batData);
     } catch (err) {
       console.error("Failed to fetch resources", err);
     } finally {
@@ -76,71 +79,25 @@ export default function ResourcesPage() {
     });
   }, []);
 
-  const availableCollegeOptions = useMemo(() => {
-    const options = new Map<string, string>();
-    options.set("ALL", "All Colleges");
-    colleges.forEach((c) => options.set(c.id, c.name));
-    if (colleges.length === 0) {
-      students.forEach((s) => {
-        const id = s.collegeId || s.collegeName;
-        if (id) options.set(id, s.collegeName || id);
-      });
-    }
-    const hasGlobal = Array.from(options.keys()).some((id) => id.toUpperCase() === "GLOBAL")
-      || students.some((s) => s.collegeId?.toUpperCase() === "GLOBAL" || s.collegeName?.toUpperCase() === "GLOBAL INSTITUTE");
-    if (hasGlobal && !options.has("GLOBAL")) {
-      options.set("GLOBAL", "Global Institute");
-    }
-    return Array.from(options.entries()).map(([id, name]) => ({ id, name }));
-  }, [colleges, students]);
-
-  // Cascading option lists for the Upload modal's Assignment Target section.
-  // When `targetCollege` is set to a specific college, derive child options from
-  // that college's students only (no hardcoded defaults).
-  const modalStudentsByCollege = useMemo(() => {
-    if (targetCollege === "ALL") return students;
-    return students.filter((s) => s.collegeId === targetCollege || s.collegeName === targetCollege);
-  }, [students, targetCollege]);
-
-  const modalDepartmentsList = useMemo(() => {
-    if (targetCollege === "ALL") {
-      return Array.from(new Set([
-        ...colleges.flatMap((c) => c.departments || []),
-        ...modalStudentsByCollege.map((s) => s.department),
-      ])).filter(Boolean);
-    }
-    return Array.from(new Set(modalStudentsByCollege.map((s) => s.department))).filter(Boolean);
-  }, [colleges, modalStudentsByCollege, targetCollege]);
-
-  const modalYearsList = useMemo(() => {
-    const base = modalStudentsByCollege.map((s) => s.academicYear);
-    if (targetCollege === "ALL") base.push("1st Year", "2nd Year", "3rd Year", "4th Year");
-    return Array.from(new Set(base.filter(Boolean)));
-  }, [modalStudentsByCollege, targetCollege]);
-
-  const modalSectionsList = useMemo(() => {
-    const base = modalStudentsByCollege.map((s) => s.section);
-    if (targetCollege === "ALL") base.push("A", "B", "C", "D");
-    return Array.from(new Set(base.filter(Boolean)));
-  }, [modalStudentsByCollege, targetCollege]);
-
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !url) return;
     setCreating(true);
     try {
-      const selectedCollege = availableCollegeOptions.find((c) => c.id === targetCollege);
-      const selectedBatch = batches.find((b) => b.id === targetBatch);
+      const target = buildAssignmentTarget();
+      // Map the new hierarchy target shape (with `level`) onto the existing
+      // composite AssignmentTarget consumed by createResource and the
+      // assignment-engine's matchesCompositeTarget evaluator.
       const compositeTarget: AssignmentTarget = {
         type: "composite",
         ids: ["composite"],
-        collegeId: targetCollege === "ALL" ? "" : targetCollege,
-        collegeName: selectedCollege?.name || (targetCollege === "ALL" ? "" : targetCollege),
-        department: targetDepartment === "ALL" ? "" : targetDepartment,
-        academicYear: targetYear === "ALL" ? "" : targetYear,
-        section: targetSection === "ALL" ? "" : targetSection,
-        batchId: targetBatch === "ALL" ? "" : targetBatch,
-        batchName: selectedBatch?.name || (targetBatch === "ALL" ? "" : targetBatch),
+        collegeId: target.collegeId,
+        collegeName: target.collegeName,
+        department: target.department,
+        academicYear: target.academicYear,
+        section: target.section,
+        batchId: target.batchId,
+        batchName: target.batchName,
       };
       await createResource({
         title,
@@ -158,11 +115,7 @@ export default function ResourcesPage() {
       setTitle("");
       setUrl("");
       setDesc("");
-      setTargetCollege("ALL");
-      setTargetDepartment("ALL");
-      setTargetYear("ALL");
-      setTargetSection("ALL");
-      setTargetBatch("ALL");
+      resetResourceFilters();
       fetchData();
     } catch (err) {
       console.error("Failed to create resource", err);
@@ -202,8 +155,19 @@ export default function ResourcesPage() {
 
   // Filter if student view using the resolved Firebase uid/email so students
   // only see resources assigned to them by hierarchy or direct targeting.
+  // For trainers/admins, also apply the cascading hierarchy filter bar.
   const displayResources = useMemo(() => {
-    if (userRole !== "student") return resources;
+    if (userRole !== "student") {
+      return resources.filter((res) => {
+        const t = res.targets?.[0];
+        if (resourceFilters.collegeId && t?.collegeId !== resourceFilters.collegeId) return false;
+        if (resourceFilters.department && t?.department !== resourceFilters.department) return false;
+        if (resourceFilters.academicYear && t?.academicYear !== resourceFilters.academicYear) return false;
+        if (resourceFilters.section && t?.section !== resourceFilters.section) return false;
+        if (resourceFilters.batchId && t?.batchId !== resourceFilters.batchId) return false;
+        return true;
+      });
+    }
     const baseProfile = {
       id: currentUser?.uid || "",
       name: "",
@@ -225,7 +189,16 @@ export default function ResourcesPage() {
     } catch (_) {
     }
     return filterResourcesForStudent(resources, studentProfile as Student);
-  }, [resources, userRole, currentUser]);
+  }, [
+    resources,
+    userRole,
+    currentUser,
+    resourceFilters.collegeId,
+    resourceFilters.department,
+    resourceFilters.academicYear,
+    resourceFilters.section,
+    resourceFilters.batchId,
+  ]);
 
   return (
     <motion.div initial="hidden" animate="visible" variants={fadeInUp} className="space-y-6">
@@ -246,8 +219,8 @@ export default function ResourcesPage() {
 
       {/* Search & Filter Bar for Resources */}
       {!loading && displayResources.length > 0 && (
-        <div className="flex flex-col sm:flex-row gap-3 items-center justify-between bg-card/40 backdrop-blur-md p-4 rounded-2xl border border-border">
-          <div className="relative w-full sm:w-72">
+        <div className="flex flex-col gap-3 bg-card/40 backdrop-blur-md p-4 rounded-2xl border border-border">
+          <div className="relative w-full">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <input
               type="text"
@@ -258,19 +231,19 @@ export default function ResourcesPage() {
             />
           </div>
           {userRole !== "student" && (
-            <div className="flex items-center gap-3">
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">College:</span>
-              <select
-                value={resourceCollegeFilter}
-                onChange={(e) => setResourceCollegeFilter(e.target.value)}
-                className="h-10 px-3 rounded-xl bg-background border border-border text-xs font-semibold text-foreground focus:outline-none"
-              >
-                <option value="ALL">All Colleges ({displayResources.length})</option>
-                {availableCollegeOptions.map((col) => (
-                  <option key={col.id} value={col.id}>{col.name}</option>
-                ))}
-              </select>
-            </div>
+            <AcademicHierarchyFilters
+              showInstitution
+              levels={["institution", "department", "academicYear", "section", "batch"]}
+              filters={resourceFilters}
+              onChange={setResourceFilters}
+              institutionOptions={institutionOptions}
+              collegeOptions={collegeOptions}
+              departmentOptions={departmentOptions}
+              academicYearOptions={academicYearOptions}
+              sectionOptions={sectionOptions}
+              batchOptions={batchOptions}
+              studentOptions={[]}
+            />
           )}
         </div>
       )}
@@ -298,9 +271,7 @@ export default function ResourcesPage() {
             .filter((res) => {
               const q = resourceSearch.toLowerCase();
               const matchesSearch = !q || res.title.toLowerCase().includes(q) || (res.category || "").toLowerCase().includes(q) || (res.description || "").toLowerCase().includes(q);
-              const t = res.targets?.[0];
-              const matchesCollege = resourceCollegeFilter === "ALL" || t?.collegeId === resourceCollegeFilter;
-              return matchesSearch && matchesCollege;
+              return matchesSearch;
             })
             .map((res) => (
             <motion.div
@@ -326,18 +297,18 @@ export default function ResourcesPage() {
 
               {/* Target badge */}
               {userRole !== "student" && (
-                <div className="p-2.5 rounded-xl bg-muted/40 border border-border/60 flex items-center justify-between text-xs">
-                  <span className="flex items-center gap-1.5 text-muted-foreground">
+                <div className="p-2.5 rounded-xl bg-muted/40 border border-border/60 flex flex-col sm:flex-row sm:items-center gap-1.5 text-xs">
+                  <span className="flex items-center gap-1.5 text-muted-foreground shrink-0">
                     <Target className="w-3.5 h-3.5 text-brand" />
                     <span>Target:</span>
                   </span>
-                  <span className="font-semibold text-foreground uppercase text-[11px]">
+                  <span className="font-semibold text-foreground uppercase text-[11px] break-words leading-relaxed">
                     {(() => {
                       const t = res.targets?.[0];
                       if (!t) return "All Students";
                       if (t.type === "composite") {
                         const parts = [
-                          t.collegeId && t.collegeId !== "ALL" ? (t.collegeName || t.collegeId) : null,
+                          t.collegeId && t.collegeId !== "ALL" ? getInstitutionName(t.collegeId) : null,
                           t.department && t.department !== "ALL" ? t.department : null,
                           t.academicYear && t.academicYear !== "ALL" ? t.academicYear : null,
                           t.section && t.section !== "ALL" ? `Sec ${t.section}` : null,
@@ -565,82 +536,23 @@ export default function ResourcesPage() {
                 <div className="p-4 rounded-xl bg-muted/40 border border-border space-y-3">
                   <div className="flex items-center gap-1.5 font-bold text-foreground">
                     <Target className="w-4 h-4 text-brand" />
-                    <span>Assignment Target</span>
+                    <span>Resource Target</span>
                   </div>
-                  <p className="text-[11px] text-muted-foreground">Select filters to target specific students. Leave as &ldquo;All&rdquo; to include everyone in that category.</p>
+                  <p className="text-[11px] text-muted-foreground">Select filters to target specific students. Leave as &ldquo;All&rdquo; to share with everyone in that category.</p>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">College</label>
-                      <select
-                        value={targetCollege}
-                        onChange={(e) => setTargetCollege(e.target.value)}
-                        className="w-full h-9 px-2.5 rounded-lg border border-border bg-background text-foreground text-xs font-semibold"
-                      >
-                        {availableCollegeOptions.map((col) => (
-                          <option key={col.id} value={col.id}>
-                            {col.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Department</label>
-                      <select
-                        value={targetDepartment}
-                        onChange={(e) => setTargetDepartment(e.target.value)}
-                        className="w-full h-9 px-2.5 rounded-lg border border-border bg-background text-foreground text-xs font-semibold"
-                      >
-                        <option value="ALL">All Departments</option>
-                        {modalDepartmentsList.map((d) => (
-                          <option key={d} value={d}>{d}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Year</label>
-                      <select
-                        value={targetYear}
-                        onChange={(e) => setTargetYear(e.target.value)}
-                        className="w-full h-9 px-2.5 rounded-lg border border-border bg-background text-foreground text-xs font-semibold"
-                      >
-                        <option value="ALL">All Years</option>
-                        {modalYearsList.map((y) => (
-                          <option key={y} value={y}>{y}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Section</label>
-                      <select
-                        value={targetSection}
-                        onChange={(e) => setTargetSection(e.target.value)}
-                        className="w-full h-9 px-2.5 rounded-lg border border-border bg-background text-foreground text-xs font-semibold"
-                      >
-                        <option value="ALL">All Sections</option>
-                        {modalSectionsList.map((sec) => (
-                          <option key={sec} value={sec}>{["A", "B", "C", "D"].includes(sec) ? `Section ${sec}` : sec}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Batch</label>
-                      <select
-                        value={targetBatch}
-                        onChange={(e) => setTargetBatch(e.target.value)}
-                        className="w-full h-9 px-2.5 rounded-lg border border-border bg-background text-foreground text-xs font-semibold"
-                      >
-                        <option value="ALL">All Batches</option>
-                        {batches.map((b) => (
-                          <option key={b.id} value={b.id}>{b.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
+                  <AcademicHierarchyFilters
+                    showInstitution
+                    levels={["institution", "department", "academicYear", "section", "batch"]}
+                    filters={resourceFilters}
+                    onChange={setResourceFilters}
+                    institutionOptions={institutionOptions}
+                    collegeOptions={collegeOptions}
+                    departmentOptions={departmentOptions}
+                    academicYearOptions={academicYearOptions}
+                    sectionOptions={sectionOptions}
+                    batchOptions={batchOptions}
+                    studentOptions={[]}
+                  />
 
                   {/* Summary Badge */}
                   <div className="flex items-center gap-1.5 pt-1 text-[11px]">
@@ -648,10 +560,16 @@ export default function ResourcesPage() {
                     <span className="text-muted-foreground">Targeting:</span>
                     <span className="font-bold text-foreground">
                       {(() => {
-                      const collegeLabel = targetCollege !== "ALL" ? (availableCollegeOptions.find((c) => c.id === targetCollege)?.name || targetCollege) : null;
-                      const batchLabel = targetBatch !== "ALL" ? (batches.find((b) => b.id === targetBatch)?.name || targetBatch) : null;
-                      return [collegeLabel, targetDepartment !== "ALL" ? targetDepartment : null, targetYear !== "ALL" ? targetYear : null, targetSection !== "ALL" ? `Sec ${targetSection}` : null, batchLabel].filter(Boolean).join(" → ") || "All Students (Global)";
-                    })()}
+                        const t = buildAssignmentTarget();
+                        const parts = [
+                          t.collegeId ? getInstitutionName(t.collegeId) : null,
+                          t.department || null,
+                          t.academicYear || null,
+                          t.section ? `Sec ${t.section}` : null,
+                          t.batchName || t.batchId || null,
+                        ].filter(Boolean);
+                        return parts.length > 0 ? parts.join(" → ") : "All Students (Global)";
+                      })()}
                     </span>
                   </div>
                 </div>
@@ -661,7 +579,7 @@ export default function ResourcesPage() {
                     Cancel
                   </Button>
                   <Button type="submit" disabled={creating} className="bg-brand text-white hover:bg-brand/90">
-                    {creating ? "Publishing..." : "Publish & Assign"}
+                    {creating ? "Publishing..." : "Publish & Share"}
                   </Button>
                 </div>
               </form>

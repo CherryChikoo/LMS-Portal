@@ -1,28 +1,42 @@
 "use client";
 
-import { useEffect, useState, Suspense } from "react";
+import { useEffect, useState, useMemo, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import { Layers, Plus, Users, Trash2, Building2, BookOpen, ChevronRight } from "lucide-react";
+import { Layers, Plus, Users, Trash2, Building2, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
+import { AcademicHierarchyFilters } from "@/components/shared/academic-hierarchy-filters";
+import { useAcademicHierarchy } from "@/lib/hierarchy/use-academic-hierarchy";
+import { getDepartmentsForCollege, getYearsForDepartment } from "@/lib/hierarchy/hierarchy-data";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
-import { getAllBatches, createBatch, deleteBatch, getAllColleges, getAllStudents } from "@/lib/services";
+import { getAllBatches, createBatch, deleteBatch } from "@/lib/services";
 import { getCurrentUser } from "@/lib/utils/auth-session";
-import type { Batch, College } from "@/types";
+import type { Batch } from "@/types";
 
 function BatchesContent() {
   const searchParams = useSearchParams();
   const initialCollegeId = searchParams?.get("collegeId") || "";
 
   const [batches, setBatches] = useState<Batch[]>([]);
-  const [colleges, setColleges] = useState<College[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedCollegeId, setSelectedCollegeId] = useState<string>(initialCollegeId);
   const [userRole, setUserRole] = useState<string>("admin");
+
+  const {
+    hierarchy,
+    filters: batchFilters,
+    setFilters: setBatchFilters,
+    institutionOptions,
+    collegeOptions,
+    departmentOptions,
+    academicYearOptions,
+  } = useAcademicHierarchy({
+    initial: { collegeId: initialCollegeId },
+    levels: ["institution", "department", "academicYear"],
+  });
   const [currentStudent, setCurrentStudent] = useState<{ uid: string; email: string; profile?: Record<string, unknown> } | null>(null);
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void } | null>(null);
 
@@ -38,7 +52,8 @@ function BatchesContent() {
   const fetchData = async (studentUser?: { uid: string; email: string; profile?: Record<string, unknown> } | null) => {
     setLoading(true);
     try {
-      const [bData, cData, sData] = await Promise.all([getAllBatches(), getAllColleges(), getAllStudents()]);
+      const bData = await getAllBatches();
+      const sData = hierarchy?.students || [];
       const computedBatches = bData.map((b) => ({
         ...b,
         studentCount: sData.filter((s) => s.batchIds && (s.batchIds.includes(b.id) || s.batchIds.includes(b.name))).length,
@@ -72,10 +87,6 @@ function BatchesContent() {
         setBatches(computedBatches);
       }
 
-      setColleges(cData);
-      if (!collegeId && cData.length > 0) {
-        setCollegeId(cData[0].id);
-      }
     } catch (err) {
       console.error("Error fetching batches:", err);
     } finally {
@@ -99,15 +110,14 @@ function BatchesContent() {
     } else {
       fetchData(null);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- initial mount only
   }, []);
 
   useEffect(() => {
     if (initialCollegeId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing state with URL search param
-      setSelectedCollegeId(initialCollegeId);
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing state with URL search param
-      setCollegeId(initialCollegeId);
+      setBatchFilters({ collegeId: initialCollegeId });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- URL param only
   }, [initialCollegeId]);
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -153,9 +163,14 @@ function BatchesContent() {
     });
   };
 
-  const filteredBatches = selectedCollegeId
-    ? batches.filter((b) => b.collegeId === selectedCollegeId)
-    : batches;
+  const filteredBatches = useMemo(() => {
+    return batches.filter((b) => {
+      if (batchFilters.collegeId && b.collegeId !== batchFilters.collegeId) return false;
+      if (batchFilters.department && b.department !== batchFilters.department) return false;
+      if (batchFilters.academicYear && b.academicYear !== batchFilters.academicYear) return false;
+      return true;
+    });
+  }, [batches, batchFilters]);
 
   return (
     <motion.div initial="hidden" animate="visible" variants={fadeInUp} className="space-y-6">
@@ -176,29 +191,21 @@ function BatchesContent() {
         }
       />
 
-      {/* College Filter Pill Bar */}
-      {colleges.length > 0 && (
-        <div className="flex items-center gap-2 overflow-x-auto pb-2">
-          <Button
-            size="sm"
-            variant={!selectedCollegeId ? "default" : "outline"}
-            onClick={() => setSelectedCollegeId("")}
-            className={!selectedCollegeId ? "bg-brand text-white" : ""}
-          >
-            All Colleges
-          </Button>
-          {colleges.map((c) => (
-            <Button
-              key={c.id}
-              size="sm"
-              variant={selectedCollegeId === c.id ? "default" : "outline"}
-              onClick={() => setSelectedCollegeId(c.id)}
-              className={selectedCollegeId === c.id ? "bg-brand text-white" : ""}
-            >
-              {c.name}
-            </Button>
-          ))}
-        </div>
+      {/* Cascading Hierarchy Filter Bar */}
+      {userRole !== "student" && (
+        <AcademicHierarchyFilters
+          levels={["institution", "department", "academicYear"]}
+          filters={batchFilters}
+          onChange={setBatchFilters}
+          showInstitution
+          institutionOptions={institutionOptions}
+          collegeOptions={collegeOptions}
+          departmentOptions={departmentOptions}
+          academicYearOptions={academicYearOptions}
+          sectionOptions={[]}
+          batchOptions={[]}
+          studentOptions={[]}
+        />
       )}
 
       {loading ? (
@@ -222,7 +229,7 @@ function BatchesContent() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredBatches.map((b) => {
-            const colName = colleges.find((c) => c.id === b.collegeId)?.name || "General Institute";
+            const colName = hierarchy?.collegeMap.get(b.collegeId || "")?.name || "General Institute";
             return (
               <motion.div
                 key={b.id}
@@ -313,41 +320,60 @@ function BatchesContent() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-foreground">Assign to Scope / College</label>
+                  <label className="text-xs font-semibold text-foreground">Assign to Scope / Institution</label>
                   <select
                     value={collegeId}
-                    onChange={(e) => setCollegeId(e.target.value)}
+                    onChange={(e) => {
+                      setCollegeId(e.target.value);
+                      setDepartment("");
+                      setAcademicYear("");
+                    }}
                     className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
                   >
-                    <option value="GLOBAL">Global Custom Batch (All Colleges)</option>
-                    {colleges.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
+                    <option value="GLOBAL">Global Custom Batch (All Institutions)</option>
+                    {institutionOptions
+                      .filter((o) => o.value !== "" && o.value !== "GLOBAL")
+                      .map((i) => (
+                        <option key={i.value} value={i.value}>
+                          {i.label}
+                        </option>
+                      ))}
                   </select>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold text-foreground">Department</label>
-                    <input
-                      type="text"
+                    <select
                       value={department}
-                      onChange={(e) => setDepartment(e.target.value)}
-                      placeholder="e.g. Computer Science"
+                      onChange={(e) => {
+                        setDepartment(e.target.value);
+                        setAcademicYear("");
+                      }}
                       className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
-                    />
+                    >
+                      <option value="">All Departments</option>
+                      {(hierarchy ? getDepartmentsForCollege(hierarchy, collegeId) : []).map((d) => (
+                        <option key={d} value={d}>
+                          {d}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold text-foreground">Academic Year</label>
-                    <input
-                      type="text"
+                    <select
                       value={academicYear}
                       onChange={(e) => setAcademicYear(e.target.value)}
-                      placeholder="e.g. 3rd Year"
                       className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
-                    />
+                    >
+                      <option value="">All Years</option>
+                      {(hierarchy ? getYearsForDepartment(hierarchy, collegeId, department) : []).map((y) => (
+                        <option key={y} value={y}>
+                          {y}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 

@@ -68,6 +68,23 @@ export async function updateDocument<T extends DocumentData>(
   });
 }
 
+export async function setDocument<T extends DocumentData>(
+  collectionName: string,
+  documentId: string,
+  data: Partial<T>,
+  options: { merge?: boolean } = {}
+): Promise<void> {
+  const docRef = doc(db, collectionName, documentId);
+  await setDoc(
+    docRef,
+    {
+      ...data,
+      updatedAt: serverTimestamp(),
+    },
+    options
+  );
+}
+
 export async function deleteDocument(
   collectionName: string,
   documentId: string

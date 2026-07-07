@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -21,20 +21,21 @@ import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
+import { AcademicHierarchyFilters } from "@/components/shared/academic-hierarchy-filters";
+import { useAcademicHierarchy } from "@/lib/hierarchy/use-academic-hierarchy";
 import { fadeInUp } from "@/lib/animations";
 import {
   getStudentAttempts,
   getStudentAttemptsForCurrentUser,
   getAllExamsIncludingDeleted,
   getAllStudents,
-  getAllColleges,
   subscribeToAllStudents,
   deleteResultById,
   clearAllResults,
 } from "@/lib/services";
 import { getCurrentUser } from "@/lib/utils/auth-session";
 import { uniqueOptions } from "@/lib/utils/array";
-import type { ExamAttempt, Exam, Student, College } from "@/types";
+import type { ExamAttempt, Exam, Student } from "@/types";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function formatLiveDate(val: any): string {
@@ -97,7 +98,6 @@ export default function ResultsPage() {
   const [attempts, setAttempts] = useState<ExamAttempt[]>([]);
   const [exams, setExams] = useState<Exam[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
-  const [colleges, setColleges] = useState<College[]>([]);
   const [loading, setLoading] = useState(true);
   const [actualRole, setActualRole] = useState<string>("admin");
   const [currentStudentUser, setCurrentStudentUser] = useState<Student | null>(null);
@@ -118,9 +118,21 @@ export default function ResultsPage() {
   const [searchQueryRaw, setSearchQueryRaw] = useState("");
   const [examFilter, setExamFilter] = useState("ALL");
   const [studentFilter, setStudentFilter] = useState("ALL");
-  const [collegeFilter, setCollegeFilter] = useState("ALL");
   const [outcomeFilter, setOutcomeFilter] = useState("ALL");
   const [sortBy, setSortBy] = useState<"date_desc" | "score_desc" | "score_asc">("date_desc");
+
+  const {
+    filters: academicFilters,
+    setFilters: setAcademicFilters,
+    institutionOptions,
+    collegeOptions,
+    departmentOptions,
+    academicYearOptions,
+    sectionOptions,
+    batchOptions,
+  } = useAcademicHierarchy({
+    levels: ["institution", "department", "academicYear", "section", "batch"],
+  });
 
   // Performance Details Modal state
   const [selectedAttempt, setSelectedAttempt] = useState<ExamAttempt | null>(null);
@@ -147,16 +159,14 @@ export default function ResultsPage() {
           setExams(examData);
         }
       } else {
-        const [attData, examData, studData, colData] = await Promise.all([
+        const [attData, examData, studData] = await Promise.all([
           getStudentAttempts(),
           getAllExamsIncludingDeleted(),
           getAllStudents(),
-          getAllColleges(),
         ]);
         setAttempts(attData);
         setExams(examData);
         setStudents(studData);
-        setColleges(colData);
       }
     } catch (err) {
       console.error("Failed to fetch results analytics", err);
@@ -195,31 +205,21 @@ export default function ResultsPage() {
     return () => unsubscribe();
   }, [actualRole]);
 
-  // Build college name <-> ID maps so we can normalize student.collegeName /
-  // collegeId values to a single canonical college name used by the College filter.
-  const { collegeIdToName } = useMemo(() => {
-    const nameToId = new Map<string, string>();
-    const idToName = new Map<string, string>();
-    colleges.forEach((c) => {
-      nameToId.set(c.name.toLowerCase(), c.id);
-      idToName.set(c.id, c.name);
-    });
-    return { collegeNameToId: nameToId, collegeIdToName: idToName };
-  }, [colleges]);
-
-  // Map student name (lowercased) to a resolved college name. When a student
-  // record only carries a collegeId we look it up in collegeIdToName so the
-  // College filter (which keys off college names) can still match.
-  const studentCollegeMap = useMemo(() => {
-    const map = new Map<string, string>();
-    students.forEach((s) => {
-      if (!s.name) return;
-      const raw = s.collegeName || s.collegeId || "General College";
-      const resolved = collegeIdToName.get(raw) || raw;
-      map.set(s.name.toLowerCase(), resolved);
-    });
-    return map;
-  }, [students, collegeIdToName]);
+  // Helper: find the live student record for an attempt by id or email.
+  const getStudentForAttempt = useCallback(
+    (attempt: ExamAttempt): Student | undefined => {
+      const sId = attempt.studentId;
+      const sEmail = (attempt as unknown as { studentEmail?: string }).studentEmail;
+      const sName = attempt.studentName?.toLowerCase().trim();
+      return students.find((s) => {
+        if (sId && (s.id === sId || s.email === sId)) return true;
+        if (sEmail && s.email.toLowerCase() === sEmail.toLowerCase()) return true;
+        if (sName && s.name.toLowerCase() === sName) return true;
+        return false;
+      });
+    },
+    [students]
+  );
 
   // Map examId to human-readable title. Prefer live exam titles (which persist
   // even after soft-deletion) so deleted exams still render their real name,
@@ -235,28 +235,32 @@ export default function ResultsPage() {
     return map;
   }, [attempts, exams]);
 
-  // Attempts narrowed by the current College selection. Used to derive the
-  // cascading Exam and Student dropdown options.
-  const filteredAttemptsByCollege = useMemo(() => {
-    if (collegeFilter === "ALL") return attempts;
+  // Attempts narrowed by the cascading hierarchy filters. Used to derive the
+  // cascading Exam and Student dropdown options and the final filtered list.
+  const filteredAttemptsByHierarchy = useMemo(() => {
     return attempts.filter((att) => {
-      const sName = (att.studentName || "").toLowerCase();
-      const col = studentCollegeMap.get(sName) || "General College";
-      return col === collegeFilter;
+      const student = getStudentForAttempt(att);
+      if (!student) return false;
+      if (academicFilters.collegeId && student.collegeId !== academicFilters.collegeId) return false;
+      if (academicFilters.department && student.department !== academicFilters.department) return false;
+      if (academicFilters.academicYear && student.academicYear !== academicFilters.academicYear) return false;
+      if (academicFilters.section && student.section !== academicFilters.section) return false;
+      if (academicFilters.batchId && !student.batchIds?.includes(academicFilters.batchId)) return false;
+      return true;
     });
-  }, [attempts, collegeFilter, studentCollegeMap]);
+  }, [attempts, academicFilters, getStudentForAttempt]);
 
-  // Unique exam IDs / titles derived from the college-filtered attempts.
+  // Unique exam IDs / titles derived from the hierarchy-filtered attempts.
   const examSubjectsList = useMemo(() => {
     return uniqueOptions(
-      filteredAttemptsByCollege
+      filteredAttemptsByHierarchy
         .filter((a) => Boolean(a.examId))
         .map((a) => ({ id: a.examId as string, title: examTitleMap[a.examId] || a.examTitle || "Deleted Assessment" })),
       (e) => e.id
     );
-  }, [filteredAttemptsByCollege, examTitleMap]);
+  }, [filteredAttemptsByHierarchy, examTitleMap]);
 
-  // Unique student names: college-filtered attempt student names (admin attempts
+  // Unique student names: hierarchy-filtered attempt student names (admin attempts
   // excluded) plus all live student records. Case-insensitively deduplicated.
   const studentNamesList = useMemo(() => {
     const isAdminAttempt = (a: ExamAttempt) => {
@@ -270,7 +274,7 @@ export default function ResultsPage() {
       );
     };
 
-    const attemptNames = filteredAttemptsByCollege
+    const attemptNames = filteredAttemptsByHierarchy
       .filter((a) => a.studentName && !isAdminAttempt(a))
       .map((a) => a.studentName as string);
 
@@ -279,21 +283,21 @@ export default function ResultsPage() {
       .filter((n): n is string => Boolean(n));
 
     return uniqueOptions([...attemptNames, ...studentNames], (n) => n.toLowerCase());
-  }, [filteredAttemptsByCollege, students]);
+  }, [filteredAttemptsByHierarchy, students]);
 
   // Track which student accounts still exist so deleted-student records can be labelled
   const existingStudentIds = useMemo(() => {
     return new Set(students.map((s) => s.id).filter(Boolean));
   }, [students]);
 
-  // Reset child filters (Exam, Student) when the College selection or the derived
+  // Reset child filters (Exam, Student) when the hierarchy selection or the derived
   // cascading lists change such that the currently selected value is no longer valid.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- cascading reset: child filters must reset when the parent filter narrows the available options
     if (examFilter !== "ALL" && !examSubjectsList.some((e) => e.id === examFilter)) setExamFilter("ALL");
     if (studentFilter !== "ALL" && !studentNamesList.includes(studentFilter)) setStudentFilter("ALL");
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally exclude selected* values so the reset only fires when the parent filter narrows the option list
-  }, [collegeFilter, examSubjectsList, studentNamesList]);
+  }, [academicFilters.collegeId, academicFilters.department, academicFilters.academicYear, academicFilters.section, academicFilters.batchId, examSubjectsList, studentNamesList]);
 
   // Debounce the raw search input into the filter state (300ms) so heavy filter
   // recomputations do not run on every keystroke.
@@ -302,9 +306,10 @@ export default function ResultsPage() {
     return () => clearTimeout(t);
   }, [searchQueryRaw]);
 
-  // Filter and sort logic
+  // Filter and sort logic. The cascading hierarchy filters have already narrowed
+  // the attempt list; apply exam/student/outcome/search filters on top.
   const filteredAttempts = useMemo(() => {
-    return attempts
+    return filteredAttemptsByHierarchy
       .filter((att) => {
         const name = att.studentName || "Unknown Student";
         const isAdminAttempt =
@@ -338,15 +343,13 @@ export default function ResultsPage() {
           }
         }
 
-        // Search Query filter (candidate name, exam title, or college)
+        // Search Query filter (candidate name or exam title)
         if (searchQuery.trim()) {
           const q = searchQuery.trim().toLowerCase();
           const nameMatch = name.toLowerCase().includes(q);
           const examTitle = examTitleMap[att.examId] || "";
           const examMatch = (att.examId || "").toLowerCase().includes(q) || examTitle.toLowerCase().includes(q);
-          const colName = (studentCollegeMap.get(name.toLowerCase()) || "").toLowerCase();
-          const colMatch = colName.includes(q);
-          if (!nameMatch && !examMatch && !colMatch) return false;
+          if (!nameMatch && !examMatch) return false;
         }
 
         // Exam Section / Subject Filter
@@ -355,13 +358,6 @@ export default function ResultsPage() {
         // Outcome Filter
         if (outcomeFilter === "PASSED" && !att.passed) return false;
         if (outcomeFilter === "FAILED" && att.passed) return false;
-
-        // College Filter
-        if (collegeFilter !== "ALL") {
-          const sName = name.toLowerCase();
-          const col = studentCollegeMap.get(sName) || "General College";
-          if (col !== collegeFilter) return false;
-        }
 
         return true;
       })
@@ -374,7 +370,7 @@ export default function ResultsPage() {
         return timeB - timeA;
       });
   }, [
-    attempts,
+    filteredAttemptsByHierarchy,
     actualRole,
     currentStudentUser,
     userRole,
@@ -382,9 +378,7 @@ export default function ResultsPage() {
     searchQuery,
     examFilter,
     outcomeFilter,
-    collegeFilter,
     sortBy,
-    studentCollegeMap,
     examTitleMap,
   ]);
 
@@ -392,7 +386,14 @@ export default function ResultsPage() {
     setSearchQuery("");
     setExamFilter("ALL");
     setStudentFilter("ALL");
-    setCollegeFilter("ALL");
+    setAcademicFilters({
+      collegeId: "",
+      department: "",
+      academicYear: "",
+      section: "",
+      batchId: "",
+      studentId: "",
+    });
     setOutcomeFilter("ALL");
     setSortBy("date_desc");
   };
@@ -584,22 +585,22 @@ export default function ResultsPage() {
             </div>
           )}
 
-          {/* College Filter */}
+          {/* Cascading Hierarchy Filter */}
           {actualRole !== "student" && (
-            <div className="flex flex-col gap-1">
-              <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">College</span>
-              <select
-                value={collegeFilter}
-                onChange={(e) => setCollegeFilter(e.target.value)}
-                className="h-9 px-3 rounded-xl bg-background border border-border text-xs font-bold text-foreground focus:outline-none focus:ring-1 focus:ring-brand shadow-sm truncate"
-              >
-                {["All Colleges", ...uniqueOptions(colleges.map((c) => c.name))].map((name) => (
-                  <option key={name} value={name === "All Colleges" ? "ALL" : name}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <AcademicHierarchyFilters
+              levels={["institution", "department", "academicYear", "section", "batch"]}
+              filters={academicFilters}
+              onChange={setAcademicFilters}
+              collegeOptions={collegeOptions}
+              departmentOptions={departmentOptions}
+              academicYearOptions={academicYearOptions}
+              sectionOptions={sectionOptions}
+              batchOptions={batchOptions}
+              studentOptions={[]}
+              className="contents"
+              showInstitution
+              institutionOptions={institutionOptions}
+            />
           )}
 
           {/* Outcome Filter */}
@@ -642,17 +643,17 @@ export default function ResultsPage() {
           icon={Trophy}
           title={actualRole !== "student" ? "No attempted examinations found" : "No test attempts found"}
           description={
-            searchQuery || examFilter !== "ALL" || studentFilter !== "ALL" || collegeFilter !== "ALL" || outcomeFilter !== "ALL"
+            searchQuery || examFilter !== "ALL" || studentFilter !== "ALL" || outcomeFilter !== "ALL" || Object.values(academicFilters).some(Boolean)
               ? "No evaluation records match your selected filter criteria. Try resetting your filters."
               : "When examinations are completed and submitted, graded evaluation records and transcripts will appear here."
           }
           actionLabel={
-            searchQuery || examFilter !== "ALL" || studentFilter !== "ALL" || collegeFilter !== "ALL" || outcomeFilter !== "ALL"
+            searchQuery || examFilter !== "ALL" || studentFilter !== "ALL" || outcomeFilter !== "ALL" || Object.values(academicFilters).some(Boolean)
               ? "Clear Filters"
               : undefined
           }
           onAction={
-            searchQuery || examFilter !== "ALL" || studentFilter !== "ALL" || collegeFilter !== "ALL" || outcomeFilter !== "ALL"
+            searchQuery || examFilter !== "ALL" || studentFilter !== "ALL" || outcomeFilter !== "ALL" || Object.values(academicFilters).some(Boolean)
               ? resetAllFilters
               : undefined
           }
@@ -699,7 +700,10 @@ export default function ResultsPage() {
                           <span className="block text-sm leading-tight">{sName}</span>
                           {actualRole !== "student" && (
                             <span className="text-[11px] text-muted-foreground font-normal">
-                              {studentCollegeMap.get(sName.toLowerCase()) || "General College"}
+                              {(() => {
+                                const student = getStudentForAttempt(att);
+                                return student?.collegeName || student?.collegeId || "General College";
+                              })()}
                             </span>
                           )}
                           {!existingStudentIds.has(att.studentId) && (

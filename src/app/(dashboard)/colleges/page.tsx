@@ -9,12 +9,12 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
-import { getAllColleges, createCollege, getAllStudents, deleteCollege, deleteStudentProfile, updateCollege } from "@/lib/services";
+import { getAllColleges, createCollege, getAllStudents, deleteCollege, deleteStudentProfile, updateCollege, updateStudentProfile, PREDEFINED_DEPARTMENTS, ensureGeneralDepartment } from "@/lib/services";
 import type { College, Student } from "@/types";
 
 export default function CollegesPage() {
   const [colleges, setColleges] = useState<College[]>([]);
-  const [externalColleges, setExternalColleges] = useState<any[]>([]);
+  const [externalColleges, setExternalColleges] = useState<{ id: string; name: string; studentCount: number; departments: string[] }[]>([]);
   const [allStudents, setAllStudents] = useState<Student[]>([]);
   const [selectedAdminIds, setSelectedAdminIds] = useState<string[]>([]);
   const [selectedExternalIds, setSelectedExternalIds] = useState<string[]>([]);
@@ -22,12 +22,17 @@ export default function CollegesPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void } | null>(null);
   const [name, setName] = useState("");
-  const [deptsStr, setDeptsStr] = useState("Computer Science, Information Technology, Electronics, Mechanical");
+  const [selectedDept, setSelectedDept] = useState<string>("Computer Science & Engineering (CSE)");
+  const [customDeptName, setCustomDeptName] = useState<string>("");
   const [creating, setCreating] = useState(false);
 
   const [editingCollege, setEditingCollege] = useState<College | null>(null);
   const [editCollegeName, setEditCollegeName] = useState("");
   const [updatingCollege, setUpdatingCollege] = useState(false);
+
+  const [editingExternal, setEditingExternal] = useState<{ id: string; name: string } | null>(null);
+  const [editExternalName, setEditExternalName] = useState("");
+  const [updatingExternal, setUpdatingExternal] = useState(false);
 
   const fetchColleges = async () => {
     setLoading(true);
@@ -49,7 +54,7 @@ export default function CollegesPage() {
         ...collegesData.map((c) => c.name.toLowerCase()),
       ]);
 
-      const externalMap = new Map<string, { name: string; students: any[] }>();
+      const externalMap = new Map<string, { name: string; students: Student[] }>();
       studentsData.forEach((s) => {
         const cName = s.collegeName || s.collegeId;
         if (!cName) return;
@@ -82,6 +87,7 @@ export default function CollegesPage() {
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial data load on mount
     fetchColleges();
   }, []);
 
@@ -197,10 +203,8 @@ export default function CollegesPage() {
     if (!name) return;
     setCreating(true);
     try {
-      const depts = deptsStr
-        .split(",")
-        .map((d) => d.trim())
-        .filter(Boolean);
+      const chosenDept = selectedDept === "Custom Department" ? customDeptName.trim() : selectedDept;
+      const depts = ensureGeneralDepartment(chosenDept ? [chosenDept] : []);
 
       const generatedCode =
         name
@@ -221,6 +225,8 @@ export default function CollegesPage() {
       });
       setShowAddModal(false);
       setName("");
+      setSelectedDept("Computer Science & Engineering (CSE)");
+      setCustomDeptName("");
       fetchColleges();
     } catch (err) {
       console.error("Failed to create college", err);
@@ -245,6 +251,57 @@ export default function CollegesPage() {
       console.error("Failed to update college", err);
     } finally {
       setUpdatingCollege(false);
+    }
+  };
+
+  const handleUpdateExternalCollege = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingExternal || !editExternalName.trim()) return;
+    setUpdatingExternal(true);
+    try {
+      const oldName = editingExternal.name;
+      const newName = editExternalName.trim().toLowerCase();
+      if (oldName.toLowerCase() === newName) {
+        setEditingExternal(null);
+        setEditExternalName("");
+        return;
+      }
+
+      // Update any official college document that may have been created for this institution.
+      const matchingCollege = colleges.find(
+        (c) => c.name.toLowerCase() === oldName.toLowerCase() || c.id.toLowerCase() === oldName.toLowerCase()
+      );
+      if (matchingCollege) {
+        await updateCollege(matchingCollege.id, {
+          name: newName,
+          updatedAt: new Date(),
+        });
+      }
+
+      // Update all enrolled students so they keep belonging to the renamed institution.
+      const affectedStudents = allStudents.filter(
+        (s) =>
+          (s.collegeName || "").toLowerCase() === oldName.toLowerCase() ||
+          (s.collegeId || "").toLowerCase() === oldName.toLowerCase()
+      );
+      await Promise.all(
+        affectedStudents.map((s) =>
+          updateStudentProfile(s.id, {
+            collegeName: newName,
+            collegeId: newName,
+            updatedAt: new Date(),
+          })
+        )
+      );
+
+      setEditingExternal(null);
+      setEditExternalName("");
+      setSelectedExternalIds((prev) => prev.filter((id) => id !== oldName));
+      await fetchColleges();
+    } catch (err) {
+      console.error("Failed to update outside institution", err);
+    } finally {
+      setUpdatingExternal(false);
     }
   };
 
@@ -487,6 +544,18 @@ export default function CollegesPage() {
                       <Button
                         variant="ghost"
                         size="sm"
+                        onClick={() => {
+                          setEditingExternal({ id: col.id, name: col.name });
+                          setEditExternalName(col.name);
+                        }}
+                        className="h-8 w-8 p-0 text-brand hover:text-brand/90 hover:bg-brand/10 rounded-lg"
+                        title="Edit Outside Institution Name"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         onClick={() => handleDeleteExternalCollege(col.name)}
                         className="h-8 w-8 p-0 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10 rounded-lg"
                         title="Delete Outside Institution"
@@ -567,15 +636,35 @@ export default function CollegesPage() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-foreground">Departments (comma separated)</label>
-                  <textarea
-                    value={deptsStr}
-                    onChange={(e) => setDeptsStr(e.target.value)}
-                    rows={3}
-                    placeholder="Computer Science, Electronics, Mechanical"
-                    className="w-full p-3 rounded-xl border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
-                  />
+                  <label className="text-xs font-semibold text-foreground">Primary Department</label>
+                  <select
+                    value={selectedDept}
+                    onChange={(e) => setSelectedDept(e.target.value)}
+                    className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
+                  >
+                    {PREDEFINED_DEPARTMENTS.map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
+                  </select>
                 </div>
+                {selectedDept === "Custom Department" && (
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-foreground">Custom Department Name</label>
+                    <input
+                      type="text"
+                      value={customDeptName}
+                      onChange={(e) => setCustomDeptName(e.target.value)}
+                      required
+                      placeholder="e.g. Artificial Intelligence & Data Science"
+                      className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
+                    />
+                  </div>
+                )}
+                <p className="text-[11px] text-muted-foreground">
+                  Note: The "General" department is automatically included by default for all colleges.
+                </p>
 
                 <div className="flex justify-end gap-2 pt-2">
                   <Button type="button" variant="outline" onClick={() => setShowAddModal(false)}>
@@ -640,6 +729,66 @@ export default function CollegesPage() {
                   </Button>
                   <Button type="submit" disabled={updatingCollege} className="bg-brand text-white hover:bg-brand/90">
                     {updatingCollege ? "Saving..." : "Save Changes"}
+                  </Button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Edit Outside Institution Name Modal */}
+      <AnimatePresence>
+        {editingExternal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-5"
+            >
+              <div className="flex items-center justify-between border-b border-border pb-3">
+                <div>
+                  <h3 className="text-lg font-bold text-foreground">Rename Outside Institution</h3>
+                  <p className="text-xs text-muted-foreground">Updates the college name for all enrolled students.</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setEditingExternal(null);
+                    setEditExternalName("");
+                  }}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handleUpdateExternalCollege} className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-foreground">Institution Name</label>
+                  <input
+                    type="text"
+                    value={editExternalName}
+                    onChange={(e) => setEditExternalName(e.target.value)}
+                    required
+                    placeholder="e.g. Global Institute"
+                    className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setEditingExternal(null);
+                      setEditExternalName("");
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={updatingExternal} className="bg-brand text-white hover:bg-brand/90">
+                    {updatingExternal ? "Saving..." : "Save Changes"}
                   </Button>
                 </div>
               </form>

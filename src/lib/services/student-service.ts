@@ -3,6 +3,7 @@ import {
   getDocument,
   addDocument,
   updateDocument,
+  setDocument,
   deleteDocument,
   subscribeToDocuments,
   where,
@@ -107,7 +108,7 @@ export async function createStudentProfile(data: Omit<Student, "id">): Promise<s
 export async function updateStudentProfile(studentId: string, data: Partial<Student>): Promise<void> {
   await updateDocument<Student>(COLLECTION_NAME, studentId, data);
   try {
-    await updateDocument("users", studentId, data as Record<string, unknown>);
+    await setDocument("users", studentId, data as Record<string, unknown>, { merge: true });
   } catch (err) {
     console.error("Failed to sync user document for student", err);
   }

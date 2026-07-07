@@ -7,10 +7,17 @@ import { Users, Plus, Upload, Download, Search, FileSpreadsheet, Sparkles, Trash
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
+import { AcademicHierarchyFilters } from "@/components/shared/academic-hierarchy-filters";
+import { useAcademicHierarchy } from "@/lib/hierarchy/use-academic-hierarchy";
+import {
+  getDepartmentsForCollege,
+  getYearsForDepartment,
+  getSectionsForYear,
+  getBatchesForSection,
+} from "@/lib/hierarchy/hierarchy-data";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
-import { getAllStudents, parseStudentsCSV, importStudentsCSV, generateCredentialsCSV, getAllColleges, getAllBatches, createStudentAuthProfile, updateCollege, deleteStudentProfile, updateStudentProfile, subscribeToAllStudents, subscribeToAllColleges, subscribeToAllBatches } from "@/lib/services";
-import { uniqueOptions } from "@/lib/utils/array";
+import { parseStudentsCSV, importStudentsCSV, generateCredentialsCSV, createStudentAuthProfile, updateCollege, deleteStudentProfile, updateStudentProfile } from "@/lib/services";
 import type { Student, CSVImportSummary, College, Batch } from "@/types";
 
 type TimestampLike = Date | { toMillis(): number } | { seconds: number } | string | number | null | undefined;
@@ -35,12 +42,25 @@ function StudentsContent() {
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm?: () => void; isAlert?: boolean; variant?: "destructive" | "warning" | "info" | "success" } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchRaw, setSearchRaw] = useState("");
-  const [selectedCollege, setSelectedCollege] = useState(initialCollegeId || "ALL");
-  const [selectedYear, setSelectedYear] = useState("ALL");
-  const [selectedSection, setSelectedSection] = useState("ALL");
-  const [selectedDepartment, setSelectedDepartment] = useState("ALL");
   const [timeFilter, setTimeFilter] = useState("ALL");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+  // Shared academic hierarchy used by the filter bar and the add/edit modals.
+  const {
+    hierarchy,
+    filters: academicFilters,
+    setFilters: setAcademicFilters,
+    institutionOptions,
+    collegeOptions,
+    departmentOptions,
+    academicYearOptions,
+    sectionOptions,
+    batchOptions,
+    loading: hierarchyLoading,
+  } = useAcademicHierarchy({
+    initial: { collegeId: initialCollegeId },
+    levels: ["institution", "department", "academicYear", "section", "batch"],
+  });
 
   function getYearBadgeStyle(year?: string) {
     const y = year || "1st Year";
@@ -83,61 +103,28 @@ function StudentsContent() {
   const [editPassword, setEditPassword] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
 
-  const fetchStudents = async () => {
-    setLoading(true);
-    try {
-      const [studData, colData, batData] = await Promise.all([
-        getAllStudents(),
-        getAllColleges(),
-        getAllBatches(),
-      ]);
-      setStudents(studData);
-      setColleges(colData);
-      setBatches(batData);
-      if (initialCollegeId && colData.find((c) => c.id === initialCollegeId)) {
-        setSelectedCollege(colData.find((c) => c.id === initialCollegeId)?.name || initialCollegeId);
-        setNewCollegeId(initialCollegeId);
-      }
-    } catch (err) {
-      console.error("Failed to fetch students data", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Real-time Firebase listeners for live synchronization
+  // Sync local page state with the shared hierarchy cache. The cache manages
+  // its own Firestore subscriptions and reuses them across pages, minimizing
+  // reads while keeping all filter data live.
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- existing pattern: shows loader until first snapshot arrives
-    setLoading(true);
-    let loadedCount = 0;
-    const checkLoaded = () => {
-      loadedCount++;
-      if (loadedCount >= 3) setLoading(false);
-    };
-
-    const unsubStudents = subscribeToAllStudents((studData) => {
-      setStudents(studData);
-      checkLoaded();
-    });
-    const unsubColleges = subscribeToAllColleges((colData) => {
-      setColleges(colData);
-      if (initialCollegeId && colData.find((c) => c.id === initialCollegeId)) {
-        setSelectedCollege(colData.find((c) => c.id === initialCollegeId)?.name || initialCollegeId);
+    if (hierarchy) {
+      /* eslint-disable react-hooks/set-state-in-effect -- syncing local page state with shared hierarchy cache snapshot */
+      setStudents(hierarchy.students);
+      setColleges(hierarchy.colleges);
+      setBatches(hierarchy.batches);
+      if (initialCollegeId && hierarchy.colleges.find((c) => c.id === initialCollegeId)) {
         setNewCollegeId(initialCollegeId);
       }
-      checkLoaded();
-    });
-    const unsubBatches = subscribeToAllBatches((batData) => {
-      setBatches(batData);
-      checkLoaded();
-    });
+      /* eslint-enable react-hooks/set-state-in-effect */
+    }
+    setLoading(hierarchyLoading);
+  }, [hierarchy, hierarchyLoading, initialCollegeId]);
 
-    return () => {
-      unsubStudents();
-      unsubColleges();
-      unsubBatches();
-    };
-  }, [initialCollegeId]);
+  const fetchStudents = async () => {
+    // Data is kept live by the hierarchy cache; explicit fetches after
+    // mutations are no longer required but the function is retained so
+    // existing call sites stay intact.
+  };
 
   const handleOpenEdit = (student: Student) => {
     setEditingStudent(student);
@@ -275,48 +262,6 @@ function StudentsContent() {
     }
   };
 
-  const collegesList = useMemo(() => {
-    const raw = [
-      ...colleges.map((c) => c.name),
-      ...students.map((s) => s.collegeName || s.collegeId),
-    ];
-    return uniqueOptions(raw, (v) => v.toLowerCase());
-  }, [colleges, students]);
-
-  const filteredByCollege = useMemo(
-    () =>
-      selectedCollege === "ALL"
-        ? students
-        : students.filter((s) => s.collegeName === selectedCollege || s.collegeId === selectedCollege),
-    [students, selectedCollege]
-  );
-
-  const departmentsList = useMemo(
-    () => uniqueOptions(filteredByCollege.map((s) => s.department)),
-    [filteredByCollege]
-  );
-
-  const yearsList = useMemo(() => {
-    const base = filteredByCollege.map((s) => s.academicYear);
-    if (selectedCollege === "ALL") base.push("1st Year", "2nd Year", "3rd Year", "4th Year");
-    return uniqueOptions(base.filter(Boolean));
-  }, [filteredByCollege, selectedCollege]);
-
-  const sectionsList = useMemo(() => {
-    const base = filteredByCollege.map((s) => s.section);
-    if (selectedCollege === "ALL") base.push("A", "B", "C", "D");
-    return uniqueOptions(base.filter(Boolean));
-  }, [filteredByCollege, selectedCollege]);
-
-  // Reset child filters when the current selection is no longer present in the narrowed lists
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- cascading reset: child filters must reset when the parent filter narrows the available options
-    if (selectedDepartment !== "ALL" && !departmentsList.includes(selectedDepartment)) setSelectedDepartment("ALL");
-    if (selectedYear !== "ALL" && !yearsList.includes(selectedYear)) setSelectedYear("ALL");
-    if (selectedSection !== "ALL" && !sectionsList.includes(selectedSection)) setSelectedSection("ALL");
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally exclude selected* values so the reset only fires when the parent filter narrows the option list
-  }, [selectedCollege, departmentsList, yearsList, sectionsList]);
-
   // Debounce the raw search input into the filter state (300ms) so heavy filter
   // recomputations do not run on every keystroke.
   useEffect(() => {
@@ -325,7 +270,7 @@ function StudentsContent() {
   }, [searchRaw]);
 
   const matchesYearFilter = (studentYear: string = "", filter: string): boolean => {
-    if (filter === "ALL") return true;
+    if (!filter) return true;
     const s = studentYear.trim().toLowerCase();
     const f = filter.trim().toLowerCase();
     if (s === f) return true;
@@ -344,11 +289,11 @@ function StudentsContent() {
             s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
             s.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
             s.department.toLowerCase().includes(searchQuery.toLowerCase());
-          const matchesCollege = selectedCollege === "ALL" || s.collegeName === selectedCollege || s.collegeId === selectedCollege;
-          const matchesYear = matchesYearFilter(s.academicYear, selectedYear);
-          const matchesSection = selectedSection === "ALL" || s.section === selectedSection;
-          const matchesDepartment = selectedDepartment === "ALL" || s.department === selectedDepartment;
-          const matchesBatch = !initialBatchId || (s.batchIds && s.batchIds.includes(initialBatchId));
+          const matchesCollege = !academicFilters.collegeId || s.collegeId === academicFilters.collegeId;
+          const matchesDepartment = !academicFilters.department || s.department === academicFilters.department;
+          const matchesYear = matchesYearFilter(s.academicYear, academicFilters.academicYear);
+          const matchesSection = !academicFilters.section || s.section === academicFilters.section;
+          const matchesBatch = !academicFilters.batchId || (s.batchIds && s.batchIds.includes(academicFilters.batchId));
 
           const now = new Date().getTime();
           const createdTime = getCreatedTime(s.createdAt);
@@ -370,7 +315,43 @@ function StudentsContent() {
           }
           return 0;
         }),
-    [students, searchQuery, selectedCollege, selectedYear, selectedSection, selectedDepartment, timeFilter, initialBatchId]
+    [students, searchQuery, academicFilters, timeFilter]
+  );
+
+  // Cascading options for the manual-add modal.
+  const addModalDepartments = useMemo(
+    () => (hierarchy ? getDepartmentsForCollege(hierarchy, newCollegeId) : []),
+    [hierarchy, newCollegeId]
+  );
+  const addModalYears = useMemo(
+    () => (hierarchy ? getYearsForDepartment(hierarchy, newCollegeId, newDepartment) : []),
+    [hierarchy, newCollegeId, newDepartment]
+  );
+  const addModalSections = useMemo(
+    () => (hierarchy ? getSectionsForYear(hierarchy, newCollegeId, newDepartment, newYear) : []),
+    [hierarchy, newCollegeId, newDepartment, newYear]
+  );
+  const addModalBatches = useMemo(
+    () => (hierarchy ? getBatchesForSection(hierarchy, newCollegeId, newDepartment, newYear, newSection) : []),
+    [hierarchy, newCollegeId, newDepartment, newYear, newSection]
+  );
+
+  // Cascading options for the edit modal.
+  const editModalDepartments = useMemo(
+    () => (hierarchy ? getDepartmentsForCollege(hierarchy, editCollegeId) : []),
+    [hierarchy, editCollegeId]
+  );
+  const editModalYears = useMemo(
+    () => (hierarchy ? getYearsForDepartment(hierarchy, editCollegeId, editDepartment) : []),
+    [hierarchy, editCollegeId, editDepartment]
+  );
+  const editModalSections = useMemo(
+    () => (hierarchy ? getSectionsForYear(hierarchy, editCollegeId, editDepartment, editYear) : []),
+    [hierarchy, editCollegeId, editDepartment, editYear]
+  );
+  const editModalBatches = useMemo(
+    () => (hierarchy ? getBatchesForSection(hierarchy, editCollegeId, editDepartment, editYear, editSection) : []),
+    [hierarchy, editCollegeId, editDepartment, editYear, editSection]
   );
 
   const handleDeleteSelected = () => {
@@ -463,72 +444,23 @@ function StudentsContent() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 pt-3 border-t border-border/60">
-          <div className="flex flex-col gap-1">
-            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider px-1">College</span>
-            <select
-              value={selectedCollege}
-              onChange={(e) => setSelectedCollege(e.target.value)}
-              className="h-9.5 px-3 rounded-xl bg-background border border-border text-xs font-bold text-foreground focus:outline-none focus:border-brand w-full"
-            >
-              <option value="ALL">All Colleges ({students.length})</option>
-              {collegesList.map((col) => (
-                <option key={col} value={col}>
-                  {col}
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className="pt-3 border-t border-border/60 space-y-3">
+          <AcademicHierarchyFilters
+            levels={["institution", "department", "academicYear", "section", "batch"]}
+            filters={academicFilters}
+            onChange={setAcademicFilters}
+            collegeOptions={collegeOptions}
+            departmentOptions={departmentOptions}
+            academicYearOptions={academicYearOptions}
+            sectionOptions={sectionOptions}
+            batchOptions={batchOptions}
+            studentOptions={[]}
+            loading={hierarchyLoading}
+            showInstitution
+            institutionOptions={institutionOptions}
+          />
 
-          <div className="flex flex-col gap-1">
-            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider px-1">Department</span>
-            <select
-              value={selectedDepartment}
-              onChange={(e) => setSelectedDepartment(e.target.value)}
-              className="h-9.5 px-3 rounded-xl bg-background border border-border text-xs font-bold text-foreground focus:outline-none focus:border-brand w-full"
-            >
-              <option value="ALL">All Departments</option>
-              {departmentsList.map((dept) => (
-                <option key={dept} value={dept}>
-                  {dept}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex flex-col gap-1">
-            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider px-1">Academic Year</span>
-            <select
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(e.target.value)}
-              className="h-9.5 px-3 rounded-xl bg-background border border-border text-xs font-bold text-foreground focus:outline-none focus:border-brand w-full"
-            >
-              <option value="ALL">All Years</option>
-              {yearsList.map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex flex-col gap-1">
-            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider px-1">Section</span>
-            <select
-              value={selectedSection}
-              onChange={(e) => setSelectedSection(e.target.value)}
-              className="h-9.5 px-3 rounded-xl bg-background border border-border text-xs font-bold text-foreground focus:outline-none focus:border-brand w-full"
-            >
-              <option value="ALL">All Sections</option>
-              {sectionsList.map((sec) => (
-                <option key={sec} value={sec}>
-                  {["A", "B", "C", "D"].includes(sec) ? `Sec ${sec}` : sec}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex flex-col gap-1 col-span-2 sm:col-span-1">
+          <div className="flex flex-col gap-1 w-full sm:w-48">
             <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider px-1">Added Time</span>
             <select
               value={timeFilter}
@@ -935,13 +867,21 @@ function StudentsContent() {
                   </div>
                   <div className="space-y-1.5">
                     <label className="font-semibold text-foreground">Department</label>
-                    <input
-                      type="text"
+                    <select
                       value={newDepartment}
                       onChange={(e) => setNewDepartment(e.target.value)}
-                      placeholder="e.g. Computer Science"
-                      className="w-full h-9 px-3 rounded-xl border border-border bg-background text-foreground"
-                    />
+                      className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground font-semibold"
+                    >
+                      {addModalDepartments.length === 0 ? (
+                        <option value={newDepartment}>{newDepartment}</option>
+                      ) : (
+                        addModalDepartments.map((d) => (
+                          <option key={d} value={d}>
+                            {d}
+                          </option>
+                        ))
+                      )}
+                    </select>
                   </div>
                 </div>
 
@@ -953,10 +893,15 @@ function StudentsContent() {
                       onChange={(e) => setNewYear(e.target.value)}
                       className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground"
                     >
-                      <option value="1st Year">1st Year</option>
-                      <option value="2nd Year">2nd Year</option>
-                      <option value="3rd Year">3rd Year</option>
-                      <option value="4th Year">4th Year</option>
+                      {addModalYears.length === 0 ? (
+                        <option value={newYear}>{newYear}</option>
+                      ) : (
+                        addModalYears.map((y) => (
+                          <option key={y} value={y}>
+                            {y}
+                          </option>
+                        ))
+                      )}
                     </select>
                   </div>
                   <div className="space-y-1.5">
@@ -966,11 +911,15 @@ function StudentsContent() {
                       onChange={(e) => setNewSection(e.target.value)}
                       className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground"
                     >
-                      {sectionsList.map((sec) => (
-                        <option key={sec} value={sec}>
-                          {["A", "B", "C", "D"].includes(sec) ? `Section ${sec}` : sec}
-                        </option>
-                      ))}
+                      {addModalSections.length === 0 ? (
+                        <option value={newSection}>{newSection}</option>
+                      ) : (
+                        addModalSections.map((sec) => (
+                          <option key={sec} value={sec}>
+                            {sec}
+                          </option>
+                        ))
+                      )}
                       <option value="CUSTOM">+ Custom Section...</option>
                     </select>
                     {newSection === "CUSTOM" && (
@@ -992,11 +941,17 @@ function StudentsContent() {
                       className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground font-semibold"
                     >
                       <option value="General Cohort">General Cohort</option>
-                      {batches.map((b) => (
-                        <option key={b.id} value={b.name}>
-                          {b.name}
-                        </option>
-                      ))}
+                      {addModalBatches.length === 0
+                        ? batches.map((b) => (
+                            <option key={b.id} value={b.name}>
+                              {b.name}
+                            </option>
+                          ))
+                        : addModalBatches.map((b) => (
+                            <option key={b.id} value={b.name}>
+                              {b.name}
+                            </option>
+                          ))}
                     </select>
                   </div>
                 </div>
@@ -1080,12 +1035,21 @@ function StudentsContent() {
                   </div>
                   <div className="space-y-1.5">
                     <label className="font-semibold text-foreground">Department</label>
-                    <input
-                      type="text"
+                    <select
                       value={editDepartment}
                       onChange={(e) => setEditDepartment(e.target.value)}
-                      className="w-full h-9 px-3 rounded-xl border border-border bg-background text-foreground"
-                    />
+                      className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground font-semibold"
+                    >
+                      {editModalDepartments.length === 0 ? (
+                        <option value={editDepartment}>{editDepartment}</option>
+                      ) : (
+                        editModalDepartments.map((d) => (
+                          <option key={d} value={d}>
+                            {d}
+                          </option>
+                        ))
+                      )}
+                    </select>
                   </div>
                 </div>
 
@@ -1097,20 +1061,34 @@ function StudentsContent() {
                       onChange={(e) => setEditYear(e.target.value)}
                       className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground"
                     >
-                      <option value="1st Year">1st Year</option>
-                      <option value="2nd Year">2nd Year</option>
-                      <option value="3rd Year">3rd Year</option>
-                      <option value="4th Year">4th Year</option>
+                      {editModalYears.length === 0 ? (
+                        <option value={editYear}>{editYear}</option>
+                      ) : (
+                        editModalYears.map((y) => (
+                          <option key={y} value={y}>
+                            {y}
+                          </option>
+                        ))
+                      )}
                     </select>
                   </div>
                   <div className="space-y-1.5">
                     <label className="font-semibold text-foreground">Section</label>
-                    <input
-                      type="text"
+                    <select
                       value={editSection}
                       onChange={(e) => setEditSection(e.target.value)}
-                      className="w-full h-9 px-3 rounded-xl border border-border bg-background text-foreground"
-                    />
+                      className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground"
+                    >
+                      {editModalSections.length === 0 ? (
+                        <option value={editSection}>{editSection}</option>
+                      ) : (
+                        editModalSections.map((sec) => (
+                          <option key={sec} value={sec}>
+                            {sec}
+                          </option>
+                        ))
+                      )}
+                    </select>
                   </div>
                   <div className="space-y-1.5">
                     <label className="font-semibold text-foreground">Cohort Batch</label>
@@ -1120,11 +1098,17 @@ function StudentsContent() {
                       className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground"
                     >
                       <option value="General Cohort">General Cohort</option>
-                      {batches.map((b) => (
-                        <option key={b.id} value={b.name}>
-                          {b.name}
-                        </option>
-                      ))}
+                      {editModalBatches.length === 0
+                        ? batches.map((b) => (
+                            <option key={b.id} value={b.name}>
+                              {b.name}
+                            </option>
+                          ))
+                        : editModalBatches.map((b) => (
+                            <option key={b.id} value={b.name}>
+                              {b.name}
+                            </option>
+                          ))}
                     </select>
                   </div>
                 </div>

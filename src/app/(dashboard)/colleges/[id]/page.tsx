@@ -10,7 +10,7 @@ import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
 import { uniqueOptions } from "@/lib/utils/array";
-import { getCollegeById, updateCollege, getAllStudents, createStudentProfile, getAllBatches, deleteStudentProfile, getStudentByEmail, getStudentsByCollege, updateStudentProfile } from "@/lib/services";
+import { getCollegeById, updateCollege, createCollege, getAllStudents, createStudentProfile, createStudentAuthProfile, getAllBatches, deleteStudentProfile, getStudentByEmail, getStudentsByCollege, updateStudentProfile, deleteDepartmentAndMigrate, renameDepartmentAndMigrate, PREDEFINED_DEPARTMENTS, ensureGeneralDepartment } from "@/lib/services";
 import { getDocuments, where } from "@/lib/firebase/firestore";
 import type { College, Student, Batch } from "@/types";
 
@@ -39,6 +39,7 @@ export default function CollegeDetailPage({ params }: PageProps) {
   const [students, setStudents] = useState<Student[]>([]);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isExternal, setIsExternal] = useState(false);
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void } | null>(null);
 
 function getYearBadgeStyle(year?: string) {
@@ -60,6 +61,7 @@ function getYearBadgeStyle(year?: string) {
 
   // Add Department Modal
   const [showAddDeptModal, setShowAddDeptModal] = useState(false);
+  const [selectedAddDept, setSelectedAddDept] = useState<string>("Computer Science & Engineering (CSE)");
   const [newDeptName, setNewDeptName] = useState("");
   const [addingDept, setAddingDept] = useState(false);
 
@@ -81,6 +83,18 @@ function getYearBadgeStyle(year?: string) {
   const [customStudSection, setCustomStudSection] = useState("");
   const [studBatch, setStudBatch] = useState("General Cohort");
 
+  // Edit Student Modal (also enables editing self-registered / outside-institution students)
+  const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [editStudName, setEditStudName] = useState("");
+  const [editStudEmail, setEditStudEmail] = useState("");
+  const [editStudDept, setEditStudDept] = useState("");
+  const [editStudYear, setEditStudYear] = useState("1st Year");
+  const [editStudSection, setEditStudSection] = useState("A");
+  const [editStudCustomSection, setEditStudCustomSection] = useState("");
+  const [editStudBatch, setEditStudBatch] = useState("General Cohort");
+  const [savingEditStudent, setSavingEditStudent] = useState(false);
+  const [editStudentError, setEditStudentError] = useState<string | null>(null);
+
   useEffect(() => {
     const loadCollege = async () => {
       setLoading(true);
@@ -93,11 +107,13 @@ function getYearBadgeStyle(year?: string) {
         ]);
 
         let colData = colDataRaw;
+        let external = false;
         if (!colData) {
           const extStuds = allStuds.filter(
             (s) => s.collegeId === decodedId || s.collegeName?.toLowerCase() === decodedId.toLowerCase()
           );
           if (extStuds.length > 0) {
+            external = true;
             const extDepts = Array.from(new Set(extStuds.map((s) => s.department).filter(Boolean)));
             colData = {
               id: decodedId,
@@ -111,6 +127,7 @@ function getYearBadgeStyle(year?: string) {
           }
         }
 
+        setIsExternal(external);
         setCollege(colData);
         setBatches(allBatches);
         if (colData) {
@@ -147,11 +164,13 @@ function getYearBadgeStyle(year?: string) {
       ]);
 
       let colData = colDataRaw;
+      let external = isExternal;
       if (!colData) {
         const extStuds = allStuds.filter(
           (s) => s.collegeId === decodedId || s.collegeName?.toLowerCase() === decodedId.toLowerCase()
         );
         if (extStuds.length > 0) {
+          external = true;
           const extDepts = Array.from(new Set(extStuds.map((s) => s.department).filter(Boolean)));
           colData = {
             id: decodedId,
@@ -165,6 +184,7 @@ function getYearBadgeStyle(year?: string) {
         }
       }
 
+      setIsExternal(external);
       setCollege(colData);
       setBatches(allBatches);
       if (colData) {
@@ -186,14 +206,49 @@ function getYearBadgeStyle(year?: string) {
     }
   };
 
+  // For external (self-registered) colleges there is no Firestore document.
+  // Create one on first managed operation so updateCollege has a document to target.
+  const ensureCollegeDocument = async (): Promise<string | null> => {
+    if (!college) return null;
+    if (!isExternal) return college.id;
+    const existing = await getCollegeById(college.id);
+    if (existing) {
+      setIsExternal(false);
+      return college.id;
+    }
+    try {
+      await createCollege({
+        name: college.name.toLowerCase(),
+        code: college.code,
+        departments: college.departments || ["General"],
+        studentCount: college.studentCount || students.length,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      setIsExternal(false);
+      return college.id;
+    } catch (err) {
+      console.error("Failed to create college document for external institution:", err);
+      return null;
+    }
+  };
+
   const handleAddDepartment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!college || !newDeptName.trim()) return;
+    if (!college) return;
+    const deptToAdd = selectedAddDept === "Custom Department" ? newDeptName.trim() : selectedAddDept;
+    if (!deptToAdd) return;
     setAddingDept(true);
     try {
-      const updatedDepts = Array.from(new Set([...(college.departments || []), newDeptName.trim()]));
-      await updateCollege(college.id, { departments: updatedDepts });
+      const collegeDocId = await ensureCollegeDocument();
+      if (!collegeDocId) {
+        setAddingDept(false);
+        return;
+      }
+      const updatedDepts = ensureGeneralDepartment(Array.from(new Set([...(college.departments || []), deptToAdd])));
+      await updateCollege(collegeDocId, { departments: updatedDepts });
       setShowAddDeptModal(false);
+      setSelectedAddDept("Computer Science & Engineering (CSE)");
       setNewDeptName("");
       await refreshData();
     } catch (err) {
@@ -206,15 +261,15 @@ function getYearBadgeStyle(year?: string) {
   const handleRenameDepartment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!college || !editingDept || !editDeptName.trim()) return;
-    const trimmedNewName = editDeptName.trim().toLowerCase();
+    const trimmedNewName = editDeptName.trim();
     const oldName = editingDept;
 
-    if (trimmedNewName === oldName.toLowerCase()) {
+    if (trimmedNewName.toLowerCase() === oldName.toLowerCase()) {
       setRenameDeptError("The new name must be different from the current one.");
       return;
     }
     const duplicateExists = (college.departments || []).some(
-      (d) => d.toLowerCase() === trimmedNewName && d.toLowerCase() !== oldName.toLowerCase()
+      (d) => d.toLowerCase() === trimmedNewName.toLowerCase() && d.toLowerCase() !== oldName.toLowerCase()
     );
     if (duplicateExists) {
       setRenameDeptError("A department with this name already exists.");
@@ -224,21 +279,7 @@ function getYearBadgeStyle(year?: string) {
     setRenamingDept(true);
     setRenameDeptError(null);
     try {
-      const updatedDepts = (college.departments || []).map((d) =>
-        d.toLowerCase() === oldName.toLowerCase() ? trimmedNewName : d
-      );
-      await updateCollege(college.id, { departments: updatedDepts, updatedAt: new Date() });
-
-      const collegeStudents = await getStudentsByCollege(college.id);
-      const affectedStudents = collegeStudents.filter(
-        (s) => (s.department || "").toLowerCase() === oldName.toLowerCase()
-      );
-      await Promise.all(
-        affectedStudents.map((s) =>
-          updateStudentProfile(s.id, { department: trimmedNewName, updatedAt: new Date() })
-        )
-      );
-
+      await renameDepartmentAndMigrate(college, oldName, trimmedNewName);
       setEditingDept(null);
       setEditDeptName("");
       await refreshData();
@@ -247,6 +288,26 @@ function getYearBadgeStyle(year?: string) {
     } finally {
       setRenamingDept(false);
     }
+  };
+
+  const handleDeleteDepartment = (deptName: string) => {
+    if (!college) return;
+    setConfirmConfig({
+      isOpen: true,
+      title: "Delete Department",
+      message: `Delete "${deptName}" from ${college.name}? Students, resources, exams, and doubts in this department will be safely moved to the fallback "General" department.`,
+      onConfirm: async () => {
+        setLoading(true);
+        try {
+          await deleteDepartmentAndMigrate(college, deptName);
+          await refreshData();
+        } catch (err) {
+          console.error("Error deleting department:", err);
+        } finally {
+          setLoading(false);
+        }
+      },
+    });
   };
 
   const handleEnrollStudent = async (e: React.FormEvent) => {
@@ -264,20 +325,14 @@ function getYearBadgeStyle(year?: string) {
     }
     setEnrolling(true);
     try {
-      await createStudentProfile({
+      await createStudentAuthProfile({
         name: studName,
         email: normalizedEmail,
-        collegeId: college.id,
-        collegeName: college.name.toLowerCase(),
+        collegeName: college.name,
         department: studDept,
         academicYear: studYear,
-        semester: 1,
         section: studSection === "CUSTOM" ? customStudSection.trim() || "A" : studSection,
-        rollNumber: `STU-${Date.now().toString().slice(-6)}`,
-        batchIds: [studBatch],
-        mustChangePassword: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        batch: studBatch,
       });
       await updateCollege(college.id, {
         studentCount: (college.studentCount || students.length) + 1,
@@ -292,6 +347,59 @@ function getYearBadgeStyle(year?: string) {
       console.error("Error enrolling student:", err);
     } finally {
       setEnrolling(false);
+    }
+  };
+
+  const handleOpenEditStudent = (stud: Student) => {
+    setEditingStudent(stud);
+    setEditStudName(stud.name || "");
+    setEditStudEmail(stud.email || "");
+    setEditStudDept(stud.department || (college?.departments?.[0] ?? ""));
+    setEditStudYear(stud.academicYear || "1st Year");
+    const section = stud.section || "A";
+    const isKnownSection = ["A", "B", "C", "D"].includes(section);
+    setEditStudSection(isKnownSection ? section : "CUSTOM");
+    setEditStudCustomSection(isKnownSection ? "" : section);
+    setEditStudBatch(stud.batchIds?.[0] || "General Cohort");
+    setEditStudentError(null);
+  };
+
+  const handleSaveEditStudent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingStudent || !editStudName.trim() || !editStudEmail.trim() || !editStudDept.trim()) return;
+    const normalizedEmail = editStudEmail.toLowerCase().trim();
+    if (normalizedEmail !== editingStudent.email) {
+      const [existingStudent, existingUsers] = await Promise.all([
+        getStudentByEmail(normalizedEmail),
+        getDocuments<Record<string, unknown>>("users", [where("email", "==", normalizedEmail)]),
+      ]);
+      const isUsedByAnother =
+        (existingStudent && existingStudent.id !== editingStudent.id) ||
+        existingUsers.some((u) => u.id !== editingStudent.id && (u.email as string)?.toLowerCase() === normalizedEmail);
+      if (isUsedByAnother) {
+        setEditStudentError("A student or user account with this email already exists.");
+        return;
+      }
+    }
+    setSavingEditStudent(true);
+    setEditStudentError(null);
+    try {
+      await updateStudentProfile(editingStudent.id, {
+        name: editStudName.trim(),
+        email: normalizedEmail,
+        department: editStudDept.trim(),
+        academicYear: editStudYear,
+        section: editStudSection === "CUSTOM" ? editStudCustomSection.trim() || "A" : editStudSection,
+        batchIds: [editStudBatch],
+        updatedAt: new Date(),
+      });
+      setEditingStudent(null);
+      await refreshData();
+    } catch (err) {
+      console.error("Error updating student:", err);
+      setEditStudentError("Failed to update student. Please try again.");
+    } finally {
+      setSavingEditStudent(false);
     }
   };
 
@@ -541,6 +649,18 @@ function getYearBadgeStyle(year?: string) {
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
+                        handleDeleteDepartment(dept);
+                      }}
+                      className="inline-flex items-center gap-1 text-rose-500 font-bold text-[11px] hover:underline"
+                      title="Delete Department"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      <span>Delete</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
                         setStudDept(dept);
                         setEnrollError(null);
                         setShowEnrollModal(true);
@@ -756,6 +876,15 @@ function getYearBadgeStyle(year?: string) {
                         <Button
                           variant="ghost"
                           size="sm"
+                          onClick={() => handleOpenEditStudent(stud)}
+                          className="h-8 w-8 p-0 text-brand hover:text-brand/90 hover:bg-brand/10 rounded-lg"
+                          title="Edit Student Profile"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={() => handleDeleteSingleStudent(stud)}
                           className="h-8 w-8 p-0 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10 rounded-lg"
                           title="Remove Student Profile"
@@ -789,16 +918,32 @@ function getYearBadgeStyle(year?: string) {
 
               <form onSubmit={handleAddDepartment} className="space-y-4 text-xs">
                 <div className="space-y-1.5">
-                  <label className="font-semibold text-foreground">Department Name</label>
-                  <input
-                    type="text"
-                    value={newDeptName}
-                    onChange={(e) => setNewDeptName(e.target.value)}
-                    required
-                    placeholder="e.g. Artificial Intelligence & Data Science"
-                    className="w-full h-9 px-3 rounded-xl border border-border bg-background text-foreground"
-                  />
+                  <label className="font-semibold text-foreground">Select Department</label>
+                  <select
+                    value={selectedAddDept}
+                    onChange={(e) => setSelectedAddDept(e.target.value)}
+                    className="w-full h-9 px-3 rounded-xl border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
+                  >
+                    {PREDEFINED_DEPARTMENTS.map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
+                  </select>
                 </div>
+                {selectedAddDept === "Custom Department" && (
+                  <div className="space-y-1.5">
+                    <label className="font-semibold text-foreground">Custom Department Name</label>
+                    <input
+                      type="text"
+                      value={newDeptName}
+                      onChange={(e) => setNewDeptName(e.target.value)}
+                      required
+                      placeholder="e.g. Artificial Intelligence & Data Science"
+                      className="w-full h-9 px-3 rounded-xl border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
+                    />
+                  </div>
+                )}
                 <div className="flex justify-end gap-2 pt-2 border-t border-border">
                   <Button type="button" variant="outline" onClick={() => setShowAddDeptModal(false)}>Cancel</Button>
                   <Button type="submit" disabled={addingDept} className="bg-brand text-white">
@@ -869,6 +1014,143 @@ function getYearBadgeStyle(year?: string) {
                   </Button>
                   <Button type="submit" disabled={renamingDept} className="bg-brand text-white">
                     {renamingDept ? "Saving..." : "Save Changes"}
+                  </Button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Edit Student Modal */}
+      <AnimatePresence>
+        {editingStudent && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-5"
+            >
+              <div className="flex items-center justify-between border-b border-border pb-3">
+                <div>
+                  <h3 className="text-base font-bold text-foreground">Edit Student Profile</h3>
+                  <p className="text-[11px] text-muted-foreground">Update name, email and hierarchy details</p>
+                </div>
+                <button
+                  onClick={() => setEditingStudent(null)}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveEditStudent} className="space-y-4 text-xs">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="font-semibold text-foreground">Full Name</label>
+                    <input
+                      type="text"
+                      value={editStudName}
+                      onChange={(e) => setEditStudName(e.target.value)}
+                      required
+                      placeholder="e.g. Priya Sharma"
+                      className="w-full h-9 px-3 rounded-xl border border-border bg-background text-foreground"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="font-semibold text-foreground">Email Address</label>
+                    <input
+                      type="email"
+                      value={editStudEmail}
+                      onChange={(e) => setEditStudEmail(e.target.value)}
+                      required
+                      placeholder="priya@college.edu"
+                      className="w-full h-9 px-3 rounded-xl border border-border bg-background text-foreground"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="font-semibold text-foreground">Department</label>
+                    <select
+                      value={editStudDept}
+                      onChange={(e) => setEditStudDept(e.target.value)}
+                      required
+                      className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground font-semibold"
+                    >
+                      {departments.map((d) => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="font-semibold text-foreground">Academic Year</label>
+                    <select
+                      value={editStudYear}
+                      onChange={(e) => setEditStudYear(e.target.value)}
+                      className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground"
+                    >
+                      <option value="1st Year">1st Year</option>
+                      <option value="2nd Year">2nd Year</option>
+                      <option value="3rd Year">3rd Year</option>
+                      <option value="4th Year">4th Year</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="font-semibold text-foreground">Section</label>
+                    <select
+                      value={editStudSection}
+                      onChange={(e) => setEditStudSection(e.target.value)}
+                      className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground"
+                    >
+                      {sectionsList.map((sec) => (
+                        <option key={sec} value={sec}>
+                          {["A", "B", "C", "D"].includes(sec) ? `Section ${sec}` : sec}
+                        </option>
+                      ))}
+                      <option value="CUSTOM">+ Custom Section...</option>
+                    </select>
+                    {editStudSection === "CUSTOM" && (
+                      <input
+                        type="text"
+                        value={editStudCustomSection}
+                        onChange={(e) => setEditStudCustomSection(e.target.value)}
+                        required
+                        placeholder="Type custom section"
+                        className="w-full h-9 px-3 mt-1.5 rounded-xl border border-brand bg-background text-foreground text-xs"
+                      />
+                    )}
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="font-semibold text-foreground">Custom Batch / Cohort</label>
+                    <select
+                      value={editStudBatch}
+                      onChange={(e) => setEditStudBatch(e.target.value)}
+                      className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground font-semibold"
+                    >
+                      <option value="General Cohort">General Cohort</option>
+                      {batches.map((b) => (
+                        <option key={b.id} value={b.name}>{b.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {editStudentError && (
+                  <div className="bg-rose-500/10 border border-rose-500/30 text-rose-500 p-3 rounded-xl text-sm" role="alert">
+                    {editStudentError}
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2 pt-3 border-t border-border">
+                  <Button type="button" variant="outline" onClick={() => setEditingStudent(null)}>Cancel</Button>
+                  <Button type="submit" disabled={savingEditStudent} className="bg-brand text-white">
+                    {savingEditStudent ? "Saving..." : "Save Changes"}
                   </Button>
                 </div>
               </form>

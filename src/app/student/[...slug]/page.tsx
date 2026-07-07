@@ -1,6 +1,8 @@
 import ExamsPage from "@/app/(dashboard)/exams/page";
+import ExamDetailsPage from "@/app/(dashboard)/exams/[id]/page";
 import TakeExamPage from "@/app/exams/[id]/take/page";
 import ResultsPage from "@/app/(dashboard)/results/page";
+import AttemptAnswerSheetPage from "@/app/(dashboard)/results/[attemptId]/page";
 import ResourcesPage from "@/app/(dashboard)/resources/page";
 import QuestionBankPage from "@/app/(dashboard)/question-bank/page";
 import DoubtsPage from "@/app/(dashboard)/doubts/page";
@@ -18,6 +20,14 @@ export default async function StudentCatchAllPage({ params }: { params: Promise<
 
   if (primary === "exams" && secondary && tertiary === "take") {
     return <TakeExamPage params={Promise.resolve({ id: secondary })} />;
+  }
+
+  if (primary === "exams" && secondary && !tertiary) {
+    return <ExamDetailsPage params={Promise.resolve({ id: secondary })} />;
+  }
+
+  if (primary === "results" && secondary) {
+    return <AttemptAnswerSheetPage params={Promise.resolve({ attemptId: secondary })} />;
   }
 
   let content = <DashboardHome />;

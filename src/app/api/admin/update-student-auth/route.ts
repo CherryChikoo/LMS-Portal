@@ -76,16 +76,46 @@ export async function POST(request: NextRequest) {
         );
       }
       if ((authErr as { code?: string }).code === "auth/user-not-found") {
+        try {
+          const studentDoc = await db.collection("students").doc(uid).get();
+          const studentData = studentDoc.data() || {};
+          const fallbackEmail = email ? (email as string).toLowerCase().trim() : studentData.email;
+          const fallbackPassword = password || studentData.initialPassword || "Welcome@123";
+          const fallbackName = studentData.name || "Student";
+
+          if (!fallbackEmail) {
+            return NextResponse.json(
+              { error: "Student email is required to create an Auth account." },
+              { status: 400 }
+            );
+          }
+
+          await adminAuth.createUser({
+            uid: uid,
+            email: fallbackEmail,
+            password: fallbackPassword,
+            displayName: fallbackName,
+          });
+        } catch (createErr: unknown) {
+          if ((createErr as { code?: string }).code === "auth/email-already-exists") {
+            return NextResponse.json(
+              { error: "This email address is already in use by another account." },
+              { status: 409 }
+            );
+          }
+          console.error("Admin createUser fallback error:", createErr);
+          return NextResponse.json(
+            { error: "Failed to create Firebase Auth account for existing profile.", details: (createErr as Error)?.message || String(createErr) },
+            { status: 500 }
+          );
+        }
+      } else {
+        console.error("Admin updateUser error:", authErr);
         return NextResponse.json(
-          { error: "Student Firebase Auth account not found. They may need to sign up first." },
-          { status: 404 }
+          { error: "Failed to update Firebase Auth account.", details: (authErr as Error)?.message || String(authErr) },
+          { status: 500 }
         );
       }
-      console.error("Admin updateUser error:", authErr);
-      return NextResponse.json(
-        { error: "Failed to update Firebase Auth account.", details: (authErr as Error)?.message || String(authErr) },
-        { status: 500 }
-      );
     }
 
     // Sync email to Firestore users doc and students doc
@@ -94,28 +124,28 @@ export async function POST(request: NextRequest) {
     if (email) {
       const normalizedEmail = (email as string).toLowerCase().trim();
 
-      // Update users collection
+      // Update users collection safely with merge
       const userDocRef = db.collection("users").doc(uid);
-      batch.update(userDocRef, { email: normalizedEmail });
+      batch.set(userDocRef, { email: normalizedEmail }, { merge: true });
 
-      // Update students collection
+      // Update students collection safely with merge
       const studentDocRef = db.collection("students").doc(uid);
-      batch.update(studentDocRef, { email: normalizedEmail });
+      batch.set(studentDocRef, { email: normalizedEmail }, { merge: true });
     }
 
     // When password is updated, clear mustChangePassword and initialPassword flags
     if (password) {
       const userDocRef = db.collection("users").doc(uid);
-      batch.update(userDocRef, {
+      batch.set(userDocRef, {
         mustChangePassword: false,
         initialPassword: "",
-      });
+      }, { merge: true });
 
       const studentDocRef = db.collection("students").doc(uid);
-      batch.update(studentDocRef, {
+      batch.set(studentDocRef, {
         mustChangePassword: false,
         initialPassword: "",
-      });
+      }, { merge: true });
     }
 
     await batch.commit();
