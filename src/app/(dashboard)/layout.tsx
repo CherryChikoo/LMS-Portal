@@ -7,6 +7,8 @@ import { useIsDesktop } from "@/hooks/use-media-query";
 import { Sidebar } from "@/components/layout/sidebar";
 import { MobileSidebar } from "@/components/layout/mobile-sidebar";
 import { Topbar } from "@/components/layout/topbar";
+import { NavigationProgress } from "@/components/layout/navigation-progress";
+import { usePathname } from "next/navigation";
 
 export default function DashboardLayout({
   children,
@@ -18,11 +20,23 @@ export default function DashboardLayout({
   // Used to throttle the storage event dispatch to at most once per 2 seconds.
   const lastDispatchRef = useRef<number>(0);
 
+  const pathname = usePathname();
+
   useEffect(() => {
     const verifyAuth = () => {
       const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
       if (!uStr) {
         window.location.replace("/login");
+      } else {
+        try {
+          const parsed = JSON.parse(uStr);
+          if (parsed.role === "college_admin") {
+            const forbiddenPaths = ["/colleges", "/audit", "/admin/colleges", "/admin/audit"];
+            if (forbiddenPaths.includes(pathname)) {
+              window.location.replace("/");
+            }
+          }
+        } catch (_) {}
       }
     };
     verifyAuth();
@@ -86,6 +100,12 @@ export default function DashboardLayout({
           const unsubId = onSnapshot(doc(db, "students", parsedUser.id), (docSnap) => {
             if (docSnap.exists()) {
               const s = docSnap.data();
+              if (s.status === "restricted") {
+                import("@/lib/utils/auth-session").then(({ clearAuthSession }) => {
+                  clearAuthSession("/login?error=restricted");
+                });
+                return;
+              }
               const updated = {
                 ...parsedUser,
                 name: s.name || parsedUser.name,
@@ -139,6 +159,7 @@ export default function DashboardLayout({
 
   return (
     <div className="min-h-[100dvh] flex relative bg-transparent overflow-x-hidden">
+      <NavigationProgress />
       {/* Background fluid marble glassmorphism mesh */}
       <div className="mesh-gradient" />
 

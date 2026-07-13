@@ -9,7 +9,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
-import { getAllColleges, createCollege, getAllStudents, deleteCollege, deleteStudentProfile, updateCollege, updateStudentProfile, PREDEFINED_DEPARTMENTS, ensureGeneralDepartment } from "@/lib/services";
+import { getAllColleges, createCollege, getAllStudents, deleteCollege, deleteStudentProfile, updateCollege, updateStudentProfile, renameCollegeAndMigrate, PREDEFINED_DEPARTMENTS, ensureGeneralDepartment } from "@/lib/services";
 import type { College, Student } from "@/types";
 
 export default function CollegesPage() {
@@ -22,12 +22,18 @@ export default function CollegesPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void } | null>(null);
   const [name, setName] = useState("");
-  const [selectedDept, setSelectedDept] = useState<string>("Computer Science & Engineering (CSE)");
+  const [selectedDepts, setSelectedDepts] = useState<string[]>(["Computer Science & Engineering (CSE)", "General"]);
   const [customDeptName, setCustomDeptName] = useState<string>("");
+  const [adminEmail, setAdminEmail] = useState("");
+  const [initialPassword, setInitialPassword] = useState("");
+  const [loginEnabled, setLoginEnabled] = useState(false);
   const [creating, setCreating] = useState(false);
 
   const [editingCollege, setEditingCollege] = useState<College | null>(null);
   const [editCollegeName, setEditCollegeName] = useState("");
+  const [editAdminEmail, setEditAdminEmail] = useState("");
+  const [editInitialPassword, setEditInitialPassword] = useState("");
+  const [editLoginEnabled, setEditLoginEnabled] = useState(false);
   const [updatingCollege, setUpdatingCollege] = useState(false);
 
   const [editingExternal, setEditingExternal] = useState<{ id: string; name: string } | null>(null);
@@ -80,7 +86,7 @@ export default function CollegesPage() {
       setColleges(computedColleges);
       setExternalColleges(computedExternal);
     } catch (err) {
-      console.error("Failed to fetch colleges", err);
+      console.error("Failed to fetch colleges data", err);
     } finally {
       setLoading(false);
     }
@@ -104,6 +110,28 @@ export default function CollegesPage() {
           await fetchColleges();
         } catch (err) {
           console.error("Failed to delete college:", err);
+        } finally {
+          setLoading(false);
+        }
+      }
+    });
+  };
+
+  const handleToggleCollegeStatus = async (col: College) => {
+    setConfirmConfig({
+      isOpen: true,
+      title: col.status === "restricted" ? "Unrestrict Partner Institution" : "Restrict Partner Institution",
+      message: col.status === "restricted" 
+        ? `Are you sure you want to restore access to "${col.name}"? Their College Admin will be able to log in again.`
+        : `Are you sure you want to restrict "${col.name}"? Their College Admin will immediately lose access to the portal.`,
+      onConfirm: async () => {
+        setLoading(true);
+        try {
+          const newStatus = col.status === "restricted" ? "active" : "restricted";
+          await updateCollege(col.id, { status: newStatus });
+          await fetchColleges();
+        } catch (err) {
+          console.error("Failed to toggle college status:", err);
         } finally {
           setLoading(false);
         }
@@ -203,8 +231,20 @@ export default function CollegesPage() {
     if (!name) return;
     setCreating(true);
     try {
-      const chosenDept = selectedDept === "Custom Department" ? customDeptName.trim() : selectedDept;
-      const depts = ensureGeneralDepartment(chosenDept ? [chosenDept] : []);
+      const deptsList: string[] = [];
+      selectedDepts.forEach((d) => {
+        if (d === "Custom Department") {
+          if (customDeptName.trim()) {
+            customDeptName.split(",").forEach((c) => {
+              const trimmed = c.trim();
+              if (trimmed && !deptsList.includes(trimmed)) deptsList.push(trimmed);
+            });
+          }
+        } else if (d !== "General" && !deptsList.includes(d)) {
+          deptsList.push(d);
+        }
+      });
+      const depts = ensureGeneralDepartment(deptsList);
 
       const generatedCode =
         name
@@ -220,13 +260,20 @@ export default function CollegesPage() {
         code: generatedCode,
         departments: depts,
         studentCount: 0,
+        adminEmail: adminEmail.trim().toLowerCase(),
+        initialPassword: initialPassword,
+        loginEnabled: loginEnabled,
+        status: "active",
         createdAt: new Date(),
         updatedAt: new Date(),
       });
       setShowAddModal(false);
       setName("");
-      setSelectedDept("Computer Science & Engineering (CSE)");
+      setSelectedDepts(["Computer Science & Engineering (CSE)", "General"]);
       setCustomDeptName("");
+      setAdminEmail("");
+      setInitialPassword("");
+      setLoginEnabled(false);
       fetchColleges();
     } catch (err) {
       console.error("Failed to create college", err);
@@ -240,12 +287,26 @@ export default function CollegesPage() {
     if (!editingCollege || !editCollegeName.trim()) return;
     setUpdatingCollege(true);
     try {
+      if (editCollegeName.trim() !== editingCollege.name) {
+        await renameCollegeAndMigrate(
+          editingCollege.id,
+          editingCollege.name,
+          editCollegeName.trim(),
+          false
+        );
+      }
+      
       await updateCollege(editingCollege.id, {
-        name: editCollegeName.trim().toLowerCase(),
-        updatedAt: new Date(),
+        adminEmail: editAdminEmail.trim().toLowerCase(),
+        initialPassword: editInitialPassword,
+        loginEnabled: editLoginEnabled,
       });
+
       setEditingCollege(null);
       setEditCollegeName("");
+      setEditAdminEmail("");
+      setEditInitialPassword("");
+      setEditLoginEnabled(false);
       await fetchColleges();
     } catch (err) {
       console.error("Failed to update college", err);
@@ -260,43 +321,18 @@ export default function CollegesPage() {
     setUpdatingExternal(true);
     try {
       const oldName = editingExternal.name;
-      const newName = editExternalName.trim().toLowerCase();
-      if (oldName.toLowerCase() === newName) {
+      const newName = editExternalName.trim();
+      if (!newName || oldName === newName) {
         setEditingExternal(null);
         setEditExternalName("");
         return;
       }
 
-      // Update any official college document that may have been created for this institution.
-      const matchingCollege = colleges.find(
-        (c) => c.name.toLowerCase() === oldName.toLowerCase() || c.id.toLowerCase() === oldName.toLowerCase()
-      );
-      if (matchingCollege) {
-        await updateCollege(matchingCollege.id, {
-          name: newName,
-          updatedAt: new Date(),
-        });
-      }
-
-      // Update all enrolled students so they keep belonging to the renamed institution.
-      const affectedStudents = allStudents.filter(
-        (s) =>
-          (s.collegeName || "").toLowerCase() === oldName.toLowerCase() ||
-          (s.collegeId || "").toLowerCase() === oldName.toLowerCase()
-      );
-      await Promise.all(
-        affectedStudents.map((s) =>
-          updateStudentProfile(s.id, {
-            collegeName: newName,
-            collegeId: newName,
-            updatedAt: new Date(),
-          })
-        )
-      );
+      await renameCollegeAndMigrate(oldName, oldName, newName, true);
 
       setEditingExternal(null);
       setEditExternalName("");
-      setSelectedExternalIds((prev) => prev.filter((id) => id !== oldName));
+      setSelectedExternalIds((prev) => prev.map((id) => (id === oldName ? newName : id)));
       await fetchColleges();
     } catch (err) {
       console.error("Failed to update outside institution", err);
@@ -389,12 +425,30 @@ export default function CollegesPage() {
                       </div>
 
                       <div className="flex items-center gap-1">
+                        {col.loginEnabled && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleToggleCollegeStatus(col)}
+                            className={`h-8 px-2.5 text-xs font-semibold rounded-lg ${
+                              col.status === "restricted"
+                                ? "text-rose-500 bg-rose-500/10 hover:bg-rose-500/20"
+                                : "text-amber-500 bg-amber-500/10 hover:bg-amber-500/20"
+                            }`}
+                            title={col.status === "restricted" ? "Restore Access" : "Restrict Access"}
+                          >
+                            {col.status === "restricted" ? "Restricted" : "Restrict"}
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => {
                             setEditingCollege(col);
                             setEditCollegeName(col.name);
+                            setEditAdminEmail(col.adminEmail || "");
+                            setEditInitialPassword(col.initialPassword || "");
+                            setEditLoginEnabled(col.loginEnabled || false);
                           }}
                           className="h-8 w-8 p-0 text-brand hover:text-brand/90 hover:bg-brand/10 rounded-lg"
                           title="Edit College Name"
@@ -608,7 +662,7 @@ export default function CollegesPage() {
       {/* Add College Modal */}
       <AnimatePresence>
         {showAddModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -635,36 +689,114 @@ export default function CollegesPage() {
                   />
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-foreground">Primary Department</label>
-                  <select
-                    value={selectedDept}
-                    onChange={(e) => setSelectedDept(e.target.value)}
-                    className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
-                  >
-                    {PREDEFINED_DEPARTMENTS.map((d) => (
-                      <option key={d} value={d}>
-                        {d}
-                      </option>
-                    ))}
-                  </select>
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-foreground">Initial Departments (Select all that apply)</label>
+                  <div className="max-h-52 overflow-y-auto p-3 rounded-xl border border-border bg-background/50 space-y-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {PREDEFINED_DEPARTMENTS.map((d) => {
+                      const isChecked = selectedDepts.includes(d) || d === "General";
+                      const isGeneral = d === "General";
+                      return (
+                        <label
+                          key={d}
+                          className={`flex items-center gap-2.5 p-2 rounded-lg border text-xs cursor-pointer transition-colors ${
+                            isChecked
+                              ? "bg-brand/10 border-brand/40 text-foreground font-semibold"
+                              : "border-border/60 hover:bg-muted/50 text-muted-foreground"
+                          } ${isGeneral ? "opacity-80 cursor-not-allowed bg-muted/40" : ""}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            disabled={isGeneral}
+                            onChange={(e) => {
+                              if (isGeneral) return;
+                              if (e.target.checked) {
+                                setSelectedDepts((prev) => [...prev, d]);
+                              } else {
+                                setSelectedDepts((prev) => prev.filter((item) => item !== d));
+                              }
+                            }}
+                            className="rounded border-border text-brand focus:ring-brand/50 w-4 h-4"
+                          />
+                          <span className="truncate">{d}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
-                {selectedDept === "Custom Department" && (
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-foreground">Custom Department Name</label>
+                {selectedDepts.includes("Custom Department") && (
+                  <div className="space-y-1.5 pt-1">
+                    <label className="text-xs font-semibold text-foreground">Custom Department Name(s)</label>
                     <input
                       type="text"
                       value={customDeptName}
                       onChange={(e) => setCustomDeptName(e.target.value)}
                       required
-                      placeholder="e.g. Artificial Intelligence & Data Science"
+                      placeholder="e.g. Artificial Intelligence & Data Science, Robotics (comma separated)"
                       className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
                     />
+                    <p className="text-[10px] text-muted-foreground">You can enter multiple custom departments separated by commas.</p>
                   </div>
                 )}
                 <p className="text-[11px] text-muted-foreground">
                   Note: The "General" department is automatically included by default for all colleges.
                 </p>
+
+                <div className="pt-4 border-t border-border space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-semibold text-foreground">College Admin Access</h4>
+                      <p className="text-[10px] sm:text-xs text-muted-foreground">Enable a dedicated login portal for this college</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={loginEnabled}
+                        onChange={(e) => setLoginEnabled(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand"></div>
+                    </label>
+                  </div>
+
+                  <AnimatePresence>
+                    {loginEnabled && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="space-y-3 overflow-hidden"
+                      >
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] sm:text-xs font-semibold text-foreground/80 uppercase tracking-wider">
+                            Admin Email
+                          </label>
+                          <input
+                            type="email"
+                            value={adminEmail}
+                            onChange={(e) => setAdminEmail(e.target.value)}
+                            required={loginEnabled}
+                            className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
+                            placeholder="admin@college.edu"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] sm:text-xs font-semibold text-foreground/80 uppercase tracking-wider">
+                            Initial Password
+                          </label>
+                          <input
+                            type="text"
+                            value={initialPassword}
+                            onChange={(e) => setInitialPassword(e.target.value)}
+                            required={loginEnabled}
+                            className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
+                            placeholder="e.g. Welcome123"
+                          />
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
 
                 <div className="flex justify-end gap-2 pt-2">
                   <Button type="button" variant="outline" onClick={() => setShowAddModal(false)}>
@@ -683,7 +815,7 @@ export default function CollegesPage() {
       {/* Edit College Name Modal */}
       <AnimatePresence>
         {editingCollege && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -691,7 +823,7 @@ export default function CollegesPage() {
               className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-5"
             >
               <div className="flex items-center justify-between border-b border-border pb-3">
-                <h3 className="text-lg font-bold text-foreground">Edit College Name</h3>
+                <h3 className="text-lg font-bold text-foreground">Edit College Details</h3>
                 <button
                   onClick={() => {
                     setEditingCollege(null);
@@ -714,6 +846,62 @@ export default function CollegesPage() {
                     placeholder="e.g. Stanford Institute of Tech"
                     className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
                   />
+                </div>
+
+                <div className="pt-4 border-t border-border space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-semibold text-foreground">College Admin Access</h4>
+                      <p className="text-[10px] sm:text-xs text-muted-foreground">Enable a dedicated login portal for this college</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editLoginEnabled}
+                        onChange={(e) => setEditLoginEnabled(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand"></div>
+                    </label>
+                  </div>
+
+                  <AnimatePresence>
+                    {editLoginEnabled && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="space-y-3 overflow-hidden"
+                      >
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] sm:text-xs font-semibold text-foreground/80 uppercase tracking-wider">
+                            Admin Email
+                          </label>
+                          <input
+                            type="email"
+                            value={editAdminEmail}
+                            onChange={(e) => setEditAdminEmail(e.target.value)}
+                            required={editLoginEnabled}
+                            className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
+                            placeholder="admin@college.edu"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] sm:text-xs font-semibold text-foreground/80 uppercase tracking-wider">
+                            Initial Password
+                          </label>
+                          <input
+                            type="text"
+                            value={editInitialPassword}
+                            onChange={(e) => setEditInitialPassword(e.target.value)}
+                            required={editLoginEnabled}
+                            className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
+                            placeholder="e.g. Welcome123"
+                          />
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
 
                 <div className="flex justify-end gap-2 pt-2">
@@ -740,7 +928,7 @@ export default function CollegesPage() {
       {/* Edit Outside Institution Name Modal */}
       <AnimatePresence>
         {editingExternal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}

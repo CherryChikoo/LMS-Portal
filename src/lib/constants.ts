@@ -45,6 +45,11 @@ export const NAVIGATION: NavSection[] = [
         href: "/batches",
         icon: Layers,
       },
+      {
+        title: "Audit Log",
+        href: "/audit",
+        icon: FileText,
+      },
     ],
   },
   {
@@ -68,6 +73,11 @@ export const NAVIGATION: NavSection[] = [
       {
         title: "Results",
         href: "/results",
+        icon: Trophy,
+      },
+      {
+        title: "Leaderboard",
+        href: "/leaderboard",
         icon: Trophy,
       },
     ],

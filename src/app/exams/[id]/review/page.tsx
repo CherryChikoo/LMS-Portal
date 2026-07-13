@@ -381,8 +381,8 @@ export default function ReviewExamPage({ params }: PageProps) {
               <h2 className="text-xl sm:text-2xl font-extrabold text-foreground leading-tight">
                 {exam.title}
               </h2>
-              {attempt.studentName && (
-                <p className="text-xs text-muted-foreground">Candidate: {attempt.studentName}</p>
+              {attempt.studentName && resolveRoleFromStorage() !== "student" && (
+                <p className="text-xs text-muted-foreground">Student: {attempt.studentName}</p>
               )}
             </div>
 

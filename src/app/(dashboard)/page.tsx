@@ -26,6 +26,7 @@ import { BarChartComponent } from "@/components/charts/bar-chart";
 import { PieChartComponent } from "@/components/charts/pie-chart";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useRouter } from "next/navigation";
 import { useEffect, useState, useMemo } from "react";
 import { staggerContainer, staggerItem } from "@/lib/animations";
 import { getAllExamsIncludingDeleted, getAllStudents, getAllColleges, getAllResources, getEffectiveExamStatus, getStudentAttempts, filterResourcesForStudent, filterExamsForStudent } from "@/lib/services";
@@ -115,10 +116,6 @@ function StudentPortalDashboard({
 
           <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
             <div className="space-y-3 max-w-2xl">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-xs font-bold text-emerald-300">
-                <GraduationCap className="w-3.5 h-3.5" />
-                <span>{studentProfile.department || "Computer Science"} Portal</span>
-              </div>
               <h1 className="text-2xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight font-heading text-white">
                 Welcome back, <span className="text-emerald-400">{studentProfile.name || "Student"}</span>
               </h1>
@@ -299,6 +296,7 @@ function StudentPortalDashboard({
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [exams, setExams] = useState<Exam[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [colleges, setColleges] = useState<College[]>([]);
@@ -323,11 +321,35 @@ export default function DashboardPage() {
           getAllResources(),
           getStudentAttempts(),
         ]);
-        setExams(ex || []);
-        setStudents(st || []);
+        
+        let filteredStudents = st || [];
+        let filteredExams = ex || [];
+        let filteredAttempts = att || [];
+
+        try {
+          const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+          if (uStr) {
+            const parsed = JSON.parse(uStr);
+            if (parsed.role === "college_admin" && parsed.collegeId) {
+              filteredStudents = filteredStudents.filter((s: Student) => s.collegeId === parsed.collegeId);
+              const validStudentIds = new Set(filteredStudents.map((s: Student) => s.id));
+              const validBatchIds = new Set(filteredStudents.flatMap((s: Student) => s.batchIds || []));
+              
+              filteredExams = filteredExams.filter((e: Exam) => 
+                (e.assignedBatches && e.assignedBatches.some(b => validBatchIds.has(b))) ||
+                (e.assignedStudents && e.assignedStudents.some(s => validStudentIds.has(s)))
+              );
+              
+              filteredAttempts = filteredAttempts.filter((a: ExamAttempt) => validStudentIds.has(a.studentId));
+            }
+          }
+        } catch (_) {}
+
+        setExams(filteredExams);
+        setStudents(filteredStudents);
         setColleges(cl || []);
         setResources(rs || []);
-        setAttempts(att || []);
+        setAttempts(filteredAttempts);
       } catch (err) {
         console.error("Failed loading live portal data:", err);
       } finally {
@@ -368,31 +390,60 @@ export default function DashboardPage() {
 
   const dynamicDomainFocus = useMemo(() => {
     const map = new Map<string, number>();
+    
+    const abbreviateDept = (dept: string) => {
+      if (dept === "Artificial Intelligence & Machine Learning (AI & ML)") return "AI & ML";
+      if (dept === "Computer Science & Business Systems") return "CS & BS";
+      if (dept === "Computer Science & Engineering") return "CS & E";
+      if (dept.length > 20) return dept.substring(0, 20) + "...";
+      return dept;
+    };
+
     students.forEach((s) => {
-      const dept = (s as any).department || "General Engineering";
+      const dept = abbreviateDept((s as any).department || "General Engineering");
       map.set(dept, (map.get(dept) || 0) + 1);
     });
     if (map.size === 0 && colleges.length > 0) {
       colleges.forEach((c) => {
-        c.departments?.forEach((d) => map.set(d, (map.get(d) || 0) + 1));
+        c.departments?.forEach((d) => {
+          const dept = abbreviateDept(d);
+          map.set(dept, (map.get(dept) || 0) + 1);
+        });
       });
     }
     return Array.from(map.entries()).map(([name, value]) => ({ name, value }));
   }, [students, colleges]);
 
   const dynamicAssessmentAverages = useMemo(() => {
-    return exams.slice(0, 6).map((ex) => {
-      const examAttempts = attempts.filter((a) => a.examId === ex.id);
-      let avg = 0;
-      if (examAttempts.length > 0) {
-        const sum = examAttempts.reduce((acc, curr) => acc + (curr.percentage || 0), 0);
-        avg = Math.round(sum / examAttempts.length);
+    const titleMap = new Map<string, { totalScore: number; count: number }>();
+
+    attempts.forEach((a) => {
+      const ex = exams.find((e) => e.id === a.examId);
+      if (!ex) return;
+      const title = ex.title;
+      if (!titleMap.has(title)) {
+        titleMap.set(title, { totalScore: 0, count: 0 });
       }
-      return {
-        exam: ex.title.length > 15 ? ex.title.slice(0, 15) + "..." : ex.title,
-        score: avg,
-      };
+      const data = titleMap.get(title)!;
+      data.totalScore += a.percentage || 0;
+      data.count += 1;
     });
+
+    if (titleMap.size === 0) {
+      // Fallback if no attempts, just show top 6 unique exams
+      const uniqueExams = Array.from(new Map(exams.map((e) => [e.title, e])).values());
+      return uniqueExams.slice(0, 6).map((ex) => ({
+        exam: ex.title.length > 15 ? ex.title.slice(0, 15) + "..." : ex.title,
+        score: 0,
+      }));
+    }
+
+    return Array.from(titleMap.entries())
+      .slice(0, 6)
+      .map(([title, data]) => ({
+        exam: title.length > 15 ? title.slice(0, 15) + "..." : title,
+        score: Math.round(data.totalScore / data.count),
+      }));
   }, [exams, attempts]);
 
   const dynamicEnrollmentGrowth = useMemo(() => {
@@ -443,17 +494,19 @@ export default function DashboardPage() {
             </div>
 
             <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 shrink-0">
-              <Link href="/exams">
-                <Button className="h-11 px-5 rounded-md bg-emerald-500 hover:bg-emerald-600 text-white font-semibold transition-all flex items-center gap-2 shadow-none">
-                  <Plus className="w-4 h-4 stroke-[3]" />
-                  <span>Create Assessment</span>
-                </Button>
-              </Link>
-              <Link href="/students">
-                <Button className="h-11 px-4 rounded-md border border-white/25 bg-white/10 hover:bg-white/20 text-white font-semibold transition-all shadow-sm">
-                  <span>Invite Students</span>
-                </Button>
-              </Link>
+              <Button
+                onClick={() => router.push("/admin/exams")}
+                className="h-11 px-5 rounded-md bg-emerald-500 hover:bg-emerald-600 text-white font-semibold transition-all flex items-center gap-2 shadow-none"
+              >
+                <Plus className="w-4 h-4 stroke-[3]" />
+                <span>Create Assessment</span>
+              </Button>
+              <Button
+                onClick={() => router.push("/admin/students?action=invite")}
+                className="h-11 px-4 rounded-md border border-white/25 bg-white/10 hover:bg-white/20 text-white font-semibold transition-all shadow-sm"
+              >
+                <span>Invite Students</span>
+              </Button>
             </div>
           </div>
         </div>
@@ -531,10 +584,10 @@ export default function DashboardPage() {
         className="grid grid-cols-1 lg:grid-cols-12 gap-5"
       >
         {/* Recent Activity Timeline */}
-        <motion.div variants={staggerItem} className="lg:col-span-5">
-          <GlassCard className="p-6 h-full flex flex-col justify-between">
-            <div>
-              <div className="flex items-center justify-between mb-5">
+        <motion.div variants={staggerItem} className="lg:col-span-5 flex flex-col">
+          <GlassCard className="p-6 flex-1 flex flex-col justify-between h-full">
+            <div className="flex-1 flex flex-col min-h-0">
+              <div className="flex items-center justify-between mb-4 shrink-0">
                 <div>
                   <h3 className="text-base font-bold text-foreground font-heading">
                     Realtime Activity Log
@@ -543,11 +596,11 @@ export default function DashboardPage() {
                     Live system actions and academic updates
                   </p>
                 </div>
-                <Link href="/results" className="text-xs text-brand hover:text-brand/80 font-semibold flex items-center gap-1 transition-colors">
+                <Link href="/audit" className="text-xs text-brand hover:text-brand/80 font-semibold flex items-center gap-1 transition-colors">
                   View full audit <ArrowRight className="w-3.5 h-3.5" />
                 </Link>
               </div>
-              <div className="space-y-2.5">
+              <div className="space-y-2.5 flex-1 overflow-y-auto min-h-0 pr-1">
                 {liveActivity.length === 0 ? (
                   <div className="py-8 text-center text-xs text-muted-foreground border border-dashed rounded-md">
                     No recent activities recorded yet.
@@ -584,21 +637,21 @@ export default function DashboardPage() {
         </motion.div>
 
         {/* Subject Distribution Donut */}
-        <motion.div variants={staggerItem} className="lg:col-span-3">
+        <motion.div variants={staggerItem} className="lg:col-span-3 flex flex-col">
           <PieChartComponent
             title="Domain Focus"
             description="Enrolled students by subject area"
             data={dynamicDomainFocus}
             height={280}
-            className="h-full"
+            className="h-full flex-1"
           />
         </motion.div>
 
         {/* Live & Scheduled Assessments Feed */}
-        <motion.div variants={staggerItem} className="lg:col-span-4">
-          <GlassCard className="p-6 h-full flex flex-col justify-between">
-            <div>
-              <div className="flex items-center justify-between mb-5">
+        <motion.div variants={staggerItem} className="lg:col-span-4 flex flex-col">
+          <GlassCard className="p-6 flex-1 flex flex-col justify-between h-full">
+            <div className="flex-1 flex flex-col min-h-0">
+              <div className="flex items-center justify-between mb-4 shrink-0">
                 <div>
                   <h3 className="text-base font-bold text-foreground font-heading">
                     Live Portal Assessments
@@ -609,7 +662,7 @@ export default function DashboardPage() {
                 </div>
                 <Clock className="w-4 h-4 text-brand" />
               </div>
-              <div className="space-y-3.5 max-h-[320px] overflow-y-auto pr-1">
+              <div className="space-y-3.5 flex-1 overflow-y-auto min-h-0 pr-1">
                 {loading ? (
                   <div className="p-8 text-center text-xs text-muted-foreground">Loading live assessments...</div>
                 ) : exams.length === 0 ? (
@@ -635,11 +688,13 @@ export default function DashboardPage() {
                                 ? "bg-emerald-500/15 text-emerald-500 border border-emerald-500/20 text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md flex items-center gap-1 shrink-0"
                                 : effStatus === "scheduled"
                                 ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 text-[10px] font-bold uppercase px-2 py-0.5 rounded-md shrink-0"
+                                : effStatus === "expired" || effStatus === "completed" || effStatus === "cancelled"
+                                ? "bg-rose-500/15 text-rose-500 border border-rose-500/20 text-[10px] font-bold uppercase px-2 py-0.5 rounded-md shrink-0"
                                 : "bg-muted text-muted-foreground text-[10px] font-semibold uppercase px-2 py-0.5 rounded-md shrink-0"
                             }
                           >
                             {effStatus === "active" && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
-                            {effStatus === "active" ? "LIVE NOW" : effStatus}
+                            {effStatus === "active" ? "LIVE NOW" : effStatus === "expired" || effStatus === "completed" || effStatus === "cancelled" ? "EXPIRED" : effStatus}
                           </span>
                         </div>
                         <div className="flex items-center justify-between text-xs text-muted-foreground font-medium pt-1 border-t border-border/30 dark:border-white/[0.04]">
@@ -668,11 +723,9 @@ export default function DashboardPage() {
                 )}
               </div>
             </div>
-            <div className="pt-4 mt-2 border-t border-border/40 dark:border-white/[0.06]">
-              <Link href="/calendar">
-                <Button variant="ghost" className="w-full text-xs font-semibold text-brand hover:bg-brand/10 rounded-md h-9">
-                  View Assessment Calendar <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
-                </Button>
+            <div className="pt-4 mt-4 border-t border-border/40 text-center shrink-0">
+              <Link href="/exams" className="text-xs font-bold text-brand hover:text-brand/80 transition-colors flex items-center justify-center gap-1.5">
+                View Assessment Calendar <ArrowRight className="w-3.5 h-3.5" />
               </Link>
             </div>
           </GlassCard>

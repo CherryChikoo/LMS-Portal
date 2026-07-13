@@ -208,7 +208,7 @@ export default function AttemptAnswerSheetPage({
 
       <PageHeader
         title="Student Answer Sheet"
-        description="Review the candidate's full response transcript, including selected answers and the correct solutions."
+        description="Review the student's full response transcript, including selected answers and the correct solutions."
       />
 
       {/* Summary Header */}
@@ -327,7 +327,7 @@ export default function AttemptAnswerSheetPage({
           <EmptyState
             icon={FileText}
             title="Original questions are no longer available"
-            description={`The questions for "${examTitle}" have been removed from the database, but the candidate's score summary (${attempt.score} / ${attempt.totalMarks} • ${attempt.percentage}%) is shown above.`}
+            description={`The questions for "${examTitle}" have been removed from the database, but the student's score summary (${attempt.score} / ${attempt.totalMarks} • ${attempt.percentage}%) is shown above.`}
             actionLabel={isAdminRoute ? "Back to Admin Results" : "Back to Results"}
             onAction={() => router.push(backHref)}
           />

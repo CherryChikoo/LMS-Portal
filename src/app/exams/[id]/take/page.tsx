@@ -104,7 +104,7 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
             }
 
             const effStatus = getEffectiveExamStatus(data);
-            if (effStatus === "completed" || effStatus === "cancelled" || (data.status as string) === "closed") {
+            if (effStatus === "expired" || effStatus === "completed" || effStatus === "cancelled" || (data.status as string) === "closed") {
               setAccessDeniedReason("Assessment Closed. The scheduled timeline for this evaluation has expired.");
               setLoading(false);
               return;
@@ -323,7 +323,7 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
 
     if (!currentStudId) {
       setSubmitting(false);
-      setAccessDeniedReason("Authentication Required. Unable to identify the candidate. Please sign in again.");
+      setAccessDeniedReason("Authentication Required. Unable to identify the student. Please sign in again.");
       return;
     }
 
@@ -541,7 +541,7 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
         <div className="flex items-center">
           <div>
             <h1 className="font-bold text-sm sm:text-base leading-tight text-foreground">{exam.title}</h1>
-            <p className="text-[11px] text-muted-foreground">Candidate: {candidateName || "Registered Student"}</p>
+            <p className="text-[11px] text-muted-foreground">Subject: {(exam as any).subject || "General Assessment"} • {exam.totalMarks || 0} Marks</p>
           </div>
         </div>
 

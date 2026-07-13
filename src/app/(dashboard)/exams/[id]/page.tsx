@@ -477,7 +477,14 @@ function StudentExamDetails({ exam, studentUser, studentChecked, nowMs }: Studen
   const canStart = effStatus === "active" && inWindow;
 
   const passingPercentage = exam.totalMarks > 0
-    ? Math.round((exam.passingMarks / exam.totalMarks) * 100)
+    ? (exam.passingMarks > exam.totalMarks
+        ? Math.min(100, exam.passingMarks)
+        : Math.round((exam.passingMarks / exam.totalMarks) * 100))
+    : 0;
+  const effectivePassingMarks = exam.totalMarks > 0
+    ? (exam.passingMarks > exam.totalMarks
+        ? Math.round((exam.totalMarks * Math.min(100, exam.passingMarks)) / 100)
+        : exam.passingMarks)
     : 0;
 
   const startTimeStr = formatDateTime(exam.startTime ?? exam.scheduledAt);
@@ -556,7 +563,7 @@ function StudentExamDetails({ exam, studentUser, studentChecked, nowMs }: Studen
           <InfoTile
             icon={Target}
             label="Passing Criteria"
-            value={`${exam.passingMarks} marks / ${passingPercentage}%`}
+            value={`${effectivePassingMarks} marks / ${passingPercentage}%`}
           />
           <InfoTile
             icon={UserCheck}
@@ -628,7 +635,7 @@ function buildDisabledReason(
   if (status === "scheduled" && startMs !== null && now < startMs) {
     return "This assessment has not opened yet. The Start button will activate once the scheduled window begins.";
   }
-  if (status === "completed" || (endMs !== null && now > endMs)) {
+  if (status === "expired" || status === "completed" || (endMs !== null && now > endMs)) {
     return "This assessment window has closed. Contact your trainer if you believe this is in error.";
   }
   if (status === "draft" || status === "cancelled") {
@@ -677,6 +684,12 @@ function buildStatusBadge(status: string): StatusBadgeStyle {
     return {
       label: "Completed",
       className: "bg-blue-500/15 text-blue-500 border border-blue-500/30",
+    };
+  }
+  if (status === "expired") {
+    return {
+      label: "Expired",
+      className: "bg-rose-500/15 text-rose-500 border border-rose-500/30",
     };
   }
   if (status === "cancelled") {
@@ -756,7 +769,14 @@ function TrainerExamDetails({
 
   const totalQuestions = exam.questions?.length ?? exam.questionIds?.length ?? 0;
   const passingPercentage = exam.totalMarks > 0
-    ? Math.round((exam.passingMarks / exam.totalMarks) * 100)
+    ? (exam.passingMarks > exam.totalMarks
+        ? Math.min(100, exam.passingMarks)
+        : Math.round((exam.passingMarks / exam.totalMarks) * 100))
+    : 0;
+  const effectivePassingMarks = exam.totalMarks > 0
+    ? (exam.passingMarks > exam.totalMarks
+        ? Math.round((exam.totalMarks * Math.min(100, exam.passingMarks)) / 100)
+        : exam.passingMarks)
     : 0;
   const derivedSubject = exam.questions?.[0]?.subject || "General";
   const previewHref = isAdminLikePath()
@@ -843,7 +863,7 @@ function TrainerExamDetails({
           <MetaTile label="Total Marks" value={`${exam.totalMarks}`} icon={Award} />
           <MetaTile
             label="Passing Marks"
-            value={`${exam.passingMarks} (${passingPercentage}%)`}
+            value={`${effectivePassingMarks} (${passingPercentage}%)`}
             icon={Target}
           />
           <MetaTile label="Duration" value={`${exam.duration || 0} minutes`} icon={Clock} />

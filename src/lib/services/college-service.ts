@@ -7,8 +7,8 @@ import {
   subscribeToDocuments,
   where,
 } from "@/lib/firebase/firestore";
-import type { College, Batch } from "@/types";
-import { getStudentsByCollege, updateStudentProfile } from "./student-service";
+import type { College, Batch, Student } from "@/types";
+import { getStudentsByCollege, updateStudentProfile, getAllStudents } from "./student-service";
 import { getAllResources, updateResource } from "./resource-service";
 import { getAllExams, updateExam } from "./exam-service";
 import { getAllDoubts, updateDoubt } from "./doubt-service";
@@ -104,7 +104,7 @@ export function ensureGeneralDepartment(departments: string[]): string[] {
  */
 export async function deleteDepartmentAndMigrate(college: College, deptName: string): Promise<void> {
   const targetDept = deptName.trim().toLowerCase();
-  if (!targetDept) return;
+  if (!targetDept || targetDept === "general") return;
 
   // 1. Update College departments list (ensure "General" remains)
   const updatedDepts = ensureGeneralDepartment(
@@ -303,5 +303,175 @@ export async function renameDepartmentAndMigrate(college: College, oldName: stri
     affectedDoubts.map((d) =>
       updateDoubt(d.id, { department: targetNew, updatedAt: new Date() } as any)
     )
+  );
+}
+
+/**
+ * Safely rename a college (or outside self-registered institution) across all referential entities:
+ * colleges, students, batches, resources, exams, and doubts.
+ */
+export async function renameCollegeAndMigrate(oldId: string, oldName: string, newName: string, isExternal: boolean = false): Promise<void> {
+  const targetOldName = oldName.trim();
+  const targetNewName = newName.trim();
+  if (!targetOldName || !targetNewName || targetOldName === targetNewName) return;
+
+  // 1. Update College Document (if official or if matching official college exists)
+  if (!isExternal) {
+    await updateCollege(oldId, { name: targetNewName, updatedAt: new Date() });
+  } else {
+    const allColleges = await getAllColleges();
+    const matchingCollege = allColleges.find(
+      (c) => c.name.toLowerCase() === targetOldName.toLowerCase() || c.id.toLowerCase() === targetOldName.toLowerCase()
+    );
+    if (matchingCollege) {
+      await updateCollege(matchingCollege.id, { name: targetNewName, updatedAt: new Date() });
+    }
+  }
+
+  // 2. Migrate Students
+  const allStudents = await getAllStudents();
+  const affectedStudents = allStudents.filter(
+    (s) =>
+      (!isExternal && s.collegeId === oldId) ||
+      (s.collegeName || "").toLowerCase() === targetOldName.toLowerCase() ||
+      (s.collegeId || "").toLowerCase() === targetOldName.toLowerCase()
+  );
+  await Promise.all(
+    affectedStudents.map((s) => {
+      const payload: Partial<Student> = {
+        collegeName: targetNewName,
+        updatedAt: new Date(),
+      };
+      if ((s.collegeId || "").toLowerCase() === targetOldName.toLowerCase() || (isExternal && s.collegeId === oldId)) {
+        payload.collegeId = targetNewName;
+      }
+      return updateStudentProfile(s.id, payload);
+    })
+  );
+
+  // 3. Migrate Batches
+  const allBatches = await getAllBatches();
+  const affectedBatches = allBatches.filter(
+    (b) =>
+      (!isExternal && b.collegeId === oldId) ||
+      (b.collegeId || "").toLowerCase() === targetOldName.toLowerCase()
+  );
+  await Promise.all(
+    affectedBatches.map((b) => {
+      const payload: Partial<Batch> = { updatedAt: new Date() };
+      if ((b.collegeId || "").toLowerCase() === targetOldName.toLowerCase() || (isExternal && b.collegeId === oldId)) {
+        payload.collegeId = targetNewName;
+      }
+      return updateBatch(b.id, payload);
+    })
+  );
+
+  // 4. Migrate Resources
+  const allResources = await getAllResources();
+  const affectedResources = allResources.filter((res) =>
+    res.targets?.some(
+      (t) =>
+        (!isExternal && t.collegeId === oldId) ||
+        (t.collegeId || "").toLowerCase() === targetOldName.toLowerCase() ||
+        (t.collegeName || "").toLowerCase() === targetOldName.toLowerCase() ||
+        (t.type === "college" &&
+          (t.ids?.some((id) => id.toLowerCase() === targetOldName.toLowerCase() || (!isExternal && id === oldId)) ||
+            t.names?.some((n) => n.toLowerCase() === targetOldName.toLowerCase())))
+    )
+  );
+  await Promise.all(
+    affectedResources.map((res) => {
+      const updatedTargets = (res.targets || []).map((t) => {
+        const matches =
+          (!isExternal && t.collegeId === oldId) ||
+          (t.collegeId || "").toLowerCase() === targetOldName.toLowerCase() ||
+          (t.collegeName || "").toLowerCase() === targetOldName.toLowerCase() ||
+          (t.type === "college" &&
+            (t.ids?.some((id) => id.toLowerCase() === targetOldName.toLowerCase() || (!isExternal && id === oldId)) ||
+              t.names?.some((n) => n.toLowerCase() === targetOldName.toLowerCase())));
+        if (!matches) return t;
+        const newTarget = { ...t };
+        if ((t.collegeName || "").toLowerCase() === targetOldName.toLowerCase()) newTarget.collegeName = targetNewName;
+        if ((t.collegeId || "").toLowerCase() === targetOldName.toLowerCase()) newTarget.collegeId = targetNewName;
+        if (t.type === "college") {
+          if (t.ids) {
+            newTarget.ids = t.ids.map((id) =>
+              id.toLowerCase() === targetOldName.toLowerCase() || (isExternal && id === oldId) ? targetNewName : id
+            );
+          }
+          if (t.names) {
+            newTarget.names = t.names.map((n) =>
+              n.toLowerCase() === targetOldName.toLowerCase() ? targetNewName : n
+            );
+          }
+        }
+        return newTarget;
+      });
+      return updateResource(res.id, { targets: updatedTargets, updatedAt: new Date() });
+    })
+  );
+
+  // 5. Migrate Exams
+  const allExams = await getAllExams();
+  const affectedExams = allExams.filter((ex) =>
+    ex.targets?.some(
+      (t) =>
+        (!isExternal && t.collegeId === oldId) ||
+        (t.collegeId || "").toLowerCase() === targetOldName.toLowerCase() ||
+        (t.collegeName || "").toLowerCase() === targetOldName.toLowerCase() ||
+        (t.type === "college" &&
+          (t.ids?.some((id) => id.toLowerCase() === targetOldName.toLowerCase() || (!isExternal && id === oldId)) ||
+            t.names?.some((n) => n.toLowerCase() === targetOldName.toLowerCase())))
+    )
+  );
+  await Promise.all(
+    affectedExams.map((ex) => {
+      const updatedTargets = (ex.targets || []).map((t) => {
+        const matches =
+          (!isExternal && t.collegeId === oldId) ||
+          (t.collegeId || "").toLowerCase() === targetOldName.toLowerCase() ||
+          (t.collegeName || "").toLowerCase() === targetOldName.toLowerCase() ||
+          (t.type === "college" &&
+            (t.ids?.some((id) => id.toLowerCase() === targetOldName.toLowerCase() || (!isExternal && id === oldId)) ||
+              t.names?.some((n) => n.toLowerCase() === targetOldName.toLowerCase())));
+        if (!matches) return t;
+        const newTarget = { ...t };
+        if ((t.collegeName || "").toLowerCase() === targetOldName.toLowerCase()) newTarget.collegeName = targetNewName;
+        if ((t.collegeId || "").toLowerCase() === targetOldName.toLowerCase()) newTarget.collegeId = targetNewName;
+        if (t.type === "college") {
+          if (t.ids) {
+            newTarget.ids = t.ids.map((id) =>
+              id.toLowerCase() === targetOldName.toLowerCase() || (isExternal && id === oldId) ? targetNewName : id
+            );
+          }
+          if (t.names) {
+            newTarget.names = t.names.map((n) =>
+              n.toLowerCase() === targetOldName.toLowerCase() ? targetNewName : n
+            );
+          }
+        }
+        return newTarget;
+      });
+      return updateExam(ex.id, { targets: updatedTargets, updatedAt: new Date() });
+    })
+  );
+
+  // 6. Migrate Doubts
+  const allDoubts = await getAllDoubts();
+  const affectedDoubts = allDoubts.filter(
+    (d: any) =>
+      (!isExternal && d.collegeId === oldId) ||
+      (d.collegeId || "").toLowerCase() === targetOldName.toLowerCase() ||
+      (d.collegeName || "").toLowerCase() === targetOldName.toLowerCase()
+  );
+  await Promise.all(
+    affectedDoubts.map((d: any) => {
+      const payload: any = { updatedAt: new Date() };
+      if ((d.collegeName || "").toLowerCase() === targetOldName.toLowerCase()) payload.collegeName = targetNewName;
+      if ((d.collegeId || "").toLowerCase() === targetOldName.toLowerCase() || (isExternal && d.collegeId === oldId)) {
+        payload.collegeId = targetNewName;
+      }
+      return updateDoubt(d.id, payload);
+    })
   );
 }

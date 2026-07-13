@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import { Users, Plus, Upload, Download, Search, FileSpreadsheet, Sparkles, Trash2, StopCircle, Edit2 } from "lucide-react";
+import { Users, Plus, Upload, Download, Search, FileSpreadsheet, Sparkles, Trash2, StopCircle, Edit2, Ban, CheckCircle2 } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
@@ -17,7 +17,7 @@ import {
 } from "@/lib/hierarchy/hierarchy-data";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
-import { parseStudentsCSV, importStudentsCSV, generateCredentialsCSV, createStudentAuthProfile, updateCollege, deleteStudentProfile, updateStudentProfile } from "@/lib/services";
+import { parseStudentsCSV, importStudentsCSV, generateCredentialsCSV, createStudentAuthProfile, updateCollege, deleteStudentProfile, updateStudentProfile, formatAuthError } from "@/lib/services";
 import type { Student, CSVImportSummary, College, Batch } from "@/types";
 
 type TimestampLike = Date | { toMillis(): number } | { seconds: number } | string | number | null | undefined;
@@ -34,6 +34,7 @@ function StudentsContent() {
   const searchParams = useSearchParams();
   const initialCollegeId = searchParams.get("collegeId") || "";
   const initialBatchId = searchParams.get("batchId") || "";
+  const actionParam = searchParams.get("action");
 
   const [students, setStudents] = useState<Student[]>([]);
   const [colleges, setColleges] = useState<College[]>([]);
@@ -117,8 +118,20 @@ function StudentsContent() {
       }
       /* eslint-enable react-hooks/set-state-in-effect */
     }
-    setLoading(hierarchyLoading);
+    setLoading(hierarchyLoading && !hierarchy);
   }, [hierarchy, hierarchyLoading, initialCollegeId]);
+
+  useEffect(() => {
+    if (actionParam === "invite" || actionParam === "enroll") {
+      /* eslint-disable react-hooks/set-state-in-effect -- opening modal from query param on mount */
+      setShowAddModal(true);
+      /* eslint-enable react-hooks/set-state-in-effect */
+    } else if (actionParam === "import" || actionParam === "csv") {
+      /* eslint-disable react-hooks/set-state-in-effect -- opening modal from query param on mount */
+      setShowImportModal(true);
+      /* eslint-enable react-hooks/set-state-in-effect */
+    }
+  }, [actionParam]);
 
   const fetchStudents = async () => {
     // Data is kept live by the hierarchy cache; explicit fetches after
@@ -249,7 +262,7 @@ function StudentsContent() {
         variant: "success",
       });
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Failed to create student account.";
+      const message = formatAuthError(err, "Failed to create student account.");
       setConfirmConfig({
         isOpen: true,
         isAlert: true,
@@ -376,6 +389,55 @@ function StudentsContent() {
     });
   };
 
+  const handleToggleStatus = (student: Student) => {
+    const isRestricted = student.status === "restricted";
+    const newStatus = isRestricted ? "active" : "restricted";
+
+    if (!isRestricted) {
+      // Show confirmation dialog before restricting
+      setConfirmConfig({
+        isOpen: true,
+        title: "Restrict Student Account",
+        message: `Are you sure you want to restrict "${student.name}"'s account? The student will not be able to log in until the account is reactivated.`,
+        variant: "warning",
+        onConfirm: async () => {
+          setLoading(true);
+          try {
+            await updateStudentProfile(student.id, { status: newStatus });
+            setStudents((prev) =>
+              prev.map((s) => (s.id === student.id ? { ...s, status: newStatus } : s))
+            );
+          } catch (err) {
+            console.error("Failed to restrict account:", err);
+          } finally {
+            setLoading(false);
+          }
+        }
+      });
+    } else {
+      // Show confirmation dialog before reactivating
+      setConfirmConfig({
+        isOpen: true,
+        title: "Reactivate Student Account",
+        message: `Are you sure you want to reactivate "${student.name}"'s account? They will immediately regain access to the LMS.`,
+        variant: "info",
+        onConfirm: async () => {
+          setLoading(true);
+          try {
+            await updateStudentProfile(student.id, { status: newStatus });
+            setStudents((prev) =>
+              prev.map((s) => (s.id === student.id ? { ...s, status: newStatus } : s))
+            );
+          } catch (err) {
+            console.error("Failed to reactivate account:", err);
+          } finally {
+            setLoading(false);
+          }
+        }
+      });
+    }
+  };
+
   const handleDeleteStudent = (student: Student) => {
     setConfirmConfig({
       isOpen: true,
@@ -401,7 +463,7 @@ function StudentsContent() {
     <motion.div initial="hidden" animate="visible" variants={fadeInUp} className="space-y-6">
       <PageHeader
         title="Students & Enrollment"
-        description="Enroll candidates manually into specific colleges, departments, and custom batches, or import CSV lists."
+        description="Enroll students manually into specific colleges, departments, and custom batches, or import CSV lists."
         actions={
           <div className="flex items-center gap-3">
             <Button
@@ -409,7 +471,7 @@ function StudentsContent() {
               className="bg-brand hover:bg-brand/90 text-white flex items-center gap-2"
             >
               <Plus className="w-4 h-4" />
-              <span>Enroll Student</span>
+              <span>Invite / Enroll Student</span>
             </Button>
             <Button
               onClick={() => {
@@ -440,7 +502,7 @@ function StudentsContent() {
             />
           </div>
           <div className="text-xs font-bold text-muted-foreground self-end sm:self-center">
-            Showing <span className="text-foreground">{filteredStudents.length}</span> of {students.length} Candidates
+            Showing <span className="text-foreground">{filteredStudents.length}</span> of {students.length} Students
           </div>
         </div>
 
@@ -588,24 +650,51 @@ function StudentsContent() {
                         </span>
                       </td>
                       <td className="py-3.5 px-4 text-xs">
-                        <span className="px-2 py-0.5 rounded-md bg-accent font-mono text-foreground">
-                          Sec {student.section} • {student.batchIds?.[0] || "General"}
-                        </span>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="px-2 py-0.5 rounded-md bg-accent/80 border border-border/50 font-mono text-[11px] font-semibold text-foreground whitespace-nowrap">
+                            Sec {student.section || "N/A"}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-md bg-brand/10 border border-brand/20 font-mono text-[11px] font-semibold text-brand whitespace-nowrap">
+                            {student.batchIds?.[0] || "General"}
+                          </span>
+                        </div>
                       </td>
                       <td className="py-3.5 px-4">
-                        <span
-                          className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-                            student.mustChangePassword
-                              ? "bg-amber-500/10 text-amber-500 border border-amber-500/20"
-                              : "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20"
-                          }`}
-                        >
-                          <span className={`w-1.5 h-1.5 rounded-full ${student.mustChangePassword ? "bg-amber-500" : "bg-emerald-500"}`} />
-                          {student.mustChangePassword ? "Pending First Login" : "Active"}
-                        </span>
+                        {student.status === "restricted" ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-500/15 text-rose-500 border border-rose-500/30">
+                            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                            Restricted
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                            Active
+                          </span>
+                        )}
                       </td>
                       <td className="py-3.5 px-4 text-right">
                         <div className="flex items-center justify-end gap-1">
+                          {student.status === "restricted" ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleToggleStatus(student)}
+                              className="h-8 w-8 p-0 text-emerald-500 hover:text-emerald-600 hover:bg-emerald-500/10 rounded-lg"
+                              title="Reactivate Account"
+                            >
+                              <CheckCircle2 className="w-4 h-4" />
+                            </Button>
+                          ) : (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleToggleStatus(student)}
+                              className="h-8 w-8 p-0 text-amber-500 hover:text-amber-600 hover:bg-amber-500/10 rounded-lg"
+                              title="Restrict Account"
+                            >
+                              <Ban className="w-4 h-4" />
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="sm"
@@ -806,10 +895,12 @@ function StudentsContent() {
             </motion.div>
           </div>
         )}
+      </AnimatePresence>
 
-        {/* Manual Enroll Student Modal */}
+      {/* Manual Enroll Student Modal */}
+      <AnimatePresence>
         {showAddModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -817,7 +908,7 @@ function StudentsContent() {
               className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-5"
             >
               <div className="flex items-center justify-between border-b border-border pb-3">
-                <h3 className="text-lg font-bold text-foreground">Enroll Candidate Profile</h3>
+                <h3 className="text-lg font-bold text-foreground">Enroll Student Profile</h3>
                 <button onClick={() => setShowAddModal(false)} className="text-muted-foreground hover:text-foreground">
                   ✕
                 </button>
@@ -961,7 +1052,7 @@ function StudentsContent() {
                     Cancel
                   </Button>
                   <Button type="submit" disabled={creating} className="bg-brand hover:bg-brand/90 text-white">
-                    {creating ? "Enrolling..." : "Enroll Candidate"}
+                    {creating ? "Enrolling..." : "Enroll Student"}
                   </Button>
                 </div>
               </form>
@@ -973,7 +1064,7 @@ function StudentsContent() {
       {/* Edit Student Profile Modal */}
       <AnimatePresence>
         {editingStudent && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}

@@ -45,11 +45,29 @@ const cache: HierarchyCache = {
 
 function recomputeHierarchy() {
   if (cache.colleges && cache.batches && cache.students) {
+    let filteredColleges = cache.colleges.data;
+    let filteredBatches = cache.batches.data;
+    let filteredStudents = cache.students.data;
+
+    try {
+      const uStr = typeof window !== "undefined" ? localStorage.getItem("lms_user") || localStorage.getItem("user") : null;
+      if (uStr) {
+        const parsed = JSON.parse(uStr);
+        if (parsed.role === "college_admin" && parsed.collegeId) {
+          filteredColleges = filteredColleges.filter(c => c.id === parsed.collegeId);
+          filteredStudents = filteredStudents.filter(s => s.collegeId === parsed.collegeId);
+          const validStudentBatchIds = new Set(filteredStudents.flatMap(s => s.batchIds || []));
+          filteredBatches = filteredBatches.filter(b => b.collegeId === parsed.collegeId || validStudentBatchIds.has(b.id));
+        }
+      }
+    } catch (_) {}
+
     cache.hierarchy = buildHierarchy(
-      cache.colleges.data,
-      cache.batches.data,
-      cache.students.data
+      filteredColleges,
+      filteredBatches,
+      filteredStudents
     );
+    cache.loading = false;
   }
 }
 

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, use } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
-import { ArrowLeft, Building2, FolderTree, Users, Plus, Trash2, Search, CheckCircle2, Pencil } from "lucide-react";
+import { ArrowLeft, Building2, FolderTree, Users, Plus, Trash2, Search, CheckCircle2, Pencil, Ban } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
@@ -61,7 +61,7 @@ function getYearBadgeStyle(year?: string) {
 
   // Add Department Modal
   const [showAddDeptModal, setShowAddDeptModal] = useState(false);
-  const [selectedAddDept, setSelectedAddDept] = useState<string>("Computer Science & Engineering (CSE)");
+  const [selectedAddDepts, setSelectedAddDepts] = useState<string[]>(["Computer Science & Engineering (CSE)"]);
   const [newDeptName, setNewDeptName] = useState("");
   const [addingDept, setAddingDept] = useState(false);
 
@@ -236,8 +236,6 @@ function getYearBadgeStyle(year?: string) {
   const handleAddDepartment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!college) return;
-    const deptToAdd = selectedAddDept === "Custom Department" ? newDeptName.trim() : selectedAddDept;
-    if (!deptToAdd) return;
     setAddingDept(true);
     try {
       const collegeDocId = await ensureCollegeDocument();
@@ -245,10 +243,27 @@ function getYearBadgeStyle(year?: string) {
         setAddingDept(false);
         return;
       }
-      const updatedDepts = ensureGeneralDepartment(Array.from(new Set([...(college.departments || []), deptToAdd])));
+      const deptsToAdd: string[] = [];
+      selectedAddDepts.forEach((d) => {
+        if (d === "Custom Department") {
+          if (newDeptName.trim()) {
+            newDeptName.split(",").forEach((c) => {
+              const trimmed = c.trim();
+              if (trimmed && !deptsToAdd.includes(trimmed)) deptsToAdd.push(trimmed);
+            });
+          }
+        } else if (d !== "General" && !deptsToAdd.includes(d)) {
+          deptsToAdd.push(d);
+        }
+      });
+      if (deptsToAdd.length === 0) {
+        setAddingDept(false);
+        return;
+      }
+      const updatedDepts = ensureGeneralDepartment(Array.from(new Set([...(college.departments || []), ...deptsToAdd])));
       await updateCollege(collegeDocId, { departments: updatedDepts });
       setShowAddDeptModal(false);
-      setSelectedAddDept("Computer Science & Engineering (CSE)");
+      setSelectedAddDepts(["Computer Science & Engineering (CSE)"]);
       setNewDeptName("");
       await refreshData();
     } catch (err) {
@@ -291,7 +306,7 @@ function getYearBadgeStyle(year?: string) {
   };
 
   const handleDeleteDepartment = (deptName: string) => {
-    if (!college) return;
+    if (!college || deptName.toLowerCase() === "general") return;
     setConfirmConfig({
       isOpen: true,
       title: "Delete Department",
@@ -531,6 +546,51 @@ function getYearBadgeStyle(year?: string) {
     });
   };
 
+  const handleToggleStatus = (stud: Student) => {
+    const isRestricted = stud.status === "restricted";
+    const newStatus = isRestricted ? "active" : "restricted";
+
+    if (!isRestricted) {
+      setConfirmConfig({
+        isOpen: true,
+        title: "Restrict Student Account",
+        message: `Are you sure you want to restrict "${stud.name}"'s account? The student will not be able to log in until the account is reactivated.`,
+        onConfirm: async () => {
+          setLoading(true);
+          try {
+            await updateStudentProfile(stud.id, { status: newStatus });
+            setStudents((prev) =>
+              prev.map((s) => (s.id === stud.id ? { ...s, status: newStatus } : s))
+            );
+          } catch (err) {
+            console.error("Failed to restrict account:", err);
+          } finally {
+            setLoading(false);
+          }
+        }
+      });
+    } else {
+      setConfirmConfig({
+        isOpen: true,
+        title: "Reactivate Student Account",
+        message: `Are you sure you want to reactivate "${stud.name}"'s account? They will immediately regain access to the LMS.`,
+        onConfirm: async () => {
+          setLoading(true);
+          try {
+            await updateStudentProfile(stud.id, { status: newStatus });
+            setStudents((prev) =>
+              prev.map((s) => (s.id === stud.id ? { ...s, status: newStatus } : s))
+            );
+          } catch (err) {
+            console.error("Failed to reactivate account:", err);
+          } finally {
+            setLoading(false);
+          }
+        }
+      });
+    }
+  };
+
   const handleDeleteSingleStudent = (stud: Student) => {
     setConfirmConfig({
       isOpen: true,
@@ -562,7 +622,7 @@ function getYearBadgeStyle(year?: string) {
 
       <PageHeader
         title={`${college.name} Hub`}
-        description={`Manage academic departments, sections, and candidate enrollment inside ${college.name}.`}
+        description={`Manage academic departments, sections, and student enrollment inside ${college.name}.`}
         actions={
           <div className="flex items-center gap-3">
             <Button
@@ -645,18 +705,20 @@ function getYearBadgeStyle(year?: string) {
                       <Pencil className="w-3 h-3" />
                       <span>Edit</span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteDepartment(dept);
-                      }}
-                      className="inline-flex items-center gap-1 text-rose-500 font-bold text-[11px] hover:underline"
-                      title="Delete Department"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                      <span>Delete</span>
-                    </button>
+                    {dept.toLowerCase() !== "general" && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteDepartment(dept);
+                        }}
+                        className="inline-flex items-center gap-1 text-rose-500 font-bold text-[11px] hover:underline"
+                        title="Delete Department"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>Delete</span>
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={(e) => {
@@ -686,7 +748,7 @@ function getYearBadgeStyle(year?: string) {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search enrolled candidate..."
+              placeholder="Search enrolled student..."
               className="w-full h-9 pl-10 pr-4 rounded-xl bg-background border border-border text-xs focus:outline-none focus:ring-2 focus:ring-brand/50"
             />
           </div>
@@ -791,10 +853,10 @@ function getYearBadgeStyle(year?: string) {
         {filteredStudents.length === 0 ? (
           <EmptyState
             icon={Users}
-            title={students.length === 0 ? `No students enrolled in ${college.name} yet` : "No matching candidates found"}
+            title={students.length === 0 ? `No students enrolled in ${college.name} yet` : "No matching students found"}
             description={
               students.length === 0
-                ? "Click 'Enroll Student in College' or pick a department above to add candidates."
+                ? "Click 'Enroll Student in College' or pick a department above to add students."
                 : "Try adjusting your search query or department filter."
             }
             actionLabel="Enroll First Student"
@@ -862,18 +924,53 @@ function getYearBadgeStyle(year?: string) {
                           {stud.academicYear || "1st Year"}
                         </span>
                       </td>
-                      <td className="py-3.5 px-4">
-                        <span className="px-2 py-0.5 rounded bg-accent font-mono">
-                          Sec {stud.section} • {stud.batchIds?.[0] || "General"}
-                        </span>
+                      <td className="py-3.5 px-4 text-xs">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="px-2 py-0.5 rounded-md bg-accent/80 border border-border/50 font-mono text-[11px] font-semibold text-foreground whitespace-nowrap">
+                            Sec {stud.section || "N/A"}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-md bg-brand/10 border border-brand/20 font-mono text-[11px] font-semibold text-brand whitespace-nowrap">
+                            {stud.batchIds?.[0] || "General"}
+                          </span>
+                        </div>
                       </td>
                       <td className="py-3.5 px-4">
-                        <span className="inline-flex items-center gap-1 text-emerald-500 font-semibold">
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Enrolled
-                        </span>
+                        {stud.status === "restricted" ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-500/15 text-rose-500 border border-rose-500/30">
+                            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                            Restricted
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                            Active
+                          </span>
+                        )}
                       </td>
                       <td className="py-3.5 px-4 text-right">
-                        <Button
+                        <div className="flex items-center justify-end gap-1">
+                          {stud.status === "restricted" ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleToggleStatus(stud)}
+                              className="h-8 w-8 p-0 text-emerald-500 hover:text-emerald-600 hover:bg-emerald-500/10 rounded-lg"
+                              title="Reactivate Account"
+                            >
+                              <CheckCircle2 className="w-4 h-4" />
+                            </Button>
+                          ) : (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleToggleStatus(stud)}
+                              className="h-8 w-8 p-0 text-amber-500 hover:text-amber-600 hover:bg-amber-500/10 rounded-lg"
+                              title="Restrict Account"
+                            >
+                              <Ban className="w-4 h-4" />
+                            </Button>
+                          )}
+                          <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => handleOpenEditStudent(stud)}
@@ -891,6 +988,7 @@ function getYearBadgeStyle(year?: string) {
                         >
                           <Trash2 className="w-4 h-4" />
                         </Button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -904,7 +1002,7 @@ function getYearBadgeStyle(year?: string) {
       {/* Add Department Modal */}
       <AnimatePresence>
         {showAddDeptModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -917,31 +1015,53 @@ function getYearBadgeStyle(year?: string) {
               </div>
 
               <form onSubmit={handleAddDepartment} className="space-y-4 text-xs">
-                <div className="space-y-1.5">
-                  <label className="font-semibold text-foreground">Select Department</label>
-                  <select
-                    value={selectedAddDept}
-                    onChange={(e) => setSelectedAddDept(e.target.value)}
-                    className="w-full h-9 px-3 rounded-xl border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
-                  >
-                    {PREDEFINED_DEPARTMENTS.map((d) => (
-                      <option key={d} value={d}>
-                        {d}
-                      </option>
-                    ))}
-                  </select>
+                <div className="space-y-2">
+                  <label className="font-semibold text-foreground">Select Department(s) to Add</label>
+                  <div className="max-h-48 overflow-y-auto p-2.5 rounded-xl border border-border bg-background/50 space-y-2 grid grid-cols-1 gap-1.5">
+                    {PREDEFINED_DEPARTMENTS.map((d) => {
+                      const isAlreadyPresent = (college.departments || []).includes(d) && d !== "Custom Department";
+                      const isChecked = selectedAddDepts.includes(d) || isAlreadyPresent;
+                      return (
+                        <label
+                          key={d}
+                          className={`flex items-center gap-2.5 p-2 rounded-lg border text-xs cursor-pointer transition-colors ${
+                            isChecked && !isAlreadyPresent
+                              ? "bg-brand/10 border-brand/40 text-foreground font-semibold"
+                              : "border-border/60 hover:bg-muted/50 text-muted-foreground"
+                          } ${isAlreadyPresent ? "opacity-60 cursor-not-allowed bg-muted/40" : ""}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            disabled={isAlreadyPresent}
+                            onChange={(e) => {
+                              if (isAlreadyPresent) return;
+                              if (e.target.checked) {
+                                setSelectedAddDepts((prev) => [...prev, d]);
+                              } else {
+                                setSelectedAddDepts((prev) => prev.filter((item) => item !== d));
+                              }
+                            }}
+                            className="rounded border-border text-brand focus:ring-brand/50 w-4 h-4"
+                          />
+                          <span className="truncate">{d} {isAlreadyPresent ? "(Already Added)" : ""}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
-                {selectedAddDept === "Custom Department" && (
-                  <div className="space-y-1.5">
-                    <label className="font-semibold text-foreground">Custom Department Name</label>
+                {selectedAddDepts.includes("Custom Department") && (
+                  <div className="space-y-1.5 pt-1">
+                    <label className="font-semibold text-foreground">Custom Department Name(s)</label>
                     <input
                       type="text"
                       value={newDeptName}
                       onChange={(e) => setNewDeptName(e.target.value)}
                       required
-                      placeholder="e.g. Artificial Intelligence & Data Science"
+                      placeholder="e.g. Artificial Intelligence & Data Science (comma separated)"
                       className="w-full h-9 px-3 rounded-xl border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
                     />
+                    <p className="text-[10px] text-muted-foreground">You can enter multiple custom departments separated by commas.</p>
                   </div>
                 )}
                 <div className="flex justify-end gap-2 pt-2 border-t border-border">
@@ -959,7 +1079,7 @@ function getYearBadgeStyle(year?: string) {
       {/* Rename Department Modal */}
       <AnimatePresence>
         {editingDept && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -1025,7 +1145,7 @@ function getYearBadgeStyle(year?: string) {
       {/* Edit Student Modal */}
       <AnimatePresence>
         {editingStudent && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -1162,7 +1282,7 @@ function getYearBadgeStyle(year?: string) {
       {/* Enroll Student Modal */}
       <AnimatePresence>
         {showEnrollModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -1180,7 +1300,7 @@ function getYearBadgeStyle(year?: string) {
               <form onSubmit={handleEnrollStudent} className="space-y-4 text-xs">
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
-                    <label className="font-semibold text-foreground">Candidate Name</label>
+                    <label className="font-semibold text-foreground">Student Name</label>
                     <input
                       type="text"
                       value={studName}
@@ -1282,7 +1402,7 @@ function getYearBadgeStyle(year?: string) {
                 <div className="flex justify-end gap-2 pt-3 border-t border-border">
                   <Button type="button" variant="outline" onClick={() => setShowEnrollModal(false)}>Cancel</Button>
                   <Button type="submit" disabled={enrolling} className="bg-brand text-white">
-                    {enrolling ? "Enrolling..." : "Enroll Candidate inside College"}
+                    {enrolling ? "Enrolling..." : "Enroll Student inside College"}
                   </Button>
                 </div>
               </form>

@@ -48,6 +48,8 @@ import {
 } from "firebase/auth";
 import { setDoc, doc, getDoc, onSnapshot, getDocuments, where, deleteDocument } from "@/lib/firebase/firestore";
 import { deleteField } from "firebase/firestore";
+import { subscribeToCompanyBranding, updateCompanyBranding, type CompanyBranding } from "@/lib/services/branding-service";
+import { formatAuthError } from "@/lib/services/auth-service";
 
 function StudentAccountSettings() {
   const [name, setName] = useState("");
@@ -68,6 +70,18 @@ function StudentAccountSettings() {
   const [pwdSuccess, setPwdSuccess] = useState(false);
   const [pwdError, setPwdError] = useState<string | null>(null);
   const pwdSuccessTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [hasPasswordProvider, setHasPasswordProvider] = useState(() => {
+    return auth.currentUser?.providerData.some((p) => p.providerId === "password") ?? true;
+  });
+
+  useEffect(() => {
+    const unsubAuth = auth.onAuthStateChanged((user) => {
+      if (user) {
+        setHasPasswordProvider(user.providerData.some((p) => p.providerId === "password"));
+      }
+    });
+    return () => unsubAuth();
+  }, []);
 
   useEffect(() => {
     let unsub: (() => void) | undefined;
@@ -290,7 +304,7 @@ function StudentAccountSettings() {
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Failed to update profile.";
+      const message = formatAuthError(err, "Failed to update profile.");
       setProfileError(message);
     } finally {
       isSavingProfileRef.current = false;
@@ -309,8 +323,13 @@ function StudentAccountSettings() {
     setPwdSuccess(false);
     setPwdError(null);
 
-    if (!curPwd || !newPwd) {
-      setPwdError("Please enter both your current password and a new password.");
+    if (hasPasswordProvider && !curPwd) {
+      setPwdError("Please enter your current password.");
+      return;
+    }
+
+    if (!newPwd) {
+      setPwdError("Please enter a new password.");
       return;
     }
 
@@ -328,15 +347,18 @@ function StudentAccountSettings() {
         throw new Error("Unable to verify your session. Please sign in again.");
       }
 
-      // Verify current password before allowing any change
-      const credential = EmailAuthProvider.credential(
-        auth.currentUser.email || (u.email || ""),
-        curPwd
-      );
-      await reauthenticateWithCredential(auth.currentUser, credential);
+      if (hasPasswordProvider) {
+        // Verify current password before allowing any change
+        const credential = EmailAuthProvider.credential(
+          auth.currentUser.email || (u.email || ""),
+          curPwd
+        );
+        await reauthenticateWithCredential(auth.currentUser, credential);
+      }
 
       // Update Firebase Authentication password (single source of truth)
       await firebaseUpdatePassword(auth.currentUser, newPwd);
+      setHasPasswordProvider(true);
 
       // Remove the fallback initialPassword from Firestore so only the Auth password remains valid.
       // Delete any duplicate/old records that still reference this student.
@@ -513,10 +535,17 @@ function StudentAccountSettings() {
               <span>{pwdError}</span>
             </div>
           )}
-          <div className="space-y-1.5">
-            <Label className="text-xs font-bold text-muted-foreground uppercase">Current Password</Label>
-            <Input type="password" value={curPwd} onChange={(e) => setCurPwd(e.target.value)} required placeholder="••••••••" className="h-11 rounded-xl bg-background" />
-          </div>
+          {hasPasswordProvider ? (
+            <div className="space-y-1.5">
+              <Label className="text-xs font-bold text-muted-foreground uppercase">Current Password</Label>
+              <Input type="password" value={curPwd} onChange={(e) => setCurPwd(e.target.value)} required placeholder="••••••••" className="h-11 rounded-xl bg-background" />
+            </div>
+          ) : (
+            <div className="p-3.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-400 font-bold flex items-center gap-2">
+              <Key className="w-4 h-4 shrink-0 text-blue-400" />
+              <span>Your account is linked to Google Sign-In (no password set). Set a password below to enable Email/Password login alongside Google!</span>
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label className="text-xs font-bold text-emerald-500 uppercase flex items-center gap-1">
               <Key className="w-3.5 h-3.5" /> New Login Password
@@ -526,7 +555,7 @@ function StudentAccountSettings() {
           <div className="pt-2">
             <Button type="submit" className="h-11 px-6 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-2 shadow-md shadow-emerald-500/20">
               <Lock className="w-4 h-4" />
-              <span>Update Password</span>
+              <span>{hasPasswordProvider ? "Update Password" : "Set Login Password"}</span>
             </Button>
           </div>
         </form>
@@ -537,7 +566,7 @@ function StudentAccountSettings() {
 
 export default function SettingsPage() {
   const [userRole, setUserRole] = useState<string>("admin");
-  const [activeTab, setActiveTab] = useState<"profile" | "security">("profile");
+  const [activeTab, setActiveTab] = useState<"profile" | "security" | "branding">("profile");
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm?: () => void; isAlert?: boolean; variant?: "destructive" | "warning" | "info" | "success" } | null>(null);
 
   // Profile fields
@@ -554,12 +583,96 @@ export default function SettingsPage() {
   const [loginEmail, setLoginEmail] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [hasPasswordProvider, setHasPasswordProvider] = useState(() => {
+    return auth.currentUser?.providerData.some((p) => p.providerId === "password") ?? true;
+  });
+
+  useEffect(() => {
+    const unsubAuth = auth.onAuthStateChanged((user) => {
+      if (user) {
+        setHasPasswordProvider(user.providerData.some((p) => p.providerId === "password"));
+      }
+    });
+    return () => unsubAuth();
+  }, []);
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showCurrentPwd, setShowCurrentPwd] = useState(false);
   const [showNewPwd, setShowNewPwd] = useState(false);
   const [savingPwd, setSavingPwd] = useState(false);
   const [pwdSaved, setPwdSaved] = useState(false);
   const [pwdError, setPwdError] = useState("");
+
+  // Branding fields
+  const [branding, setBranding] = useState<CompanyBranding>({ companyName: "LMS Portal", companySubtitle: "Enterprise v2.4" });
+  const [brandName, setBrandName] = useState("");
+  const [brandSubtitle, setBrandSubtitle] = useState("");
+  const [brandLogo, setBrandLogo] = useState("");
+  const [savingBrand, setSavingBrand] = useState(false);
+  const [brandSaved, setBrandSaved] = useState(false);
+
+  useEffect(() => {
+    const unsub = subscribeToCompanyBranding((data) => {
+      setBranding(data);
+      setBrandName(data.companyName || "LMS Portal");
+      setBrandSubtitle(data.companySubtitle || "Enterprise v2.4");
+      setBrandLogo(data.logoBase64 || "");
+    });
+    return () => unsub();
+  }, []);
+
+  const handleSaveBranding = async () => {
+    setSavingBrand(true);
+    setBrandSaved(false);
+    try {
+      await updateCompanyBranding({
+        companyName: brandName.trim() || "LMS Portal",
+        companySubtitle: brandSubtitle.trim() || "Enterprise v2.4",
+        logoBase64: brandLogo,
+      });
+      setBrandSaved(true);
+      setTimeout(() => setBrandSaved(false), 3000);
+    } catch (err) {
+      console.error("Failed to save branding:", err);
+    } finally {
+      setSavingBrand(false);
+    }
+  };
+
+  const handleBrandLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      alert("Please select a valid image file.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        let width = img.width;
+        let height = img.height;
+        const maxDim = 300;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx?.drawImage(img, 0, 0, width, height);
+        const base64 = canvas.toDataURL("image/png");
+        setBrandLogo(base64);
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
 
   useEffect(() => {
     let currentRole = "admin";
@@ -648,7 +761,7 @@ export default function SettingsPage() {
       setProfileSaved(true);
       setTimeout(() => setProfileSaved(false), 4000);
     } catch (err: unknown) {
-      setProfileError(err instanceof Error ? err.message : "Failed to save profile.");
+      setProfileError(formatAuthError(err, "Failed to save profile."));
     } finally {
       setSavingProfile(false);
     }
@@ -659,7 +772,7 @@ export default function SettingsPage() {
     setPwdSaved(false);
     setPwdError("");
 
-    if (!currentPassword) {
+    if (hasPasswordProvider && !currentPassword) {
       setPwdError("Please enter your current password to authorize changes.");
       setSavingPwd(false);
       return;
@@ -686,13 +799,16 @@ export default function SettingsPage() {
         throw new Error("Unable to verify your session. Please sign in again.");
       }
 
-      // Verify current password via Firebase Auth reauthentication
-      const credential = EmailAuthProvider.credential(auth.currentUser.email || targetEmail, currentPassword);
-      await reauthenticateWithCredential(auth.currentUser, credential);
+      if (hasPasswordProvider) {
+        // Verify current password via Firebase Auth reauthentication
+        const credential = EmailAuthProvider.credential(auth.currentUser.email || targetEmail, currentPassword);
+        await reauthenticateWithCredential(auth.currentUser, credential);
+      }
 
       // Update password if provided
       if (newPassword) {
         await firebaseUpdatePassword(auth.currentUser, newPassword);
+        setHasPasswordProvider(true);
 
         // Clear initialPassword and mustChangePassword flags from Firestore so
         // only the Firebase Auth password remains the valid credential.
@@ -778,7 +894,7 @@ export default function SettingsPage() {
       setPwdSaved(true);
       setTimeout(() => setPwdSaved(false), 5000);
     } catch (err: unknown) {
-      setPwdError(err instanceof Error ? err.message : "Failed to update security credentials.");
+      setPwdError(formatAuthError(err, "Failed to update security credentials."));
     } finally {
       setSavingPwd(false);
     }
@@ -812,7 +928,8 @@ export default function SettingsPage() {
         <div className="flex flex-wrap items-center gap-1.5 p-1 rounded-2xl bg-card/80 dark:bg-white/[0.03] border border-border/60 backdrop-blur-md">
           {[
             { id: "profile", label: "Profile & Identity", icon: User },
-            { id: "security", label: "Security & Passwords", icon: Key }
+            { id: "security", label: "Security & Passwords", icon: Key },
+            { id: "branding", label: "Company Branding & Logo", icon: Building2 }
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -855,7 +972,7 @@ export default function SettingsPage() {
                     </div>
                     <div>
                       <h3 className="text-base font-bold text-foreground">Personnel Identity Specification</h3>
-                      <p className="text-xs text-muted-foreground">Changes here immediately reflect across candidate evaluation sheets and headers.</p>
+                      <p className="text-xs text-muted-foreground">Changes here immediately reflect across student evaluation sheets and headers.</p>
                     </div>
                   </div>
                 </div>
@@ -1016,26 +1133,33 @@ export default function SettingsPage() {
 
                 <Separator className="opacity-40 py-2" />
 
-                <div className="space-y-2">
-                  <Label htmlFor="currPwd" className="text-xs font-bold text-foreground">Current Password (Required for confirmation)</Label>
-                  <div className="relative">
-                    <Input
-                      id="currPwd"
-                      type={showCurrentPwd ? "text" : "password"}
-                      value={currentPassword}
-                      onChange={(e) => setCurrentPassword(e.target.value)}
-                      placeholder="Enter current password (or default admin123456)"
-                      className="glass-input h-11 rounded-xl pr-10 font-mono"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowCurrentPwd(!showCurrentPwd)}
-                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      {showCurrentPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
+                {hasPasswordProvider ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="currPwd" className="text-xs font-bold text-foreground">Current Password (Required for confirmation)</Label>
+                    <div className="relative">
+                      <Input
+                        id="currPwd"
+                        type={showCurrentPwd ? "text" : "password"}
+                        value={currentPassword}
+                        onChange={(e) => setCurrentPassword(e.target.value)}
+                        placeholder="Enter current password (or default admin123456)"
+                        className="glass-input h-11 rounded-xl pr-10 font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowCurrentPwd(!showCurrentPwd)}
+                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        {showCurrentPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="p-3.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-400 font-bold flex items-center gap-2">
+                    <Key className="w-4 h-4 shrink-0 text-blue-400" />
+                    <span>Your account is linked to Google Sign-In (no password set). Set a password below to enable Email/Password login alongside Google!</span>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 gap-4 pt-2">
                   <div className="space-y-2">
@@ -1099,6 +1223,122 @@ export default function SettingsPage() {
                 </Button>
               </div>
             </GlassCard>
+          </motion.div>
+        )}
+
+        {/* Tab 3: Company Branding & Logo */}
+        {activeTab === "branding" && (
+          <motion.div
+            key="branding-tab"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.25 }}
+            className="grid grid-cols-1 lg:grid-cols-12 gap-6"
+          >
+            <div className="lg:col-span-8 space-y-6">
+              <GlassCard className="p-6 sm:p-8 space-y-6">
+                <div className="flex items-center justify-between pb-4 border-b border-border/40">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-brand/10 flex items-center justify-center">
+                      <Building2 className="w-5 h-5 text-brand" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-foreground">Global Company Branding</h3>
+                      <p className="text-xs text-muted-foreground">Configure the portal logo and company name displayed across all admin and student interfaces.</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  <div className="space-y-2">
+                    <Label className="text-xs font-bold text-foreground">Company Logo (Base64 Image)</Label>
+                    <div className="flex items-center gap-5 p-4 rounded-2xl border border-border/80 bg-background/50">
+                      {brandLogo ? (
+                        <div className="relative w-20 h-20 rounded-xl border border-border bg-card flex items-center justify-center overflow-hidden shrink-0 shadow-md">
+                          <img src={brandLogo} alt="Company Logo" className="w-full h-full object-contain p-1" />
+                          <button
+                            type="button"
+                            onClick={() => setBrandLogo("")}
+                            className="absolute -top-1.5 -right-1.5 bg-rose-500 text-white rounded-full p-1 shadow hover:bg-rose-600"
+                            title="Remove Logo"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="w-20 h-20 rounded-xl border border-dashed border-border flex flex-col items-center justify-center text-muted-foreground shrink-0 bg-muted/20">
+                          <Building2 className="w-8 h-8 opacity-40" />
+                          <span className="text-[10px] mt-1 font-semibold">No Logo</span>
+                        </div>
+                      )}
+                      <div className="flex-1 space-y-1.5">
+                        <label className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-brand/10 hover:bg-brand/20 text-brand text-xs font-bold cursor-pointer transition-colors shadow-sm">
+                          <Camera className="w-4 h-4" />
+                          <span>{brandLogo ? "Upload New Logo" : "Upload Logo Image"}</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleBrandLogoChange}
+                            className="hidden"
+                          />
+                        </label>
+                        <p className="text-xs text-muted-foreground leading-relaxed">
+                          Supported formats: PNG, JPG, WEBP, or SVG. Automatically optimized and stored in base64 format in Firebase for global visibility.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="brandName" className="text-xs font-bold text-foreground">Company / Portal Name</Label>
+                    <Input
+                      id="brandName"
+                      value={brandName}
+                      onChange={(e) => setBrandName(e.target.value)}
+                      placeholder="e.g. Acme Institute LMS"
+                      className="glass-input h-11 rounded-xl"
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      This name replaces the default "LMS Portal" text in the sidebar header for all admins, trainers, and students.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="brandSubtitle" className="text-xs font-bold text-foreground">Subtitle / Tagline</Label>
+                    <Input
+                      id="brandSubtitle"
+                      value={brandSubtitle}
+                      onChange={(e) => setBrandSubtitle(e.target.value)}
+                      placeholder="e.g. Enterprise v2.4"
+                      className="glass-input h-11 rounded-xl"
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Displayed directly below the company name in the sidebar.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="pt-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-t border-border/40">
+                  {brandSaved ? (
+                    <div className="flex items-center gap-2 text-xs text-emerald-500 font-extrabold">
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Global branding updated successfully!</span>
+                    </div>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">Changes take effect immediately across all sessions</span>
+                  )}
+                  <Button
+                    onClick={handleSaveBranding}
+                    disabled={savingBrand}
+                    className="h-11 w-full sm:w-auto px-6 rounded-xl bg-brand hover:bg-brand/90 text-white font-bold flex items-center gap-2 shadow-lg shadow-brand/20"
+                  >
+                    <Save className="w-4 h-4" />
+                    <span>{savingBrand ? "Saving Branding..." : "Save Global Branding"}</span>
+                  </Button>
+                </div>
+              </GlassCard>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

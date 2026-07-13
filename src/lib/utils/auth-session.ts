@@ -5,24 +5,26 @@ import { auth } from "@/lib/firebase/config";
  * Central utility for managing client-side authentication sessions, storage, and cookies.
  */
 
-function getLogoutRole(): "student" | "admin" {
+function getLogoutRole(): "student" | "admin" | "college_admin" {
   // Prefer the cookie (source of truth for middleware) over localStorage.
   if (typeof document !== "undefined") {
     const match = document.cookie.match(/(?:^|; )lms_role=([^;]*)/);
     if (match) {
       const cookieRole = decodeURIComponent(match[1]).trim();
       if (cookieRole === "student") return "student";
+      if (cookieRole === "college_admin") return "college_admin";
       if (cookieRole === "admin" || cookieRole === "trainer") return "admin";
     }
   }
   const lsRole = typeof localStorage !== "undefined" ? localStorage.getItem("lms_role") : null;
   if (lsRole === "student") return "student";
+  if (lsRole === "college_admin") return "college_admin";
   return "admin";
 }
 
 export async function setAuthSession(
   session: string | Record<string, unknown>,
-  role: "student" | "admin" | "trainer",
+  role: "student" | "admin" | "trainer" | "college_admin",
   user?: Record<string, unknown>
 ): Promise<void> {
   const normalizedRole = role === "trainer" ? "admin" : role;
@@ -99,7 +101,7 @@ export function getCurrentUser(): Promise<{ uid: string; email: string; profile:
 export async function clearAuthSession(redirectPath?: string): Promise<void> {
   // Capture the role before clearing any storage so we can route to the correct login page.
   const role = getLogoutRole();
-  const targetPath = redirectPath || (role === "student" ? "/login" : "/admin/login");
+  const targetPath = redirectPath || (role === "student" ? "/login" : role === "college_admin" ? "/college/login" : "/admin/login");
 
   // Invalidate all storage
   localStorage.clear();

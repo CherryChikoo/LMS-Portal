@@ -44,15 +44,42 @@ export async function getDocuments<T extends DocumentData>(
   );
 }
 
+/**
+ * Safely strips undefined values from plain objects and arrays recursively
+ * without altering Firestore sentinels (FieldValue, Timestamp, Date, etc.)
+ */
+export function sanitizeFirestoreData(data: any): any {
+  if (data === undefined) return null;
+  if (data === null || typeof data !== "object") return data;
+  if (data instanceof Date) return data;
+  if (Array.isArray(data)) {
+    return data
+      .map((item) => sanitizeFirestoreData(item))
+      .filter((item) => item !== undefined && item !== null);
+  }
+  // If it's not a plain object (e.g. Firestore Timestamp, FieldValue, serverTimestamp sentinel), return as is
+  if (data.constructor && data.constructor.name !== "Object" && Object.getPrototypeOf(data) !== null) {
+    return data;
+  }
+  const result: Record<string, any> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (value !== undefined) {
+      result[key] = sanitizeFirestoreData(value);
+    }
+  }
+  return result;
+}
+
 export async function addDocument<T extends DocumentData>(
   collectionName: string,
   data: Omit<T, "id">
 ): Promise<string> {
-  const docRef = await addDoc(collection(db, collectionName), {
+  const cleanData = sanitizeFirestoreData({
     ...data,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
+  const docRef = await addDoc(collection(db, collectionName), cleanData);
   return docRef.id;
 }
 
@@ -62,10 +89,11 @@ export async function updateDocument<T extends DocumentData>(
   data: Partial<T>
 ): Promise<void> {
   const docRef = doc(db, collectionName, documentId);
-  await updateDoc(docRef, {
+  const cleanData = sanitizeFirestoreData({
     ...data,
     updatedAt: serverTimestamp(),
   });
+  await updateDoc(docRef, cleanData);
 }
 
 export async function setDocument<T extends DocumentData>(
@@ -75,14 +103,11 @@ export async function setDocument<T extends DocumentData>(
   options: { merge?: boolean } = {}
 ): Promise<void> {
   const docRef = doc(db, collectionName, documentId);
-  await setDoc(
-    docRef,
-    {
-      ...data,
-      updatedAt: serverTimestamp(),
-    },
-    options
-  );
+  const cleanData = sanitizeFirestoreData({
+    ...data,
+    updatedAt: serverTimestamp(),
+  });
+  await setDoc(docRef, cleanData, options);
 }
 
 export async function deleteDocument(

@@ -7,7 +7,7 @@ import { GraduationCap, ArrowRight, Eye, EyeOff, Sparkles, CheckCircle2, AlertCi
 import Link from "next/link";
 import { APP_NAME } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
-import { studentRegister, studentGoogleSignUp, completeStudentAcademicDetails } from "@/lib/services/auth-service";
+import { studentRegister, studentGoogleSignUp, completeStudentAcademicDetails, formatAuthError } from "@/lib/services/auth-service";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -67,7 +67,7 @@ export default function RegisterPage() {
       if (res.user.email) setEmail(res.user.email);
       setStep("details");
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to sign up with Google.");
+      setError(formatAuthError(err, "Failed to sign up with Google."));
     } finally {
       setGoogleLoading(false);
     }
@@ -97,7 +97,7 @@ export default function RegisterPage() {
       setRegisteredUid(res.user.uid);
       setStep("details");
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to create student account.");
+      setError(formatAuthError(err, "Failed to create student account."));
     } finally {
       setLoading(false);
     }
@@ -144,7 +144,7 @@ export default function RegisterPage() {
       window.dispatchEvent(new Event("storage"));
       setRegistered(true);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to save academic details.");
+      setError(formatAuthError(err, "Failed to save academic details."));
     } finally {
       setLoading(false);
     }

@@ -6,10 +6,10 @@ import { GraduationCap, ArrowRight, Eye, EyeOff, ShieldCheck, Check, AlertCircle
 import Link from "next/link";
 import { APP_NAME } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
-import { trainerLogin, formatAuthError } from "@/lib/services/auth-service";
+import { collegeAdminLogin, formatAuthError } from "@/lib/services/auth-service";
 import { setAuthSession } from "@/lib/utils/auth-session";
 
-export default function AdminLoginPage() {
+export default function CollegeLoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -32,18 +32,18 @@ export default function AdminLoginPage() {
     const cleanEmail = email.trim().toLowerCase();
 
     try {
-      const res = await trainerLogin(cleanEmail, password);
-      const actualRole = res.profile?.role === "admin" ? "admin" : "trainer";
+      const res = await collegeAdminLogin(cleanEmail, password);
+      const actualRole = "college_admin";
       const uObj = {
-        id: res.user?.uid || res.profile?.id || `${actualRole}-${Date.now()}`,
-        name: res.profile?.displayName || res.user?.displayName || (actualRole === "admin" ? "Chief Assessment Officer" : "Lead Trainer Faculty"),
-        displayName: res.profile?.displayName || res.user?.displayName || (actualRole === "admin" ? "Chief Assessment Officer" : "Lead Trainer Faculty"),
+        id: res.user?.uid || res.profile?.id || `college-admin-${Date.now()}`,
+        name: res.profile?.displayName || res.user?.displayName || "College Admin",
+        displayName: res.profile?.displayName || res.user?.displayName || "College Admin",
         email: cleanEmail,
         role: actualRole,
-        department: ((res.profile as { department?: string } | null)?.department) || "Faculty Operations"
+        collegeId: (res.profile as any)?.collegeId || ""
       };
-      await setAuthSession(uObj, actualRole as "trainer" | "admin");
-      window.location.assign("/admin");
+      await setAuthSession(uObj, actualRole);
+      window.location.assign("/");
     } catch (err: unknown) {
       setError(formatAuthError(err, "Incorrect email or password."));
     } finally {
@@ -62,26 +62,26 @@ export default function AdminLoginPage() {
         {/* Left Canvas - Purple / Red Theme */}
         <div className="lg:col-span-6 relative p-5 sm:p-8 lg:p-12 flex flex-col justify-between overflow-hidden bg-[#0A050F] text-white min-h-[160px] sm:min-h-[200px]">
           <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
-            <div className="absolute -top-24 -left-24 w-96 h-96 bg-gradient-to-br from-purple-600/40 via-rose-500/25 to-transparent rounded-full blur-3xl animate-pulse" />
-            <div className="absolute top-1/3 -right-20 w-80 h-80 bg-gradient-to-tr from-fuchsia-600/30 via-red-500/20 to-transparent rounded-full blur-2xl" />
-            <div className="absolute -bottom-20 left-10 w-96 h-96 bg-gradient-to-t from-rose-600/30 via-purple-950/40 to-transparent rounded-full blur-3xl" />
+            <div className="absolute -top-24 -left-24 w-96 h-96 bg-gradient-to-br from-blue-600/40 via-cyan-500/25 to-transparent rounded-full blur-3xl animate-pulse" />
+            <div className="absolute top-1/3 -right-20 w-80 h-80 bg-gradient-to-tr from-sky-600/30 via-indigo-500/20 to-transparent rounded-full blur-2xl" />
+            <div className="absolute -bottom-20 left-10 w-96 h-96 bg-gradient-to-t from-cyan-600/30 via-blue-950/40 to-transparent rounded-full blur-3xl" />
           </div>
 
           <div className="relative z-10 flex items-center gap-3">
-            <span className="text-[10px] uppercase font-semibold tracking-[0.25em] text-rose-400 flex items-center gap-1.5">
+            <span className="text-[10px] uppercase font-semibold tracking-[0.25em] text-cyan-400 flex items-center gap-1.5">
               <ShieldCheck className="w-3.5 h-3.5" />
-              ADMINISTRATIVE COMMAND CENTER
+              PARTNER INSTITUTION COMMAND CENTER
             </span>
-            <div className="h-px w-12 bg-gradient-to-r from-purple-500/50 via-rose-500/50 to-transparent" />
+            <div className="h-px w-12 bg-gradient-to-r from-blue-500/50 via-cyan-500/50 to-transparent" />
           </div>
 
           <div className="relative z-10 my-auto py-6 sm:py-10 lg:py-12 space-y-4 sm:space-y-6 max-w-md">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.07] border border-white/10 backdrop-blur-md text-[10px] sm:text-xs font-medium text-purple-300">
-              <Sparkles className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-rose-400" />
-              <span>Strict Governance Portal</span>
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.07] border border-white/10 backdrop-blur-md text-[10px] sm:text-xs font-medium text-blue-300">
+              <Sparkles className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-cyan-400" />
+              <span>Partner Access Portal</span>
             </div>
             <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight leading-[1.1] font-sans text-transparent bg-clip-text bg-gradient-to-b from-white via-white to-slate-300">
-              Manage Academic Excellence
+              Manage Your Institution
             </h1>
             <p className="text-xs sm:text-sm lg:text-base text-slate-300/80 leading-relaxed font-light">
               Full control over colleges, bulk student provisioning, dynamic Markdown examinations, hierarchical resource distribution, and live assessments.
@@ -89,8 +89,8 @@ export default function AdminLoginPage() {
           </div>
 
           <div className="relative z-10 pt-6 border-t border-white/10 flex items-center justify-between text-xs text-slate-400">
-            <span className="font-medium text-slate-300">Authorized Faculty & Staff Only</span>
-            <span className="font-mono text-[11px] text-rose-400/80">Secure Route</span>
+            <span className="font-medium text-slate-300">Authorized College Admins Only</span>
+            <span className="font-mono text-[11px] text-cyan-400/80">Secure Route</span>
           </div>
         </div>
 
@@ -98,18 +98,18 @@ export default function AdminLoginPage() {
         <div className="lg:col-span-6 p-5 sm:p-8 lg:p-14 flex flex-col justify-between bg-card/40 backdrop-blur-xl">
           <div className="flex items-center justify-between gap-2">
             <Link href="/" className="flex items-center gap-2 group">
-              <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-md bg-gradient-to-r from-purple-600 to-rose-600 flex items-center justify-center group-hover:scale-105 transition-transform shadow-md">
+              <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-md bg-gradient-to-r from-blue-600 to-cyan-600 flex items-center justify-center group-hover:scale-105 transition-transform shadow-md">
                 <GraduationCap className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
               </div>
-              <span className="font-bold text-base sm:text-lg text-foreground tracking-tight">{APP_NAME} Admin</span>
+              <span className="font-bold text-base sm:text-lg text-foreground tracking-tight">{APP_NAME} Platform</span>
             </Link>
-            <span className="text-[10px] sm:text-xs font-semibold px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20">Trainer Portal</span>
+            <span className="text-[10px] sm:text-xs font-semibold px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">Partner Portal</span>
           </div>
 
           <div className="my-auto py-6 sm:py-8 w-full max-w-sm sm:max-w-md mx-auto space-y-5 sm:space-y-6">
             <div className="space-y-1.5">
-              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">Admin Login</h2>
-              <p className="text-sm text-muted-foreground">Sign in with authorized trainer or admin credentials</p>
+              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">College Login</h2>
+              <p className="text-sm text-muted-foreground">Sign in with your authorized college admin credentials</p>
             </div>
 
             {error && (
@@ -122,15 +122,15 @@ export default function AdminLoginPage() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-1.5">
                 <label className="text-[10px] sm:text-xs font-semibold text-foreground/80 uppercase tracking-wider">
-                  Admin / Trainer Email
+                  College Admin Email
                 </label>
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  className="w-full h-10 sm:h-11 min-h-[44px] px-3 sm:px-4 rounded-xl border border-border bg-card/50 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-purple-500/50"
-                  placeholder="Enter admin or trainer email"
+                  className="w-full h-10 sm:h-11 min-h-[44px] px-3 sm:px-4 rounded-xl border border-border bg-card/50 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                  placeholder="Enter college admin email"
                 />
               </div>
 
@@ -144,7 +144,7 @@ export default function AdminLoginPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
-                    className="w-full h-10 sm:h-11 min-h-[44px] pl-3 sm:pl-4 pr-11 rounded-xl border border-border bg-card/50 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                    className="w-full h-10 sm:h-11 min-h-[44px] pl-3 sm:pl-4 pr-11 rounded-xl border border-border bg-card/50 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                     placeholder="••••••••"
                   />
                   <button
@@ -163,7 +163,7 @@ export default function AdminLoginPage() {
                   onClick={() => setRememberMe(!rememberMe)}
                   className={`w-4 h-4 rounded flex items-center justify-center border transition-colors ${
                     rememberMe
-                      ? "bg-gradient-to-r from-purple-600 to-rose-600 border-purple-600 text-white"
+                      ? "bg-gradient-to-r from-blue-600 to-cyan-600 border-blue-600 text-white"
                       : "border-border/60 bg-transparent"
                   }`}
                 >
@@ -173,7 +173,7 @@ export default function AdminLoginPage() {
                   onClick={() => setRememberMe(!rememberMe)}
                   className="text-xs font-medium text-muted-foreground cursor-pointer select-none"
                 >
-                  Remember admin session
+                  Remember college session
                 </span>
               </div>
 
@@ -181,7 +181,7 @@ export default function AdminLoginPage() {
                 <Button
                   type="submit"
                   disabled={loading}
-                  className="w-full h-10 sm:h-11 min-h-[44px] rounded-xl bg-gradient-to-r from-purple-600 to-rose-600 hover:from-purple-700 hover:to-rose-700 text-white font-medium transition-all shadow-md flex items-center justify-center gap-2 group text-sm sm:text-base"
+                  className="w-full h-10 sm:h-11 min-h-[44px] rounded-xl bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white font-medium transition-all shadow-md flex items-center justify-center gap-2 group text-sm sm:text-base"
                 >
                   {loading ? (
                     <span className="flex items-center gap-2">
@@ -193,7 +193,7 @@ export default function AdminLoginPage() {
                     </span>
                   ) : (
                     <>
-                      <span>Sign In to Admin Portal</span>
+                      <span>Sign In to College Dashboard</span>
                       <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center group-hover:translate-x-0.5 transition-transform">
                         <ArrowRight className="w-3.5 h-3.5" />
                       </div>

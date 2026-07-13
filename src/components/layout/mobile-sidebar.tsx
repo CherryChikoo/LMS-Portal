@@ -17,6 +17,7 @@ import { useSidebar } from "@/hooks/use-sidebar";
 import { NAVIGATION, APP_NAME } from "@/lib/constants";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { subscribeToCompanyBranding, type CompanyBranding } from "@/lib/services/branding-service";
 
 export function MobileSidebar() {
   const pathname = usePathname();
@@ -30,6 +31,18 @@ export function MobileSidebar() {
       return null;
     }
   });
+
+  const [branding, setBranding] = useState<CompanyBranding>({
+    companyName: APP_NAME,
+    companySubtitle: "Enterprise v2.4",
+  });
+
+  useEffect(() => {
+    const unsub = subscribeToCompanyBranding((data) => {
+      setBranding(data);
+    });
+    return () => unsub();
+  }, []);
 
   useEffect(() => {
     const checkRole = () => {
@@ -47,8 +60,9 @@ export function MobileSidebar() {
 
   const effectiveNav = useMemo(() => {
     if (!userRole) return [];
+    let base = NAVIGATION;
     if (userRole === "student") {
-      return [
+      base = [
         {
           title: "Academic Portal",
           items: [
@@ -70,7 +84,15 @@ export function MobileSidebar() {
         }
       ];
     }
-    return NAVIGATION;
+
+    if (userRole === "college_admin") {
+      base = base.map(sec => ({
+        ...sec,
+        items: sec.items.filter(it => it.href !== "/colleges" && it.href !== "/audit")
+      })).filter(sec => sec.items.length > 0);
+    }
+    
+    return base;
   }, [userRole]);
 
   return (
@@ -78,11 +100,18 @@ export function MobileSidebar() {
       <SheetContent side="left" className="w-[300px] p-0 bg-sidebar backdrop-blur-2xl text-foreground flex flex-col border-0">
         {/* Logo */}
         <div className="flex items-center h-20 px-5 shrink-0 border-b border-border/30">
-          <Link href="/" className="flex items-center gap-3" onClick={closeMobile}>
-            <div className="flex flex-col">
-              <span className="font-bold text-lg text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-teal-300 to-emerald-200 tracking-tight">{APP_NAME}</span>
-              <span className="text-[10px] font-medium text-emerald-500 uppercase tracking-widest">
-                {userRole === "student" ? "Student Portal" : userRole ? "Enterprise v2.4" : ""}
+          <Link href="/" className="flex items-center gap-3 overflow-hidden flex-1" onClick={closeMobile}>
+            {branding.logoBase64 ? (
+              <img
+                src={branding.logoBase64}
+                alt="Company Logo"
+                className="w-8 h-8 object-contain rounded-lg shrink-0"
+              />
+            ) : null}
+            <div className="flex flex-col min-w-0">
+              <span className="font-bold text-lg text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-teal-300 to-emerald-200 tracking-tight truncate">{branding.companyName || APP_NAME}</span>
+              <span className="text-[10px] font-medium text-emerald-500 uppercase tracking-widest truncate">
+                {userRole === "student" ? "Student Portal" : branding.companySubtitle || "Enterprise v2.4"}
               </span>
             </div>
           </Link>

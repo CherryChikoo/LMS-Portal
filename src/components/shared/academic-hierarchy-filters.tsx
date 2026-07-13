@@ -1,6 +1,6 @@
 "use client";
 
-import { useId } from "react";
+import { useId, useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import type { SelectOption } from "@/types";
 import type { AcademicFilters } from "@/lib/hierarchy/hierarchy-data";
@@ -14,7 +14,7 @@ export interface LevelConfig {
   disabled?: boolean;
 }
 
-export type AcademicHierarchyLayout = "horizontal" | "vertical" | "responsive";
+export type AcademicHierarchyLayout = "horizontal" | "vertical" | "responsive" | "grid-2" | "grid-3";
 
 export interface AcademicHierarchyFiltersProps {
   levels?: AcademicHierarchyLevel[] | LevelConfig[];
@@ -53,6 +53,16 @@ const DEFAULT_LABELS: Record<AcademicHierarchyLevel, string> = {
   section: "Section",
   batch: "Batch",
   student: "Student",
+};
+
+const DEFAULT_ALL_LABELS: Record<AcademicHierarchyLevel, string> = {
+  institution: "All Institutions",
+  college: "All Colleges",
+  department: "All Departments",
+  academicYear: "All Academic Years",
+  section: "All Sections",
+  batch: "All Batches",
+  student: "All Students",
 };
 
 function isLevelConfig(item: AcademicHierarchyLevel | LevelConfig): item is LevelConfig {
@@ -164,6 +174,8 @@ const LAYOUT_CLASSES: Record<AcademicHierarchyLayout, string> = {
   responsive: "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3",
   horizontal: "flex flex-wrap items-end gap-3",
   vertical: "flex flex-col gap-3",
+  "grid-2": "grid grid-cols-1 sm:grid-cols-2 gap-3",
+  "grid-3": "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3",
 };
 
 export function AcademicHierarchyFilters({
@@ -201,79 +213,149 @@ export function AcademicHierarchyFilters({
     : normalizedLevels;
 
   const isHorizontal = layout === "horizontal";
+  const hasBatchLevel = effectiveLevels.some((l) => l.level === "batch");
+
+  const [disableRemaining, setDisableRemaining] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem("lms_disable_remaining_filters") === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const stored = localStorage.getItem("lms_disable_remaining_filters") === "true";
+      if (stored !== disableRemaining) {
+        setDisableRemaining(stored);
+      }
+    } catch {}
+  }, []);
+
+  const handleToggleDisableRemaining = (checked: boolean) => {
+    setDisableRemaining(checked);
+    try {
+      localStorage.setItem("lms_disable_remaining_filters", checked ? "true" : "false");
+    } catch {}
+
+    if (checked) {
+      // Clear remaining parent filters when standalone batch mode is enabled
+      onChange({
+        collegeId: "",
+        department: "",
+        academicYear: "",
+        section: "",
+      });
+    }
+  };
 
   return (
-    <div
-      className={cn(
-        LAYOUT_CLASSES[layout],
-        isHorizontal && "items-end",
-        className
-      )}
-    >
-      {effectiveLevels.map(({ level, label, allLabel, placeholder, disabled: levelDisabled }) => {
-        const options = getOptionsForLevel(level, {
-          institutionOptions,
-          collegeOptions,
-          departmentOptions,
-          academicYearOptions,
-          sectionOptions,
-          batchOptions,
-          studentOptions,
-        } as Pick<
-          AcademicHierarchyFiltersProps,
-          | "institutionOptions"
-          | "collegeOptions"
-          | "departmentOptions"
-          | "academicYearOptions"
-          | "sectionOptions"
-          | "batchOptions"
-          | "studentOptions"
-        >);
-        const value = getValueForLevel(level, filters);
-        const isDisabled = disabled || levelDisabled || loading || options.length <= 1;
-        const id = `${baseId}-${level}`;
-        const fieldLabel = label ?? DEFAULT_LABELS[level];
-
-        return (
-          <div
-            key={level}
-            className={cn(
-              "flex flex-col gap-1.5",
-              isHorizontal && "min-w-[180px] flex-1"
-            )}
-          >
-            <label
-              htmlFor={id}
-              className={cn(
-                "text-[11px] font-bold text-muted-foreground uppercase tracking-wider px-1",
-                labelClassName
-              )}
-            >
-              {fieldLabel}
-            </label>
-            <select
-              id={id}
-              value={value}
-              disabled={isDisabled}
-              onChange={(e) => onChange(buildChangeForLevel(level, e.target.value))}
-              className={cn(
-                "h-10 px-3 rounded-xl bg-background border border-border text-xs font-bold text-foreground focus:outline-none focus:border-brand w-full",
-                isDisabled && "opacity-60 cursor-not-allowed",
-                selectClassName
-              )}
-            >
-              <option value="">{allLabel ?? placeholder ?? `All ${fieldLabel}s`}</option>
-              {options
-                .filter((o) => o.value !== "")
-                .map((o) => (
-                  <option key={`${id}-${o.value}`} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-            </select>
+    <div className="space-y-3 w-full">
+      {hasBatchLevel && (
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-muted/30 border border-border/80 text-xs font-medium text-foreground shadow-sm">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-brand animate-pulse" />
+            <span className="font-bold tracking-tight">Batch Filtering Mode</span>
           </div>
-        );
-      })}
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={disableRemaining}
+              onChange={(e) => handleToggleDisableRemaining(e.target.checked)}
+              className="rounded border-border text-brand focus:ring-brand/50 w-4 h-4 cursor-pointer"
+            />
+            <span className="text-muted-foreground hover:text-foreground transition-colors font-semibold">
+              Disable remaining hierarchy filters (College, Dept, Year, Section)
+            </span>
+          </label>
+        </div>
+      )}
+      <div
+        className={cn(
+          LAYOUT_CLASSES[layout],
+          isHorizontal && "items-end",
+          className
+        )}
+      >
+        {effectiveLevels.map(({ level, label, allLabel, placeholder, disabled: levelDisabled }) => {
+          const options = getOptionsForLevel(level, {
+            institutionOptions,
+            collegeOptions,
+            departmentOptions,
+            academicYearOptions,
+            sectionOptions,
+            batchOptions,
+            studentOptions,
+          } as Pick<
+            AcademicHierarchyFiltersProps,
+            | "institutionOptions"
+            | "collegeOptions"
+            | "departmentOptions"
+            | "academicYearOptions"
+            | "sectionOptions"
+            | "batchOptions"
+            | "studentOptions"
+          >);
+          const value = getValueForLevel(level, filters);
+          const isRemainingFilter = level !== "batch" && level !== "student";
+          const isDisabled = disabled || levelDisabled || loading || options.length <= 1 || (disableRemaining && isRemainingFilter);
+          const id = `${baseId}-${level}`;
+          const fieldLabel = label ?? DEFAULT_LABELS[level];
+
+          return (
+            <div
+              key={level}
+              className={cn(
+                "flex flex-col gap-1.5",
+                isHorizontal && "min-w-[180px] flex-1"
+              )}
+            >
+              <label
+                htmlFor={id}
+                className={cn(
+                  "text-[11px] font-bold text-muted-foreground uppercase tracking-wider px-1",
+                  labelClassName
+                )}
+              >
+                {fieldLabel}
+              </label>
+              <select
+                id={id}
+                value={value}
+                disabled={isDisabled}
+                onChange={(e) => {
+                  const change = buildChangeForLevel(level, e.target.value);
+                  if (level === "batch" && disableRemaining && e.target.value !== "") {
+                    Object.assign(change, {
+                      collegeId: "",
+                      department: "",
+                      academicYear: "",
+                      section: "",
+                    });
+                  }
+                  onChange(change);
+                }}
+                className={cn(
+                  "h-10 px-3 rounded-xl bg-background border border-border text-xs font-bold text-foreground focus:outline-none focus:border-brand w-full",
+                  isDisabled && "opacity-60 cursor-not-allowed",
+                  selectClassName
+                )}
+              >
+                <option value="">{allLabel ?? placeholder ?? DEFAULT_ALL_LABELS[level] ?? `All ${fieldLabel}s`}</option>
+                {options
+                  .filter((o) => o.value !== "")
+                  .map((o) => (
+                    <option key={`${id}-${o.value}`} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+              </select>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

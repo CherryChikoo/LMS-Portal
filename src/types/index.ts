@@ -21,11 +21,13 @@ export interface User {
   displayName: string;
   photoURL?: string;
   role: UserRole;
+  status?: AccountStatus;
   createdAt: Date;
   updatedAt: Date;
 }
 
-export type UserRole = "trainer" | "student" | "admin";
+export type UserRole = "trainer" | "student" | "admin" | "college_admin";
+export type AccountStatus = "active" | "restricted";
 
 // College
 export interface College {
@@ -35,6 +37,10 @@ export interface College {
   departments: string[];
   location?: string;
   studentCount: number;
+  adminEmail?: string;
+  initialPassword?: string;
+  loginEnabled?: boolean;
+  status?: AccountStatus;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -57,6 +63,7 @@ export interface Student {
   mustChangePassword?: boolean;
   initialPassword?: string;
   enrollmentType?: "csv" | "manual" | "self";
+  status?: AccountStatus;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -154,7 +161,7 @@ export interface Exam {
   deletedAt?: Date;
 }
 
-export type ExamStatus = "draft" | "scheduled" | "active" | "completed" | "cancelled";
+export type ExamStatus = "draft" | "scheduled" | "active" | "completed" | "expired" | "cancelled";
 
 export interface ExamSettings {
   shuffleQuestions: boolean;

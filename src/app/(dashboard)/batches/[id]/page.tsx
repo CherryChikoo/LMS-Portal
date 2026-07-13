@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, use } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
-import { ArrowLeft, BookOpen, Users, Trash2, Search, Building2, UserPlus } from "lucide-react";
+import { ArrowLeft, BookOpen, Users, Trash2, Search, Building2, UserPlus, Ban, CheckCircle2 } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
@@ -23,7 +23,7 @@ export default function BatchDetailPage({ params }: PageProps) {
   const [allStudents, setAllStudents] = useState<Student[]>([]);
   const [colleges, setColleges] = useState<College[]>([]);
   const [loading, setLoading] = useState(true);
-  const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void; confirmText?: string; variant?: "destructive" | "warning" | "info" | "success" } | null>(null);
+  const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm?: () => void; confirmText?: string; variant?: "destructive" | "warning" | "info" | "success" } | null>(null);
 
   // Search and Filters for enrolled students
   const [searchQuery, setSearchQuery] = useState("");
@@ -164,6 +164,9 @@ export default function BatchDetailPage({ params }: PageProps) {
     return matchesCol && matchesDept && matchesSearch && matchesYear && matchesSection;
   });
 
+  // Only count selected students that are currently visible and available
+  const validSelectedStudents = availableStudents.filter((s) => selectedForBulk.has(s.id));
+
   const handleAddStudentToBatch = async (student: Student) => {
     setAddingId(student.id);
     try {
@@ -176,20 +179,31 @@ export default function BatchDetailPage({ params }: PageProps) {
       setAllStudents((prev) =>
         prev.map((s) => (s.id === student.id ? { ...s, batchIds: updatedBatches } : s))
       );
+      setSelectedForBulk((prev) => {
+        const next = new Set(prev);
+        next.delete(student.id);
+        return next;
+      });
     } catch (err) {
       console.error("Failed to add student to batch:", err);
+      setConfirmConfig({
+        isOpen: true,
+        title: "Enrollment Failed",
+        message: `Failed to add "${student.name}" to batch. Please try again.`,
+        variant: "warning"
+      });
     } finally {
       setAddingId(null);
     }
   };
 
   const handleBulkAddToBatch = () => {
-    const studentsToAdd = availableStudents.filter((s) => selectedForBulk.has(s.id));
+    const studentsToAdd = validSelectedStudents;
     if (studentsToAdd.length === 0 || !batch) return;
     setConfirmConfig({
       isOpen: true,
-      title: "Enroll Candidates in Batch",
-      message: `Are you sure you want to enroll ${studentsToAdd.length} selected candidate(s) into batch "${batch.name}"?`,
+      title: "Enroll Students in Batch",
+      message: `Are you sure you want to enroll ${studentsToAdd.length} selected student(s) into batch "${batch.name}"?`,
       confirmText: "Enroll Students",
       variant: "info",
       onConfirm: async () => {
@@ -209,6 +223,12 @@ export default function BatchDetailPage({ params }: PageProps) {
           setSelectedForBulk(new Set());
         } catch (err) {
           console.error("Bulk add failed:", err);
+          setConfirmConfig({
+            isOpen: true,
+            title: "Enrollment Failed",
+            message: "Failed to enroll some or all selected students into the batch. Please try again.",
+            variant: "warning"
+          });
         } finally {
           setBulkAdding(false);
         }
@@ -217,10 +237,18 @@ export default function BatchDetailPage({ params }: PageProps) {
   };
 
   const toggleSelectAll = () => {
-    if (selectedForBulk.size === availableStudents.length && availableStudents.length > 0) {
-      setSelectedForBulk(new Set());
+    if (validSelectedStudents.length === availableStudents.length && availableStudents.length > 0) {
+      setSelectedForBulk((prev) => {
+        const next = new Set(prev);
+        availableStudents.forEach((s) => next.delete(s.id));
+        return next;
+      });
     } else {
-      setSelectedForBulk(new Set(availableStudents.map((s) => s.id)));
+      setSelectedForBulk((prev) => {
+        const next = new Set(prev);
+        availableStudents.forEach((s) => next.add(s.id));
+        return next;
+      });
     }
   };
 
@@ -231,6 +259,49 @@ export default function BatchDetailPage({ params }: PageProps) {
       else next.add(id);
       return next;
     });
+  };
+
+  const handleToggleStatus = (stud: Student) => {
+    const isRestricted = stud.status === "restricted";
+    const newStatus = isRestricted ? "active" : "restricted";
+
+    if (!isRestricted) {
+      setConfirmConfig({
+        isOpen: true,
+        title: "Restrict Student Account",
+        message: `Are you sure you want to restrict "${stud.name}"'s account? The student will not be able to log in until the account is reactivated.`,
+        confirmText: "Restrict",
+        variant: "warning",
+        onConfirm: async () => {
+          try {
+            await updateStudentProfile(stud.id, { status: newStatus });
+            setAllStudents((prev) =>
+              prev.map((s) => (s.id === stud.id ? { ...s, status: newStatus } : s))
+            );
+          } catch (err) {
+            console.error("Failed to restrict account:", err);
+          }
+        }
+      });
+    } else {
+      setConfirmConfig({
+        isOpen: true,
+        title: "Reactivate Student Account",
+        message: `Are you sure you want to reactivate "${stud.name}"'s account? They will immediately regain access to the LMS.`,
+        confirmText: "Reactivate",
+        variant: "info",
+        onConfirm: async () => {
+          try {
+            await updateStudentProfile(stud.id, { status: newStatus });
+            setAllStudents((prev) =>
+              prev.map((s) => (s.id === stud.id ? { ...s, status: newStatus } : s))
+            );
+          } catch (err) {
+            console.error("Failed to reactivate account:", err);
+          }
+        }
+      });
+    }
   };
 
   const handleRemoveFromBatch = (student: Student) => {
@@ -345,6 +416,7 @@ export default function BatchDetailPage({ params }: PageProps) {
                   <th className="py-3.5 px-4">College</th>
                   <th className="py-3.5 px-4">Department & Year</th>
                   <th className="py-3.5 px-4">Section</th>
+                  <th className="py-3.5 px-4">Status</th>
                   <th className="py-3.5 px-4 text-right">Actions</th>
                 </tr>
               </thead>
@@ -368,17 +440,53 @@ export default function BatchDetailPage({ params }: PageProps) {
                     <td className="py-3 px-4">
                       <span className="px-2 py-0.5 rounded bg-brand/10 text-brand font-bold">Sec {stud.section || "A"}</span>
                     </td>
+                    <td className="py-3 px-4">
+                      {stud.status === "restricted" ? (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-500/15 text-rose-500 border border-rose-500/30">
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                          Restricted
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                          Active
+                        </span>
+                      )}
+                    </td>
                     <td className="py-3 px-4 text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={removingId === stud.id}
-                        onClick={() => handleRemoveFromBatch(stud)}
-                        className="h-8 px-2 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10"
-                        title="Remove student from this batch"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                      <div className="flex items-center justify-end gap-1">
+                        {stud.status === "restricted" ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleToggleStatus(stud)}
+                            className="h-8 w-8 p-0 text-emerald-500 hover:text-emerald-600 hover:bg-emerald-500/10 rounded-lg"
+                            title="Reactivate Account"
+                          >
+                            <CheckCircle2 className="w-4 h-4" />
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleToggleStatus(stud)}
+                            className="h-8 w-8 p-0 text-amber-500 hover:text-amber-600 hover:bg-amber-500/10 rounded-lg"
+                            title="Restrict Account"
+                          >
+                            <Ban className="w-4 h-4" />
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={removingId === stud.id}
+                          onClick={() => handleRemoveFromBatch(stud)}
+                          className="h-8 px-2 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10"
+                          title="Remove student from this batch"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -389,7 +497,7 @@ export default function BatchDetailPage({ params }: PageProps) {
           <EmptyState
             icon={Users}
             title="No Students in Cohort"
-            description="Click 'Add Students from Colleges' above to enroll existing candidates into this batch."
+            description="Click 'Add Students from Colleges' above to enroll existing students into this batch."
             actionLabel="Add Students"
             onAction={() => setShowAddModal(true)}
           />
@@ -399,7 +507,7 @@ export default function BatchDetailPage({ params }: PageProps) {
       {/* Add Existing Students Modal */}
       <AnimatePresence>
         {showAddModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -491,7 +599,7 @@ export default function BatchDetailPage({ params }: PageProps) {
                     <label className="flex items-center gap-2 cursor-pointer select-none">
                       <input
                         type="checkbox"
-                        checked={availableStudents.length > 0 && selectedForBulk.size === availableStudents.length}
+                        checked={availableStudents.length > 0 && validSelectedStudents.length === availableStudents.length}
                         onChange={toggleSelectAll}
                         className="w-4 h-4 rounded border-border text-brand focus:ring-brand accent-[var(--color-brand)]"
                       />
@@ -501,7 +609,7 @@ export default function BatchDetailPage({ params }: PageProps) {
                     </label>
                   </div>
 
-                  {selectedForBulk.size > 0 && (
+                  {validSelectedStudents.length > 0 && (
                     <Button
                       size="sm"
                       disabled={bulkAdding}
@@ -511,7 +619,7 @@ export default function BatchDetailPage({ params }: PageProps) {
                       <UserPlus className="w-3.5 h-3.5" />
                       {bulkAdding
                         ? "Adding..."
-                        : `Add ${selectedForBulk.size} Selected to Batch`}
+                        : `Add ${validSelectedStudents.length} Selected to Batch`}
                     </Button>
                   )}
                 </div>
@@ -579,7 +687,7 @@ export default function BatchDetailPage({ params }: PageProps) {
                   </div>
                 ) : (
                   <div className="py-12 text-center text-muted-foreground text-xs">
-                    No matching candidates found from existing colleges. Try adjusting filters or search query.
+                    No matching students found from existing colleges. Try adjusting filters or search query.
                   </div>
                 )}
               </div>

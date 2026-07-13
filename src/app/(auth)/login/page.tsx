@@ -1,16 +1,19 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { motion } from "motion/react";
 import { GraduationCap, ArrowRight, Eye, EyeOff, Sparkles, Check, AlertCircle } from "lucide-react";
 import Link from "next/link";
 import { APP_NAME } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
-import { studentLogin, studentGoogleLogin } from "@/lib/services/auth-service";
+import { ConfirmModal } from "@/components/shared/confirm-modal";
+import { studentLogin, studentGoogleLogin, formatAuthError } from "@/lib/services/auth-service";
 import { setAuthSession } from "@/lib/utils/auth-session";
 import type { Student } from "@/types";
 
-export default function LoginPage() {
+function LoginContent() {
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -18,6 +21,13 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [restrictedModalOpen, setRestrictedModalOpen] = useState(false);
+
+  useEffect(() => {
+    if (searchParams.get("error") === "restricted") {
+      setRestrictedModalOpen(true);
+    }
+  }, [searchParams]);
 
   // Auto-dismiss red error warning after 4 seconds
   useEffect(() => {
@@ -35,7 +45,12 @@ export default function LoginPage() {
       const target = res.role === "student" ? "/student" : "/admin";
       window.location.assign(target);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to sign in with Google.");
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("RESTRICTED_ACCOUNT") || msg.toLowerCase().includes("restricted")) {
+        setRestrictedModalOpen(true);
+      } else {
+        setError(formatAuthError(err, "Failed to sign in with Google."));
+      }
     } finally {
       setGoogleLoading(false);
     }
@@ -64,7 +79,12 @@ export default function LoginPage() {
 
       window.location.assign("/student");
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Invalid student credentials.");
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("RESTRICTED_ACCOUNT") || msg.toLowerCase().includes("restricted")) {
+        setRestrictedModalOpen(true);
+      } else {
+        setError(formatAuthError(err, "Invalid student credentials."));
+      }
     } finally {
       setLoading(false);
     }
@@ -281,6 +301,24 @@ export default function LoginPage() {
           </div>
         </div>
       </motion.div>
+
+      <ConfirmModal
+        isOpen={restrictedModalOpen}
+        onClose={() => setRestrictedModalOpen(false)}
+        onConfirm={() => setRestrictedModalOpen(false)}
+        title="Access Restricted"
+        message={"Your LMS account has been temporarily restricted by your Trainer/Admin.\n\nPlease contact your Trainer for further assistance."}
+        confirmText="Understood"
+        variant="warning"
+      />
     </>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-background" />}>
+      <LoginContent />
+    </Suspense>
   );
 }

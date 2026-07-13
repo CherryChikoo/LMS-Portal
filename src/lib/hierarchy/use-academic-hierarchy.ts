@@ -85,7 +85,7 @@ export function useAcademicHierarchy(options: UseAcademicHierarchyOptions = {}):
   const [filters, setLocalFilters] = useState<AcademicFilters>(() =>
     mergeFilters(EMPTY_FILTERS, initial)
   );
-  const [, setTick] = useState(0);
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     const unsubscribe = subscribeToHierarchyCache(() => {
@@ -96,7 +96,7 @@ export function useAcademicHierarchy(options: UseAcademicHierarchyOptions = {}):
 
   const { hierarchy, loading, error, externalInstitutions } = useMemo(
     () => getHierarchyCache(),
-    []
+    [tick]
   );
 
   const setFilters = useCallback((next: Partial<AcademicFilters>) => {
@@ -153,11 +153,28 @@ export function useAcademicHierarchy(options: UseAcademicHierarchyOptions = {}):
   }, []);
 
   const setBatch = useCallback((batchId: string) => {
+    let clearOthers = false;
+    try {
+      clearOthers = typeof window !== "undefined" && localStorage.getItem("lms_disable_remaining_filters") === "true";
+    } catch {}
+
     setLocalFilters((current) =>
-      mergeFilters(current, {
-        batchId,
-        studentId: "",
-      })
+      mergeFilters(
+        current,
+        clearOthers
+          ? {
+              batchId,
+              collegeId: "",
+              department: "",
+              academicYear: "",
+              section: "",
+              studentId: "",
+            }
+          : {
+              batchId,
+              studentId: "",
+            }
+      )
     );
   }, []);
 
@@ -183,14 +200,14 @@ export function useAcademicHierarchy(options: UseAcademicHierarchyOptions = {}):
   const isGlobal = filters.collegeId === GLOBAL_INSTITUTION_ID;
 
   const departmentOptions = useMemo<SelectOption[]>(() => {
-    if (!hierarchy || !filters.collegeId) return [ALL_OPTION];
-    if (isGlobal) return [ALL_OPTION, ...toSelectOptions(getAllDepartments(hierarchy))];
+    if (!hierarchy) return [ALL_OPTION];
+    if (!filters.collegeId || isGlobal) return [ALL_OPTION, ...toSelectOptions(getAllDepartments(hierarchy))];
     return [ALL_OPTION, ...toSelectOptions(getDepartmentsForCollege(hierarchy, filters.collegeId))];
   }, [hierarchy, filters.collegeId, isGlobal]);
 
   const academicYearOptions = useMemo<SelectOption[]>(() => {
-    if (!hierarchy || !filters.collegeId || !filters.department) return [ALL_OPTION];
-    if (isGlobal) return [ALL_OPTION, ...toSelectOptions(getAllAcademicYears(hierarchy))];
+    if (!hierarchy) return [ALL_OPTION];
+    if (!filters.collegeId || !filters.department || isGlobal) return [ALL_OPTION, ...toSelectOptions(getAllAcademicYears(hierarchy))];
     return [
       ALL_OPTION,
       ...toSelectOptions(getYearsForDepartment(hierarchy, filters.collegeId, filters.department)),
@@ -198,10 +215,10 @@ export function useAcademicHierarchy(options: UseAcademicHierarchyOptions = {}):
   }, [hierarchy, filters.collegeId, filters.department, isGlobal]);
 
   const sectionOptions = useMemo<SelectOption[]>(() => {
-    if (!hierarchy || !filters.collegeId || !filters.department || !filters.academicYear) {
-      return [ALL_OPTION];
+    if (!hierarchy) return [ALL_OPTION];
+    if (!filters.collegeId || !filters.department || !filters.academicYear || isGlobal) {
+      return [ALL_OPTION, ...toSelectOptions(getAllSections(hierarchy))];
     }
-    if (isGlobal) return [ALL_OPTION, ...toSelectOptions(getAllSections(hierarchy))];
     return [
       ALL_OPTION,
       ...toSelectOptions(
@@ -212,33 +229,23 @@ export function useAcademicHierarchy(options: UseAcademicHierarchyOptions = {}):
 
   const batchOptions = useMemo<SelectOption[]>(() => {
     if (!hierarchy) return [ALL_OPTION];
-    if (!filters.collegeId || !filters.department || !filters.academicYear || !filters.section) {
-      return [ALL_OPTION];
-    }
-    if (isGlobal) {
-      // GLOBAL + full drill-down -> aggregate batches across all colleges.
-      const seen = new Set<string>();
-      const list: Batch[] = [];
-      hierarchy.batches.forEach((b) => {
-        if (seen.has(b.id)) return;
+    const list = hierarchy.batches.filter((b) => {
+      if (filters.collegeId && filters.collegeId !== GLOBAL_INSTITUTION_ID && b.collegeId && b.collegeId !== filters.collegeId) return false;
+      if (filters.department && b.department && b.department !== filters.department) return false;
+      if (filters.academicYear && b.academicYear && b.academicYear !== filters.academicYear) return false;
+      if (filters.section && b.section && b.section !== filters.section) return false;
+      return true;
+    });
+    const seen = new Set<string>();
+    const uniqueList: Batch[] = [];
+    list.forEach((b) => {
+      if (!seen.has(b.id)) {
         seen.add(b.id);
-        list.push(b);
-      });
-      return [ALL_OPTION, ...toBatchOptions(list)];
-    }
-    return [
-      ALL_OPTION,
-      ...toBatchOptions(
-        getBatchesForSection(
-          hierarchy,
-          filters.collegeId,
-          filters.department,
-          filters.academicYear,
-          filters.section
-        )
-      ),
-    ];
-  }, [hierarchy, filters.collegeId, filters.department, filters.academicYear, filters.section, isGlobal]);
+        uniqueList.push(b);
+      }
+    });
+    return [ALL_OPTION, ...toBatchOptions(uniqueList)];
+  }, [hierarchy, filters.collegeId, filters.department, filters.academicYear, filters.section]);
 
   const studentOptions = useMemo<SelectOption[]>(() => {
     if (!hierarchy) return [ALL_OPTION];
@@ -277,18 +284,17 @@ export function useAcademicHierarchy(options: UseAcademicHierarchyOptions = {}):
       ? hierarchy?.students.find((s) => s.id === filters.studentId)
       : undefined;
 
-    return {
-      level,
-      collegeId: collegeId || undefined,
-      collegeName,
-      department: filters.department || undefined,
-      academicYear: filters.academicYear || undefined,
-      section: filters.section || undefined,
-      batchId: filters.batchId || undefined,
-      batchName: batch?.name,
-      studentId: filters.studentId || undefined,
-      studentName: student?.name,
-    };
+    const target: AssignmentTarget = { level };
+    if (collegeId) target.collegeId = collegeId;
+    if (collegeName) target.collegeName = collegeName;
+    if (filters.department) target.department = filters.department;
+    if (filters.academicYear) target.academicYear = filters.academicYear;
+    if (filters.section) target.section = filters.section;
+    if (filters.batchId) target.batchId = filters.batchId;
+    if (batch?.name) target.batchName = batch.name;
+    if (filters.studentId) target.studentId = filters.studentId;
+    if (student?.name) target.studentName = student.name;
+    return target;
   }, [
     filters.collegeId,
     filters.department,

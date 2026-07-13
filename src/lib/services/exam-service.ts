@@ -45,7 +45,7 @@ export async function deleteExam(id: string): Promise<void> {
 }
 
 export function getEffectiveExamStatus(exam: Exam): ExamStatus {
-  if (exam.status === "draft" || exam.status === "cancelled") return exam.status;
+  if (exam.status === "draft" || exam.status === "cancelled" || exam.status === "expired") return exam.status;
 
   const now = new Date().getTime();
   const startTime = toMillis(exam.startTime) ?? toMillis(exam.scheduledAt);
@@ -55,16 +55,30 @@ export function getEffectiveExamStatus(exam: Exam): ExamStatus {
     return "scheduled";
   }
   if (endTime !== null && now > endTime) {
-    return "completed";
+    return "expired";
   }
   return "active";
 }
 
 /**
- * Filter exams assigned to a specific student based on hierarchy or direct student target
+ * Filter exams assigned to a specific student based on hierarchy or direct student target.
+ * Hides old expired/completed tests that ended before the student's account was created.
  */
 export function filterExamsForStudent(exams: Exam[], student: Student): Exam[] {
-  return exams.filter((exam) => isAssignedToStudent(exam.targets, student));
+  return exams.filter((exam) => {
+    if (!isAssignedToStudent(exam.targets, student)) return false;
+
+    const effStatus = getEffectiveExamStatus(exam);
+    if (effStatus === "expired" || effStatus === "completed" || effStatus === "cancelled") {
+      const studentCreatedMillis = toMillis(student.createdAt) ?? 0;
+      const examEndMillis = toMillis(exam.endTime) ?? toMillis(exam.startTime) ?? toMillis(exam.createdAt) ?? 0;
+      if (studentCreatedMillis > 0 && examEndMillis > 0 && examEndMillis < studentCreatedMillis) {
+        return false;
+      }
+    }
+
+    return true;
+  });
 }
 
 // Results

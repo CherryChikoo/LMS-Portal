@@ -25,17 +25,22 @@ export function middleware(request: NextRequest) {
 
   const authCookie = request.cookies.get("lms_auth")?.value;
   const roleCookie = request.cookies.get("lms_role")?.value;
+  const statusCookie = request.cookies.get("lms_status")?.value;
   const isAuth = authCookie === "true";
 
   // Public authentication routes
   const isPublicRoute =
     pathname === "/login" ||
     pathname === "/register" ||
-    pathname === "/admin/login";
+    pathname === "/admin/login" ||
+    pathname === "/college/login";
 
   if (isPublicRoute) {
     if (isAuth) {
-      const target = (roleCookie === "admin" || roleCookie === "trainer") ? "/admin" : "/student";
+      if (statusCookie === "restricted") {
+        return NextResponse.next();
+      }
+      const target = (roleCookie === "admin" || roleCookie === "trainer" || roleCookie === "college_admin") ? "/admin" : "/student";
       return NextResponse.redirect(new URL(target, request.url));
     }
     return NextResponse.next();
@@ -44,6 +49,12 @@ export function middleware(request: NextRequest) {
   // If not authenticated and trying to access any protected page
   if (!isAuth) {
     const loginPath = pathname.startsWith("/admin") ? "/admin/login" : "/login";
+    return NextResponse.redirect(new URL(loginPath, request.url));
+  }
+
+  // If authenticated but account is restricted, redirect to login with error
+  if (statusCookie === "restricted") {
+    const loginPath = pathname.startsWith("/admin") ? "/admin/login?error=restricted" : "/login?error=restricted";
     return NextResponse.redirect(new URL(loginPath, request.url));
   }
 
@@ -69,7 +80,7 @@ export function middleware(request: NextRequest) {
   }
 
   // If logged-in user accesses unprefixed root or path directly, redirect to their role prefix
-  const prefix = (roleCookie === "admin" || roleCookie === "trainer") ? "/admin" : "/student";
+  const prefix = (roleCookie === "admin" || roleCookie === "trainer" || roleCookie === "college_admin") ? "/admin" : "/student";
   const targetPath = pathname === "/" ? prefix : `${prefix}${pathname}`;
   return NextResponse.redirect(new URL(targetPath, request.url));
 }

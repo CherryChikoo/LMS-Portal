@@ -16,6 +16,7 @@ import {
   RefreshCw,
   RotateCcw,
   Calendar,
+  Download,
 } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -164,9 +165,33 @@ export default function ResultsPage() {
           getAllExamsIncludingDeleted(),
           getAllStudents(),
         ]);
-        setAttempts(attData);
-        setExams(examData);
-        setStudents(studData);
+        
+        let filteredAttempts = attData || [];
+        let filteredExams = examData || [];
+        let filteredStudents = studData || [];
+
+        try {
+          const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+          if (uStr) {
+            const parsed = JSON.parse(uStr);
+            if (parsed.role === "college_admin" && parsed.collegeId) {
+              filteredStudents = filteredStudents.filter(s => s.collegeId === parsed.collegeId);
+              const validStudentIds = new Set(filteredStudents.map(s => s.id));
+              const validBatchIds = new Set(filteredStudents.flatMap(s => s.batchIds || []));
+              
+              filteredExams = filteredExams.filter(e => 
+                (e.assignedBatches && e.assignedBatches.some(b => validBatchIds.has(b))) ||
+                (e.assignedStudents && e.assignedStudents.some(s => validStudentIds.has(s)))
+              );
+              
+              filteredAttempts = filteredAttempts.filter(a => validStudentIds.has(a.studentId));
+            }
+          }
+        } catch (_) {}
+
+        setAttempts(filteredAttempts);
+        setExams(filteredExams);
+        setStudents(filteredStudents);
       }
     } catch (err) {
       console.error("Failed to fetch results analytics", err);
@@ -343,7 +368,7 @@ export default function ResultsPage() {
           }
         }
 
-        // Search Query filter (candidate name or exam title)
+        // Search Query filter (student name or exam title)
         if (searchQuery.trim()) {
           const q = searchQuery.trim().toLowerCase();
           const nameMatch = name.toLowerCase().includes(q);
@@ -434,6 +459,65 @@ export default function ResultsPage() {
     });
   };
 
+  const handleExportCSV = () => {
+    if (!filteredAttempts.length) return;
+
+    const headers = [
+      "Student Name",
+      "Email",
+      "College",
+      "Department",
+      "Batch",
+      "Exam Title",
+      "Submitted At",
+      "Score",
+      "Total Marks",
+      "Percentage",
+      "Outcome",
+    ].join(",");
+
+    const rows = filteredAttempts.map(attempt => {
+      const examName = examTitleMap[attempt.examId] || attempt.examId;
+      const studentName = attempt.studentName || "Unknown";
+      
+      const st = students.find(s => s.id === attempt.studentId);
+      const email = st?.email || "";
+      const college = st?.collegeName || "";
+      const dept = st?.department || "";
+      const batch = ""; // We don't have batch name directly on student, just IDs. Leave empty for now, or could map batchIds if we had batch list.
+      const date = formatLiveDate(attempt.submittedAt);
+      const score = attempt.score || 0;
+      const total = attempt.totalMarks || 0;
+      const percentage = attempt.percentage || 0;
+      const outcome = attempt.passed ? "Passed" : "Failed";
+
+      return [
+        `"${studentName.replace(/"/g, '""')}"`,
+        `"${email.replace(/"/g, '""')}"`,
+        `"${college.replace(/"/g, '""')}"`,
+        `"${dept.replace(/"/g, '""')}"`,
+        `"${batch.replace(/"/g, '""')}"`,
+        `"${examName.replace(/"/g, '""')}"`,
+        `"${date.replace(/"/g, '""')}"`,
+        score,
+        total,
+        `${percentage}%`,
+        outcome,
+      ].join(",");
+    });
+
+    const csvContent = [headers, ...rows].join("\\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `results_export_${new Date().getTime()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+
   const totalSubmissions = filteredAttempts.length;
   const passCount = filteredAttempts.filter((a) => a.passed).length;
   const passRate = totalSubmissions > 0 ? Math.round((passCount / totalSubmissions) * 100) : 0;
@@ -447,7 +531,7 @@ export default function ResultsPage() {
         description={
           actualRole === "student"
             ? "View authenticated grading transcripts, AI performance breakdown, and verified institutional scores."
-            : "Monitor proctored test evaluations, analyze multi-dimensional cohort performance, and inspect granular candidate transcripts."
+            : "Monitor proctored test evaluations, analyze multi-dimensional cohort performance, and inspect granular student transcripts."
         }
         actions={
           <div className="flex items-center gap-2.5 flex-wrap justify-end">
@@ -462,15 +546,27 @@ export default function ResultsPage() {
             </Button>
 
             {actualRole !== "student" && (
-              <Button
-                onClick={handlePurgeAllResults}
-                variant="destructive"
-                size="sm"
-                className="h-9 px-4 bg-destructive hover:bg-destructive/90 text-white font-bold flex items-center gap-1.5 shadow-sm"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                Remove All Data
-              </Button>
+              <>
+                <Button
+                  onClick={handleExportCSV}
+                  variant="default"
+                  size="sm"
+                  disabled={filteredAttempts.length === 0}
+                  className="h-9 px-4 bg-brand hover:bg-brand/90 text-white font-bold flex items-center gap-1.5 shadow-sm"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Export Results
+                </Button>
+                <Button
+                  onClick={handlePurgeAllResults}
+                  variant="destructive"
+                  size="sm"
+                  className="h-9 px-4 bg-destructive hover:bg-destructive/90 text-white font-bold flex items-center gap-1.5 shadow-sm"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Remove All Data
+                </Button>
+              </>
             )}
           </div>
         }
@@ -530,7 +626,7 @@ export default function ResultsPage() {
                 type="text"
                 value={searchQueryRaw}
                 onChange={(e) => setSearchQueryRaw(e.target.value)}
-                placeholder="Search candidate name, roll no, or exam title..."
+                placeholder="Search student name, roll no, or exam title..."
                 className="w-full h-9 pl-10 pr-4 rounded-xl bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand/50 shadow-sm"
               />
             </div>
@@ -547,8 +643,27 @@ export default function ResultsPage() {
           </Button>
         </div>
 
-        {/* Tier 2: Structured Dropdown Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 items-center">
+        {/* Tier 2: Academic Hierarchy Filters */}
+        {actualRole !== "student" && (
+          <div className="pt-2">
+            <AcademicHierarchyFilters
+              levels={["institution", "department", "academicYear", "section", "batch"]}
+              filters={academicFilters}
+              onChange={setAcademicFilters}
+              collegeOptions={collegeOptions}
+              departmentOptions={departmentOptions}
+              academicYearOptions={academicYearOptions}
+              sectionOptions={sectionOptions}
+              batchOptions={batchOptions}
+              studentOptions={[]}
+              showInstitution
+              institutionOptions={institutionOptions}
+            />
+          </div>
+        )}
+
+        {/* Tier 3: Assessment & Outcome Filters */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-3 border-t border-border/60 items-center">
           {/* Exam Section */}
           <div className="flex flex-col gap-1">
             <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Exam Section</span>
@@ -566,10 +681,10 @@ export default function ResultsPage() {
             </select>
           </div>
 
-          {/* Unknown Student Filter */}
+          {/* Student Filter */}
           {actualRole !== "student" && userRole === "student" && (
             <div className="flex flex-col gap-1">
-              <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Unknown Student</span>
+              <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Student Name</span>
               <select
                 value={studentFilter}
                 onChange={(e) => setStudentFilter(e.target.value)}
@@ -583,24 +698,6 @@ export default function ResultsPage() {
                 ))}
               </select>
             </div>
-          )}
-
-          {/* Cascading Hierarchy Filter */}
-          {actualRole !== "student" && (
-            <AcademicHierarchyFilters
-              levels={["institution", "department", "academicYear", "section", "batch"]}
-              filters={academicFilters}
-              onChange={setAcademicFilters}
-              collegeOptions={collegeOptions}
-              departmentOptions={departmentOptions}
-              academicYearOptions={academicYearOptions}
-              sectionOptions={sectionOptions}
-              batchOptions={batchOptions}
-              studentOptions={[]}
-              className="contents"
-              showInstitution
-              institutionOptions={institutionOptions}
-            />
           )}
 
           {/* Outcome Filter */}
@@ -676,7 +773,7 @@ export default function ResultsPage() {
             <table className="w-full text-left border-collapse text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/20 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                  <th className="py-3.5 px-4">Candidate Name</th>
+                  {actualRole !== "student" && <th className="py-3.5 px-4">Student Name</th>}
                   <th className="py-3.5 px-4">Exam Title / Subject</th>
                   <th className="py-3.5 px-4">Live Submission Date</th>
                   <th className="py-3.5 px-4">Score Achieved</th>
@@ -691,28 +788,40 @@ export default function ResultsPage() {
                   const sName = att.studentName || "Unknown Student";
                   const liveDateStr = formatLiveDate(att.submittedAt || att.createdAt || att.updatedAt);
                   return (
-                    <tr key={att.id} className="hover:bg-muted/30 transition-colors">
-                      <td className="py-3.5 px-4 font-bold text-foreground flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-full bg-brand/15 text-brand flex items-center justify-center text-xs font-extrabold shrink-0">
-                          {sName.slice(0, 2).toUpperCase()}
-                        </div>
-                        <div>
-                          <span className="block text-sm leading-tight">{sName}</span>
-                          {actualRole !== "student" && (
-                            <span className="text-[11px] text-muted-foreground font-normal">
-                              {(() => {
-                                const student = getStudentForAttempt(att);
-                                return student?.collegeName || student?.collegeId || "General College";
-                              })()}
-                            </span>
-                          )}
-                          {!existingStudentIds.has(att.studentId) && (
-                            <span className="block text-[10px] text-destructive font-semibold uppercase tracking-wide mt-0.5">
-                              Student Deleted Data
-                            </span>
-                          )}
-                        </div>
-                      </td>
+                    <tr 
+                      key={att.id} 
+                      className="hover:bg-muted/30 transition-colors cursor-pointer"
+                      onClick={() => {
+                        if (actualRole === "student") {
+                          router.push(`/student/exams/${att.examId}/review`);
+                        } else {
+                          setSelectedAttempt(att);
+                        }
+                      }}
+                    >
+                      {actualRole !== "student" && (
+                        <td className="py-3.5 px-4 font-bold text-foreground flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-full bg-brand/15 text-brand flex items-center justify-center text-xs font-extrabold shrink-0">
+                            {sName.slice(0, 2).toUpperCase()}
+                          </div>
+                          <div>
+                            <span className="block text-sm leading-tight">{sName}</span>
+                            {actualRole !== "student" && (
+                              <span className="text-[11px] text-muted-foreground font-normal">
+                                {(() => {
+                                  const student = getStudentForAttempt(att);
+                                  return student?.collegeName || student?.collegeId || "General College";
+                                })()}
+                              </span>
+                            )}
+                            {!existingStudentIds.has(att.studentId) && (
+                              <span className="block text-[10px] text-destructive font-semibold uppercase tracking-wide mt-0.5">
+                                Student Deleted Data
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                      )}
                       <td className="py-3.5 px-4 text-xs text-muted-foreground font-semibold">{examTitleMap[att.examId] || att.examTitle || "Deleted Assessment"}</td>
                       <td className="py-3.5 px-4 text-xs font-medium text-muted-foreground flex items-center gap-1.5 pt-4">
                         <Calendar className="w-3.5 h-3.5 text-brand" />
@@ -747,50 +856,64 @@ export default function ResultsPage() {
                           {att.passed ? "PASSED" : "FAILED"}
                         </span>
                       </td>
-                      <td className="py-3.5 px-4 text-right space-x-2">
-                        {actualRole === "student" ? (
-                          <Button
-                            onClick={() => router.push(`/student/exams/${att.examId}/review`)}
-                            size="sm"
-                            variant="outline"
-                            className="text-xs font-bold h-8 border-border hover:bg-accent"
-                            title="View Review Transcript"
-                          >
-                            <Eye className="w-3.5 h-3.5 mr-1" />
-                            Details
-                          </Button>
-                        ) : (
-                          <>
+                      <td className="py-3.5 px-4 text-right">
+                        <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
+                          {actualRole === "student" ? (
                             <Button
-                              onClick={() => setSelectedAttempt(att)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                router.push(`/student/exams/${att.examId}/review`);
+                              }}
                               size="sm"
                               variant="outline"
                               className="text-xs font-bold h-8 border-border hover:bg-accent"
+                              title="View Review Transcript"
                             >
                               <Eye className="w-3.5 h-3.5 mr-1" />
                               Details
                             </Button>
-                            <Button
-                              onClick={() => router.push(getAnswerSheetPath(att.id))}
-                              size="sm"
-                              variant="outline"
-                              className="text-xs font-bold h-8 border-brand/40 text-brand hover:bg-brand/10"
-                              title="View Answer Sheet"
-                            >
-                              <Eye className="w-3.5 h-3.5 mr-1" />
-                              View Answer Sheet
-                            </Button>
-                            <Button
-                              onClick={(e) => handleDeleteAttempt(att.id, e)}
-                              size="sm"
-                              variant="ghost"
-                              className="text-xs font-bold h-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                              title="Delete record"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </Button>
-                          </>
-                        )}
+                          ) : (
+                            <>
+                              <Button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedAttempt(att);
+                                }}
+                                size="sm"
+                                variant="outline"
+                                className="text-xs font-bold h-8 border-border hover:bg-accent"
+                              >
+                                <Eye className="w-3.5 h-3.5 mr-1" />
+                                Details
+                              </Button>
+                              <Button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  router.push(getAnswerSheetPath(att.id));
+                                }}
+                                size="sm"
+                                variant="outline"
+                                className="text-xs font-bold h-8 border-brand/40 text-brand hover:bg-brand/10"
+                                title="View Answer Sheet"
+                              >
+                                <Eye className="w-3.5 h-3.5 mr-1" />
+                                View Answer Sheet
+                              </Button>
+                              <Button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteAttempt(att.id, e);
+                                }}
+                                size="sm"
+                                variant="ghost"
+                                className="text-xs font-bold h-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                title="Delete record"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </Button>
+                            </>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -804,7 +927,7 @@ export default function ResultsPage() {
       {/* Performance Details Modal */}
       <AnimatePresence>
         {selectedAttempt && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -827,10 +950,12 @@ export default function ResultsPage() {
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <div className="p-4 rounded-xl bg-muted/40 border border-border space-y-1">
-                  <span className="text-xs font-bold text-muted-foreground uppercase">Candidate</span>
-                  <p className="font-bold text-sm text-foreground">{selectedAttempt.studentName || "Unknown Student"}</p>
-                </div>
+                {actualRole !== "student" && (
+                  <div className="p-4 rounded-xl bg-muted/40 border border-border space-y-1">
+                    <span className="text-xs font-bold text-muted-foreground uppercase">Student</span>
+                    <p className="font-bold text-sm text-foreground">{selectedAttempt.studentName || "Unknown Student"}</p>
+                  </div>
+                )}
                 <div className="p-4 rounded-xl bg-muted/40 border border-border space-y-1">
                   <span className="text-xs font-bold text-muted-foreground uppercase">Exam Subject</span>
                   <p className="font-bold text-sm text-foreground">{examTitleMap[selectedAttempt.examId] || selectedAttempt.examTitle || "Deleted Assessment"}</p>

@@ -218,7 +218,7 @@ export default function ResourcesPage() {
       />
 
       {/* Search & Filter Bar for Resources */}
-      {!loading && displayResources.length > 0 && (
+      {!loading && resources.length > 0 && (
         <div className="flex flex-col gap-3 bg-card/40 backdrop-blur-md p-4 rounded-2xl border border-border">
           <div className="relative w-full">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -371,7 +371,7 @@ export default function ResourcesPage() {
       {/* Upload Resource Modal */}
       <AnimatePresence>
         {showUploadModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -461,6 +461,20 @@ export default function ResourcesPage() {
                                   else if (['zip', 'rar', 'tar', 'gz'].includes(ext!)) setResType('zip');
                                   else setResType('other');
                                   
+                                  // Check for empty or unreadable system file
+                                  if (file.size === 0) {
+                                    setConfirmConfig({
+                                      isOpen: true,
+                                      isAlert: true,
+                                      title: "Upload Failed",
+                                      message: "The selected file is empty or cannot be read from your system. Please select a valid file.",
+                                      variant: "warning"
+                                    });
+                                    setIsUploadingFile(false);
+                                    e.target.value = "";
+                                    return;
+                                  }
+
                                   // Convert to Base64 for Firestore
                                   if (file.size > 750 * 1024) {
                                     setConfirmConfig({
@@ -470,11 +484,26 @@ export default function ResourcesPage() {
                                       message: "Please select a file smaller than 750KB for local Firestore demo storage.",
                                       variant: "warning"
                                     });
+                                    setIsUploadingFile(false);
+                                    e.target.value = "";
                                     return;
                                   }
 
                                   const reader = new FileReader();
                                   reader.onloadend = () => {
+                                    if (!reader.result || typeof reader.result !== 'string' || !reader.result.startsWith('data:')) {
+                                      setConfirmConfig({
+                                        isOpen: true,
+                                        isAlert: true,
+                                        title: "Upload Failed",
+                                        message: "Failed to read file data from your system. The file may be restricted or corrupted.",
+                                        variant: "warning"
+                                      });
+                                      setIsUploadingFile(false);
+                                      e.target.value = "";
+                                      return;
+                                    }
+
                                     const base64String = reader.result as string;
                                     setUrl(base64String);
                                     
@@ -483,16 +512,29 @@ export default function ResourcesPage() {
                                       setTitle(file.name.replace(/\.[^/.]+$/, ""));
                                     }
                                     setIsUploadingFile(false);
+                                    e.target.value = "";
                                   };
                                   reader.onerror = () => {
                                     setConfirmConfig({
                                       isOpen: true,
                                       isAlert: true,
                                       title: "File Read Error",
-                                      message: "Failed to read selected file from your computer.",
+                                      message: "Failed to read selected file from your system. Please check file permissions or try another file.",
                                       variant: "warning"
                                     });
                                     setIsUploadingFile(false);
+                                    e.target.value = "";
+                                  };
+                                  reader.onabort = () => {
+                                    setConfirmConfig({
+                                      isOpen: true,
+                                      isAlert: true,
+                                      title: "Upload Aborted",
+                                      message: "File upload was cancelled or aborted by the system.",
+                                      variant: "warning"
+                                    });
+                                    setIsUploadingFile(false);
+                                    e.target.value = "";
                                   };
                                   reader.readAsDataURL(file);
                                 } catch (error) {
@@ -501,10 +543,11 @@ export default function ResourcesPage() {
                                     isOpen: true,
                                     isAlert: true,
                                     title: "Upload Failed",
-                                    message: "Failed to upload file. Please try again.",
+                                    message: "An unexpected system error occurred while uploading. Please try again.",
                                     variant: "warning"
                                   });
                                   setIsUploadingFile(false);
+                                  e.target.value = "";
                                 }
                               }
                             }}
@@ -541,6 +584,7 @@ export default function ResourcesPage() {
                   <p className="text-[11px] text-muted-foreground">Select filters to target specific students. Leave as &ldquo;All&rdquo; to share with everyone in that category.</p>
 
                   <AcademicHierarchyFilters
+                    layout="grid-2"
                     showInstitution
                     levels={["institution", "department", "academicYear", "section", "batch"]}
                     filters={resourceFilters}

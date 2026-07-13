@@ -92,19 +92,41 @@ export default function ExamsPage() {
     setLoading(true);
     try {
       const exData = await getAllExams();
-      setExams(exData);
+      let filteredExams = exData;
+      let filteredAttempts: ExamAttempt[] = [];
 
       const role = (typeof window !== "undefined" && localStorage.getItem("lms_role") || "").toLowerCase();
       if (role === "student") {
         const me = await getCurrentUser();
-        const attData = me
-          ? await getStudentAttemptsForCurrentUser(me.uid, me.email)
-          : [];
-        setAttempts(attData);
+        filteredAttempts = me ? await getStudentAttemptsForCurrentUser(me.uid, me.email) : [];
       } else {
         const attData = await getStudentAttempts();
-        setAttempts(attData || []);
+        filteredAttempts = attData || [];
+        
+        try {
+          const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+          if (uStr) {
+            const parsed = JSON.parse(uStr);
+            if (parsed.role === "college_admin" && parsed.collegeId) {
+              const { getAllStudents } = await import("@/lib/services");
+              const allSt = await getAllStudents();
+              const myStudents = allSt.filter((s: Student) => s.collegeId === parsed.collegeId);
+              const validStudentIds = new Set(myStudents.map((s: Student) => s.id));
+              const validBatchIds = new Set(myStudents.flatMap((s: Student) => s.batchIds || []));
+              
+              filteredExams = filteredExams.filter((e: Exam) => 
+                (e.assignedBatches && e.assignedBatches.some(b => validBatchIds.has(b))) ||
+                (e.assignedStudents && e.assignedStudents.some(s => validStudentIds.has(s)))
+              );
+              
+              filteredAttempts = filteredAttempts.filter((a: ExamAttempt) => validStudentIds.has(a.studentId));
+            }
+          }
+        } catch (_) {}
       }
+
+      setExams(filteredExams);
+      setAttempts(filteredAttempts);
     } catch (err) {
       console.error("Failed to fetch exams", err);
     } finally {
@@ -186,6 +208,10 @@ export default function ExamsPage() {
       const endDt = new Date(endTimeStr);
       if (Number.isNaN(startDt.getTime()) || Number.isNaN(endDt.getTime())) {
         toast.error("Invalid date/time selected. Please choose valid values.");
+        return;
+      }
+      if (startDt.getTime() < Date.now() - 5 * 60 * 1000) {
+        toast.error("Cannot schedule tests on previous completed days or past times. Please select a future date and time.");
         return;
       }
       if (endDt.getTime() <= startDt.getTime()) {
@@ -318,7 +344,7 @@ export default function ExamsPage() {
               if (tab === "active") return eff === "active";
               if (tab === "pending") return eff === "active" && !att;
               if (tab === "completed") return !!att;
-              if (tab === "expired") return (eff === "completed" || eff === "cancelled") && !att;
+              if (tab === "expired") return (eff === "expired" || eff === "completed" || eff === "cancelled") && !att;
               return false;
             }).length;
             return (
@@ -423,7 +449,7 @@ export default function ExamsPage() {
                 if (studentTab === "active") return eff === "active";
                 if (studentTab === "pending") return eff === "active" && !att;
                 if (studentTab === "completed") return !!att;
-                if (studentTab === "expired") return (eff === "completed" || eff === "cancelled") && !att;
+                if (studentTab === "expired") return (eff === "expired" || eff === "completed" || eff === "cancelled") && !att;
               } else {
                 const t = exam.targets?.[0];
                 if (examFilters.collegeId && t?.collegeId !== examFilters.collegeId) return false;
@@ -488,14 +514,16 @@ export default function ExamsPage() {
                       <span className={`px-3 py-1 rounded-full text-[11px] font-extrabold tracking-wide uppercase flex items-center gap-1.5 ${
                         effStatus === "active" && !att
                           ? "bg-emerald-500/15 text-emerald-500"
-                          : att || effStatus === "completed"
+                          : att
                           ? "bg-blue-500/15 text-blue-500"
+                          : effStatus === "expired" || effStatus === "completed" || effStatus === "cancelled"
+                          ? "bg-rose-500/15 text-rose-500 border border-rose-500/30"
                           : effStatus === "scheduled"
                           ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
                           : "bg-muted text-muted-foreground"
                       }`}>
                         {effStatus === "active" && !att && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
-                        {att ? "COMPLETED" : effStatus === "active" ? "ACTIVE (LIVE)" : effStatus}
+                        {att ? "COMPLETED" : effStatus === "active" ? "ACTIVE (LIVE)" : effStatus === "expired" || effStatus === "completed" || effStatus === "cancelled" ? "EXPIRED" : effStatus}
                       </span>
                       <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground font-medium">
                         <Clock className="w-3.5 h-3.5 text-brand shrink-0" />
@@ -667,7 +695,7 @@ export default function ExamsPage() {
       {/* Test Creation Modal (Manual / Markdown) */}
       <AnimatePresence>
         {creationMode !== "none" && !isPreviewing && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -761,6 +789,7 @@ export default function ExamsPage() {
                       <input
                         type="datetime-local"
                         value={startTimeStr}
+                        min={new Date().toISOString().slice(0, 16)}
                         onChange={(e) => setStartTimeStr(e.target.value)}
                         className="w-full h-9 px-3 rounded-lg border border-border bg-background text-xs font-semibold text-foreground"
                       />
@@ -770,6 +799,7 @@ export default function ExamsPage() {
                       <input
                         type="datetime-local"
                         value={endTimeStr}
+                        min={startTimeStr || new Date().toISOString().slice(0, 16)}
                         onChange={(e) => setEndTimeStr(e.target.value)}
                         className="w-full h-9 px-3 rounded-lg border border-border bg-background text-xs font-semibold text-foreground"
                       />
@@ -932,6 +962,7 @@ export default function ExamsPage() {
                 <p className="text-[11px] text-muted-foreground">Select filters to target specific students. Leave as &ldquo;All&rdquo; to include everyone in that category.</p>
 
                 <AcademicHierarchyFilters
+                  layout="grid-2"
                   showInstitution
                   levels={["institution", "department", "academicYear", "section", "batch"]}
                   filters={examFilters}
@@ -992,7 +1023,7 @@ export default function ExamsPage() {
 
         {/* Trainer Preview Simulation Modal */}
         {isPreviewing && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
