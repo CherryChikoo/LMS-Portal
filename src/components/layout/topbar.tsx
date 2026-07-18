@@ -82,8 +82,8 @@ export function Topbar() {
   return (
     <header
       className={`sticky top-0 z-30 h-20 flex items-center justify-between gap-4 px-4 sm:px-6 lg:px-8 transition-all duration-300 ${scrolled
-        ? "bg-black/95 backdrop-blur-2xl border-b border-[#222222]"
-        : "bg-black border-b border-transparent"
+        ? "bg-[#0A0A0A]/95 backdrop-blur-2xl border-b border-[#222222]"
+        : "bg-[#0A0A0A] border-b border-transparent"
         }`}
     >
       {/* Left / Mobile menu button */}
