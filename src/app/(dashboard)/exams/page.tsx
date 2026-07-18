@@ -11,7 +11,7 @@ import { AcademicHierarchyFilters } from "@/components/shared/academic-hierarchy
 import { useAcademicHierarchy } from "@/lib/hierarchy/use-academic-hierarchy";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
-import { getAllExams, createExam, deleteExam, parseMarkdownTest, getEffectiveExamStatus, getStudentAttempts, getStudentAttemptsForCurrentUser, filterExamsForStudent } from "@/lib/services";
+import { getAllExams, createExam, deleteExam, parseMarkdownTest, getEffectiveExamStatus, getStudentAttempts, getStudentAttemptsForCurrentUser, filterExamsForStudent, reviewQuestionsWithAI, type AIReviewResult } from "@/lib/services";
 import { getCurrentUser } from "@/lib/utils/auth-session";
 import { toDate } from "@/lib/utils/date";
 import type { Exam, Question, QuestionType, Student, AssignmentTarget, ExamAttempt } from "@/types";
@@ -72,6 +72,11 @@ export default function ExamsPage() {
   const [previewQIdx, setPreviewQIdx] = useState(0);
   const [previewAnswers, setPreviewAnswers] = useState<Record<string, string>>({});
 
+  // AI Review State
+  const [aiReviewing, setAiReviewing] = useState(false);
+  const [aiResults, setAiResults] = useState<AIReviewResult[]>([]);
+  const [aiSelections, setAiSelections] = useState<Record<string, "original" | "suggested">>({});
+
 
 
   const getStudentAttemptForExam = (examId: string) => {
@@ -114,10 +119,18 @@ export default function ExamsPage() {
               const validStudentIds = new Set(myStudents.map((s: Student) => s.id));
               const validBatchIds = new Set(myStudents.flatMap((s: Student) => s.batchIds || []));
               
-              filteredExams = filteredExams.filter((e: Exam) => 
-                (e.assignedBatches && e.assignedBatches.some(b => validBatchIds.has(b))) ||
-                (e.assignedStudents && e.assignedStudents.some(s => validStudentIds.has(s)))
-              );
+              filteredExams = filteredExams.filter((e: Exam) => {
+                if (!e.targets) return false;
+                return e.targets.some(t => {
+                  if (t.type === "composite") {
+                    return t.collegeId === parsed.collegeId || (t.batchId && validBatchIds.has(t.batchId));
+                  }
+                  if (t.type === "college") return t.ids.includes(parsed.collegeId);
+                  if (t.type === "batch") return t.ids.some(b => validBatchIds.has(b));
+                  if (t.type === "students") return t.ids.some(s => validStudentIds.has(s));
+                  return false;
+                });
+              });
               
               filteredAttempts = filteredAttempts.filter((a: ExamAttempt) => validStudentIds.has(a.studentId));
             }
@@ -194,6 +207,36 @@ export default function ExamsPage() {
         updatedAt: new Date(),
       },
     ]);
+  };
+
+  const handleOptimizeWithAI = async () => {
+    if (questions.length === 0) return;
+    setAiReviewing(true);
+    try {
+      const results = await reviewQuestionsWithAI(questions);
+      setAiResults(results);
+      const initialSelections: Record<string, "original" | "suggested"> = {};
+      results.forEach(r => { initialSelections[r.id] = "suggested"; });
+      setAiSelections(initialSelections);
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to review with AI. Please check the logs.");
+    } finally {
+      setAiReviewing(false);
+    }
+  };
+
+  const handleApplyAiSelections = () => {
+    const updatedQuestions = questions.map(q => {
+      const result = aiResults.find(r => r.id === q.id);
+      if (result && aiSelections[q.id] === "suggested") {
+        return { ...result.suggested, id: q.id };
+      }
+      return q;
+    });
+    setQuestions(updatedQuestions);
+    setAiResults([]);
+    setAiSelections({});
   };
 
   const handlePublish = async () => {
@@ -695,7 +738,7 @@ export default function ExamsPage() {
       {/* Test Creation Modal (Manual / Markdown) */}
       <AnimatePresence>
         {creationMode !== "none" && !isPreviewing && (
-          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div key="test-creation-modal" className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -833,16 +876,29 @@ export default function ExamsPage() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h4 className="font-bold text-sm text-foreground">Editable Question Cards ({questions.length})</h4>
-                  {creationMode === "manual" && (
-                    <div className="flex items-center gap-2">
-                      <Button onClick={() => handleAddManualQuestion("mcq")} size="sm" variant="outline" className="text-brand border-brand font-semibold">
-                        <Plus className="w-3.5 h-3.5 mr-1" /> Add MCQ
+                  <div className="flex items-center gap-2">
+                    {questions.length > 0 && (
+                      <Button
+                        onClick={handleOptimizeWithAI}
+                        disabled={aiReviewing}
+                        size="sm"
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs gap-1.5 shadow-lg shadow-indigo-500/20"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        {aiReviewing ? "Analyzing..." : "Optimize with AI"}
                       </Button>
-                      <Button onClick={() => handleAddManualQuestion("fill-blank")} size="sm" variant="outline" className="text-emerald-600 dark:text-emerald-400 border-emerald-500 font-semibold">
-                        <Plus className="w-3.5 h-3.5 mr-1" /> Add Blank
-                      </Button>
-                    </div>
-                  )}
+                    )}
+                    {creationMode === "manual" && (
+                      <>
+                        <Button onClick={() => handleAddManualQuestion("mcq")} size="sm" variant="outline" className="text-brand border-brand font-semibold">
+                          <Plus className="w-3.5 h-3.5 mr-1" /> Add MCQ
+                        </Button>
+                        <Button onClick={() => handleAddManualQuestion("fill-blank")} size="sm" variant="outline" className="text-emerald-600 dark:text-emerald-400 border-emerald-500 font-semibold">
+                          <Plus className="w-3.5 h-3.5 mr-1" /> Add Blank
+                        </Button>
+                      </>
+                    )}
+                  </div>
                 </div>
 
                 {questions.length === 0 ? (
@@ -1021,9 +1077,155 @@ export default function ExamsPage() {
           </div>
         )}
 
+        {/* AI Review Overlay */}
+        {aiResults.length > 0 && !isPreviewing && (
+          <div key="ai-review-modal" className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden rounded-2xl border border-indigo-500/30 bg-card text-foreground shadow-2xl"
+            >
+              <div className="flex items-center justify-between border-b border-border p-4 bg-indigo-500/5">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center font-bold">
+                    <Sparkles className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-foreground">AI Test Optimization</h3>
+                    <p className="text-xs text-muted-foreground">Review and accept the AI-suggested improvements for your questions.</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    onClick={() => {
+                      const allSugg: Record<string, "original"|"suggested"> = {};
+                      aiResults.forEach(r => allSugg[r.id] = "suggested");
+                      setAiSelections(allSugg);
+                    }}
+                    variant="outline"
+                    size="sm"
+                    className="text-xs font-bold border-indigo-500/30 text-indigo-400"
+                  >
+                    Select All Suggested
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      const allOrig: Record<string, "original"|"suggested"> = {};
+                      aiResults.forEach(r => allOrig[r.id] = "original");
+                      setAiSelections(allOrig);
+                    }}
+                    variant="outline"
+                    size="sm"
+                    className="text-xs font-bold border-border"
+                  >
+                    Select All Original
+                  </Button>
+                  <Button
+                    onClick={() => setAiResults([])}
+                    variant="ghost"
+                    size="sm"
+                    className="text-muted-foreground hover:text-foreground ml-2"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-6 bg-muted/10">
+                {questions.map((q, idx) => {
+                  const aiRes = aiResults.find(r => r.id === q.id);
+                  if (!aiRes) return null;
+                  
+                  const isSuggested = aiSelections[q.id] === "suggested";
+                  const sugg = aiRes.suggested;
+
+                  return (
+                    <div key={q.id} className="rounded-xl border border-border bg-background overflow-hidden flex flex-col shadow-sm">
+                      <div className="bg-indigo-500/10 p-3 border-b border-border text-xs font-bold text-indigo-400 flex items-start gap-2">
+                        <Sparkles className="w-4 h-4 shrink-0 mt-0.5" />
+                        <span className="leading-relaxed">AI Feedback: {aiRes.feedback || "Improved clarity and structure."}</span>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-border">
+                        {/* Left: Original */}
+                        <div
+                          className={`p-4 space-y-3 cursor-pointer transition-colors ${!isSuggested ? "bg-emerald-500/5 ring-2 ring-inset ring-emerald-500/50" : "hover:bg-muted/30"}`}
+                          onClick={() => setAiSelections(prev => ({ ...prev, [q.id]: "original" }))}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Original Version</span>
+                            <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${!isSuggested ? "border-emerald-500 bg-emerald-500" : "border-muted-foreground"}`}>
+                              {!isSuggested && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                            </div>
+                          </div>
+                          <p className="font-semibold text-sm">{q.text}</p>
+                          {q.options && q.options.length > 0 ? (
+                            <ul className="space-y-1.5 text-xs">
+                              {q.options.map((opt, oIdx) => (
+                                <li key={oIdx} className={`px-2 py-1.5 rounded border ${q.correctAnswer === opt ? "bg-emerald-500/20 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 font-bold" : "border-border text-muted-foreground"}`}>
+                                  {String.fromCharCode(65 + oIdx)}. {opt}
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <div className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-1.5 rounded border border-emerald-500/20">
+                              Answer: {q.correctAnswer}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Right: Suggested */}
+                        <div
+                          className={`p-4 space-y-3 cursor-pointer transition-colors ${isSuggested ? "bg-indigo-500/5 ring-2 ring-inset ring-indigo-500/50" : "hover:bg-muted/30"}`}
+                          onClick={() => setAiSelections(prev => ({ ...prev, [q.id]: "suggested" }))}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-indigo-400 uppercase tracking-wide">AI Suggestion</span>
+                            <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${isSuggested ? "border-indigo-500 bg-indigo-500" : "border-muted-foreground"}`}>
+                              {isSuggested && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                            </div>
+                          </div>
+                          <p className="font-semibold text-sm">{sugg.text}</p>
+                          {sugg.options && sugg.options.length > 0 ? (
+                            <ul className="space-y-1.5 text-xs">
+                              {sugg.options.map((opt, oIdx) => (
+                                <li key={oIdx} className={`px-2 py-1.5 rounded border ${sugg.correctAnswer === opt ? "bg-indigo-500/20 border-indigo-500/30 text-indigo-500 font-bold" : "border-border text-muted-foreground"}`}>
+                                  {String.fromCharCode(65 + oIdx)}. {opt}
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <div className="text-xs font-bold text-indigo-500 bg-indigo-500/10 px-2 py-1.5 rounded border border-indigo-500/20">
+                              Answer: {sugg.correctAnswer}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="p-4 border-t border-border bg-card flex items-center justify-between">
+                <p className="text-xs font-bold text-muted-foreground">
+                  {Object.values(aiSelections).filter(v => v === "suggested").length} of {questions.length} AI suggestions selected.
+                </p>
+                <Button
+                  onClick={handleApplyAiSelections}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-6 flex items-center gap-2"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  Apply Selected Changes
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
         {/* Trainer Preview Simulation Modal */}
         {isPreviewing && (
-          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div key="trainer-preview-modal" className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}

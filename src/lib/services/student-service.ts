@@ -16,6 +16,7 @@ const COLLECTION_NAME = "students";
 export interface CreateStudentAuthInput {
   email: string;
   name: string;
+  collegeId: string;
   collegeName: string;
   department: string;
   academicYear: string;
@@ -56,6 +57,7 @@ export async function createStudentAuthProfile(
       adminIdToken,
       email: input.email.toLowerCase().trim(),
       name: input.name.trim(),
+      collegeId: input.collegeId.trim(),
       collegeName: input.collegeName.trim(),
       department: input.department.trim(),
       academicYear: input.academicYear.trim(),

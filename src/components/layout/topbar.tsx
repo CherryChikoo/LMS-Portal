@@ -116,7 +116,7 @@ export function Topbar() {
       <div className="flex items-center gap-2 sm:gap-3">
         {/* Quick Action Pill Button */}
         {userRole.toLowerCase() !== "student" && (
-          <Link href="/exams" className="hidden md:block">
+          <Link href={userRole.toLowerCase() === "college_admin" || userRole.toLowerCase() === "administrator" ? "/admin/exams" : "/exams"} className="hidden md:block">
             <Button
               size="sm"
               className="h-10 px-4 rounded-xl bg-gradient-brand text-white font-medium border border-white/20 shadow-none hover:opacity-95 transition-all flex items-center gap-2"

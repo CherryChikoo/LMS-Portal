@@ -343,6 +343,7 @@ function getYearBadgeStyle(year?: string) {
       await createStudentAuthProfile({
         name: studName,
         email: normalizedEmail,
+        collegeId: college.id,
         collegeName: college.name,
         department: studDept,
         academicYear: studYear,

@@ -236,6 +236,7 @@ function StudentsContent() {
       await createStudentAuthProfile({
         email: newEmail,
         name: newName,
+        collegeId: newCollegeId,
         collegeName: colName,
         department: newDepartment,
         academicYear: newYear,
@@ -642,7 +643,9 @@ function StudentsContent() {
                         <span>{student.name}</span>
                       </td>
                       <td className="py-3.5 px-4 font-mono text-xs text-muted-foreground">{student.email}</td>
-                      <td className="py-3.5 px-4 font-medium text-foreground">{student.collegeName || student.collegeId}</td>
+                      <td className="py-3.5 px-4 font-medium text-foreground">
+                        {colleges.find((c) => c.id === student.collegeId)?.name || student.collegeName || student.collegeId}
+                      </td>
                       <td className="py-3.5 px-4 text-xs flex items-center gap-2">
                         <span className="font-semibold text-foreground">{student.department}</span>
                         <span className={`px-2 py-0.5 rounded-full font-bold text-[11px] ${getYearBadgeStyle(student.academicYear)}`}>

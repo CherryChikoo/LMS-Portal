@@ -325,20 +325,30 @@ export default function DashboardPage() {
         let filteredStudents = st || [];
         let filteredExams = ex || [];
         let filteredAttempts = att || [];
+        let filteredColleges = cl || [];
 
         try {
           const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
           if (uStr) {
             const parsed = JSON.parse(uStr);
             if (parsed.role === "college_admin" && parsed.collegeId) {
+              filteredColleges = filteredColleges.filter(c => c.id === parsed.collegeId);
               filteredStudents = filteredStudents.filter((s: Student) => s.collegeId === parsed.collegeId);
               const validStudentIds = new Set(filteredStudents.map((s: Student) => s.id));
               const validBatchIds = new Set(filteredStudents.flatMap((s: Student) => s.batchIds || []));
               
-              filteredExams = filteredExams.filter((e: Exam) => 
-                (e.assignedBatches && e.assignedBatches.some(b => validBatchIds.has(b))) ||
-                (e.assignedStudents && e.assignedStudents.some(s => validStudentIds.has(s)))
-              );
+              filteredExams = filteredExams.filter((e: Exam) => {
+                if (!e.targets) return false;
+                return e.targets.some(t => {
+                  if (t.type === "composite") {
+                    return t.collegeId === parsed.collegeId || (t.batchId && validBatchIds.has(t.batchId));
+                  }
+                  if (t.type === "college") return t.ids.includes(parsed.collegeId);
+                  if (t.type === "batch") return t.ids.some(b => validBatchIds.has(b));
+                  if (t.type === "students") return t.ids.some(s => validStudentIds.has(s));
+                  return false;
+                });
+              });
               
               filteredAttempts = filteredAttempts.filter((a: ExamAttempt) => validStudentIds.has(a.studentId));
             }
@@ -347,7 +357,7 @@ export default function DashboardPage() {
 
         setExams(filteredExams);
         setStudents(filteredStudents);
-        setColleges(cl || []);
+        setColleges(filteredColleges);
         setResources(rs || []);
         setAttempts(filteredAttempts);
       } catch (err) {
@@ -377,14 +387,14 @@ export default function DashboardPage() {
         icon: ClipboardList,
         color: getEffectiveExamStatus(ex) === "active" ? "stat-icon-emerald" : "stat-icon-amber",
       })),
-      ...colleges.slice(0, 3).map((c) => ({
+      ...(userRole === "college_admin" ? [] : colleges.slice(0, 3).map((c) => ({
         id: `col-${c.id}`,
         action: "Partner College Active",
         detail: `${c.name} (${c.code || "Registered"}) linked to portal`,
         time: "Active",
         icon: GraduationCap,
         color: "stat-icon-blue",
-      })),
+      }))),
     ];
   }, [exams, colleges]);
 
@@ -515,7 +525,7 @@ export default function DashboardPage() {
       {/* Stat Cards Grid */}
       <motion.div
         variants={staggerContainer}
-        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5"
+        className={`grid grid-cols-1 sm:grid-cols-2 ${userRole === "college_admin" ? "lg:grid-cols-3" : "lg:grid-cols-4"} gap-4 sm:gap-5`}
       >
         <motion.div variants={staggerItem}>
           <StatCard
@@ -525,14 +535,16 @@ export default function DashboardPage() {
             iconClassName="stat-icon-emerald"
           />
         </motion.div>
-        <motion.div variants={staggerItem}>
-          <StatCard
-            title="Partner Colleges"
-            value={loading ? 0 : colleges.length}
-            icon={GraduationCap}
-            iconClassName="stat-icon-blue"
-          />
-        </motion.div>
+        {userRole !== "college_admin" && (
+          <motion.div variants={staggerItem}>
+            <StatCard
+              title="Partner Colleges"
+              value={loading ? 0 : colleges.length}
+              icon={GraduationCap}
+              iconClassName="stat-icon-blue"
+            />
+          </motion.div>
+        )}
         <motion.div variants={staggerItem}>
           <StatCard
             title="Scheduled & Active Exams"

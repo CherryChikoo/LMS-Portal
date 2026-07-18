@@ -179,10 +179,18 @@ export default function ResultsPage() {
               const validStudentIds = new Set(filteredStudents.map(s => s.id));
               const validBatchIds = new Set(filteredStudents.flatMap(s => s.batchIds || []));
               
-              filteredExams = filteredExams.filter(e => 
-                (e.assignedBatches && e.assignedBatches.some(b => validBatchIds.has(b))) ||
-                (e.assignedStudents && e.assignedStudents.some(s => validStudentIds.has(s)))
-              );
+              filteredExams = filteredExams.filter(e => {
+                if (!e.targets) return false;
+                return e.targets.some(t => {
+                  if (t.type === "composite") {
+                    return t.collegeId === parsed.collegeId || (t.batchId && validBatchIds.has(t.batchId));
+                  }
+                  if (t.type === "college") return t.ids.includes(parsed.collegeId);
+                  if (t.type === "batch") return t.ids.some(b => validBatchIds.has(b));
+                  if (t.type === "students") return t.ids.some(s => validStudentIds.has(s));
+                  return false;
+                });
+              });
               
               filteredAttempts = filteredAttempts.filter(a => validStudentIds.has(a.studentId));
             }

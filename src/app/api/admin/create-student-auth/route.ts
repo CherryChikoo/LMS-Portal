@@ -31,6 +31,7 @@ export async function POST(request: NextRequest) {
       adminIdToken,
       email,
       name,
+      collegeId,
       collegeName,
       department,
       academicYear,
@@ -92,7 +93,7 @@ export async function POST(request: NextRequest) {
     const normalizedEmail = email.toLowerCase().trim();
     const studentName = name.trim();
     const finalCollegeName = (collegeName || "Global Institute").trim().toLowerCase();
-    const collegeId = collegeNameToId(finalCollegeName);
+    const finalCollegeId = collegeId ? collegeId.trim() : collegeNameToId(finalCollegeName);
     const finalDepartment = (department || "Computer Science").trim();
     const finalAcademicYear = (academicYear || "1st Year").trim();
     const finalSection = (section || "A").toString().trim();
@@ -152,7 +153,7 @@ export async function POST(request: NextRequest) {
       email: normalizedEmail,
       displayName: studentName,
       role: "student",
-      collegeId,
+      collegeId: finalCollegeId,
       collegeName: finalCollegeName,
       department: finalDepartment,
       academicYear: finalAcademicYear,
@@ -168,7 +169,7 @@ export async function POST(request: NextRequest) {
       id: uid,
       name: studentName,
       email: normalizedEmail,
-      collegeId,
+      collegeId: finalCollegeId,
       collegeName: finalCollegeName,
       department: finalDepartment,
       academicYear: finalAcademicYear,

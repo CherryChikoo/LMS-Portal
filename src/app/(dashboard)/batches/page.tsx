@@ -83,6 +83,16 @@ function BatchesContent() {
           return false;
         });
         setBatches(visibleBatches);
+      } else if (role.toLowerCase() === "college_admin") {
+        const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+        let parsed: any = {};
+        try { parsed = JSON.parse(uStr || "{}"); } catch (_) {}
+        if (parsed.collegeId) {
+          const validStudentBatchIds = new Set(sData.flatMap((s) => s.batchIds || []));
+          setBatches(computedBatches.filter(b => b.collegeId === parsed.collegeId || validStudentBatchIds.has(b.id)));
+        } else {
+          setBatches(computedBatches);
+        }
       } else {
         setBatches(computedBatches);
       }

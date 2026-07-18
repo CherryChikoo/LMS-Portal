@@ -160,8 +160,7 @@ export default function DashboardLayout({
   return (
     <div className="min-h-[100dvh] flex relative bg-transparent overflow-x-hidden">
       <NavigationProgress />
-      {/* Background fluid marble glassmorphism mesh */}
-      <div className="mesh-gradient" />
+      {/* Background removed to fix performance issues on lower end devices */}
 
       {/* Sidebar - desktop */}
       <Sidebar />
@@ -178,7 +177,7 @@ export default function DashboardLayout({
         transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
       >
         <Topbar />
-        <main className="flex-1 p-5 sm:p-7 lg:p-9 max-w-[1600px] w-full mx-auto">
+        <main className="flex-1 p-5 sm:p-7 lg:p-9 lg:pb-16 pb-20 max-w-[1600px] w-full mx-auto">
           {children}
         </main>
       </motion.div>
