@@ -109,11 +109,7 @@ function StudentPortalDashboard({
     <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="space-y-6 sm:space-y-8 font-sans">
       {/* Student Hero Banner */}
       <motion.div variants={staggerItem}>
-        <div className="relative overflow-hidden rounded-2xl p-6 sm:p-8 lg:p-10 bg-[url('/bg-fluid.jpg')] bg-cover bg-center border border-emerald-500/30 shadow-2xl text-white">
-          <div className="absolute inset-0 bg-black/65 dark:bg-[#03090F]/75 backdrop-blur-[2px]" />
-          <div className="absolute top-0 right-1/4 w-80 h-80 bg-brand/20 rounded-full blur-3xl pointer-events-none" />
-          <div className="absolute -bottom-10 right-0 w-96 h-96 bg-emerald-500/15 rounded-full blur-3xl pointer-events-none" />
-
+        <div className="relative overflow-hidden rounded-xl p-6 sm:p-8 lg:p-10 bg-[#0A0A0A] border border-[#222222] shadow-sm text-white">
           <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
             <div className="space-y-3 max-w-2xl">
               <h1 className="text-2xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight font-heading text-white">
@@ -126,13 +122,13 @@ function StudentPortalDashboard({
 
             <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 shrink-0">
               <Link href="/exams">
-                <Button className="h-11 px-5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/20">
+                <Button className="h-11 px-5 rounded-xl bg-brand hover:bg-brand/90 text-black font-bold transition-all flex items-center gap-2 shadow-none">
                   <PlayCircle className="w-4 h-4 stroke-[2.5]" />
                   <span>Take Assessment</span>
                 </Button>
               </Link>
               <Link href="/resources">
-                <Button className="h-11 px-4 rounded-xl border border-white/25 bg-white/10 hover:bg-white/20 text-white font-semibold transition-all shadow-sm">
+                <Button className="h-11 px-4 rounded-xl border border-[#222222] bg-[#111111] hover:bg-[#1a1a1a] text-white font-semibold transition-all shadow-none">
                   <BookOpen className="w-4 h-4 mr-2" />
                   <span>Study Notes</span>
                 </Button>
@@ -351,14 +347,34 @@ export default function DashboardPage() {
               });
               
               filteredAttempts = filteredAttempts.filter((a: ExamAttempt) => validStudentIds.has(a.studentId));
+              
+              const rsArray = rs || [];
+              const filteredRs = rsArray.filter((res: Resource) => {
+                if (!res.targets) return false;
+                return res.targets.some((t: AssignmentTarget) => {
+                  if (t.type === "composite") {
+                    return t.collegeId === parsed.collegeId || (t.batchId && validBatchIds.has(t.batchId));
+                  }
+                  if (t.type === "college") return t.ids?.includes(parsed.collegeId);
+                  if (t.type === "batch") return t.ids?.some((b: string) => validBatchIds.has(b));
+                  if (t.type === "students") return t.ids?.some((s: string) => validStudentIds.has(s));
+                  return false;
+                });
+              });
+              setResources(filteredRs);
+            } else {
+              setResources(rs || []);
             }
+          } else {
+            setResources(rs || []);
           }
-        } catch (_) {}
+        } catch (_) {
+          setResources(rs || []);
+        }
 
         setExams(filteredExams);
         setStudents(filteredStudents);
         setColleges(filteredColleges);
-        setResources(rs || []);
         setAttempts(filteredAttempts);
       } catch (err) {
         console.error("Failed loading live portal data:", err);
@@ -487,12 +503,7 @@ export default function DashboardPage() {
     >
       {/* Hero Banner (Coursue Inspired) */}
       <motion.div variants={staggerItem}>
-        <div className="relative overflow-hidden rounded-md p-6 sm:p-8 lg:p-10 bg-[url('/bg-fluid.jpg')] bg-cover bg-center border border-emerald-500/30 shadow-2xl text-white">
-          <div className="absolute inset-0 bg-black/60 dark:bg-[#03090F]/65 backdrop-blur-[2px]" />
-          
-          <div className="absolute top-0 right-1/4 w-80 h-80 bg-brand/20 rounded-full blur-3xl pointer-events-none" />
-          <div className="absolute -bottom-10 right-0 w-96 h-96 bg-emerald-500/15 rounded-full blur-3xl pointer-events-none" />
-
+        <div className="relative overflow-hidden rounded-xl p-6 sm:p-8 lg:p-10 bg-[#0A0A0A] border border-[#222222] shadow-sm text-white">
           <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
             <div className="space-y-3 max-w-2xl">
               <h1 className="text-2xl sm:text-4xl lg:text-5xl font-semibold tracking-tight font-heading text-white">
@@ -506,14 +517,14 @@ export default function DashboardPage() {
             <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 shrink-0">
               <Button
                 onClick={() => router.push("/admin/exams")}
-                className="h-11 px-5 rounded-md bg-emerald-500 hover:bg-emerald-600 text-white font-semibold transition-all flex items-center gap-2 shadow-none"
+                className="h-11 px-5 rounded-xl bg-brand hover:bg-brand/90 text-black font-semibold transition-all flex items-center gap-2 shadow-none"
               >
                 <Plus className="w-4 h-4 stroke-[3]" />
                 <span>Create Assessment</span>
               </Button>
               <Button
                 onClick={() => router.push("/admin/students?action=invite")}
-                className="h-11 px-4 rounded-md border border-white/25 bg-white/10 hover:bg-white/20 text-white font-semibold transition-all shadow-sm"
+                className="h-11 px-4 rounded-xl border border-[#222222] bg-[#111111] hover:bg-[#1a1a1a] text-white font-semibold transition-all shadow-none"
               >
                 <span>Invite Students</span>
               </Button>
@@ -595,61 +606,8 @@ export default function DashboardPage() {
         variants={staggerContainer}
         className="grid grid-cols-1 lg:grid-cols-12 gap-5"
       >
-        {/* Recent Activity Timeline */}
-        <motion.div variants={staggerItem} className="lg:col-span-5 flex flex-col">
-          <GlassCard className="p-6 flex-1 flex flex-col justify-between h-full">
-            <div className="flex-1 flex flex-col min-h-0">
-              <div className="flex items-center justify-between mb-4 shrink-0">
-                <div>
-                  <h3 className="text-base font-bold text-foreground font-heading">
-                    Realtime Activity Log
-                  </h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Live system actions and academic updates
-                  </p>
-                </div>
-                <Link href="/audit" className="text-xs text-brand hover:text-brand/80 font-semibold flex items-center gap-1 transition-colors">
-                  View full audit <ArrowRight className="w-3.5 h-3.5" />
-                </Link>
-              </div>
-              <div className="space-y-2.5 flex-1 overflow-y-auto min-h-0 pr-1">
-                {liveActivity.length === 0 ? (
-                  <div className="py-8 text-center text-xs text-muted-foreground border border-dashed rounded-md">
-                    No recent activities recorded yet.
-                  </div>
-                ) : (
-                  liveActivity.map((item) => {
-                    const Icon = item.icon;
-                    return (
-                      <div
-                        key={item.id}
-                        className="flex items-start gap-3.5 p-3 rounded-md hover:bg-accent/40 dark:hover:bg-white/[0.03] border border-transparent hover:border-border/40 transition-all"
-                      >
-                        <div className={`w-9 h-9 rounded-md flex items-center justify-center shrink-0 ${item.color}`}>
-                          <Icon className="w-4.5 h-4.5" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-foreground">
-                            {item.action}
-                          </p>
-                          <p className="text-xs text-muted-foreground truncate">
-                            {item.detail}
-                          </p>
-                        </div>
-                        <span className="text-[11px] text-muted-foreground/70 font-mono whitespace-nowrap shrink-0">
-                          {item.time}
-                        </span>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          </GlassCard>
-        </motion.div>
-
         {/* Subject Distribution Donut */}
-        <motion.div variants={staggerItem} className="lg:col-span-3 flex flex-col">
+        <motion.div variants={staggerItem} className="lg:col-span-5 flex flex-col">
           <PieChartComponent
             title="Domain Focus"
             description="Enrolled students by subject area"
@@ -660,7 +618,7 @@ export default function DashboardPage() {
         </motion.div>
 
         {/* Live & Scheduled Assessments Feed */}
-        <motion.div variants={staggerItem} className="lg:col-span-4 flex flex-col">
+        <motion.div variants={staggerItem} className="lg:col-span-7 flex flex-col">
           <GlassCard className="p-6 flex-1 flex flex-col justify-between h-full">
             <div className="flex-1 flex flex-col min-h-0">
               <div className="flex items-center justify-between mb-4 shrink-0">

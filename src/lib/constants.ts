@@ -45,11 +45,6 @@ export const NAVIGATION: NavSection[] = [
         href: "/batches",
         icon: Layers,
       },
-      {
-        title: "Audit Log",
-        href: "/audit",
-        icon: FileText,
-      },
     ],
   },
   {

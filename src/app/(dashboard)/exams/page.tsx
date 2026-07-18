@@ -550,7 +550,7 @@ export default function ExamsPage() {
                 <motion.div
                   key={exam.id}
                   whileHover={{ y: -4 }}
-                  className="group relative rounded-3xl bg-white/70 dark:bg-slate-900/60 backdrop-blur-2xl border border-white/50 dark:border-white/10 p-6 flex flex-col justify-between gap-6 shadow-[0_8px_30px_rgb(0,0,0,0.06)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] hover:shadow-[0_16px_40px_rgb(0,0,0,0.12)] hover:border-brand/40 transition-all duration-300"
+                  className="group relative rounded-xl border border-[#222222] bg-[#0A0A0A] p-6 flex flex-col justify-between gap-6 shadow-sm hover:border-brand/40 transition-all duration-300"
                 >
                   <div className="space-y-4">
                     <div className="flex items-center justify-between gap-2">

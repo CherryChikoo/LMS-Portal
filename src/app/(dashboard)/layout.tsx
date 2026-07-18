@@ -142,8 +142,10 @@ export default function DashboardLayout({
                 ...parsedUser,
                 name: u.displayName || parsedUser.name,
                 email: u.email || parsedUser.email,
+                collegeId: u.collegeId || parsedUser.collegeId,
+                collegeName: u.collegeName || parsedUser.collegeName,
               };
-              commitIfChanged(updated, ["name", "email"]);
+              commitIfChanged(updated, ["name", "email", "collegeId", "collegeName"]);
             }
           });
           unsubs.push(unsubUser);

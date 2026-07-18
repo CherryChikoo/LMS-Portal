@@ -109,11 +109,26 @@ function StudentsContent() {
   // reads while keeping all filter data live.
   useEffect(() => {
     if (hierarchy) {
+      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      let parsed: any = {};
+      try { parsed = JSON.parse(uStr || "{}"); } catch (_) {}
+      
+      let filteredStudents = hierarchy.students;
+      let filteredColleges = hierarchy.colleges;
+      let filteredBatches = hierarchy.batches;
+
+      if (parsed.role === "college_admin" && parsed.collegeId) {
+        filteredColleges = filteredColleges.filter(c => c.id === parsed.collegeId);
+        filteredStudents = filteredStudents.filter(s => s.collegeId === parsed.collegeId);
+        const validBatchIds = new Set(filteredStudents.flatMap(s => s.batchIds || []));
+        filteredBatches = filteredBatches.filter(b => b.collegeId === parsed.collegeId || validBatchIds.has(b.id));
+      }
+
       /* eslint-disable react-hooks/set-state-in-effect -- syncing local page state with shared hierarchy cache snapshot */
-      setStudents(hierarchy.students);
-      setColleges(hierarchy.colleges);
-      setBatches(hierarchy.batches);
-      if (initialCollegeId && hierarchy.colleges.find((c) => c.id === initialCollegeId)) {
+      setStudents(filteredStudents);
+      setColleges(filteredColleges);
+      setBatches(filteredBatches);
+      if (initialCollegeId && filteredColleges.find((c) => c.id === initialCollegeId)) {
         setNewCollegeId(initialCollegeId);
       }
       /* eslint-enable react-hooks/set-state-in-effect */
@@ -469,7 +484,7 @@ function StudentsContent() {
           <div className="flex items-center gap-3">
             <Button
               onClick={() => setShowAddModal(true)}
-              className="bg-brand hover:bg-brand/90 text-white flex items-center gap-2"
+              className="bg-brand hover:bg-brand/90 text-black flex items-center gap-2 font-bold"
             >
               <Plus className="w-4 h-4" />
               <span>Invite / Enroll Student</span>
@@ -490,7 +505,7 @@ function StudentsContent() {
       />
 
       {/* Filter and Search Bar */}
-      <div className="bg-card/60 backdrop-blur-md p-4.5 rounded-2xl border border-border space-y-3.5 shadow-sm">
+      <div className="bg-[#0A0A0A] p-4.5 rounded-xl border border-[#222222] space-y-3.5 shadow-sm">
         <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
           <div className="relative w-full sm:max-w-md">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -589,11 +604,11 @@ function StudentsContent() {
           onAction={() => setShowImportModal(true)}
         />
       ) : (
-        <div className="rounded-2xl border border-border bg-card/60 backdrop-blur-md overflow-hidden">
+        <div className="rounded-xl border border-[#222222] bg-[#0A0A0A] overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-border bg-muted/40 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                <tr className="border-b border-[#222222] bg-[#111111] text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                   <th className="py-3.5 px-4 w-10">
                     <input
                       type="checkbox"
@@ -617,11 +632,11 @@ function StudentsContent() {
                   <th className="py-3.5 px-4 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border text-sm">
+              <tbody className="divide-y divide-[#222222] text-sm">
                 {filteredStudents.map((student) => {
                   const isSelected = selectedIds.includes(student.id);
                   return (
-                    <tr key={student.id} className={`hover:bg-muted/30 transition-colors ${isSelected ? "bg-brand/5" : ""}`}>
+                    <tr key={student.id} className={`hover:bg-[#111111] transition-colors ${isSelected ? "bg-[#111111]" : ""}`}>
                       <td className="py-3.5 px-4">
                         <input
                           type="checkbox"

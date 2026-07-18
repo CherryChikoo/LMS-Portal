@@ -474,4 +474,24 @@ export async function renameCollegeAndMigrate(oldId: string, oldName: string, ne
       return updateDoubt(d.id, payload);
     })
   );
+
+  // 7. Migrate College Admins
+  const allUsers = await getDocuments<any>("users");
+  const affectedUsers = allUsers.filter(
+    (u: any) =>
+      u.role === "college_admin" &&
+      ((!isExternal && u.collegeId === oldId) ||
+        (u.collegeId || "").toLowerCase() === targetOldName.toLowerCase() ||
+        (u.collegeName || "").toLowerCase() === targetOldName.toLowerCase())
+  );
+  await Promise.all(
+    affectedUsers.map((u: any) => {
+      const payload: any = { updatedAt: new Date() };
+      if ((u.collegeName || "").toLowerCase() === targetOldName.toLowerCase()) payload.collegeName = targetNewName;
+      if ((u.collegeId || "").toLowerCase() === targetOldName.toLowerCase() || (isExternal && u.collegeId === oldId)) {
+        payload.collegeId = targetNewName;
+      }
+      return updateDocument("users", u.id, payload);
+    })
+  );
 }

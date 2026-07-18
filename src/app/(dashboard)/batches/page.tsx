@@ -88,7 +88,8 @@ function BatchesContent() {
         let parsed: any = {};
         try { parsed = JSON.parse(uStr || "{}"); } catch (_) {}
         if (parsed.collegeId) {
-          const validStudentBatchIds = new Set(sData.flatMap((s) => s.batchIds || []));
+          const myStudents = sData.filter((s) => s.collegeId === parsed.collegeId);
+          const validStudentBatchIds = new Set(myStudents.flatMap((s) => s.batchIds || []));
           setBatches(computedBatches.filter(b => b.collegeId === parsed.collegeId || validStudentBatchIds.has(b.id)));
         } else {
           setBatches(computedBatches);
@@ -193,7 +194,7 @@ function BatchesContent() {
         }
         actions={
           userRole !== "student" ? (
-            <Button onClick={() => setShowAddModal(true)} className="bg-brand hover:bg-brand/90 text-white">
+            <Button onClick={() => setShowAddModal(true)} className="bg-brand hover:bg-brand/90 text-black font-bold">
               <Plus className="w-4 h-4 mr-1.5" />
               Create Custom Batch
             </Button>
@@ -244,7 +245,7 @@ function BatchesContent() {
               <motion.div
                 key={b.id}
                 whileHover={{ y: -4 }}
-                className="rounded-2xl border border-border bg-card/60 backdrop-blur-md p-6 flex flex-col justify-between space-y-5 shadow-lg relative group"
+                className="rounded-xl border border-[#222222] bg-[#0A0A0A] p-6 flex flex-col justify-between space-y-5 shadow-sm relative group"
               >
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
@@ -268,7 +269,7 @@ function BatchesContent() {
                   )}
                 </div>
 
-                <div className="p-3.5 rounded-xl bg-background/60 border border-border space-y-2 text-xs">
+                <div className="p-3.5 rounded-xl bg-[#111111] border border-[#222222] space-y-2 text-xs">
                   <div className="flex items-center justify-between text-muted-foreground">
                     <span>Department:</span>
                     <span className="font-semibold text-foreground">{b.department || "General"}</span>

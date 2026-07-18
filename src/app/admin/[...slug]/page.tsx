@@ -12,7 +12,6 @@ import AnnouncementsPage from "@/app/(dashboard)/announcements/page";
 import CalendarPage from "@/app/(dashboard)/calendar/page";
 import ReportsPage from "@/app/(dashboard)/reports/page";
 import AnalyticsPage from "@/app/(dashboard)/analytics/page";
-import AuditPage from "@/app/(dashboard)/audit/page";
 import SettingsPage from "@/app/(dashboard)/settings/page";
 import DashboardHome from "@/app/(dashboard)/page";
 import TakeExamPage from "@/app/exams/[id]/take/page";
@@ -75,9 +74,6 @@ export default async function AdminCatchAllPage({ params }: { params: Promise<{ 
       break;
     case "analytics":
       content = <AnalyticsPage />;
-      break;
-    case "audit":
-      content = <AuditPage />;
       break;
     case "settings":
       content = <SettingsPage />;

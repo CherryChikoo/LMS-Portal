@@ -273,17 +273,17 @@ export function Sidebar() {
                     <Link
                       href={item.href}
                       className={cn(
-                        "group relative flex items-center gap-3.5 px-3.5 py-2.5 rounded-md font-heading text-sm font-medium transition-all duration-200",
+                        "group relative flex items-center gap-3.5 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200",
                         isActive
-                          ? "bg-brand/15 text-brand"
-                          : "text-muted-foreground hover:text-foreground hover:bg-accent/60 dark:hover:bg-white/[0.04]",
+                          ? "nav-active"
+                          : "text-muted-foreground hover:text-foreground hover:bg-[#111111]",
                         !isExpanded && "justify-center px-0 w-11 h-11 mx-auto"
                       )}
                     >
                       <Icon
                         className={cn(
                           "shrink-0 transition-transform duration-200 group-hover:scale-110",
-                          isActive ? "text-brand w-5 h-5" : "text-muted-foreground group-hover:text-foreground w-5 h-5"
+                          isActive ? "text-black w-5 h-5" : "text-muted-foreground group-hover:text-foreground w-5 h-5"
                         )}
                       />
                       <AnimatePresence>
@@ -338,9 +338,9 @@ export function Sidebar() {
                   render={
                     <Link
                       href={userRole === "student" ? "/student/settings" : "/admin/settings"}
-                      className="group relative flex items-center justify-center w-11 h-11 mx-auto rounded-md font-heading text-sm font-medium transition-all duration-200 text-muted-foreground hover:text-foreground hover:bg-accent/60 dark:hover:bg-white/[0.04]"
+                      className="group relative flex items-center justify-center w-11 h-11 mx-auto rounded-lg text-sm font-medium transition-all duration-200 text-muted-foreground hover:text-foreground hover:bg-[#111111]"
                     >
-                      <Settings className="w-4.5 h-4.5 shrink-0 text-muted-foreground group-hover:text-foreground transition-colors" />
+                      <Settings className="w-5 h-5 shrink-0 text-muted-foreground group-hover:text-foreground transition-colors" />
                     </Link>
                   }
                 />
@@ -351,9 +351,9 @@ export function Sidebar() {
             ) : (
               <Link
                 href={userRole === "student" ? "/student/settings" : "/admin/settings"}
-                className="group relative flex items-center gap-3.5 px-3.5 py-2.5 rounded-md font-heading text-sm font-medium transition-all duration-200 text-muted-foreground hover:text-foreground hover:bg-accent/60 dark:hover:bg-white/[0.04]"
+                className="group relative flex items-center gap-3.5 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 text-muted-foreground hover:text-foreground hover:bg-[#111111]"
               >
-                <Settings className="w-4.5 h-4.5 shrink-0 text-muted-foreground group-hover:text-foreground transition-colors" />
+                <Settings className="w-5 h-5 shrink-0 text-muted-foreground group-hover:text-foreground transition-colors" />
                 <span className="whitespace-nowrap">Settings</span>
               </Link>
             )}
@@ -364,9 +364,9 @@ export function Sidebar() {
                   render={
                     <button
                       onClick={handleLogout}
-                      className="w-full group relative flex items-center justify-center w-11 h-11 mx-auto rounded-md font-heading text-sm font-medium transition-all duration-200 text-orange-500 hover:bg-orange-500/10"
+                      className="w-full group relative flex items-center justify-center w-11 h-11 mx-auto rounded-lg text-sm font-medium transition-all duration-200 text-rose-500 hover:bg-rose-500/10"
                     >
-                      <LogOut className="w-4.5 h-4.5 shrink-0 text-orange-500" />
+                      <LogOut className="w-5 h-5 shrink-0 text-rose-500" />
                     </button>
                   }
                 />
@@ -377,9 +377,9 @@ export function Sidebar() {
             ) : (
               <button
                 onClick={handleLogout}
-                className="w-full group relative flex items-center gap-3.5 px-3.5 py-2.5 rounded-md font-heading text-sm font-medium transition-all duration-200 text-orange-500 hover:bg-orange-500/10"
+                className="w-full group relative flex items-center gap-3.5 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 text-rose-500 hover:bg-rose-500/10"
               >
-                <LogOut className="w-4.5 h-4.5 shrink-0 text-orange-500" />
+                <LogOut className="w-5 h-5 shrink-0 text-rose-500" />
                 <span className="whitespace-nowrap">Logout</span>
               </button>
             )}

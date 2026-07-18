@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Menu, Search, Moon, Sun, Sparkles } from "lucide-react";
-import { useTheme } from "next-themes";
+import { Menu, Search, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useSidebar } from "@/hooks/use-sidebar";
 import { useIsMobile } from "@/hooks/use-media-query";
@@ -24,7 +23,6 @@ import {
 import { logoutUser } from "@/lib/services/auth-service";
 
 export function Topbar() {
-  const { theme, setTheme } = useTheme();
   const { openMobile } = useSidebar();
   const isMobile = useIsMobile();
   const mounted = useMounted();
@@ -84,8 +82,8 @@ export function Topbar() {
   return (
     <header
       className={`sticky top-0 z-30 h-20 flex items-center justify-between gap-4 px-4 sm:px-6 lg:px-8 transition-all duration-300 ${scrolled
-        ? "bg-white/95 dark:bg-[#060A12]/95 backdrop-blur-2xl border-b border-border/50 shadow-sm"
-        : "bg-white/90 dark:bg-[#060A12]/90 backdrop-blur-xl border-b border-transparent shadow-none"
+        ? "bg-black/95 backdrop-blur-2xl border-b border-[#222222]"
+        : "bg-black border-b border-transparent"
         }`}
     >
       {/* Left / Mobile menu button */}
@@ -107,7 +105,7 @@ export function Topbar() {
           <input
             type="text"
             placeholder="Search here..."
-            className="w-full h-11 pl-10 pr-4 rounded-2xl bg-card/60 dark:bg-white/[0.04] border border-border text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-brand/20 transition-all shadow-none"
+            className="w-full h-11 pl-10 pr-4 rounded-xl bg-[#111111] border border-[#222222] text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand transition-all"
           />
         </div>
       </div>
@@ -127,30 +125,7 @@ export function Topbar() {
           </Link>
         )}
 
-        {/* Theme Toggle */}
-        {mounted && (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-                  className="w-10 h-10 rounded-xl bg-card/60 dark:bg-white/[0.04] border border-border text-muted-foreground hover:text-foreground shadow-none hover:bg-accent/60 transition-all"
-                >
-                  {theme === "dark" ? (
-                    <Sun className="w-4 h-4 text-amber-400" />
-                  ) : (
-                    <Moon className="w-4 h-4 text-slate-700" />
-                  )}
-                </Button>
-              }
-            />
-            <TooltipContent>
-              {theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode"}
-            </TooltipContent>
-          </Tooltip>
-        )}
+
 
         {/* User Dropdown */}
         <DropdownMenu>
@@ -158,7 +133,7 @@ export function Topbar() {
             render={
               <Button
                 variant="ghost"
-                className="h-11 pl-2 pr-3 rounded-xl bg-card/60 dark:bg-white/[0.04] border-0 hover:bg-accent/60 transition-all flex items-center gap-2.5 shadow-none"
+                className="h-11 pl-2 pr-3 rounded-xl bg-[#111111] border-0 hover:bg-[#1a1a1a] transition-all flex items-center gap-2.5 shadow-none"
               >
                 <Avatar className="h-7 w-7 ring-2 ring-brand/30">
                   <AvatarImage src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(userName)}`} />

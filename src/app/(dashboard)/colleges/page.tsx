@@ -349,7 +349,7 @@ export default function CollegesPage() {
         actions={
           <Button
             onClick={() => setShowAddModal(true)}
-            className="bg-brand hover:bg-brand/90 text-white flex items-center gap-2"
+            className="bg-brand hover:bg-brand/90 text-black font-bold flex items-center gap-2"
           >
             <Plus className="w-4 h-4" />
             <span>Add College</span>
