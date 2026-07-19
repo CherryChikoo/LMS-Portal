@@ -39,6 +39,7 @@ export default function CollegesPage() {
   const [editingExternal, setEditingExternal] = useState<{ id: string; name: string } | null>(null);
   const [editExternalName, setEditExternalName] = useState("");
   const [updatingExternal, setUpdatingExternal] = useState(false);
+  const [successPopup, setSuccessPopup] = useState("");
 
 
 
@@ -178,8 +179,8 @@ export default function CollegesPage() {
           await Promise.all(studentsToDelete.map((s) => deleteStudentProfile(s.id)));
           setSelectedExternalIds((prev) => prev.filter((id) => id !== extName));
           await fetchColleges();
-          window.alert(`Outside institution "${extName}" was deleted successfully.`);
-          window.location.reload();
+          setSuccessPopup(`Outside institution "${extName}" was deleted successfully.`);
+          setTimeout(() => window.location.reload(), 1500);
         } catch (err) {
           console.error("Failed to delete outside institution:", err);
         } finally {
@@ -202,8 +203,8 @@ export default function CollegesPage() {
           await Promise.all(studentsToDelete.map((s) => deleteStudentProfile(s.id)));
           setSelectedExternalIds([]);
           await fetchColleges();
-          window.alert(`${selectedExternalIds.length} outside institution(s) were deleted successfully.`);
-          window.location.reload();
+          setSuccessPopup(`${selectedExternalIds.length} outside institution(s) were deleted successfully.`);
+          setTimeout(() => window.location.reload(), 1500);
         } catch (err) {
           console.error("Failed to delete selected outside institutions:", err);
         } finally {
@@ -227,8 +228,8 @@ export default function CollegesPage() {
           await Promise.all(studentsToDelete.map((s) => deleteStudentProfile(s.id)));
           setSelectedExternalIds([]);
           await fetchColleges();
-          window.alert("All outside institutions were deleted successfully.");
-          window.location.reload();
+          setSuccessPopup("All outside institutions were deleted successfully.");
+          setTimeout(() => window.location.reload(), 1500);
         } catch (err) {
           console.error("Failed to delete all outside institutions:", err);
         } finally {
@@ -998,6 +999,30 @@ export default function CollegesPage() {
                   </Button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Custom Success Popup */}
+      <AnimatePresence>
+        {successPopup && (
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="max-w-sm w-full bg-card border border-emerald-500/30 rounded-2xl p-6 shadow-2xl flex flex-col items-center justify-center text-center space-y-4"
+            >
+              <div className="w-12 h-12 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-foreground">Success</h3>
+                <p className="text-sm text-muted-foreground mt-1">{successPopup}</p>
+              </div>
             </motion.div>
           </div>
         )}
