@@ -688,7 +688,10 @@ export default function DashboardPage() {
                   <GlassCard key={batch.id} className="p-4 hover:border-border transition-colors flex items-center justify-between">
                     <div>
                       <h4 className="font-bold text-sm text-foreground">{batch.name}</h4>
-                      <div className="text-xs text-muted-foreground mt-0.5">{college?.code || "College"}</div>
+                      <div className="text-xs font-semibold text-brand mt-0.5 truncate">{college?.name || "No College Assigned"}</div>
+                      {batch.department && (
+                        <div className="text-[11px] text-muted-foreground mt-0.5 truncate">{batch.department}</div>
+                      )}
                       <div className="text-[11px] text-muted-foreground flex items-center gap-1.5 mt-2">
                         <Users className="w-3.5 h-3.5" />
                         {batchStudents} students

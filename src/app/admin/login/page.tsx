@@ -8,8 +8,10 @@ import { APP_NAME } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { trainerLogin, formatAuthError } from "@/lib/services/auth-service";
 import { setAuthSession } from "@/lib/utils/auth-session";
+import { useBranding } from "@/providers/branding-provider";
 
 export default function AdminLoginPage() {
+  const { branding } = useBranding();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -101,7 +103,7 @@ export default function AdminLoginPage() {
               <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-md bg-gradient-to-r from-purple-600 to-rose-600 flex items-center justify-center group-hover:scale-105 transition-transform shadow-md">
                 <GraduationCap className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
               </div>
-              <span className="font-bold text-base sm:text-lg text-foreground tracking-tight">{APP_NAME} Admin</span>
+              <span className="font-bold text-base sm:text-lg text-foreground tracking-tight">{branding.companyName || APP_NAME} Admin</span>
             </Link>
             <span className="text-[10px] sm:text-xs font-semibold px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20">Trainer Portal</span>
           </div>

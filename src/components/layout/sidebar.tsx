@@ -33,7 +33,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { logoutUser } from "@/lib/services/auth-service";
-import { subscribeToCompanyBranding, updateCompanyBranding, type CompanyBranding } from "@/lib/services/branding-service";
+import { updateCompanyBranding, type CompanyBranding } from "@/lib/services/branding-service";
+import { useBranding } from "@/providers/branding-provider";
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -51,22 +52,14 @@ export function Sidebar() {
     }
   }, []);
 
-  const [branding, setBranding] = useState<CompanyBranding>({
-    companyName: APP_NAME,
-    companySubtitle: "Enterprise v2.4",
-  });
+  const { branding } = useBranding();
   const [showBrandModal, setShowBrandModal] = useState(false);
   const [editName, setEditName] = useState("");
   const [editSubtitle, setEditSubtitle] = useState("");
   const [editLogo, setEditLogo] = useState("");
   const [savingBrand, setSavingBrand] = useState(false);
 
-  useEffect(() => {
-    const unsub = subscribeToCompanyBranding((data) => {
-      setBranding(data);
-    });
-    return () => unsub();
-  }, []);
+  
 
   useEffect(() => {
     const checkRole = () => {

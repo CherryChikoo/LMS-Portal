@@ -49,6 +49,7 @@ import {
 import { setDoc, doc, getDoc, onSnapshot, getDocuments, where, deleteDocument } from "@/lib/firebase/firestore";
 import { deleteField } from "firebase/firestore";
 import { subscribeToCompanyBranding, updateCompanyBranding, type CompanyBranding } from "@/lib/services/branding-service";
+import { getCollegeById, updateCollege } from "@/lib/services/college-service";
 import { formatAuthError } from "@/lib/services/auth-service";
 
 function StudentAccountSettings() {
@@ -611,12 +612,39 @@ export default function SettingsPage() {
   const [brandSaved, setBrandSaved] = useState(false);
 
   useEffect(() => {
-    const unsub = subscribeToCompanyBranding((data) => {
-      setBranding(data);
-      setBrandName(data.companyName || "LMS Portal");
-      setBrandSubtitle(data.companySubtitle || "Enterprise v2.4");
-      setBrandLogo(data.logoBase64 || "");
-    });
+    let unsub = () => {};
+    const initBranding = async () => {
+      let role = "admin";
+      try {
+        role = (localStorage.getItem("lms_role") || "admin").toLowerCase();
+      } catch {}
+      
+      if (role === "college_admin") {
+        const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+        const u = uStr ? JSON.parse(uStr) : null;
+        if (u && u.id) {
+          const college = await getCollegeById(u.id);
+          if (college && college.branding) {
+            setBranding({
+              companyName: college.branding.companyName || college.name,
+              companySubtitle: college.branding.companySubtitle || "College Portal",
+              logoBase64: college.branding.logoBase64 || "",
+            });
+            setBrandName(college.branding.companyName || college.name);
+            setBrandSubtitle(college.branding.companySubtitle || "College Portal");
+            setBrandLogo(college.branding.logoBase64 || "");
+          }
+        }
+      } else {
+        unsub = subscribeToCompanyBranding((data) => {
+          setBranding(data);
+          setBrandName(data.companyName || "LMS Portal");
+          setBrandSubtitle(data.companySubtitle || "Enterprise v2.4");
+          setBrandLogo(data.logoBase64 || "");
+        });
+      }
+    };
+    initBranding();
     return () => unsub();
   }, []);
 
@@ -624,11 +652,25 @@ export default function SettingsPage() {
     setSavingBrand(true);
     setBrandSaved(false);
     try {
-      await updateCompanyBranding({
-        companyName: brandName.trim() || "LMS Portal",
-        companySubtitle: brandSubtitle.trim() || "Enterprise v2.4",
-        logoBase64: brandLogo,
-      });
+      if (userRole === "college_admin") {
+        const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+        const u = uStr ? JSON.parse(uStr) : null;
+        if (u && u.id) {
+          await updateCollege(u.id, {
+            branding: {
+              companyName: brandName.trim(),
+              companySubtitle: brandSubtitle.trim(),
+              logoBase64: brandLogo,
+            }
+          });
+        }
+      } else {
+        await updateCompanyBranding({
+          companyName: brandName.trim() || "LMS Portal",
+          companySubtitle: brandSubtitle.trim() || "Enterprise v2.4",
+          logoBase64: brandLogo,
+        });
+      }
       setBrandSaved(true);
       setTimeout(() => setBrandSaved(false), 3000);
     } catch (err) {
@@ -1244,8 +1286,8 @@ export default function SettingsPage() {
                       <Building2 className="w-5 h-5 text-brand" />
                     </div>
                     <div>
-                      <h3 className="text-base font-bold text-foreground">Global Company Branding</h3>
-                      <p className="text-xs text-muted-foreground">Configure the portal logo and company name displayed across all admin and student interfaces.</p>
+                      <h3 className="text-base font-bold text-foreground">{userRole === "college_admin" ? "College Branding" : "Global Company Branding"}</h3>
+                      <p className="text-xs text-muted-foreground">{userRole === "college_admin" ? "Configure your college logo and name displayed to your students and admins." : "Configure the portal logo and company name displayed across all admin and student interfaces."}</p>
                     </div>
                   </div>
                 </div>
@@ -1323,7 +1365,7 @@ export default function SettingsPage() {
                   {brandSaved ? (
                     <div className="flex items-center gap-2 text-xs text-emerald-500 font-extrabold">
                       <CheckCircle2 className="w-4 h-4" />
-                      <span>Global branding updated successfully!</span>
+                      <span>{userRole === "college_admin" ? "College branding" : "Global branding"} updated successfully!</span>
                     </div>
                   ) : (
                     <span className="text-xs text-muted-foreground">Changes take effect immediately across all sessions</span>

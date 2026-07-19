@@ -8,8 +8,10 @@ import Link from "next/link";
 import { APP_NAME } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { studentRegister, studentGoogleSignUp, completeStudentAcademicDetails, formatAuthError } from "@/lib/services/auth-service";
+import { useBranding } from "@/providers/branding-provider";
 
 export default function RegisterPage() {
+  const { branding } = useBranding();
   const router = useRouter();
   const [step, setStep] = useState<"auth" | "details">("auth");
   const [registeredUid, setRegisteredUid] = useState<string>("");

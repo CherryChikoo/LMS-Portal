@@ -700,9 +700,7 @@ export default function ResultsPage() {
               >
                 <option value="ALL">All Students</option>
                 {studentNamesList.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
+                  <option key={name} value={name}>{name || "Unnamed College"}</option>
                 ))}
               </select>
             </div>

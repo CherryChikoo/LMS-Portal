@@ -30,17 +30,25 @@ export type UserRole = "trainer" | "student" | "admin" | "college_admin";
 export type AccountStatus = "active" | "restricted";
 
 // College
+export interface CollegeBranding {
+  companyName?: string;
+  companySubtitle?: string;
+  logoBase64?: string;
+}
+
 export interface College {
   id: string;
   name: string;
   code: string;
   departments: string[];
   location?: string;
+  origin?: "trainer" | "self_registered" | "global";
   studentCount: number;
   adminEmail?: string;
   initialPassword?: string;
   loginEnabled?: boolean;
   status?: AccountStatus;
+  branding?: CollegeBranding;
   createdAt: Date;
   updatedAt: Date;
 }

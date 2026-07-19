@@ -17,24 +17,14 @@ import { useSidebar } from "@/hooks/use-sidebar";
 import { NAVIGATION, APP_NAME } from "@/lib/constants";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { subscribeToCompanyBranding, type CompanyBranding } from "@/lib/services/branding-service";
+import { useBranding } from "@/providers/branding-provider";
 
 export function MobileSidebar() {
   const pathname = usePathname();
   const { isMobileOpen, closeMobile } = useSidebar();
   const [userRole, setUserRole] = useState<string | null>(null);
 
-  const [branding, setBranding] = useState<CompanyBranding>({
-    companyName: APP_NAME,
-    companySubtitle: "Enterprise v2.4",
-  });
-
-  useEffect(() => {
-    const unsub = subscribeToCompanyBranding((data) => {
-      setBranding(data);
-    });
-    return () => unsub();
-  }, []);
+  const { branding } = useBranding();
 
   useEffect(() => {
     const checkRole = () => {

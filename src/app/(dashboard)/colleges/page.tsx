@@ -14,7 +14,7 @@ import type { College, Student } from "@/types";
 
 export default function CollegesPage() {
   const [colleges, setColleges] = useState<College[]>([]);
-  const [externalColleges, setExternalColleges] = useState<{ id: string; name: string; studentCount: number; departments: string[] }[]>([]);
+  const [externalColleges, setExternalColleges] = useState<{ isPromoted?: boolean; collegeData?: College; id: string; name: string; studentCount: number; departments: string[] }[]>([]);
   const [allStudents, setAllStudents] = useState<Student[]>([]);
   const [selectedAdminIds, setSelectedAdminIds] = useState<string[]>([]);
   const [selectedExternalIds, setSelectedExternalIds] = useState<string[]>([]);
@@ -40,6 +40,11 @@ export default function CollegesPage() {
   const [editExternalName, setEditExternalName] = useState("");
   const [updatingExternal, setUpdatingExternal] = useState(false);
 
+  const [promotingExternal, setPromotingExternal] = useState<{ name: string; departments: string[] } | null>(null);
+  const [promoteAdminEmail, setPromoteAdminEmail] = useState("");
+  const [promotePassword, setPromotePassword] = useState("");
+  const [promoting, setPromoting] = useState(false);
+
   const fetchColleges = async () => {
     setLoading(true);
     try {
@@ -56,9 +61,12 @@ export default function CollegesPage() {
       }));
 
       const officialSet = new Set([
-        ...collegesData.map((c) => c.id?.toLowerCase()).filter(Boolean),
-        ...collegesData.map((c) => c.name?.toLowerCase()).filter(Boolean),
+        ...computedColleges.map((c) => c.id?.toLowerCase()).filter(Boolean),
+        ...computedColleges.map((c) => c.name?.toLowerCase()).filter(Boolean),
       ]);
+
+      const officialColleges = computedColleges.filter(c => !c.origin || c.origin === "trainer");
+      const promotedColleges = computedColleges.filter(c => c.origin === "self_registered" || c.origin === "global");
 
       const externalMap = new Map<string, { name: string; students: Student[] }>();
       studentsData.forEach((s) => {
@@ -78,19 +86,61 @@ export default function CollegesPage() {
         }
       });
 
-      const computedExternal = Array.from(externalMap.values()).map((ext) => ({
+      const dynamicExternal = Array.from(externalMap.values()).map((ext) => ({
         id: ext.name,
         name: ext.name,
         studentCount: ext.students.length,
         departments: Array.from(new Set(ext.students.map((s) => s.department).filter(Boolean))),
+        isPromoted: false,
       }));
 
-      setColleges(computedColleges);
-      setExternalColleges(computedExternal);
+      const promotedExternal = promotedColleges.map(c => ({
+        id: c.id,
+        name: c.name,
+        studentCount: c.studentCount,
+        departments: c.departments,
+        isPromoted: true,
+        collegeData: c,
+      }));
+
+      setColleges(officialColleges);
+      setExternalColleges([...promotedExternal, ...dynamicExternal]);
     } catch (err) {
       console.error("Failed to fetch colleges data", err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePromoteExternalCollege = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!promotingExternal) return;
+    
+    setPromoting(true);
+    try {
+      const generateCode = (n: string) => {
+        const clean = n.replace(/[^a-zA-Z0-9]/g, "");
+        return (clean.substring(0, 3) || "EXT").toUpperCase() + Math.floor(100 + Math.random() * 900);
+      };
+      
+      await createCollege({
+        name: promotingExternal.name,
+        code: generateCode(promotingExternal.name),
+        departments: promotingExternal.departments.length > 0 ? promotingExternal.departments : ["General"],
+        adminEmail: promoteAdminEmail,
+        initialPassword: promotePassword,
+        loginEnabled: true,
+        origin: promotingExternal.name === "Global Institute" ? "global" : "self_registered",
+      });
+      
+      await fetchColleges();
+      setPromotingExternal(null);
+      setPromoteAdminEmail("");
+      setPromotePassword("");
+    } catch (err) {
+      console.error("Failed to enable college login:", err);
+    } finally {
+      setPromoting(false);
     }
   };
 
@@ -570,14 +620,18 @@ export default function CollegesPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {externalColleges.map((col) => {
               const isSelected = selectedExternalIds.includes(col.name);
+              const isGlobal = col.name === "Global Institute" || col.collegeData?.origin === "global";
+              const badgeLabel = isGlobal ? "Global" : "Self-Registered";
+              const cData = col.collegeData;
+
               return (
                 <motion.div
                   key={col.id}
                   whileHover={{ y: -4 }}
-                  className={`rounded-2xl border ${isSelected ? "border-rose-500 bg-rose-500/5" : "border-amber-500/30 bg-card/60"} backdrop-blur-md p-6 flex flex-col justify-between space-y-5 shadow-lg relative overflow-hidden`}
+                  className={`rounded-2xl border ${isSelected ? "border-amber-500 bg-amber-500/5" : "border-amber-500/30 bg-card/60"} backdrop-blur-md p-6 flex flex-col justify-between space-y-5 shadow-lg relative overflow-hidden`}
                 >
                   <div className="absolute top-0 right-0 px-3 py-1 bg-amber-500/10 border-l border-b border-amber-500/20 rounded-bl-xl text-[10px] font-bold text-amber-500 uppercase tracking-wider">
-                    Self-Registered
+                    {badgeLabel}
                   </div>
 
                   <div className="space-y-3">
@@ -597,36 +651,75 @@ export default function CollegesPage() {
                         </div>
                       </div>
 
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setEditingExternal({ id: col.id, name: col.name });
-                          setEditExternalName(col.name);
-                        }}
-                        className="h-8 w-8 p-0 text-brand hover:text-brand/90 hover:bg-brand/10 rounded-lg"
-                        title="Edit Outside Institution Name"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDeleteExternalCollege(col.name)}
-                        className="h-8 w-8 p-0 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10 rounded-lg"
-                        title="Delete Outside Institution"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        {col.isPromoted && cData ? (
+                          <>
+                            {cData.loginEnabled && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleToggleCollegeStatus(cData)}
+                                className={`h-8 px-2.5 text-xs font-semibold rounded-lg ${
+                                  cData.status === "restricted"
+                                    ? "text-rose-500 bg-rose-500/10 hover:bg-rose-500/20"
+                                    : "text-amber-500 bg-amber-500/10 hover:bg-amber-500/20"
+                                }`}
+                                title={cData.status === "restricted" ? "Restore Access" : "Restrict Access"}
+                              >
+                                {cData.status === "restricted" ? "Restricted" : "Restrict"}
+                              </Button>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setEditingCollege(cData);
+                                setEditCollegeName(cData.name);
+                                setEditAdminEmail(cData.adminEmail || "");
+                                setEditInitialPassword(cData.initialPassword || "");
+                                setEditLoginEnabled(cData.loginEnabled || false);
+                              }}
+                              className="h-8 w-8 p-0 text-amber-500 hover:text-amber-600 hover:bg-amber-500/10 rounded-lg"
+                              title="Edit Login Settings"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteAdminCollege(cData)}
+                              className="h-8 w-8 p-0 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10 rounded-lg"
+                              title="Delete College Document"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            variant="default"
+                            size="sm"
+                            onClick={() => {
+                              setPromotingExternal({ name: col.name, departments: col.departments || [] });
+                              setPromoteAdminEmail("");
+                              setPromotePassword("");
+                            }}
+                            className="h-8 px-3 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs flex items-center gap-1.5 shadow"
+                          >
+                            <Plus className="w-3 h-3" />
+                            <span>Enable Login</span>
+                          </Button>
+                        )}
+                      </div>
                     </div>
-                    <h3 className="text-xl font-bold text-foreground break-words leading-tight">{col.name}</h3>
+                    
+                    <h3 className="text-xl font-bold text-foreground break-words leading-tight pt-1">{col.name}</h3>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <Users className="w-4 h-4 text-amber-500" />
                       <span>{col.studentCount || 0} Students Enrolled</span>
                     </div>
                   </div>
 
-                  <div className="p-3.5 rounded-xl bg-background/60 border border-border space-y-2">
+                  <div className="p-3.5 rounded-xl bg-background/60 border border-border space-y-2 mt-4">
                     <div className="flex items-center justify-between text-xs font-semibold text-foreground">
                       <span className="flex items-center gap-1.5">
                         <FolderTree className="w-3.5 h-3.5 text-amber-500" />
@@ -634,7 +727,7 @@ export default function CollegesPage() {
                       </span>
                     </div>
                     <div className="flex flex-wrap gap-1.5 pt-1">
-                      {col.departments?.map((d: string, i: number) => (
+                      {col.departments?.map((d, i) => (
                         <span key={i} className="px-2 py-0.5 rounded bg-accent/80 text-[11px] text-foreground font-medium">
                           {d}
                         </span>
@@ -642,14 +735,14 @@ export default function CollegesPage() {
                     </div>
                   </div>
 
-                  <div className="pt-2 border-t border-border flex items-center justify-between text-xs text-muted-foreground">
-                    <span className="flex items-center gap-1 font-semibold text-amber-500/80">
+                  <div className="pt-2 border-t border-border flex items-center justify-between text-xs text-muted-foreground mt-4">
+                    <span className="flex items-center gap-1">
                       <Layers className="w-3.5 h-3.5" />
                       <span>External Origin</span>
                     </span>
                     <Link
-                      href={`/colleges/${encodeURIComponent(col.id)}`}
-                      className="text-amber-500 font-bold flex items-center gap-0.5 hover:underline cursor-pointer"
+                      href={col.isPromoted ? `/colleges/${col.id}` : `/colleges/${encodeURIComponent(col.name)}`}
+                      className="text-amber-500 font-semibold flex items-center gap-0.5 hover:underline cursor-pointer"
                     >
                       Manage Students <ChevronRight className="w-3.5 h-3.5" />
                     </Link>

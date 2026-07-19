@@ -11,8 +11,10 @@ import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { studentLogin, studentGoogleLogin, formatAuthError } from "@/lib/services/auth-service";
 import { setAuthSession } from "@/lib/utils/auth-session";
 import type { Student } from "@/types";
+import { useBranding } from "@/providers/branding-provider";
 
 function LoginContent() {
+  const { branding } = useBranding();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -103,10 +105,18 @@ function LoginContent() {
           <div className="order-1 lg:order-2 lg:col-span-6 p-5 sm:p-8 lg:p-14 flex flex-col justify-between bg-card/40 backdrop-blur-xl">
             <div className="flex items-center justify-between">
               <Link href="/" className="flex items-center gap-2 group">
-                <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-md bg-brand flex items-center justify-center group-hover:scale-105 transition-transform">
-                  <GraduationCap className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
-                </div>
-                <span className="font-bold text-base sm:text-lg text-foreground tracking-tight">{APP_NAME}</span>
+                {branding.logoBase64 ? (
+                  <img
+                    src={branding.logoBase64}
+                    alt="Company Logo"
+                    className="w-8 h-8 sm:w-9 sm:h-9 object-contain rounded-md shrink-0 group-hover:scale-105 transition-transform"
+                  />
+                ) : (
+                  <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-md bg-brand flex items-center justify-center group-hover:scale-105 transition-transform">
+                    <GraduationCap className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+                  </div>
+                )}
+                <span className="font-bold text-base sm:text-lg text-foreground tracking-tight">{branding.companyName || APP_NAME}</span>
               </Link>
               <span className="text-[10px] sm:text-xs text-muted-foreground">Student SSO Portal</span>
             </div>

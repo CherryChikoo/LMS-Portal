@@ -1256,7 +1256,7 @@ function getYearBadgeStyle(year?: string) {
                     >
                       <option value="General Cohort">General Cohort</option>
                       {batches.map((b) => (
-                        <option key={b.id} value={b.name}>{b.name}</option>
+                        <option key={b.id} value={b.name}>{b.name || "Unnamed College"}</option>
                       ))}
                     </select>
                   </div>
@@ -1388,7 +1388,7 @@ function getYearBadgeStyle(year?: string) {
                     >
                       <option value="General Cohort">General Cohort</option>
                       {batches.map((b) => (
-                        <option key={b.id} value={b.name}>{b.name}</option>
+                        <option key={b.id} value={b.name}>{b.name || "Unnamed College"}</option>
                       ))}
                     </select>
                   </div>

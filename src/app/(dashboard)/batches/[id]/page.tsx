@@ -548,9 +548,7 @@ export default function BatchDetailPage({ params }: PageProps) {
                   >
                     <option value="ALL">All Colleges</option>
                     {colleges.map((c) => (
-                      <option key={c.id} value={c.name}>
-                        {c.name}
-                      </option>
+                      <option key={c.id} value={c.name}>{c.name || "Unnamed College"}</option>
                     ))}
                   </select>
 

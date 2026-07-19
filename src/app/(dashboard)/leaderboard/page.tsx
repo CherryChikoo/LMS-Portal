@@ -150,7 +150,7 @@ function LeaderboardContent() {
               <SelectContent>
                 <SelectItem value="all">All Colleges</SelectItem>
                 {colleges.map(c => (
-                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  <SelectItem key={c.id} value={c.id}>{c.name === c.id ? "Unknown" : c.name || "Unknown"}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -196,8 +196,8 @@ function LeaderboardContent() {
                     )}
                   </h4>
                   <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
-                    <span className="flex items-center gap-1"><Building2 className="w-3 h-3" /> {r.student.collegeName}</span>
-                    <span className="flex items-center gap-1"><GraduationCap className="w-3 h-3" /> {r.student.department}</span>
+                    <span className="flex items-center gap-1"><Building2 className="w-3 h-3" /> {r.student.collegeName === r.student.collegeId ? "Unknown College" : (r.student.collegeName || "No College")}</span>
+                    <span className="flex items-center gap-1"><GraduationCap className="w-3 h-3" /> {r.student.department || "No Department"}</span>
                   </div>
                 </div>
 

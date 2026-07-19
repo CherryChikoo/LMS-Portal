@@ -967,9 +967,7 @@ function StudentsContent() {
                     >
                       <option value="GLOBAL">Global Institute</option>
                       {colleges.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
+                        <option key={c.id} value={c.id}>{c.name || "Unnamed College"}</option>
                       ))}
                     </select>
                   </div>
@@ -1051,14 +1049,10 @@ function StudentsContent() {
                       <option value="General Cohort">General Cohort</option>
                       {addModalBatches.length === 0
                         ? batches.map((b) => (
-                            <option key={b.id} value={b.name}>
-                              {b.name}
-                            </option>
+                            <option key={b.id} value={b.name}>{b.name || "Unnamed Batch"}</option>
                           ))
                         : addModalBatches.map((b) => (
-                            <option key={b.id} value={b.name}>
-                              {b.name}
-                            </option>
+                            <option key={b.id} value={b.name}>{b.name || "Unnamed Batch"}</option>
                           ))}
                     </select>
                   </div>
@@ -1135,9 +1129,7 @@ function StudentsContent() {
                     >
                       <option value="GLOBAL">Global Institute</option>
                       {colleges.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
+                        <option key={c.id} value={c.id}>{c.name || "Unnamed College"}</option>
                       ))}
                     </select>
                   </div>
@@ -1208,14 +1200,10 @@ function StudentsContent() {
                       <option value="General Cohort">General Cohort</option>
                       {editModalBatches.length === 0
                         ? batches.map((b) => (
-                            <option key={b.id} value={b.name}>
-                              {b.name}
-                            </option>
+                            <option key={b.id} value={b.name}>{b.name || "Unnamed Batch"}</option>
                           ))
                         : editModalBatches.map((b) => (
-                            <option key={b.id} value={b.name}>
-                              {b.name}
-                            </option>
+                            <option key={b.id} value={b.name}>{b.name || "Unnamed Batch"}</option>
                           ))}
                     </select>
                   </div>
