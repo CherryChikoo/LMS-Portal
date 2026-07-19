@@ -131,6 +131,10 @@ export default function CollegesPage() {
         initialPassword: promotePassword,
         loginEnabled: true,
         origin: promotingExternal.name === "Global Institute" ? "global" : "self_registered",
+        studentCount: 0,
+        status: "active",
+        createdAt: new Date(),
+        updatedAt: new Date(),
       });
       
       await fetchColleges();
