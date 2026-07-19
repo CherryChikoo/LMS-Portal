@@ -145,7 +145,9 @@ function LeaderboardContent() {
           <div className="w-full sm:w-64 shrink-0">
             <Select value={filterCollege} onValueChange={(val) => setFilterCollege(val || "all")}>
               <SelectTrigger className="h-10 bg-background border-border">
-                <SelectValue placeholder="All Colleges" />
+                <SelectValue placeholder="All Colleges">
+                  {filterCollege === "all" ? "All Colleges" : (colleges.find(c => c.id === filterCollege)?.name || "Unknown College")}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Colleges</SelectItem>
