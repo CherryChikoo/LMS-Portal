@@ -40,10 +40,7 @@ export default function CollegesPage() {
   const [editExternalName, setEditExternalName] = useState("");
   const [updatingExternal, setUpdatingExternal] = useState(false);
 
-  const [promotingExternal, setPromotingExternal] = useState<{ name: string; departments: string[] } | null>(null);
-  const [promoteAdminEmail, setPromoteAdminEmail] = useState("");
-  const [promotePassword, setPromotePassword] = useState("");
-  const [promoting, setPromoting] = useState(false);
+
 
   const fetchColleges = async () => {
     setLoading(true);
@@ -61,12 +58,9 @@ export default function CollegesPage() {
       }));
 
       const officialSet = new Set([
-        ...computedColleges.map((c) => c.id?.toLowerCase()).filter(Boolean),
-        ...computedColleges.map((c) => c.name?.toLowerCase()).filter(Boolean),
+        ...collegesData.map((c) => c.id?.toLowerCase()).filter(Boolean),
+        ...collegesData.map((c) => c.name?.toLowerCase()).filter(Boolean),
       ]);
-
-      const officialColleges = computedColleges.filter(c => !c.origin || c.origin === "trainer");
-      const promotedColleges = computedColleges.filter(c => c.origin === "self_registered" || c.origin === "global");
 
       const externalMap = new Map<string, { name: string; students: Student[] }>();
       studentsData.forEach((s) => {
@@ -86,25 +80,15 @@ export default function CollegesPage() {
         }
       });
 
-      const dynamicExternal = Array.from(externalMap.values()).map((ext) => ({
+      const computedExternal = Array.from(externalMap.values()).map((ext) => ({
         id: ext.name,
         name: ext.name,
         studentCount: ext.students.length,
         departments: Array.from(new Set(ext.students.map((s) => s.department).filter(Boolean))),
-        isPromoted: false,
       }));
 
-      const promotedExternal = promotedColleges.map(c => ({
-        id: c.id,
-        name: c.name,
-        studentCount: c.studentCount,
-        departments: c.departments,
-        isPromoted: true,
-        collegeData: c,
-      }));
-
-      setColleges(officialColleges);
-      setExternalColleges([...promotedExternal, ...dynamicExternal]);
+      setColleges(computedColleges);
+      setExternalColleges(computedExternal);
     } catch (err) {
       console.error("Failed to fetch colleges data", err);
     } finally {
@@ -112,41 +96,7 @@ export default function CollegesPage() {
     }
   };
 
-  const handlePromoteExternalCollege = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!promotingExternal) return;
-    
-    setPromoting(true);
-    try {
-      const generateCode = (n: string) => {
-        const clean = n.replace(/[^a-zA-Z0-9]/g, "");
-        return (clean.substring(0, 3) || "EXT").toUpperCase() + Math.floor(100 + Math.random() * 900);
-      };
-      
-      await createCollege({
-        name: promotingExternal.name,
-        code: generateCode(promotingExternal.name),
-        departments: promotingExternal.departments.length > 0 ? promotingExternal.departments : ["General"],
-        adminEmail: promoteAdminEmail,
-        initialPassword: promotePassword,
-        loginEnabled: true,
-        origin: promotingExternal.name === "Global Institute" ? "global" : "self_registered",
-        studentCount: 0,
-        status: "active",
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-      
-      await fetchColleges();
-      setPromotingExternal(null);
-      setPromoteAdminEmail("");
-      setPromotePassword("");
-    } catch (err) {
-      console.error("Failed to enable college login:", err);
-    } finally {
-      setPromoting(false);
-    }
-  };
+
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial data load on mount
@@ -228,6 +178,7 @@ export default function CollegesPage() {
           await Promise.all(studentsToDelete.map((s) => deleteStudentProfile(s.id)));
           setSelectedExternalIds((prev) => prev.filter((id) => id !== extName));
           await fetchColleges();
+          window.alert(`Outside institution "${extName}" was deleted successfully.`);
           window.location.reload();
         } catch (err) {
           console.error("Failed to delete outside institution:", err);
@@ -251,6 +202,7 @@ export default function CollegesPage() {
           await Promise.all(studentsToDelete.map((s) => deleteStudentProfile(s.id)));
           setSelectedExternalIds([]);
           await fetchColleges();
+          window.alert(`${selectedExternalIds.length} outside institution(s) were deleted successfully.`);
           window.location.reload();
         } catch (err) {
           console.error("Failed to delete selected outside institutions:", err);
@@ -275,6 +227,7 @@ export default function CollegesPage() {
           await Promise.all(studentsToDelete.map((s) => deleteStudentProfile(s.id)));
           setSelectedExternalIds([]);
           await fetchColleges();
+          window.alert("All outside institutions were deleted successfully.");
           window.location.reload();
         } catch (err) {
           console.error("Failed to delete all outside institutions:", err);
@@ -627,9 +580,8 @@ export default function CollegesPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {externalColleges.map((col) => {
               const isSelected = selectedExternalIds.includes(col.name);
-              const isGlobal = col.name === "Global Institute" || col.collegeData?.origin === "global";
+              const isGlobal = col.name === "Global Institute";
               const badgeLabel = isGlobal ? "Global" : "Self-Registered";
-              const cData = col.collegeData;
 
               return (
                 <motion.div
@@ -659,86 +611,27 @@ export default function CollegesPage() {
                       </div>
 
                       <div className="flex items-center gap-1">
-                        {col.isPromoted && cData ? (
-                          <>
-                            {cData.loginEnabled && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleToggleCollegeStatus(cData)}
-                                className={`h-8 px-2.5 text-xs font-semibold rounded-lg ${
-                                  cData.status === "restricted"
-                                    ? "text-rose-500 bg-rose-500/10 hover:bg-rose-500/20"
-                                    : "text-amber-500 bg-amber-500/10 hover:bg-amber-500/20"
-                                }`}
-                                title={cData.status === "restricted" ? "Restore Access" : "Restrict Access"}
-                              >
-                                {cData.status === "restricted" ? "Restricted" : "Restrict"}
-                              </Button>
-                            )}
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setEditingCollege(cData);
-                                setEditCollegeName(cData.name);
-                                setEditAdminEmail(cData.adminEmail || "");
-                                setEditInitialPassword(cData.initialPassword || "");
-                                setEditLoginEnabled(cData.loginEnabled || false);
-                              }}
-                              className="h-8 w-8 p-0 text-amber-500 hover:text-amber-600 hover:bg-amber-500/10 rounded-lg"
-                              title="Edit Login Settings"
-                            >
-                              <Pencil className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDeleteAdminCollege(cData)}
-                              className="h-8 w-8 p-0 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10 rounded-lg"
-                              title="Delete College Document"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </>
-                        ) : (
-                          <>
-                            <Button
-                              variant="default"
-                              size="sm"
-                              onClick={() => {
-                                setPromotingExternal({ name: col.name, departments: col.departments || [] });
-                                setPromoteAdminEmail("");
-                                setPromotePassword("");
-                              }}
-                              className="h-8 px-3 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs flex items-center gap-1.5 shadow"
-                            >
-                              <Plus className="w-3 h-3" />
-                              <span>Enable Login</span>
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setEditingExternal({ id: col.id, name: col.name });
-                                setEditExternalName(col.name);
-                              }}
-                              className="h-8 w-8 p-0 text-amber-500 hover:text-amber-600 hover:bg-amber-500/10 rounded-lg"
-                              title="Rename Institution"
-                            >
-                              <Pencil className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDeleteExternalCollege(col.name)}
-                              className="h-8 w-8 p-0 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10 rounded-lg"
-                              title="Delete Institution"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </>
-                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setEditingExternal({ id: col.id, name: col.name });
+                            setEditExternalName(col.name);
+                          }}
+                          className="h-8 w-8 p-0 text-amber-500 hover:text-amber-600 hover:bg-amber-500/10 rounded-lg"
+                          title="Rename Institution"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeleteExternalCollege(col.name)}
+                          className="h-8 w-8 p-0 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10 rounded-lg"
+                          title="Delete Institution"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
                       </div>
                     </div>
                     
