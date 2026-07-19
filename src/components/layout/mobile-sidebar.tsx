@@ -22,15 +22,7 @@ import { subscribeToCompanyBranding, type CompanyBranding } from "@/lib/services
 export function MobileSidebar() {
   const pathname = usePathname();
   const { isMobileOpen, closeMobile } = useSidebar();
-  const [userRole, setUserRole] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    try {
-      const role = localStorage.getItem("lms_role");
-      return role ? role.toLowerCase() : null;
-    } catch {
-      return null;
-    }
-  });
+  const [userRole, setUserRole] = useState<string | null>(null);
 
   const [branding, setBranding] = useState<CompanyBranding>({
     companyName: APP_NAME,
@@ -97,7 +89,7 @@ export function MobileSidebar() {
 
   return (
     <Sheet open={isMobileOpen} onOpenChange={closeMobile}>
-      <SheetContent side="left" className="w-[300px] p-0 bg-sidebar backdrop-blur-2xl text-foreground flex flex-col border-0">
+      <SheetContent side="left" className="w-[300px] p-0 bg-sidebar backdrop-blur-2xl text-foreground flex flex-col border-0" style={{ fontFamily: '"Montserrat", sans-serif' }}>
         {/* Logo */}
         <div className="flex items-center h-20 px-5 shrink-0 border-b border-border/30">
           <Link href="/" className="flex items-center gap-3 overflow-hidden flex-1" onClick={closeMobile}>

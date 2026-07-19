@@ -494,7 +494,7 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
               <Button onClick={() => {
                 const prefix = typeof window !== "undefined" && window.location.pathname.startsWith("/admin") ? "/admin" : "/student";
                 router.push(`${prefix}/results`);
-              }} className="w-full h-11 rounded-xl bg-brand hover:bg-brand/90 text-white font-bold">
+              }} className="w-full h-11 rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground font-bold">
                 View Transcript & Results
               </Button>
             ) : null}
@@ -669,7 +669,7 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
             <Button
               onClick={() => navigateToQuestion(currentIdx + 1)}
               disabled={currentIdx === questions.length - 1}
-              className="h-11 px-6 rounded-xl bg-brand hover:bg-brand/90 text-white font-bold shadow-md disabled:opacity-40 outline-none focus:outline-none"
+              className="h-11 px-6 rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground font-bold shadow-md disabled:opacity-40 outline-none focus:outline-none"
             >
               Save & Next <ArrowRight className="w-4 h-4 ml-2" />
             </Button>

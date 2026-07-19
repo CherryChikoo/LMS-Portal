@@ -59,8 +59,8 @@ export default function CollegeLoginPage() {
       className="double-bezel-outer w-full p-2 sm:p-3"
     >
       <div className="double-bezel-inner grid grid-cols-1 lg:grid-cols-12 overflow-hidden min-h-[480px] sm:min-h-[560px] lg:min-h-[640px]">
-        {/* Left Canvas - Purple / Red Theme */}
-        <div className="lg:col-span-6 relative p-5 sm:p-8 lg:p-12 flex flex-col justify-between overflow-hidden bg-zinc-950 text-white min-h-[160px] sm:min-h-[200px]">
+        {/* Left Canvas - Purple / Red Theme (Hidden on mobile) */}
+        <div className="hidden lg:flex lg:col-span-6 relative p-5 sm:p-8 lg:p-12 flex-col justify-between overflow-hidden bg-zinc-950 text-white min-h-[160px] sm:min-h-[200px]">
           <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
             <div className="absolute -top-24 -left-24 w-96 h-96 bg-gradient-to-br from-blue-600/40 via-cyan-500/25 to-transparent rounded-full blur-3xl animate-pulse" />
             <div className="absolute top-1/3 -right-20 w-80 h-80 bg-gradient-to-tr from-sky-600/30 via-indigo-500/20 to-transparent rounded-full blur-2xl" />
@@ -129,7 +129,7 @@ export default function CollegeLoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  className="w-full h-10 sm:h-11 min-h-[44px] px-3 sm:px-4 rounded-xl border border-border bg-card/50 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                  className="w-full h-10 sm:h-11 min-h-[44px] px-3 sm:px-4 rounded-xl border border-white/10 dark:border-white/10 bg-card/50 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                   placeholder="Enter college admin email"
                 />
               </div>
@@ -144,7 +144,7 @@ export default function CollegeLoginPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
-                    className="w-full h-10 sm:h-11 min-h-[44px] pl-3 sm:pl-4 pr-11 rounded-xl border border-border bg-card/50 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                    className="w-full h-10 sm:h-11 min-h-[44px] pl-3 sm:pl-4 pr-11 rounded-xl border border-white/10 dark:border-white/10 bg-card/50 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                     placeholder="••••••••"
                   />
                   <button
@@ -164,7 +164,7 @@ export default function CollegeLoginPage() {
                   className={`w-4 h-4 rounded flex items-center justify-center border transition-colors ${
                     rememberMe
                       ? "bg-gradient-to-r from-blue-600 to-cyan-600 border-blue-600 text-white"
-                      : "border-border/60 bg-transparent"
+                      : "border-white/10 dark:border-white/10 bg-transparent"
                   }`}
                 >
                   {rememberMe && <Check className="w-3 h-3 stroke-[3]" />}

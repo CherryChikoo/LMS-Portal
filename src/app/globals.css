@@ -147,7 +147,7 @@
   --ring: #10B981;
 
   --brand: #10B981;
-  --brand-foreground: #000000;
+  --brand-foreground: #FFFFFF;
   --brand-muted: rgba(16, 185, 129, 0.15);
 
   --success: #10B981;
@@ -235,6 +235,14 @@
   /* Active Navigation Indicator */
   .nav-active {
     @apply bg-brand text-white dark:text-black font-semibold rounded-lg;
+  }
+
+  /* Brand Buttons Global Border Fix */
+  button.bg-brand, a.bg-brand {
+    border: 1px solid rgba(255, 255, 255, 0.25);
+  }
+  .dark button.bg-brand, .dark a.bg-brand {
+    border-color: rgba(0, 0, 0, 0.15);
   }
 }
 

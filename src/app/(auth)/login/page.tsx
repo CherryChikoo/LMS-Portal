@@ -134,7 +134,7 @@ function LoginContent() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
-                    className="w-full h-10 sm:h-11 min-h-[44px] px-3 sm:px-4 rounded-xl border border-border bg-card/50 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-brand/50"
+                    className="w-full h-10 sm:h-11 min-h-[44px] px-3 sm:px-4 rounded-xl border border-white/10 dark:border-white/10 bg-card/50 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-brand/50"
                     placeholder="student@college.edu"
                   />
                 </div>
@@ -149,7 +149,7 @@ function LoginContent() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       required
-                      className="w-full h-10 sm:h-11 min-h-[44px] pl-3 sm:pl-4 pr-11 rounded-xl border border-border bg-card/50 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-brand/50"
+                      className="w-full h-10 sm:h-11 min-h-[44px] pl-3 sm:pl-4 pr-11 rounded-xl border border-white/10 dark:border-white/10 bg-card/50 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-brand/50"
                       placeholder="••••••••"
                     />
                     <button
@@ -186,7 +186,7 @@ function LoginContent() {
                   <Button
                     type="submit"
                     disabled={loading}
-                    className="w-full h-10 sm:h-11 min-h-[44px] rounded-md bg-brand text-white font-medium hover:bg-brand/90 transition-all flex items-center justify-center gap-2 group text-sm sm:text-base"
+                    className="w-full h-10 sm:h-11 min-h-[44px] rounded-xl bg-brand text-brand-foreground font-medium hover:bg-brand/90 transition-all flex items-center justify-center gap-2 group text-sm sm:text-base"
                   >
                     {loading ? (
                       <span className="flex items-center gap-2">
@@ -209,7 +209,7 @@ function LoginContent() {
 
                 <div className="relative my-4">
                   <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-border/60" />
+                    <div className="w-full border-t border-border" />
                   </div>
                   <div className="relative flex justify-center text-xs uppercase">
                     <span className="bg-background px-2 text-muted-foreground font-semibold">Or continue with</span>
@@ -221,7 +221,7 @@ function LoginContent() {
                   variant="outline"
                   onClick={handleGoogleLogin}
                   disabled={loading || googleLoading}
-                  className="w-full h-10 sm:h-11 min-h-[44px] rounded-xl border border-border bg-card hover:bg-muted font-semibold text-foreground flex items-center justify-center gap-2 sm:gap-3 transition-all shadow-sm text-xs sm:text-sm"
+                  className="w-full h-10 sm:h-11 min-h-[44px] rounded-xl border border-white/10 dark:border-white/10 bg-card hover:bg-muted font-semibold text-foreground flex items-center justify-center gap-2 sm:gap-3 transition-all shadow-sm text-xs sm:text-sm"
                 >
                   {googleLoading ? (
                     <span className="flex items-center gap-2 text-xs">
@@ -266,8 +266,8 @@ function LoginContent() {
             </div>
           </div>
 
-          {/* Left Canvas - second on mobile, left on desktop */}
-          <div className="order-2 lg:order-1 lg:col-span-6 relative p-4 sm:p-6 lg:p-12 flex flex-col justify-between overflow-hidden bg-zinc-950 text-white min-h-[120px] sm:min-h-[160px] lg:min-h-[640px]">
+          {/* Left Canvas - hidden on mobile, left on desktop */}
+          <div className="hidden lg:flex order-2 lg:order-1 lg:col-span-6 relative p-4 sm:p-6 lg:p-12 flex-col justify-between overflow-hidden bg-zinc-950 text-white min-h-[120px] sm:min-h-[160px] lg:min-h-[640px]">
             <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
               <div className="absolute -top-24 -left-24 w-96 h-96 bg-gradient-to-br from-emerald-500/40 via-teal-500/20 to-transparent rounded-full blur-3xl animate-pulse" />
               <div className="absolute top-1/3 -right-20 w-80 h-80 bg-gradient-to-tr from-emerald-600/30 via-cyan-500/20 to-transparent rounded-full blur-2xl" />

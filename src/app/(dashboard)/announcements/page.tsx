@@ -101,7 +101,7 @@ export default function AnnouncementsPage() {
         }
         actions={
           !isStudent ? (
-            <Button className="bg-brand hover:bg-brand/90 text-white">
+            <Button className="bg-brand hover:bg-brand/90 text-brand-foreground">
               <Plus className="w-4 h-4 mr-1.5" />
               New Announcement
             </Button>

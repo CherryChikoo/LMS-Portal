@@ -252,9 +252,9 @@ export function AcademicHierarchyFilters({
   };
 
   return (
-    <div className="space-y-3 w-full">
+    <div className="space-y-4 w-full">
       {hasBatchLevel && (
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-muted/30 border border-border/80 text-xs font-medium text-foreground shadow-sm">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 rounded-2xl bg-secondary/50 border border-border/80 text-sm font-medium text-foreground shadow-sm">
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-brand animate-pulse" />
             <span className="font-bold tracking-tight">Batch Filtering Mode</span>
@@ -266,7 +266,7 @@ export function AcademicHierarchyFilters({
               onChange={(e) => handleToggleDisableRemaining(e.target.checked)}
               className="rounded border-border text-brand focus:ring-brand/50 w-4 h-4 cursor-pointer"
             />
-            <span className="text-muted-foreground hover:text-foreground transition-colors font-semibold">
+            <span className="text-muted-foreground hover:text-foreground transition-colors font-medium">
               Disable remaining hierarchy filters (College, Dept, Year, Section)
             </span>
           </label>
@@ -315,7 +315,7 @@ export function AcademicHierarchyFilters({
               <label
                 htmlFor={id}
                 className={cn(
-                  "text-[11px] font-bold text-muted-foreground uppercase tracking-wider px-1",
+                  "text-[10px] font-bold text-muted-foreground uppercase tracking-wider px-1",
                   labelClassName
                 )}
               >
@@ -338,8 +338,8 @@ export function AcademicHierarchyFilters({
                   onChange(change);
                 }}
                 className={cn(
-                  "h-10 px-3 rounded-xl bg-background border border-border text-xs font-bold text-foreground focus:outline-none focus:border-brand w-full",
-                  isDisabled && "opacity-60 cursor-not-allowed",
+                  "h-11 px-3.5 rounded-2xl bg-background border border-border text-sm font-semibold text-foreground focus:outline-none focus:border-brand w-full focus:ring-2 focus:ring-brand/20 transition-all",
+                  isDisabled && "opacity-50 cursor-not-allowed bg-muted/50",
                   selectClassName
                 )}
               >

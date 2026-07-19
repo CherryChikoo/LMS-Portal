@@ -111,35 +111,32 @@ export function Topbar() {
   return (
     <header
       className={`sticky top-0 z-30 h-20 flex items-center justify-between gap-4 px-4 sm:px-6 lg:px-8 transition-all duration-300 ${scrolled
-        ? "bg-background/95 backdrop-blur-2xl border-b border-border"
-        : "bg-background border-b border-transparent"
+        ? "bg-background/95 backdrop-blur-2xl border-b border-border shadow-sm"
+        : "bg-background border-b border-border"
         }`}
     >
       {/* Left / Mobile menu button */}
       <div className="flex items-center gap-3 flex-1 max-w-xl">
-        {isMobile ? (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={openMobile}
+          className="lg:hidden text-muted-foreground hover:text-foreground rounded-xl border border-border flex shrink-0 items-center justify-center"
+        >
+          <Menu className="w-5 h-5" />
+        </Button>
+        <div className="hidden lg:flex items-center gap-4">
           <Button
             variant="ghost"
             size="icon"
-            onClick={openMobile}
-            className="lg:hidden text-muted-foreground hover:text-foreground rounded-xl border border-border"
+            onClick={toggle}
+            className="text-foreground hover:bg-accent rounded-lg flex shrink-0 items-center justify-center"
           >
-            <Menu className="w-5 h-5" />
+            <PanelLeft className="w-5 h-5" />
           </Button>
-        ) : (
-          <div className="hidden lg:flex items-center gap-4">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={toggle}
-              className="text-foreground hover:bg-accent rounded-lg"
-            >
-              <PanelLeft className="w-5 h-5" />
-            </Button>
-            <div className="w-px h-5 bg-border mx-1"></div>
-            <h2 className="text-base font-bold text-foreground">{pageTitle}</h2>
-          </div>
-        )}
+          <div className="w-px h-5 bg-border mx-1"></div>
+          <h2 className="text-base font-bold text-foreground">{pageTitle}</h2>
+        </div>
       </div>
 
       {/* Right Actions */}
@@ -149,7 +146,7 @@ export function Topbar() {
           <Link href={userRole.toLowerCase() === "college_admin" || userRole.toLowerCase() === "administrator" ? "/admin/exams" : "/exams"} className="hidden md:block">
             <Button
               size="sm"
-              className="h-10 px-4 rounded-xl bg-brand text-white dark:text-black font-medium border border-white/20 dark:border-black/10 shadow-none hover:opacity-95 transition-all flex items-center gap-2"
+              className="h-10 px-4 rounded-xl bg-brand text-brand-foreground dark:text-brand-foreground font-medium border border-white/20 dark:border-black/10 shadow-none hover:opacity-95 transition-all flex items-center gap-2"
             >
               <Sparkles className="w-4 h-4" />
               <span>Quick Assessment</span>
@@ -163,7 +160,7 @@ export function Topbar() {
             variant="ghost"
             size="icon"
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            className="h-10 w-10 rounded-xl border border-white/10 bg-secondary hover:bg-accent text-foreground"
+            className="h-10 w-10 rounded-full border border-border bg-secondary hover:bg-accent text-foreground"
           >
             {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </Button>
@@ -175,11 +172,11 @@ export function Topbar() {
             render={
               <Button
                 variant="ghost"
-                className="h-11 pl-2 pr-3 rounded-xl bg-secondary border-0 hover:bg-accent transition-all flex items-center gap-2.5 shadow-none"
+                className="h-11 pl-2 pr-4 rounded-full bg-secondary border border-border hover:bg-accent transition-all flex items-center gap-2.5 shadow-none"
               >
                 <Avatar className="h-7 w-7 ring-2 ring-brand/30">
                   <AvatarImage src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(userName)}`} />
-                  <AvatarFallback className="bg-brand text-white dark:text-black text-xs font-bold">
+                  <AvatarFallback className="bg-brand text-brand-foreground dark:text-brand-foreground text-xs font-bold">
                     {initials}
                   </AvatarFallback>
                 </Avatar>

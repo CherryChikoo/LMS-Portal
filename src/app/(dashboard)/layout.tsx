@@ -1,9 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { motion } from "motion/react";
 import { useSidebar } from "@/hooks/use-sidebar";
-import { useIsDesktop } from "@/hooks/use-media-query";
 import { Sidebar } from "@/components/layout/sidebar";
 import { MobileSidebar } from "@/components/layout/mobile-sidebar";
 import { Topbar } from "@/components/layout/topbar";
@@ -15,8 +13,7 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { width } = useSidebar();
-  const isDesktop = useIsDesktop();
+  const { isExpanded } = useSidebar();
   // Used to throttle the storage event dispatch to at most once per 2 seconds.
   const lastDispatchRef = useRef<number>(0);
 
@@ -171,18 +168,16 @@ export default function DashboardLayout({
       <MobileSidebar />
 
       {/* Main content area */}
-      <motion.div
-        className="flex-1 flex flex-col min-h-[100dvh] relative z-10"
-        animate={{
-          marginLeft: isDesktop ? width : 0,
-        }}
-        transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+      <div
+        className={`flex-1 flex flex-col min-h-[100dvh] relative z-10 transition-[margin] duration-300 ease-in-out ${
+          isExpanded ? "lg:ml-[260px]" : "lg:ml-[80px]"
+        }`}
       >
         <Topbar />
         <main className="flex-1 p-5 sm:p-7 lg:p-9 lg:pb-16 pb-20 max-w-[1600px] w-full mx-auto">
           {children}
         </main>
-      </motion.div>
+      </div>
     </div>
   );
 }

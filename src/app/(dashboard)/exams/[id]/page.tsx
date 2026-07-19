@@ -610,7 +610,7 @@ function StudentExamDetails({ exam, studentUser, studentChecked, nowMs }: Studen
           <Button
             onClick={() => router.push(`/student/exams/${exam.id}/take`)}
             disabled={!canStart}
-            className="bg-brand hover:bg-brand/90 text-white font-bold h-11 px-6 rounded-xl shadow-md flex items-center gap-2"
+            className="bg-brand hover:bg-brand/90 text-brand-foreground font-bold h-11 px-6 rounded-xl shadow-md flex items-center gap-2"
           >
             <Play className="w-4 h-4 fill-white" />
             Start Assessment
@@ -808,7 +808,7 @@ function TrainerExamDetails({
             </Button>
             <Button
               onClick={() => router.push(`${getBackHref().replace(/\/exams$/, "")}/exams/${exam.id}/edit`)}
-              className="bg-brand hover:bg-brand/90 text-white"
+              className="bg-brand hover:bg-brand/90 text-brand-foreground"
             >
               <Edit3 className="w-4 h-4 mr-2" />
               Edit

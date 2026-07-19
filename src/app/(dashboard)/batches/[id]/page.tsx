@@ -349,7 +349,7 @@ export default function BatchDetailPage({ params }: PageProps) {
           />
         </div>
 
-        <Button onClick={() => setShowAddModal(true)} className="gap-2 bg-brand hover:bg-brand/90 text-white shadow-lg shadow-brand/20">
+        <Button onClick={() => setShowAddModal(true)} className="gap-2 bg-brand hover:bg-brand/90 text-brand-foreground shadow-lg shadow-brand/20">
           <UserPlus className="w-4 h-4" /> Add Students from Colleges
         </Button>
       </div>
@@ -614,7 +614,7 @@ export default function BatchDetailPage({ params }: PageProps) {
                       size="sm"
                       disabled={bulkAdding}
                       onClick={handleBulkAddToBatch}
-                      className="h-8 px-4 rounded-xl bg-brand hover:bg-brand/90 text-white text-xs font-bold gap-1.5 shadow-lg shadow-brand/20"
+                      className="h-8 px-4 rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground text-xs font-bold gap-1.5 shadow-lg shadow-brand/20"
                     >
                       <UserPlus className="w-3.5 h-3.5" />
                       {bulkAdding
@@ -678,7 +678,7 @@ export default function BatchDetailPage({ params }: PageProps) {
                             e.stopPropagation();
                             handleAddStudentToBatch(stud);
                           }}
-                          className="h-8 px-3 rounded-xl bg-brand hover:bg-brand/90 text-white text-xs font-bold shrink-0 gap-1"
+                          className="h-8 px-3 rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground text-xs font-bold shrink-0 gap-1"
                         >
                           {addingId === stud.id ? "Adding..." : "+ Add"}
                         </Button>

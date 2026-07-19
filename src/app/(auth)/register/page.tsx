@@ -211,7 +211,7 @@ export default function RegisterPage() {
               </div>
               <div className="pt-4">
                 <Link href="/login">
-                  <Button className="w-full bg-brand text-white hover:bg-brand/90 h-11">
+                  <Button className="w-full bg-brand text-brand-foreground hover:bg-brand/90 h-11">
                     Return to Student Sign In
                   </Button>
                 </Link>
@@ -330,7 +330,7 @@ export default function RegisterPage() {
                   <Button
                     type="submit"
                     disabled={loading}
-                    className="w-full h-11 rounded-xl bg-brand text-white font-semibold hover:bg-brand/90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-brand/20"
+                    className="w-full h-11 rounded-xl bg-brand text-brand-foreground font-semibold hover:bg-brand/90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-brand/20"
                   >
                     {loading ? (
                       <span className="flex items-center gap-2">
@@ -538,7 +538,7 @@ export default function RegisterPage() {
                   <Button
                     type="submit"
                     disabled={loading}
-                    className="w-full h-11 rounded-xl bg-brand text-white font-semibold hover:bg-brand/90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-brand/20"
+                    className="w-full h-11 rounded-xl bg-brand text-brand-foreground font-semibold hover:bg-brand/90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-brand/20"
                   >
                     {loading ? (
                       <span className="flex items-center gap-2">

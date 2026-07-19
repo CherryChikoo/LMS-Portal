@@ -560,7 +560,7 @@ export default function ResultsPage() {
                   variant="default"
                   size="sm"
                   disabled={filteredAttempts.length === 0}
-                  className="h-9 px-4 bg-brand hover:bg-brand/90 text-white font-bold flex items-center gap-1.5 shadow-sm"
+                  className="h-9 px-4 bg-brand hover:bg-brand/90 text-brand-foreground font-bold flex items-center gap-1.5 shadow-sm"
                 >
                   <Download className="w-3.5 h-3.5" />
                   Export Results
@@ -1008,7 +1008,7 @@ export default function ResultsPage() {
                     View Answer Sheet
                   </Button>
                 )}
-                <Button onClick={() => setSelectedAttempt(null)} className="bg-brand text-white font-bold px-6">
+                <Button onClick={() => setSelectedAttempt(null)} className="bg-brand text-brand-foreground font-bold px-6">
                   Close Breakdown
                 </Button>
               </div>

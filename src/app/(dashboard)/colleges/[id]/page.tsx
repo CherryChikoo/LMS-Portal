@@ -640,7 +640,7 @@ function getYearBadgeStyle(year?: string) {
                 setEnrollError(null);
                 setShowEnrollModal(true);
               }}
-              className="bg-brand hover:bg-brand/90 text-white flex items-center gap-2 text-xs"
+              className="bg-brand hover:bg-brand/90 text-brand-foreground flex items-center gap-2 text-xs"
             >
               <Plus className="w-4 h-4" />
               <span>Enroll Student in College</span>
@@ -1067,7 +1067,7 @@ function getYearBadgeStyle(year?: string) {
                 )}
                 <div className="flex justify-end gap-2 pt-2 border-t border-border">
                   <Button type="button" variant="outline" onClick={() => setShowAddDeptModal(false)}>Cancel</Button>
-                  <Button type="submit" disabled={addingDept} className="bg-brand text-white">
+                  <Button type="submit" disabled={addingDept} className="bg-brand text-brand-foreground">
                     {addingDept ? "Adding..." : "Add Department"}
                   </Button>
                 </div>
@@ -1133,7 +1133,7 @@ function getYearBadgeStyle(year?: string) {
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" disabled={renamingDept} className="bg-brand text-white">
+                  <Button type="submit" disabled={renamingDept} className="bg-brand text-brand-foreground">
                     {renamingDept ? "Saving..." : "Save Changes"}
                   </Button>
                 </div>
@@ -1270,7 +1270,7 @@ function getYearBadgeStyle(year?: string) {
 
                 <div className="flex justify-end gap-2 pt-3 border-t border-border">
                   <Button type="button" variant="outline" onClick={() => setEditingStudent(null)}>Cancel</Button>
-                  <Button type="submit" disabled={savingEditStudent} className="bg-brand text-white">
+                  <Button type="submit" disabled={savingEditStudent} className="bg-brand text-brand-foreground">
                     {savingEditStudent ? "Saving..." : "Save Changes"}
                   </Button>
                 </div>
@@ -1402,7 +1402,7 @@ function getYearBadgeStyle(year?: string) {
 
                 <div className="flex justify-end gap-2 pt-3 border-t border-border">
                   <Button type="button" variant="outline" onClick={() => setShowEnrollModal(false)}>Cancel</Button>
-                  <Button type="submit" disabled={enrolling} className="bg-brand text-white">
+                  <Button type="submit" disabled={enrolling} className="bg-brand text-brand-foreground">
                     {enrolling ? "Enrolling..." : "Enroll Student inside College"}
                   </Button>
                 </div>

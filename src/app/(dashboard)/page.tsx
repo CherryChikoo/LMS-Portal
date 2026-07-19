@@ -122,13 +122,13 @@ function StudentPortalDashboard({
 
             <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 shrink-0">
               <Link href="/exams">
-                <Button className="h-11 px-5 rounded-xl bg-brand hover:bg-brand/90 text-black font-bold transition-all flex items-center gap-2 shadow-none">
+                <Button className="h-11 px-6 rounded-full bg-brand hover:bg-brand/90 text-brand-foreground font-bold transition-all flex items-center gap-2 shadow-none">
                   <PlayCircle className="w-4 h-4 stroke-[2.5]" />
                   <span>Take Assessment</span>
                 </Button>
               </Link>
               <Link href="/resources">
-                <Button variant="outline" className="h-11 px-4 rounded-xl border border-border bg-secondary hover:bg-accent text-foreground font-semibold transition-all shadow-none">
+                <Button variant="outline" className="h-11 px-5 rounded-full border border-border bg-secondary hover:bg-accent text-foreground font-semibold transition-all shadow-none">
                   <BookOpen className="w-4 h-4 mr-2" />
                   <span>Study Notes</span>
                 </Button>
@@ -231,7 +231,7 @@ function StudentPortalDashboard({
                         </Link>
                       ) : status === "active" ? (
                         <Link href={`/exams/${ex.id}/take`}>
-                          <Button size="sm" className="w-full sm:w-auto bg-brand hover:bg-brand/90 text-white font-bold text-xs rounded-lg px-4">
+                          <Button size="sm" className="w-full sm:w-auto bg-brand hover:bg-brand/90 text-brand-foreground font-bold text-xs rounded-lg px-4">
                             Launch Assessment <PlayCircle className="w-3.5 h-3.5 ml-1.5" />
                           </Button>
                         </Link>
@@ -531,14 +531,14 @@ export default function DashboardPage() {
           <Button
             variant="ghost"
             onClick={() => router.push("/admin/students")}
-            className="h-11 px-5 rounded-xl border border-white/10 bg-transparent text-foreground hover:bg-white/5 font-semibold transition-all flex items-center gap-2"
+            className="h-11 px-5 rounded-xl border border-border bg-transparent text-foreground hover:bg-accent font-semibold transition-all flex items-center gap-2"
           >
             <GraduationCap className="w-4 h-4" />
             <span>Students</span>
           </Button>
           <Button
             onClick={() => router.push("/admin/exams")}
-            className="h-11 px-5 rounded-xl bg-brand hover:bg-brand/90 text-black font-bold transition-all flex items-center gap-2 shadow-none border-0"
+            className="h-11 px-5 rounded-xl bg-brand hover:bg-brand/90 text-primary-foreground font-bold transition-all flex items-center gap-2 shadow-sm border border-white/20 dark:border-black/10"
           >
             <Plus className="w-4 h-4 stroke-[3]" />
             <span>Create Assessment</span>
@@ -628,45 +628,45 @@ export default function DashboardPage() {
         
         {/* Quick Actions (Left Column) */}
         <motion.div variants={staggerContainer} className="lg:col-span-2">
-          <div className="rounded-2xl border border-border/40 bg-card/30 p-6 h-full flex flex-col">
+          <div className="rounded-2xl border border-border bg-card/50 shadow-sm p-6 h-full flex flex-col">
             <h2 className="text-xl font-bold font-heading mb-6">Quick Actions</h2>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 flex-1">
-            <GlassCard 
-              className="p-6 h-36 flex flex-col justify-between cursor-pointer hover:border-purple-500/50 transition-colors group"
+            <div 
+              className="p-6 h-36 rounded-2xl bg-purple-500/5 border border-purple-500/20 flex flex-col justify-between cursor-pointer hover:bg-purple-500/10 transition-colors group"
               onClick={() => router.push("/admin/exams")}
             >
               <div className="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-500 flex items-center justify-center group-hover:scale-110 transition-transform">
                 <FileText className="w-5 h-5" />
               </div>
-              <span className="font-bold text-sm">Create Assessment</span>
-            </GlassCard>
+              <span className="font-bold text-sm text-foreground">Create Assessment</span>
+            </div>
 
-            <GlassCard 
-              className="p-6 h-36 flex flex-col justify-between cursor-pointer hover:border-blue-500/50 transition-colors group"
+            <div 
+              className="p-6 h-36 rounded-2xl bg-blue-500/5 border border-blue-500/20 flex flex-col justify-between cursor-pointer hover:bg-blue-500/10 transition-colors group"
               onClick={() => router.push("/admin/resources")}
             >
               <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-500 flex items-center justify-center group-hover:scale-110 transition-transform">
                 <FolderOpen className="w-5 h-5" />
               </div>
-              <span className="font-bold text-sm">Share Resources</span>
-            </GlassCard>
+              <span className="font-bold text-sm text-foreground">Share Resources</span>
+            </div>
 
-            <GlassCard 
-              className="p-6 h-36 flex flex-col justify-between cursor-pointer hover:border-emerald-500/50 transition-colors group"
+            <div 
+              className="p-6 h-36 rounded-2xl bg-emerald-500/5 border border-emerald-500/20 flex flex-col justify-between cursor-pointer hover:bg-emerald-500/10 transition-colors group"
               onClick={() => router.push("/admin/students")}
             >
               <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center group-hover:scale-110 transition-transform">
                 <GraduationCap className="w-5 h-5" />
               </div>
-              <span className="font-bold text-sm">View Students</span>
-            </GlassCard>
+              <span className="font-bold text-sm text-foreground">View Students</span>
+            </div>
           </div>
           </div>
         </motion.div>
 
         {/* My Batches (Right Column) */}
         <motion.div variants={staggerItem} className="lg:col-span-1">
-          <div className="rounded-2xl border border-border/40 bg-card/30 p-6 h-full flex flex-col">
+          <div className="rounded-2xl border border-border bg-card/50 shadow-sm p-6 h-full flex flex-col">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-bold font-heading">My Batches</h2>
               <Link href="/admin/batches" className="text-xs font-bold text-muted-foreground hover:text-foreground transition-colors">

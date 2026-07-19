@@ -355,8 +355,7 @@ export default function ExamsPage() {
                     setCreationMode("markdown");
                     setQuestions([]);
                   }}
-                  variant="outline"
-                  className="border border-brand text-brand hover:bg-brand/10 flex items-center gap-2"
+                  className="bg-brand/10 hover:bg-brand/20 border-0 text-brand flex items-center gap-2 font-bold h-11 px-6 rounded-xl"
                 >
                   <FileCode className="w-4 h-4" />
                   <span>Markdown Generator</span>
@@ -366,7 +365,7 @@ export default function ExamsPage() {
                     setCreationMode("manual");
                     setQuestions([]);
                   }}
-                  className="bg-brand hover:bg-brand/90 text-white flex items-center gap-2"
+                  className="bg-brand hover:bg-brand/90 text-brand-foreground flex items-center gap-2 font-bold h-11 px-6 rounded-xl"
                 >
                   <Plus className="w-4 h-4" />
                   <span>Manual Test Creator</span>
@@ -694,7 +693,7 @@ export default function ExamsPage() {
                             const prefix = typeof window !== "undefined" && window.location.pathname.startsWith("/admin") ? "/admin" : "/student";
                             router.push(`${prefix}/exams/${exam.id}/take`);
                           }}
-                          className="w-full h-11 rounded-2xl bg-brand hover:bg-brand/90 text-white font-bold flex items-center justify-center gap-2 shadow-md shadow-brand/20 scale-[1.01] hover:scale-[1.02] transition-transform"
+                          className="w-full h-11 rounded-2xl bg-brand hover:bg-brand/90 text-brand-foreground font-bold flex items-center justify-center gap-2 shadow-md shadow-brand/20 scale-[1.01] hover:scale-[1.02] transition-transform"
                         >
                           <Play className="w-4 h-4 fill-white" />
                           <span>Take Assessment Now</span>
@@ -859,7 +858,7 @@ export default function ExamsPage() {
                       <Sparkles className="w-4 h-4 text-brand" />
                       <span>Paste Markdown Syntax (# Question X, Options A-D, Answer: X, Marks: X)</span>
                     </span>
-                    <Button onClick={handleParseMarkdown} size="sm" className="bg-brand hover:bg-brand/90 text-white">
+                    <Button onClick={handleParseMarkdown} size="sm" className="bg-brand hover:bg-brand/90 text-brand-foreground">
                       Parse & Generate Editable Cards
                     </Button>
                   </div>
@@ -1348,7 +1347,7 @@ export default function ExamsPage() {
                 <Button
                   onClick={() => setPreviewQIdx(Math.min(questions.length - 1, previewQIdx + 1))}
                   disabled={previewQIdx === questions.length - 1}
-                  className="bg-brand hover:bg-brand/90 text-white font-semibold shadow-sm"
+                  className="bg-brand hover:bg-brand/90 text-brand-foreground font-semibold shadow-sm"
                 >
                   Next <ArrowRight className="w-4 h-4 ml-1.5" />
                 </Button>

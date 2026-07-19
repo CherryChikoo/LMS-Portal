@@ -56,19 +56,21 @@ export default function CollegesPage() {
       }));
 
       const officialSet = new Set([
-        ...collegesData.map((c) => c.id.toLowerCase()),
-        ...collegesData.map((c) => c.name.toLowerCase()),
+        ...collegesData.map((c) => c.id?.toLowerCase()).filter(Boolean),
+        ...collegesData.map((c) => c.name?.toLowerCase()).filter(Boolean),
       ]);
 
       const externalMap = new Map<string, { name: string; students: Student[] }>();
       studentsData.forEach((s) => {
         const cName = s.collegeName || s.collegeId;
         if (!cName) return;
-        if (
-          !officialSet.has(cName.toLowerCase()) &&
-          !officialSet.has((s.collegeId || "").toLowerCase()) &&
-          !officialSet.has((s.collegeName || "").toLowerCase())
-        ) {
+        
+        const isOfficial = 
+          (cName && officialSet.has(cName.toLowerCase())) ||
+          (s.collegeId && officialSet.has(s.collegeId.toLowerCase())) ||
+          (s.collegeName && officialSet.has(s.collegeName.toLowerCase()));
+
+        if (!isOfficial) {
           if (!externalMap.has(cName)) {
             externalMap.set(cName, { name: cName, students: [] });
           }
@@ -349,7 +351,7 @@ export default function CollegesPage() {
         actions={
           <Button
             onClick={() => setShowAddModal(true)}
-            className="bg-brand hover:bg-brand/90 text-black font-bold flex items-center gap-2"
+            className="bg-brand hover:bg-brand/90 text-brand-foreground font-bold flex items-center gap-2"
           >
             <Plus className="w-4 h-4" />
             <span>Add College</span>
@@ -802,7 +804,7 @@ export default function CollegesPage() {
                   <Button type="button" variant="outline" onClick={() => setShowAddModal(false)}>
                     Cancel
                   </Button>
-                  <Button type="submit" disabled={creating} className="bg-brand text-white hover:bg-brand/90">
+                  <Button type="submit" disabled={creating} className="bg-brand text-brand-foreground hover:bg-brand/90">
                     {creating ? "Creating..." : "Save College"}
                   </Button>
                 </div>
@@ -915,7 +917,7 @@ export default function CollegesPage() {
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" disabled={updatingCollege} className="bg-brand text-white hover:bg-brand/90">
+                  <Button type="submit" disabled={updatingCollege} className="bg-brand text-brand-foreground hover:bg-brand/90">
                     {updatingCollege ? "Saving..." : "Save Changes"}
                   </Button>
                 </div>
@@ -975,7 +977,7 @@ export default function CollegesPage() {
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" disabled={updatingExternal} className="bg-brand text-white hover:bg-brand/90">
+                  <Button type="submit" disabled={updatingExternal} className="bg-brand text-brand-foreground hover:bg-brand/90">
                     {updatingExternal ? "Saving..." : "Save Changes"}
                   </Button>
                 </div>

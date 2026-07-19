@@ -194,7 +194,7 @@ function BatchesContent() {
         }
         actions={
           userRole !== "student" ? (
-            <Button onClick={() => setShowAddModal(true)} className="bg-brand hover:bg-brand/90 text-black font-bold">
+            <Button onClick={() => setShowAddModal(true)} className="bg-brand hover:bg-brand/90 text-brand-foreground font-bold">
               <Plus className="w-4 h-4 mr-1.5" />
               Create Custom Batch
             </Button>
@@ -403,7 +403,7 @@ function BatchesContent() {
                   <Button type="button" variant="outline" onClick={() => setShowAddModal(false)}>
                     Cancel
                   </Button>
-                  <Button type="submit" disabled={creating} className="bg-brand text-white hover:bg-brand/90">
+                  <Button type="submit" disabled={creating} className="bg-brand text-brand-foreground hover:bg-brand/90">
                     {creating ? "Creating..." : "Save Batch"}
                   </Button>
                 </div>

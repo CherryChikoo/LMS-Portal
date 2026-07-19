@@ -505,7 +505,7 @@ function StudentAccountSettings() {
           )}
 
           <div className="pt-2 flex justify-end">
-            <Button type="submit" disabled={updating} className="h-11 px-6 rounded-xl bg-brand hover:bg-brand/90 text-white font-bold flex items-center gap-2 shadow-lg shadow-brand/20">
+            <Button type="submit" disabled={updating} className="h-11 px-6 rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground font-bold flex items-center gap-2 shadow-lg shadow-brand/20">
               <Save className="w-4 h-4" />
               <span>{updating ? "Saving..." : "Save Profile & Email"}</span>
             </Button>
@@ -1056,7 +1056,7 @@ export default function SettingsPage() {
               <GlassCard className="p-6 space-y-5 bg-gradient-to-b from-card/90 to-card/50">
                 <div className="text-center space-y-3.5 py-3">
                   <Avatar className="w-20 h-20 mx-auto shadow-xl shadow-brand/25 ring-4 ring-brand/15">
-                    <AvatarFallback className="text-2xl font-black text-white bg-gradient-brand">
+                    <AvatarFallback className="text-2xl font-black text-brand-foreground bg-brand">
                       {displayName ? displayName.slice(0, 2).toUpperCase() : "AD"}
                     </AvatarFallback>
                   </Avatar>
@@ -1331,7 +1331,7 @@ export default function SettingsPage() {
                   <Button
                     onClick={handleSaveBranding}
                     disabled={savingBrand}
-                    className="h-11 w-full sm:w-auto px-6 rounded-xl bg-brand hover:bg-brand/90 text-white font-bold flex items-center gap-2 shadow-lg shadow-brand/20"
+                    className="h-11 w-full sm:w-auto px-6 rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground font-bold flex items-center gap-2 shadow-lg shadow-brand/20"
                   >
                     <Save className="w-4 h-4" />
                     <span>{savingBrand ? "Saving Branding..." : "Save Global Branding"}</span>

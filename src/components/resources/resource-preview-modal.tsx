@@ -135,7 +135,7 @@ function ExternalLinkCard({
         rel="noopener noreferrer"
         className="inline-flex"
       >
-        <Button className="bg-brand hover:bg-brand/90 text-white gap-2">
+        <Button className="bg-brand hover:bg-brand/90 text-brand-foreground gap-2">
           <ExternalLink className="w-4 h-4" />
           Open External Link
         </Button>

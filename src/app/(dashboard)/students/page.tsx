@@ -484,7 +484,7 @@ function StudentsContent() {
           <div className="flex items-center gap-3">
             <Button
               onClick={() => setShowAddModal(true)}
-              className="bg-brand hover:bg-brand/90 text-black flex items-center gap-2 font-bold"
+              className="bg-brand hover:bg-brand/90 text-brand-foreground flex items-center gap-2 font-bold h-11 px-6 rounded-xl"
             >
               <Plus className="w-4 h-4" />
               <span>Invite / Enroll Student</span>
@@ -494,10 +494,9 @@ function StudentsContent() {
                 setImportSummary(null);
                 setShowImportModal(true);
               }}
-              variant="outline"
-              className="border border-border hover:bg-accent flex items-center gap-2"
+              className="bg-brand/10 hover:bg-brand/20 border-0 text-brand flex items-center gap-2 font-bold h-11 px-6 rounded-xl"
             >
-              <Upload className="w-4 h-4 text-brand" />
+              <Upload className="w-4 h-4" />
               <span>Import CSV</span>
             </Button>
           </div>
@@ -840,7 +839,7 @@ function StudentsContent() {
                         <p className="text-sm font-semibold text-foreground">Select or Drop CSV File</p>
                         <p className="text-xs text-muted-foreground">Supported file type: .csv (UTF-8 format)</p>
                       </div>
-                      <label className="inline-block px-4 py-2 rounded-xl bg-brand text-white text-xs font-semibold cursor-pointer hover:bg-brand/90 transition-all">
+                      <label className="inline-block px-4 py-2 rounded-xl bg-brand text-brand-foreground text-xs font-semibold cursor-pointer hover:bg-brand/90 transition-all">
                         Browse CSV File
                         <input type="file" accept=".csv" onChange={handleFileUpload} disabled={importing} className="hidden" />
                       </label>
@@ -1069,7 +1068,7 @@ function StudentsContent() {
                   <Button type="button" variant="outline" onClick={() => setShowAddModal(false)}>
                     Cancel
                   </Button>
-                  <Button type="submit" disabled={creating} className="bg-brand hover:bg-brand/90 text-white">
+                  <Button type="submit" disabled={creating} className="bg-brand hover:bg-brand/90 text-brand-foreground">
                     {creating ? "Enrolling..." : "Enroll Student"}
                   </Button>
                 </div>
@@ -1239,7 +1238,7 @@ function StudentsContent() {
                   <Button type="button" variant="outline" onClick={() => setEditingStudent(null)}>
                     Cancel
                   </Button>
-                  <Button type="submit" disabled={savingEdit} className="bg-brand hover:bg-brand/90 text-white">
+                  <Button type="submit" disabled={savingEdit} className="bg-brand hover:bg-brand/90 text-brand-foreground">
                     {savingEdit ? "Saving..." : "Save Live Changes"}
                   </Button>
                 </div>

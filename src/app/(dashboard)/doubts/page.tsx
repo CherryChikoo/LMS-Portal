@@ -114,7 +114,7 @@ export default function DoubtsPage() {
         description="Ask conceptual doubts, resolve query threads, and collaborate across colleges and departments."
         actions={
           <div className="flex items-center gap-3">
-            <Button onClick={() => setShowAskModal(true)} className="bg-brand hover:bg-brand/90 text-white flex items-center gap-2">
+            <Button onClick={() => setShowAskModal(true)} className="bg-brand hover:bg-brand/90 text-brand-foreground flex items-center gap-2">
               <Plus className="w-4 h-4" />
               <span>Ask Academic Doubt</span>
             </Button>
@@ -196,7 +196,7 @@ export default function DoubtsPage() {
                       placeholder="Write educational explanation..."
                       className="flex-1 h-9 px-3 rounded-xl border border-border bg-background text-xs text-foreground focus:outline-none"
                     />
-                    <Button onClick={() => handleReply(d.id)} size="sm" className="bg-brand text-white">
+                    <Button onClick={() => handleReply(d.id)} size="sm" className="bg-brand text-brand-foreground">
                       Reply
                     </Button>
                     <Button onClick={() => setReplyingId(null)} size="sm" variant="outline">
@@ -277,7 +277,7 @@ export default function DoubtsPage() {
                   <Button type="button" variant="outline" onClick={() => setShowAskModal(false)}>
                     Cancel
                   </Button>
-                  <Button type="submit" disabled={submitting} className="bg-brand text-white hover:bg-brand/90">
+                  <Button type="submit" disabled={submitting} className="bg-brand text-brand-foreground hover:bg-brand/90">
                     {submitting ? "Posting..." : "Post Question"}
                   </Button>
                 </div>

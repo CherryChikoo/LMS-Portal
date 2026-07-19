@@ -269,7 +269,7 @@ export default function ReviewExamPage({ params }: PageProps) {
           </div>
           <Button
             onClick={() => router.push(resolveBackHref())}
-            className="w-full h-11 rounded-xl bg-brand hover:bg-brand/90 text-white font-bold"
+            className="w-full h-11 rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground font-bold"
           >
             Back to Examinations
           </Button>
@@ -540,7 +540,7 @@ export default function ReviewExamPage({ params }: PageProps) {
               <div className="pt-4 border-t border-border">
                 <Button
                   onClick={() => router.push(resultsHref)}
-                  className="w-full bg-brand hover:bg-brand/90 text-white font-bold h-11 flex items-center justify-center gap-2 shadow-md"
+                  className="w-full bg-brand hover:bg-brand/90 text-brand-foreground font-bold h-11 flex items-center justify-center gap-2 shadow-md"
                 >
                   <Send className="w-4 h-4" />
                   <span>Back to Results</span>
@@ -592,7 +592,7 @@ export default function ReviewExamPage({ params }: PageProps) {
               <Button
                 onClick={() => navigateToQuestion(currentIdx + 1)}
                 disabled={currentIdx === questions.length - 1}
-                className="h-11 px-6 rounded-xl bg-brand hover:bg-brand/90 text-white font-bold shadow-md disabled:opacity-40"
+                className="h-11 px-6 rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground font-bold shadow-md disabled:opacity-40"
               >
                 Next <ArrowRight className="w-4 h-4 ml-2" />
               </Button>

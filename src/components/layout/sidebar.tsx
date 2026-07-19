@@ -39,15 +39,17 @@ export function Sidebar() {
   const pathname = usePathname();
   const { isExpanded, toggle } = useSidebar();
   const isDesktop = useIsDesktop();
-  const [userRole, setUserRole] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
+  const [userRole, setUserRole] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
     try {
       const role = localStorage.getItem("lms_role");
-      return role ? role.toLowerCase() : null;
+      setUserRole(role ? role.toLowerCase() : null);
     } catch {
-      return null;
+      // ignore
     }
-  });
+  }, []);
 
   const [branding, setBranding] = useState<CompanyBranding>({
     companyName: APP_NAME,
@@ -189,18 +191,16 @@ export function Sidebar() {
     }));
   }, [userRole]);
 
-  if (!isDesktop) return null;
-
   return (
     <motion.aside
       initial={false}
       animate={{ width: isExpanded ? 260 : 80 }}
       transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-      className="fixed left-0 top-0 bottom-0 z-30 flex flex-col bg-sidebar backdrop-blur-2xl text-sidebar-foreground transition-all duration-300 border-r border-border/40"
+      className="hidden lg:flex flex-col fixed left-0 top-0 bottom-0 z-30 bg-sidebar backdrop-blur-2xl text-sidebar-foreground transition-all duration-300 border-r border-border"
       style={{ fontFamily: '"Montserrat", sans-serif' }}
     >
       {/* Logo & Top Collapse Toggle Area */}
-      <div className={cn("flex items-center h-20 px-4 shrink-0 border-b border-border/30 relative group/brand", isExpanded ? "justify-between" : "justify-center")}>
+      <div className={cn("flex items-center h-20 px-4 shrink-0 relative group/brand", isExpanded ? "justify-between" : "justify-center")}>
         <Link href="/" className="flex items-center gap-2.5 overflow-hidden flex-1 min-w-0 mr-1">
           {branding.logoBase64 ? (
             <img
@@ -209,14 +209,14 @@ export function Sidebar() {
               className={cn("object-contain rounded-lg shrink-0", isExpanded ? "w-8 h-8" : "w-7 h-7 mx-auto")}
             />
           ) : !isExpanded ? (
-            <div className="w-8 h-8 text-brand flex items-center justify-center mx-auto shrink-0">
-              <BookOpen className="w-6 h-6" />
+            <div className="w-8 h-8 rounded-lg bg-brand/10 text-brand flex items-center justify-center mx-auto shrink-0 font-black text-lg">
+              {(branding.companyName || APP_NAME).charAt(0).toUpperCase()}
             </div>
           ) : null}
           {isExpanded && (
             <div className="flex flex-col min-w-0">
               <span className="font-bold text-lg text-brand tracking-tight truncate flex items-center gap-2">
-                {branding.companyName || APP_NAME} <BookOpen className="w-5 h-5" />
+                {branding.companyName || APP_NAME}
               </span>
               <span className="text-[9px] font-bold text-brand/60 uppercase tracking-widest truncate">
                 {userRole === "student" ? "Student Portal" : branding.companySubtitle || "Enterprise"}
@@ -412,12 +412,14 @@ export function Sidebar() {
                   <label className="text-xs font-semibold">Company Logo (Base64)</label>
                   <div className="flex items-center gap-4 p-3 rounded-xl border border-border/80 bg-background/50">
                     {editLogo ? (
-                      <div className="relative w-14 h-14 rounded-lg border border-border bg-card flex items-center justify-center overflow-hidden shrink-0">
-                        <img src={editLogo} alt="Logo preview" className="w-full h-full object-contain" />
+                      <div className="relative w-14 h-14 shrink-0">
+                        <div className="w-full h-full rounded-lg border border-border bg-card flex items-center justify-center overflow-hidden">
+                          <img src={editLogo} alt="Logo preview" className="w-full h-full object-contain" />
+                        </div>
                         <button
                           type="button"
                           onClick={() => setEditLogo("")}
-                          className="absolute -top-1 -right-1 bg-rose-500 text-white rounded-full p-0.5 shadow hover:bg-rose-600"
+                          className="absolute -top-1.5 -right-1.5 bg-rose-500 text-white rounded-full p-0.5 shadow-md hover:bg-rose-600 z-10"
                           title="Remove Logo"
                         >
                           <X className="w-3 h-3" />
@@ -481,7 +483,7 @@ export function Sidebar() {
                   <button
                     type="submit"
                     disabled={savingBrand}
-                    className="px-4 py-2 rounded-xl bg-brand text-white text-xs font-bold hover:bg-brand/90 transition-colors disabled:opacity-50 flex items-center gap-1.5 shadow-md"
+                    className="px-4 py-2 rounded-xl bg-brand text-brand-foreground text-xs font-bold hover:bg-brand/90 transition-colors disabled:opacity-50 flex items-center gap-1.5 shadow-md"
                   >
                     {savingBrand ? (
                       <span>Saving...</span>

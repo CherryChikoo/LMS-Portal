@@ -14,7 +14,7 @@ export default function QuestionBankPage() {
         title="Question Bank"
         description="Build a reusable repository of exam questions organized by subject and topic."
         actions={
-          <Button className="bg-brand hover:bg-brand/90 text-white">
+          <Button className="bg-brand hover:bg-brand/90 text-brand-foreground">
             <Plus className="w-4 h-4 mr-1.5" />
             Add Question
           </Button>
