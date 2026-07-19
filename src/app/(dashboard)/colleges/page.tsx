@@ -375,7 +375,9 @@ export default function CollegesPage() {
           <div className="w-8 h-8 rounded-full border-2 border-brand border-t-transparent animate-spin" />
           <span>Loading academic hierarchy...</span>
         </div>
-      ) : colleges.length === 0 ? (
+      ) : (
+        <>
+          {colleges.length === 0 ? (
         <EmptyState
           icon={GraduationCap}
           title="No colleges registered"
@@ -676,6 +678,8 @@ export default function CollegesPage() {
             })}
           </div>
         </div>
+      )}
+      </>
       )}
 
       {/* Add College Modal */}
