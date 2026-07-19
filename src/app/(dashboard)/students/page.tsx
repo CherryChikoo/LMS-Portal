@@ -505,7 +505,7 @@ function StudentsContent() {
       />
 
       {/* Filter and Search Bar */}
-      <div className="bg-[#0A0A0A] p-4.5 rounded-xl border border-[#222222] space-y-3.5 shadow-sm">
+      <div className="bg-card p-4.5 rounded-xl border border-border space-y-3.5 shadow-sm">
         <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
           <div className="relative w-full sm:max-w-md">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -604,11 +604,11 @@ function StudentsContent() {
           onAction={() => setShowImportModal(true)}
         />
       ) : (
-        <div className="rounded-xl border border-[#222222] bg-[#0A0A0A] overflow-hidden">
+        <div className="rounded-xl border border-border bg-card overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-[#222222] bg-[#111111] text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                <tr className="border-b border-border bg-muted/50 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                   <th className="py-3.5 px-4 w-10">
                     <input
                       type="checkbox"
@@ -632,11 +632,11 @@ function StudentsContent() {
                   <th className="py-3.5 px-4 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#222222] text-sm">
+              <tbody className="divide-y divide-border text-sm">
                 {filteredStudents.map((student) => {
                   const isSelected = selectedIds.includes(student.id);
                   return (
-                    <tr key={student.id} className={`hover:bg-[#111111] transition-colors ${isSelected ? "bg-[#111111]" : ""}`}>
+                    <tr key={student.id} className={`hover:bg-accent/50 transition-colors ${isSelected ? "bg-accent/50" : ""}`}>
                       <td className="py-3.5 px-4">
                         <input
                           type="checkbox"

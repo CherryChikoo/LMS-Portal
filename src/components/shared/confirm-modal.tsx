@@ -70,7 +70,7 @@ export function ConfirmModal({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 10 }}
             transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-            className="w-full max-w-md rounded-xl border border-[#222222] bg-[#0A0A0A] p-6 shadow-sm relative overflow-hidden"
+            className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-sm relative overflow-hidden"
           >
             {/* Background Accent Glow */}
             <div className="absolute -top-24 -right-24 w-48 h-48 rounded-full bg-brand/10 blur-3xl pointer-events-none" />

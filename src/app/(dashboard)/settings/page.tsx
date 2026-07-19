@@ -1055,7 +1055,7 @@ export default function SettingsPage() {
             <div className="lg:col-span-4">
               <GlassCard className="p-6 space-y-5 bg-gradient-to-b from-card/90 to-card/50">
                 <div className="text-center space-y-3.5 py-3">
-                  <Avatar className="w-20 h-20 rounded-2xl mx-auto shadow-xl shadow-brand/25 ring-4 ring-brand/15 border border-white/20">
+                  <Avatar className="w-20 h-20 mx-auto shadow-xl shadow-brand/25 ring-4 ring-brand/15">
                     <AvatarFallback className="text-2xl font-black text-white bg-gradient-brand">
                       {displayName ? displayName.slice(0, 2).toUpperCase() : "AD"}
                     </AvatarFallback>

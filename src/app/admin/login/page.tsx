@@ -60,7 +60,7 @@ export default function AdminLoginPage() {
     >
       <div className="double-bezel-inner grid grid-cols-1 lg:grid-cols-12 overflow-hidden min-h-[480px] sm:min-h-[560px] lg:min-h-[640px]">
         {/* Left Canvas - Purple / Red Theme */}
-        <div className="lg:col-span-6 relative p-5 sm:p-8 lg:p-12 flex flex-col justify-between overflow-hidden bg-[#0A050F] text-white min-h-[160px] sm:min-h-[200px]">
+        <div className="lg:col-span-6 relative p-5 sm:p-8 lg:p-12 flex flex-col justify-between overflow-hidden bg-zinc-950 text-white min-h-[160px] sm:min-h-[200px]">
           <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
             <div className="absolute -top-24 -left-24 w-96 h-96 bg-gradient-to-br from-purple-600/40 via-rose-500/25 to-transparent rounded-full blur-3xl animate-pulse" />
             <div className="absolute top-1/3 -right-20 w-80 h-80 bg-gradient-to-tr from-fuchsia-600/30 via-red-500/20 to-transparent rounded-full blur-2xl" />

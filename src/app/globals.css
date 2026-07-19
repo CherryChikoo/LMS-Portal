@@ -25,6 +25,7 @@
   --color-input: var(--input);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -59,22 +60,74 @@
 }
 
 /* ============================================
-   STRICT DARK MODE - Deep Charcoal / Slate
+   LIGHT MODE
    ============================================ */
-:root, .dark {
-  /* Deep Charcoal background */
+:root {
+  --background: #FFFFFF;
+  --foreground: #0F172A;
+
+  --card: #FFFFFF;
+  --card-foreground: #0F172A;
+
+  --popover: #FFFFFF;
+  --popover-foreground: #0F172A;
+
+  --primary: #10B981;
+  --primary-foreground: #FFFFFF;
+
+  --secondary: #F1F5F9;
+  --secondary-foreground: #0F172A;
+
+  --muted: #F1F5F9;
+  --muted-foreground: #64748B;
+
+  --accent: #F1F5F9;
+  --accent-foreground: #0F172A;
+
+  --destructive: #EF4444;
+  --destructive-foreground: #FFFFFF;
+
+  --border: #E2E8F0;
+  --input: #F1F5F9;
+  --ring: #10B981;
+
+  --brand: #10B981;
+  --brand-foreground: #FFFFFF;
+  --brand-muted: rgba(16, 185, 129, 0.1);
+
+  --success: #10B981;
+  --warning: #F59E0B;
+
+  --radius: 0.75rem;
+
+  --sidebar: #FAFAFA;
+  --sidebar-foreground: #64748B;
+  --sidebar-primary: #10B981;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: transparent;
+  --sidebar-accent-foreground: #0F172A;
+  --sidebar-border: #E2E8F0;
+  --sidebar-ring: #10B981;
+
+  --glass: rgba(255, 255, 255, 0.8);
+  --glass-border: rgba(0, 0, 0, 0.08);
+  --glass-hover: rgba(0, 0, 0, 0.04);
+}
+
+/* ============================================
+   DARK MODE
+   ============================================ */
+.dark {
   --background: #0A0A0A;
   --foreground: #F8FAFC;
 
-  /* Card Surfaces - Dark gray */
   --card: #0E0E0E;
   --card-foreground: #F8FAFC;
 
   --popover: #0E0E0E;
   --popover-foreground: #F8FAFC;
 
-  /* Primary = Emerald Green */
-  --primary: #00D26A;
+  --primary: #10B981;
   --primary-foreground: #000000;
 
   --secondary: #111111;
@@ -87,31 +140,31 @@
   --accent-foreground: #F8FAFC;
 
   --destructive: #EF4444;
+  --destructive-foreground: #FFFFFF;
 
   --border: #222222;
   --input: #111111;
-  --ring: #00D26A;
+  --ring: #10B981;
 
-  /* Brand tokens */
-  --brand: #00D26A;
+  --brand: #10B981;
   --brand-foreground: #000000;
-  --brand-muted: rgba(0, 210, 106, 0.15);
+  --brand-muted: rgba(16, 185, 129, 0.15);
 
-  /* Status */
-  --success: #00D26A;
+  --success: #10B981;
   --warning: #F59E0B;
 
-  --radius: 0.75rem;
-
-  /* Sidebar */
   --sidebar: #050505;
   --sidebar-foreground: #888888;
-  --sidebar-primary: #00D26A;
+  --sidebar-primary: #10B981;
   --sidebar-primary-foreground: #000000;
   --sidebar-accent: transparent;
   --sidebar-accent-foreground: #F8FAFC;
   --sidebar-border: #1a1a1a;
-  --sidebar-ring: #00D26A;
+  --sidebar-ring: #10B981;
+
+  --glass: rgba(14, 14, 14, 0.8);
+  --glass-border: rgba(255, 255, 255, 0.06);
+  --glass-hover: rgba(255, 255, 255, 0.04);
 }
 
 /* ============================================
@@ -130,8 +183,7 @@
   }
 
   html {
-    @apply font-sans scroll-smooth;
-    background-color: #0A0A0A;
+    @apply font-sans scroll-smooth bg-background;
   }
 
   /* Premium slim scrollbar */
@@ -160,7 +212,7 @@
 @layer components {
   /* Premium Glass Card */
   .glass-card {
-    @apply bg-[#0A0A0A] border border-[#222222] rounded-xl;
+    @apply bg-card border border-border rounded-xl;
   }
 
   /* Glass Sidebar */
@@ -171,18 +223,18 @@
 
   /* Glass Input */
   .glass-input {
-    @apply bg-[#111111] border-[#222] text-white focus:border-brand focus:ring-1 focus:ring-brand rounded-lg;
+    @apply bg-input border-border text-foreground focus:border-brand focus:ring-1 focus:ring-brand rounded-lg;
     transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   /* Glass Topbar */
   .glass-topbar {
-    @apply bg-[#0A0A0A]/80 backdrop-blur-xl border-b border-[#222222];
+    @apply bg-background/80 backdrop-blur-xl border-b border-border;
   }
 
   /* Active Navigation Indicator */
   .nav-active {
-    @apply bg-brand text-black font-semibold rounded-lg;
+    @apply bg-brand text-white dark:text-black font-semibold rounded-lg;
   }
 }
 
@@ -190,6 +242,6 @@
    SELECT OPTION CONTRAST FIX
    ============================================ */
 select option {
-  background-color: #0A0A0A !important;
-  color: #ffffff !important;
+  background-color: var(--background) !important;
+  color: var(--foreground) !important;
 }

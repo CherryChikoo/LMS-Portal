@@ -17,21 +17,21 @@ import {
   Trophy,
   BookOpen,
   AlertCircle,
+  Layers,
+  Library,
+  FilePlus
 } from "lucide-react";
 import Link from "next/link";
 import { StatCard } from "@/components/shared/stat-card";
 import { GlassCard } from "@/components/shared/glass-card";
-import { AreaChartComponent } from "@/components/charts/area-chart";
-import { BarChartComponent } from "@/components/charts/bar-chart";
-import { PieChartComponent } from "@/components/charts/pie-chart";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useMemo } from "react";
 import { staggerContainer, staggerItem } from "@/lib/animations";
-import { getAllExamsIncludingDeleted, getAllStudents, getAllColleges, getAllResources, getEffectiveExamStatus, getStudentAttempts, filterResourcesForStudent, filterExamsForStudent } from "@/lib/services";
+import { getAllExamsIncludingDeleted, getAllStudents, getAllColleges, getAllResources, getEffectiveExamStatus, getStudentAttempts, filterResourcesForStudent, filterExamsForStudent, getAllBatches } from "@/lib/services";
 import { toDate } from "@/lib/utils/date";
-import type { Exam, Student, College, Resource, ExamAttempt } from "@/types";
+import type { Exam, Student, College, Resource, ExamAttempt, Batch, AssignmentTarget } from "@/types";
 
 function StudentPortalDashboard({
   exams,
@@ -109,13 +109,13 @@ function StudentPortalDashboard({
     <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="space-y-6 sm:space-y-8 font-sans">
       {/* Student Hero Banner */}
       <motion.div variants={staggerItem}>
-        <div className="relative overflow-hidden rounded-xl p-6 sm:p-8 lg:p-10 bg-[#0A0A0A] border border-[#222222] shadow-sm text-white">
+        <div className="relative overflow-hidden rounded-xl p-6 sm:p-8 lg:p-10 bg-card border border-border shadow-sm text-foreground">
           <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
             <div className="space-y-3 max-w-2xl">
-              <h1 className="text-2xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight font-heading text-white">
+              <h1 className="text-2xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight font-heading text-foreground">
                 Welcome back, <span className="text-emerald-400">{studentProfile.name || "Student"}</span>
               </h1>
-              <p className="text-sm sm:text-base text-slate-200/90 font-normal leading-relaxed">
+              <p className="text-sm sm:text-base text-muted-foreground font-normal leading-relaxed">
                 Access assigned evaluation papers, study notes for your department, and review real-time academic grade transcripts.
               </p>
             </div>
@@ -128,7 +128,7 @@ function StudentPortalDashboard({
                 </Button>
               </Link>
               <Link href="/resources">
-                <Button className="h-11 px-4 rounded-xl border border-[#222222] bg-[#111111] hover:bg-[#1a1a1a] text-white font-semibold transition-all shadow-none">
+                <Button variant="outline" className="h-11 px-4 rounded-xl border border-border bg-secondary hover:bg-accent text-foreground font-semibold transition-all shadow-none">
                   <BookOpen className="w-4 h-4 mr-2" />
                   <span>Study Notes</span>
                 </Button>
@@ -298,24 +298,34 @@ export default function DashboardPage() {
   const [colleges, setColleges] = useState<College[]>([]);
   const [resources, setResources] = useState<Resource[]>([]);
   const [attempts, setAttempts] = useState<ExamAttempt[]>([]);
+  const [batches, setBatches] = useState<Batch[]>([]);
   const [loading, setLoading] = useState(true);
   const [userRole, setUserRole] = useState<string>("admin");
+  const [userName, setUserName] = useState<string>("Trainer");
 
   useEffect(() => {
     try {
       const role = localStorage.getItem("lms_role") || "admin";
       setUserRole(role.toLowerCase());
+      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      if (uStr) {
+        const parsed = JSON.parse(uStr);
+        if (parsed.name || parsed.displayName) {
+          setUserName((parsed.name || parsed.displayName).split(" ")[0]);
+        }
+      }
     } catch (e) {}
 
     async function loadLivePortal() {
       setLoading(true);
       try {
-        const [ex, st, cl, rs, att] = await Promise.all([
+        const [ex, st, cl, rs, att, b] = await Promise.all([
           getAllExamsIncludingDeleted(),
           getAllStudents(),
           getAllColleges(),
           getAllResources(),
           getStudentAttempts(),
+          getAllBatches(),
         ]);
         
         let filteredStudents = st || [];
@@ -376,6 +386,7 @@ export default function DashboardPage() {
         setStudents(filteredStudents);
         setColleges(filteredColleges);
         setAttempts(filteredAttempts);
+        setBatches(b || []);
       } catch (err) {
         console.error("Failed loading live portal data:", err);
       } finally {
@@ -499,208 +510,204 @@ export default function DashboardPage() {
       variants={staggerContainer}
       initial="hidden"
       animate="visible"
-      className="space-y-6 sm:space-y-8 font-sans"
+      className="space-y-6 max-w-[1400px] mx-auto w-full font-sans"
     >
-      {/* Hero Banner (Coursue Inspired) */}
-      <motion.div variants={staggerItem}>
-        <div className="relative overflow-hidden rounded-xl p-6 sm:p-8 lg:p-10 bg-[#0A0A0A] border border-[#222222] shadow-sm text-white">
-          <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-            <div className="space-y-3 max-w-2xl">
-              <h1 className="text-2xl sm:text-4xl lg:text-5xl font-semibold tracking-tight font-heading text-white">
-                Elevate <span className="text-emerald-400">Academic & Training</span> Outcomes
-              </h1>
-              <p className="text-sm sm:text-base text-slate-200/90 font-normal leading-relaxed">
-                Manage colleges, automate proctored examinations, and monitor multi-institution analytics in real time.
-              </p>
+      {/* Header Section */}
+      <motion.div variants={staggerItem} className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 mt-2">
+        <div className="space-y-3">
+          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight font-heading flex items-center gap-3">
+            Welcome back, {userName}!
+            <div className="relative w-8 h-8 sm:w-10 sm:h-10 ml-1 hidden sm:block">
+              <div className="absolute inset-0 bg-emerald-400 rounded-lg -rotate-12 transform origin-bottom-left shadow-sm"></div>
+              <div className="absolute inset-0 bg-rose-500 rounded-lg rotate-0 transform origin-bottom-left shadow-sm"></div>
+              <div className="absolute inset-0 bg-blue-500 rounded-lg rotate-12 transform origin-bottom-left shadow-sm"></div>
             </div>
-
-            <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 shrink-0">
-              <Button
-                onClick={() => router.push("/admin/exams")}
-                className="h-11 px-5 rounded-xl bg-brand hover:bg-brand/90 text-black font-semibold transition-all flex items-center gap-2 shadow-none"
-              >
-                <Plus className="w-4 h-4 stroke-[3]" />
-                <span>Create Assessment</span>
-              </Button>
-              <Button
-                onClick={() => router.push("/admin/students?action=invite")}
-                className="h-11 px-4 rounded-xl border border-[#222222] bg-[#111111] hover:bg-[#1a1a1a] text-white font-semibold transition-all shadow-none"
-              >
-                <span>Invite Students</span>
-              </Button>
-            </div>
-          </div>
+          </h1>
+          <p className="text-sm sm:text-base text-muted-foreground italic">
+            "The art of teaching is the art of assisting discovery." — Mark Van Doren
+          </p>
+        </div>
+        <div className="flex items-center gap-3 shrink-0">
+          <Button
+            variant="ghost"
+            onClick={() => router.push("/admin/students")}
+            className="h-11 px-5 rounded-xl border border-white/10 bg-transparent text-foreground hover:bg-white/5 font-semibold transition-all flex items-center gap-2"
+          >
+            <GraduationCap className="w-4 h-4" />
+            <span>Students</span>
+          </Button>
+          <Button
+            onClick={() => router.push("/admin/exams")}
+            className="h-11 px-5 rounded-xl bg-brand hover:bg-brand/90 text-black font-bold transition-all flex items-center gap-2 shadow-none border-0"
+          >
+            <Plus className="w-4 h-4 stroke-[3]" />
+            <span>Create Assessment</span>
+          </Button>
         </div>
       </motion.div>
 
-      {/* Stat Cards Grid */}
       <motion.div
         variants={staggerContainer}
-        className={`grid grid-cols-1 sm:grid-cols-2 ${userRole === "college_admin" ? "lg:grid-cols-3" : "lg:grid-cols-4"} gap-4 sm:gap-5`}
+        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"
       >
         <motion.div variants={staggerItem}>
-          <StatCard
-            title="Total Enrolled Students"
-            value={loading ? 0 : students.length}
-            icon={Users}
-            iconClassName="stat-icon-emerald"
-          />
-        </motion.div>
-        {userRole !== "college_admin" && (
-          <motion.div variants={staggerItem}>
-            <StatCard
-              title="Partner Colleges"
-              value={loading ? 0 : colleges.length}
-              icon={GraduationCap}
-              iconClassName="stat-icon-blue"
-            />
-          </motion.div>
-        )}
-        <motion.div variants={staggerItem}>
-          <StatCard
-            title="Scheduled & Active Exams"
-            value={loading ? 0 : activeOrScheduledExams.length}
-            icon={ClipboardList}
-            iconClassName="stat-icon-amber"
-          />
-        </motion.div>
-        <motion.div variants={staggerItem}>
-          <StatCard
-            title="Learning Resources"
-            value={loading ? 0 : resources.length}
-            icon={FolderOpen}
-            iconClassName="stat-icon-purple"
-          />
-        </motion.div>
-      </motion.div>
-
-      {/* Charts Section */}
-      <motion.div
-        variants={staggerContainer}
-        className="grid grid-cols-1 lg:grid-cols-12 gap-5"
-      >
-        <motion.div variants={staggerItem} className="lg:col-span-7">
-          <AreaChartComponent
-            title="Annual Student Growth Rate"
-            description="Cumulative student registrations across all colleges over time"
-            data={dynamicEnrollmentGrowth}
-            dataKey="students"
-            xAxisKey="month"
-            height={310}
-          />
-        </motion.div>
-        <motion.div variants={staggerItem} className="lg:col-span-5">
-          <BarChartComponent
-            title="Batch Assessment Overview"
-            description="Total marks allocation across active evaluation papers"
-            data={dynamicAssessmentAverages}
-            dataKey="score"
-            xAxisKey="exam"
-            height={310}
-          />
-        </motion.div>
-      </motion.div>
-
-      {/* Bottom Row - Activity & Schedules */}
-      <motion.div
-        variants={staggerContainer}
-        className="grid grid-cols-1 lg:grid-cols-12 gap-5"
-      >
-        {/* Subject Distribution Donut */}
-        <motion.div variants={staggerItem} className="lg:col-span-5 flex flex-col">
-          <PieChartComponent
-            title="Domain Focus"
-            description="Enrolled students by subject area"
-            data={dynamicDomainFocus}
-            height={280}
-            className="h-full flex-1"
-          />
-        </motion.div>
-
-        {/* Live & Scheduled Assessments Feed */}
-        <motion.div variants={staggerItem} className="lg:col-span-7 flex flex-col">
-          <GlassCard className="p-6 flex-1 flex flex-col justify-between h-full">
-            <div className="flex-1 flex flex-col min-h-0">
-              <div className="flex items-center justify-between mb-4 shrink-0">
-                <div>
-                  <h3 className="text-base font-bold text-foreground font-heading">
-                    Live Portal Assessments
-                  </h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Currently active & scheduled examinations
-                  </p>
-                </div>
-                <Clock className="w-4 h-4 text-brand" />
-              </div>
-              <div className="space-y-3.5 flex-1 overflow-y-auto min-h-0 pr-1">
-                {loading ? (
-                  <div className="p-8 text-center text-xs text-muted-foreground">Loading live assessments...</div>
-                ) : exams.length === 0 ? (
-                  <div className="p-8 text-center border border-dashed rounded-xl text-xs text-muted-foreground">
-                    No assessments published right now.
-                  </div>
-                ) : (
-                  exams.slice(0, 5).map((exam) => {
-                    const effStatus = getEffectiveExamStatus(exam);
-                    const isStudent = userRole === "student";
-                    return (
-                      <div
-                        key={exam.id}
-                        className="p-4 rounded-md bg-card/60 dark:bg-white/[0.02] border border-border/50 dark:border-white/[0.06] space-y-2.5 hover:border-brand/30 transition-all group"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="text-sm font-bold text-foreground group-hover:text-brand transition-colors line-clamp-1">
-                            {exam.title}
-                          </p>
-                          <span
-                            className={
-                              effStatus === "active"
-                                ? "bg-emerald-500/15 text-emerald-500 border border-emerald-500/20 text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md flex items-center gap-1 shrink-0"
-                                : effStatus === "scheduled"
-                                ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 text-[10px] font-bold uppercase px-2 py-0.5 rounded-md shrink-0"
-                                : effStatus === "expired" || effStatus === "completed" || effStatus === "cancelled"
-                                ? "bg-rose-500/15 text-rose-500 border border-rose-500/20 text-[10px] font-bold uppercase px-2 py-0.5 rounded-md shrink-0"
-                                : "bg-muted text-muted-foreground text-[10px] font-semibold uppercase px-2 py-0.5 rounded-md shrink-0"
-                            }
-                          >
-                            {effStatus === "active" && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
-                            {effStatus === "active" ? "LIVE NOW" : effStatus === "expired" || effStatus === "completed" || effStatus === "cancelled" ? "EXPIRED" : effStatus}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between text-xs text-muted-foreground font-medium pt-1 border-t border-border/30 dark:border-white/[0.04]">
-                          <div className="flex items-center gap-2">
-                            <span>{exam.startTime ? (() => { const d = toDate(exam.startTime); return d ? d.toLocaleDateString() : "Immediate"; })() : "Immediate"}</span>
-                            <span className="w-1 h-1 rounded-full bg-muted-foreground/50" />
-                            <span>{exam.duration} mins</span>
-                          </div>
-                          {effStatus === "active" ? (
-                            isStudent ? (
-                              <Link href={`/exams/${exam.id}/take`} className="font-bold text-brand hover:underline">
-                                Take Exam →
-                              </Link>
-                            ) : (
-                              <Link href="/exams" className="font-bold text-brand hover:underline">
-                                Manage Assessment →
-                              </Link>
-                            )
-                          ) : (
-                            <span className="font-semibold text-foreground/80">{exam.totalMarks} marks</span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
+          <GlassCard className="p-6 flex flex-col justify-between h-36 hover:border-emerald-500/50 transition-colors cursor-pointer group" onClick={() => router.push("/admin/exams")}>
+            <div className="flex justify-between items-start mb-2">
+              <span className="text-[11px] font-bold tracking-wider text-muted-foreground uppercase">My Assessments</span>
+              <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
+                <FileText className="w-4 h-4" />
               </div>
             </div>
-            <div className="pt-4 mt-4 border-t border-border/40 text-center shrink-0">
-              <Link href="/exams" className="text-xs font-bold text-brand hover:text-brand/80 transition-colors flex items-center justify-center gap-1.5">
-                View Assessment Calendar <ArrowRight className="w-3.5 h-3.5" />
-              </Link>
+            <div>
+              <div className="text-3xl font-bold font-heading">{loading ? "0" : exams.length}</div>
+              <div className="flex items-center justify-between mt-1">
+                <span className="text-xs text-muted-foreground">Created by you</span>
+                <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-emerald-500 transition-colors" />
+              </div>
+            </div>
+          </GlassCard>
+        </motion.div>
+
+        <motion.div variants={staggerItem}>
+          <GlassCard className="p-6 flex flex-col justify-between h-36 hover:border-muted-foreground/50 transition-colors cursor-pointer group" onClick={() => router.push("/admin/students")}>
+            <div className="flex justify-between items-start mb-2">
+              <span className="text-[11px] font-bold tracking-wider text-muted-foreground uppercase">Students</span>
+              <div className="w-9 h-9 rounded-xl bg-secondary text-muted-foreground flex items-center justify-center border border-border/50">
+                <GraduationCap className="w-4 h-4" />
+              </div>
+            </div>
+            <div>
+              <div className="text-3xl font-bold font-heading">{loading ? "0" : students.length}</div>
+              <div className="flex items-center justify-between mt-1">
+                <span className="text-xs text-muted-foreground">In your batches</span>
+                <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
+              </div>
+            </div>
+          </GlassCard>
+        </motion.div>
+
+        <motion.div variants={staggerItem}>
+          <GlassCard className="p-6 flex flex-col justify-between h-36 hover:border-muted-foreground/50 transition-colors cursor-pointer group" onClick={() => router.push("/admin/exams")}>
+            <div className="flex justify-between items-start mb-2">
+              <span className="text-[11px] font-bold tracking-wider text-muted-foreground uppercase">Active Assignments</span>
+              <div className="w-9 h-9 rounded-xl bg-secondary text-muted-foreground flex items-center justify-center border border-border/50">
+                <ClipboardList className="w-4 h-4" />
+              </div>
+            </div>
+            <div>
+              <div className="text-3xl font-bold font-heading">{loading ? "0" : activeOrScheduledExams.length}</div>
+              <div className="flex items-center justify-between mt-1">
+                <span className="text-xs text-muted-foreground">Currently running</span>
+                <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
+              </div>
+            </div>
+          </GlassCard>
+        </motion.div>
+
+        <motion.div variants={staggerItem}>
+          <GlassCard className="p-6 flex flex-col justify-between h-36 hover:border-muted-foreground/50 transition-colors cursor-pointer group">
+            <div className="flex justify-between items-start mb-2">
+              <span className="text-[11px] font-bold tracking-wider text-muted-foreground uppercase">Pending Reviews</span>
+              <div className="w-9 h-9 rounded-xl bg-secondary text-muted-foreground flex items-center justify-center border border-border/50">
+                <Clock className="w-4 h-4" />
+              </div>
+            </div>
+            <div>
+              <div className="text-3xl font-bold font-heading">0</div>
+              <div className="flex items-center justify-between mt-1">
+                <span className="text-xs text-muted-foreground">Awaiting evaluation</span>
+                <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
+              </div>
             </div>
           </GlassCard>
         </motion.div>
       </motion.div>
+
+      {/* Main Content Area */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        {/* Quick Actions (Left Column) */}
+        <motion.div variants={staggerContainer} className="lg:col-span-2">
+          <div className="rounded-2xl border border-border/40 bg-card/30 p-6 h-full flex flex-col">
+            <h2 className="text-xl font-bold font-heading mb-6">Quick Actions</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 flex-1">
+            <GlassCard 
+              className="p-6 h-36 flex flex-col justify-between cursor-pointer hover:border-purple-500/50 transition-colors group"
+              onClick={() => router.push("/admin/exams")}
+            >
+              <div className="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-500 flex items-center justify-center group-hover:scale-110 transition-transform">
+                <FileText className="w-5 h-5" />
+              </div>
+              <span className="font-bold text-sm">Create Assessment</span>
+            </GlassCard>
+
+            <GlassCard 
+              className="p-6 h-36 flex flex-col justify-between cursor-pointer hover:border-blue-500/50 transition-colors group"
+              onClick={() => router.push("/admin/resources")}
+            >
+              <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-500 flex items-center justify-center group-hover:scale-110 transition-transform">
+                <FolderOpen className="w-5 h-5" />
+              </div>
+              <span className="font-bold text-sm">Share Resources</span>
+            </GlassCard>
+
+            <GlassCard 
+              className="p-6 h-36 flex flex-col justify-between cursor-pointer hover:border-emerald-500/50 transition-colors group"
+              onClick={() => router.push("/admin/students")}
+            >
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center group-hover:scale-110 transition-transform">
+                <GraduationCap className="w-5 h-5" />
+              </div>
+              <span className="font-bold text-sm">View Students</span>
+            </GlassCard>
+          </div>
+          </div>
+        </motion.div>
+
+        {/* My Batches (Right Column) */}
+        <motion.div variants={staggerItem} className="lg:col-span-1">
+          <div className="rounded-2xl border border-border/40 bg-card/30 p-6 h-full flex flex-col">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold font-heading">My Batches</h2>
+              <Link href="/admin/batches" className="text-xs font-bold text-muted-foreground hover:text-foreground transition-colors">
+                View All
+              </Link>
+            </div>
+            <div className="space-y-3 flex-1">
+            {loading ? (
+              <div className="py-8 text-center text-xs text-muted-foreground">Loading batches...</div>
+            ) : batches.length === 0 ? (
+              <GlassCard className="p-6 text-center text-xs text-muted-foreground">
+                No batches found.
+              </GlassCard>
+            ) : (
+              batches.slice(0, 5).map(batch => {
+                const college = colleges.find(c => c.id === batch.collegeId);
+                const batchStudents = students.filter(s => s.batchIds?.includes(batch.id)).length;
+                return (
+                  <GlassCard key={batch.id} className="p-4 hover:border-border transition-colors flex items-center justify-between">
+                    <div>
+                      <h4 className="font-bold text-sm text-foreground">{batch.name}</h4>
+                      <div className="text-xs text-muted-foreground mt-0.5">{college?.code || "College"}</div>
+                      <div className="text-[11px] text-muted-foreground flex items-center gap-1.5 mt-2">
+                        <Users className="w-3.5 h-3.5" />
+                        {batchStudents} students
+                      </div>
+                    </div>
+                    <div className="self-start">
+                      <Badge variant="secondary" className="text-[10px] bg-secondary text-secondary-foreground font-semibold">
+                        {batch.academicYear || new Date().getFullYear()}
+                      </Badge>
+                    </div>
+                  </GlassCard>
+                );
+              })
+            )}
+            </div>
+          </div>
+        </motion.div>
+
+      </div>
     </motion.div>
   );
 }

@@ -11,6 +11,7 @@ import {
   Megaphone,
   Settings,
   HelpCircle,
+  Medal,
 } from "lucide-react";
 import type { NavSection } from "@/types";
 
@@ -68,7 +69,7 @@ export const NAVIGATION: NavSection[] = [
       {
         title: "Results",
         href: "/results",
-        icon: Trophy,
+        icon: Medal,
       },
       {
         title: "Leaderboard",

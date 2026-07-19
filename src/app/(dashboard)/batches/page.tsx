@@ -245,7 +245,7 @@ function BatchesContent() {
               <motion.div
                 key={b.id}
                 whileHover={{ y: -4 }}
-                className="rounded-xl border border-[#222222] bg-[#0A0A0A] p-6 flex flex-col justify-between space-y-5 shadow-sm relative group"
+                className="rounded-xl border border-border bg-card p-6 flex flex-col justify-between space-y-5 shadow-sm relative group"
               >
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
@@ -269,7 +269,7 @@ function BatchesContent() {
                   )}
                 </div>
 
-                <div className="p-3.5 rounded-xl bg-[#111111] border border-[#222222] space-y-2 text-xs">
+                <div className="p-3.5 rounded-xl bg-secondary border border-border space-y-2 text-xs">
                   <div className="flex items-center justify-between text-muted-foreground">
                     <span>Department:</span>
                     <span className="font-semibold text-foreground">{b.department || "General"}</span>

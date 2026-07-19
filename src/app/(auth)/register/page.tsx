@@ -159,7 +159,7 @@ export default function RegisterPage() {
     >
       <div className="double-bezel-inner grid grid-cols-1 lg:grid-cols-12 overflow-hidden min-h-[660px]">
         {/* Left Canvas */}
-        <div className="lg:col-span-6 relative p-8 sm:p-12 flex flex-col justify-between overflow-hidden bg-[#05080F] text-white">
+        <div className="lg:col-span-6 relative p-8 sm:p-12 flex flex-col justify-between overflow-hidden bg-zinc-950 text-white">
           <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
             <div className="absolute -top-24 -left-24 w-96 h-96 bg-gradient-to-br from-emerald-500/40 via-teal-500/20 to-transparent rounded-full blur-3xl animate-pulse" />
             <div className="absolute top-1/3 -right-20 w-80 h-80 bg-gradient-to-tr from-emerald-600/30 via-cyan-500/20 to-transparent rounded-full blur-2xl" />

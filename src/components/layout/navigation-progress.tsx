@@ -60,7 +60,7 @@ function NavigationProgressInner() {
   if (!isNavigating && progress === 0) return null;
 
   return (
-    <div className="fixed top-0 left-0 right-0 z-[100] h-1 pointer-events-none bg-transparent overflow-hidden">
+    <div className="fixed top-0 left-0 right-0 z-[100] h-[2px] pointer-events-none bg-transparent overflow-hidden">
       <motion.div
         className="h-full bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-300 shadow-[0_0_14px_rgba(16,185,129,0.9)]"
         initial={{ width: "0%" }}

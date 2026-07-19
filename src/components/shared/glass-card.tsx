@@ -34,7 +34,7 @@ const GlassCard = forwardRef<HTMLDivElement, GlassCardProps>(
       <div
         ref={ref}
         className={cn(
-          "rounded-lg border transition-all duration-300",
+          "rounded-xl border transition-all duration-300",
           blurMap[blur],
           // Variants
           variant === "default" && "glass-card",
@@ -49,7 +49,7 @@ const GlassCard = forwardRef<HTMLDivElement, GlassCardProps>(
             "hover:-translate-y-0.5 hover:shadow-lg dark:hover:shadow-xl dark:hover:shadow-black/20 hover:border-brand/20",
           // Gradient border effect
           gradient &&
-            "border-transparent bg-clip-padding relative before:absolute before:inset-0 before:rounded-lg before:p-[1px] before:bg-gradient-to-br before:from-brand/20 before:to-transparent before:-z-10",
+            "border-transparent bg-clip-padding relative before:absolute before:inset-0 before:rounded-xl before:p-[1px] before:bg-gradient-to-br before:from-brand/20 before:to-transparent before:-z-10",
           className
         )}
         {...props}
@@ -82,14 +82,14 @@ function AnimatedGlassCard({
       whileHover={hover ? { y: -2, transition: { duration: 0.2 } } : undefined}
       whileTap={hover ? { scale: 0.995 } : undefined}
       className={cn(
-        "rounded-lg border transition-all duration-300",
+        "rounded-xl border transition-all duration-300",
         blurMap[blur],
         variant === "default" && "glass-card",
         variant === "elevated" && "glass-card shadow-lg dark:shadow-xl dark:shadow-black/20",
         variant === "interactive" && "glass-card cursor-pointer",
         variant === "subtle" && "bg-card/50 border-border/50 dark:bg-white/[0.02] dark:border-white/[0.06]",
         hover && "hover:shadow-lg dark:hover:shadow-xl dark:hover:shadow-black/20 hover:border-brand/20",
-        gradient && "border-transparent bg-clip-padding relative before:absolute before:inset-0 before:rounded-lg before:p-[1px] before:bg-gradient-to-br before:from-brand/20 before:to-transparent before:-z-10",
+        gradient && "border-transparent bg-clip-padding relative before:absolute before:inset-0 before:rounded-xl before:p-[1px] before:bg-gradient-to-br before:from-brand/20 before:to-transparent before:-z-10",
         className
       )}
       {...props}

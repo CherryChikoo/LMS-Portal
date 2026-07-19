@@ -267,7 +267,7 @@ function LoginContent() {
           </div>
 
           {/* Left Canvas - second on mobile, left on desktop */}
-          <div className="order-2 lg:order-1 lg:col-span-6 relative p-4 sm:p-6 lg:p-12 flex flex-col justify-between overflow-hidden bg-[#05080F] text-white min-h-[120px] sm:min-h-[160px] lg:min-h-[640px]">
+          <div className="order-2 lg:order-1 lg:col-span-6 relative p-4 sm:p-6 lg:p-12 flex flex-col justify-between overflow-hidden bg-zinc-950 text-white min-h-[120px] sm:min-h-[160px] lg:min-h-[640px]">
             <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
               <div className="absolute -top-24 -left-24 w-96 h-96 bg-gradient-to-br from-emerald-500/40 via-teal-500/20 to-transparent rounded-full blur-3xl animate-pulse" />
               <div className="absolute top-1/3 -right-20 w-80 h-80 bg-gradient-to-tr from-emerald-600/30 via-cyan-500/20 to-transparent rounded-full blur-2xl" />

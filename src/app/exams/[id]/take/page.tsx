@@ -850,7 +850,7 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
       {/* Start Exam Fullscreen Overlay */}
       <AnimatePresence>
         {showStartOverlay && !loading && exam && questions.length > 0 && (
-          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-[#05080F]/95 backdrop-blur-md">
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-background/95 backdrop-blur-md">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}

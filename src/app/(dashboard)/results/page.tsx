@@ -582,7 +582,7 @@ export default function ResultsPage() {
 
       {/* Top Metrics Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <div className="p-5 rounded-2xl border border-border bg-[#0A0A0A] flex items-center justify-between shadow-sm">
+        <div className="p-5 rounded-2xl border border-border bg-card flex items-center justify-between shadow-sm">
           <div>
             <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Total Submissions</span>
             <p className="text-3xl font-bold text-foreground mt-1">{totalSubmissions}</p>
@@ -592,7 +592,7 @@ export default function ResultsPage() {
           </div>
         </div>
 
-        <div className="p-5 rounded-2xl border border-border bg-[#0A0A0A] flex items-center justify-between shadow-sm">
+        <div className="p-5 rounded-2xl border border-border bg-card flex items-center justify-between shadow-sm">
           <div>
             <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Overall Pass Rate</span>
             <p className="text-3xl font-bold text-emerald-600 dark:text-emerald-400 mt-1">{passRate}%</p>
@@ -602,7 +602,7 @@ export default function ResultsPage() {
           </div>
         </div>
 
-        <div className="p-5 rounded-2xl border border-border bg-[#0A0A0A] flex items-center justify-between shadow-sm">
+        <div className="p-5 rounded-2xl border border-border bg-card flex items-center justify-between shadow-sm">
           <div>
             <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Average Score</span>
             <p className="text-3xl font-bold text-amber-600 dark:text-amber-400 mt-1">{avgScore}%</p>
@@ -612,7 +612,7 @@ export default function ResultsPage() {
           </div>
         </div>
 
-        <div className="p-5 rounded-2xl border border-border bg-[#0A0A0A] flex items-center justify-between shadow-sm">
+        <div className="p-5 rounded-2xl border border-border bg-card flex items-center justify-between shadow-sm">
           <div>
             <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Peak Score</span>
             <p className="text-3xl font-bold text-purple-600 dark:text-purple-400 mt-1">{highestScore}%</p>
@@ -764,7 +764,7 @@ export default function ResultsPage() {
           }
         />
       ) : (
-        <div className="rounded-2xl border border-border bg-[#0A0A0A] overflow-hidden shadow-sm">
+        <div className="rounded-2xl border border-border bg-card overflow-hidden shadow-sm">
           <div className="p-5 border-b border-border flex items-center justify-between">
             <div>
               <h3 className="font-bold text-sm text-foreground">

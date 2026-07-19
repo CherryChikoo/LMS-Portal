@@ -132,19 +132,19 @@ function LeaderboardContent() {
 
       {/* Filters (Admin Only) */}
       {userRole !== "student" && (
-        <motion.div variants={staggerItem} className="flex flex-col sm:flex-row gap-4 p-4 rounded-xl bg-[#0A0A0A] border border-[#222222]">
+        <motion.div variants={staggerItem} className="flex flex-col sm:flex-row gap-4 p-4 rounded-xl bg-card border border-border shadow-sm">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input 
               placeholder="Search by student name or department..." 
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 bg-[#111111] border-[#222222] h-10" 
+              className="pl-9 bg-background border-border h-10"
             />
           </div>
           <div className="w-full sm:w-64 shrink-0">
             <Select value={filterCollege} onValueChange={(val) => setFilterCollege(val || "all")}>
-              <SelectTrigger className="h-10 bg-[#111111] border-[#222222]">
+              <SelectTrigger className="h-10 bg-background border-border">
                 <SelectValue placeholder="All Colleges" />
               </SelectTrigger>
               <SelectContent>
@@ -159,7 +159,7 @@ function LeaderboardContent() {
       )}
 
       {rankedStudents.length === 0 ? (
-        <motion.div variants={staggerItem} className="p-12 text-center bg-[#0A0A0A] rounded-xl border border-[#222222]">
+        <motion.div variants={staggerItem} className="p-12 text-center bg-card rounded-xl border border-border shadow-sm">
           <Trophy className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
           <h3 className="text-lg font-bold text-foreground">No rankings available yet</h3>
           <p className="text-sm text-muted-foreground">Students need to complete assessments to appear on the leaderboard.</p>
@@ -210,7 +210,7 @@ function LeaderboardContent() {
                     <div className="text-xs text-muted-foreground">Average</div>
                     <div className="font-semibold text-foreground">{r.averagePercentage}%</div>
                   </div>
-                  <div className="bg-[#111111] rounded-lg px-3 py-1.5 border border-[#222222]">
+                  <div className="bg-background rounded-lg px-3 py-1.5 border border-border">
                     <div className="text-[10px] uppercase font-bold text-muted-foreground">Score</div>
                     <div className="font-black text-brand text-lg leading-none">{r.totalScore}</div>
                   </div>

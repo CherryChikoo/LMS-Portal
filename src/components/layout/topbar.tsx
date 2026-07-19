@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Menu, Search, Sparkles } from "lucide-react";
+import { Menu, Search, Sparkles, Moon, Sun, PanelLeft } from "lucide-react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useTheme } from "next-themes";
 import { useSidebar } from "@/hooks/use-sidebar";
 import { useIsMobile } from "@/hooks/use-media-query";
 import { useMounted } from "@/hooks/use-mounted";
@@ -21,11 +23,14 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { logoutUser } from "@/lib/services/auth-service";
+import { NAVIGATION } from "@/lib/constants";
 
 export function Topbar() {
-  const { openMobile } = useSidebar();
+  const { openMobile, toggle } = useSidebar();
   const isMobile = useIsMobile();
   const mounted = useMounted();
+  const { theme, setTheme } = useTheme();
+  const pathname = usePathname();
 
   const [userName, setUserName] = useState("Trainer");
   const [userRole, setUserRole] = useState("Trainer");
@@ -79,16 +84,40 @@ export function Topbar() {
     };
   }, [loadUserInfo]);
 
+  const getPageTitle = () => {
+    if (!pathname || pathname === "/" || pathname === "/admin" || pathname === "/student" || pathname === "/college") {
+      return "Dashboard";
+    }
+
+    for (const section of NAVIGATION) {
+      for (const item of section.items) {
+        if (pathname.includes(item.href) && item.href !== "/") {
+          return item.title;
+        }
+      }
+    }
+
+    const parts = pathname.split("/").filter(Boolean);
+    const mainPart = parts[parts.length - 1];
+    if (mainPart) {
+      return mainPart.charAt(0).toUpperCase() + mainPart.slice(1).replace(/-/g, " ");
+    }
+
+    return "Dashboard";
+  };
+
+  const pageTitle = getPageTitle();
+
   return (
     <header
       className={`sticky top-0 z-30 h-20 flex items-center justify-between gap-4 px-4 sm:px-6 lg:px-8 transition-all duration-300 ${scrolled
-        ? "bg-[#0A0A0A]/95 backdrop-blur-2xl border-b border-[#222222]"
-        : "bg-[#0A0A0A] border-b border-transparent"
+        ? "bg-background/95 backdrop-blur-2xl border-b border-border"
+        : "bg-background border-b border-transparent"
         }`}
     >
       {/* Left / Mobile menu button */}
       <div className="flex items-center gap-3 flex-1 max-w-xl">
-        {isMobile && (
+        {isMobile ? (
           <Button
             variant="ghost"
             size="icon"
@@ -97,17 +126,20 @@ export function Topbar() {
           >
             <Menu className="w-5 h-5" />
           </Button>
+        ) : (
+          <div className="hidden lg:flex items-center gap-4">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggle}
+              className="text-foreground hover:bg-accent rounded-lg"
+            >
+              <PanelLeft className="w-5 h-5" />
+            </Button>
+            <div className="w-px h-5 bg-border mx-1"></div>
+            <h2 className="text-base font-bold text-foreground">{pageTitle}</h2>
+          </div>
         )}
-
-        {/* Global Search Bar */}
-        <div className="relative w-full max-w-md group">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-focus-within:text-brand transition-colors pointer-events-none" />
-          <input
-            type="text"
-            placeholder="Search here..."
-            className="w-full h-11 pl-10 pr-4 rounded-xl bg-[#111111] border border-[#222222] text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand transition-all"
-          />
-        </div>
       </div>
 
       {/* Right Actions */}
@@ -117,7 +149,7 @@ export function Topbar() {
           <Link href={userRole.toLowerCase() === "college_admin" || userRole.toLowerCase() === "administrator" ? "/admin/exams" : "/exams"} className="hidden md:block">
             <Button
               size="sm"
-              className="h-10 px-4 rounded-xl bg-gradient-brand text-white font-medium border border-white/20 shadow-none hover:opacity-95 transition-all flex items-center gap-2"
+              className="h-10 px-4 rounded-xl bg-brand text-white dark:text-black font-medium border border-white/20 dark:border-black/10 shadow-none hover:opacity-95 transition-all flex items-center gap-2"
             >
               <Sparkles className="w-4 h-4" />
               <span>Quick Assessment</span>
@@ -125,7 +157,17 @@ export function Topbar() {
           </Link>
         )}
 
-
+        {/* Theme Toggle */}
+        {mounted && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            className="h-10 w-10 rounded-xl border border-white/10 bg-secondary hover:bg-accent text-foreground"
+          >
+            {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          </Button>
+        )}
 
         {/* User Dropdown */}
         <DropdownMenu>
@@ -133,11 +175,11 @@ export function Topbar() {
             render={
               <Button
                 variant="ghost"
-                className="h-11 pl-2 pr-3 rounded-xl bg-[#111111] border-0 hover:bg-[#1a1a1a] transition-all flex items-center gap-2.5 shadow-none"
+                className="h-11 pl-2 pr-3 rounded-xl bg-secondary border-0 hover:bg-accent transition-all flex items-center gap-2.5 shadow-none"
               >
                 <Avatar className="h-7 w-7 ring-2 ring-brand/30">
                   <AvatarImage src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(userName)}`} />
-                  <AvatarFallback className="bg-gradient-brand text-white text-xs font-bold">
+                  <AvatarFallback className="bg-brand text-white dark:text-black text-xs font-bold">
                     {initials}
                   </AvatarFallback>
                 </Avatar>
@@ -147,16 +189,16 @@ export function Topbar() {
               </Button>
             }
           />
-          <DropdownMenuContent align="end" className="w-56 glass-popover border-white/10 rounded-xl p-2 shadow-2xl">
-            <div className="px-3 py-2.5 border-b border-border/40 dark:border-white/[0.06] mb-1">
+          <DropdownMenuContent align="end" className="w-56 bg-popover border-border rounded-xl p-2 shadow-2xl">
+            <div className="px-3 py-2.5 border-b border-border mb-1">
               <p className="text-sm font-bold text-foreground">{userName}</p>
-              <p className="text-xs font-mono text-emerald-400">{userRole}</p>
+              <p className="text-xs font-mono text-brand">{userRole}</p>
             </div>
             <DropdownMenuItem render={<Link href={userRole.toLowerCase() === "student" ? "/student/settings" : "/admin/settings"}>Account Settings</Link>} className="rounded-md cursor-pointer" />
             {userRole.toLowerCase() !== "student" && (
               <DropdownMenuItem render={<Link href="/admin/colleges">Manage Colleges</Link>} className="rounded-md cursor-pointer" />
             )}
-            <DropdownMenuSeparator className="bg-border/40 dark:bg-white/[0.06]" />
+            <DropdownMenuSeparator className="bg-border" />
             <DropdownMenuItem
               onClick={async () => {
                 await logoutUser();

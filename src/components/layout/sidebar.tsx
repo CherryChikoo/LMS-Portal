@@ -19,6 +19,8 @@ import {
   X,
   Check,
   Building2,
+  BookOpen,
+  AlertCircle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSidebar } from "@/hooks/use-sidebar";
@@ -195,6 +197,7 @@ export function Sidebar() {
       animate={{ width: isExpanded ? 260 : 80 }}
       transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
       className="fixed left-0 top-0 bottom-0 z-30 flex flex-col bg-sidebar backdrop-blur-2xl text-sidebar-foreground transition-all duration-300 border-r border-border/40"
+      style={{ fontFamily: '"Montserrat", sans-serif' }}
     >
       {/* Logo & Top Collapse Toggle Area */}
       <div className={cn("flex items-center h-20 px-4 shrink-0 border-b border-border/30 relative group/brand", isExpanded ? "justify-between" : "justify-center")}>
@@ -206,17 +209,17 @@ export function Sidebar() {
               className={cn("object-contain rounded-lg shrink-0", isExpanded ? "w-8 h-8" : "w-7 h-7 mx-auto")}
             />
           ) : !isExpanded ? (
-            <div className="w-8 h-8 rounded-lg bg-brand/10 text-brand flex items-center justify-center font-extrabold text-xs mx-auto shrink-0">
-              {(branding.companyName || APP_NAME).substring(0, 2).toUpperCase()}
+            <div className="w-8 h-8 text-brand flex items-center justify-center mx-auto shrink-0">
+              <BookOpen className="w-6 h-6" />
             </div>
           ) : null}
           {isExpanded && (
             <div className="flex flex-col min-w-0">
-              <span className="font-bold text-lg text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-teal-300 to-emerald-200 tracking-tight truncate">
-                {branding.companyName || APP_NAME}
+              <span className="font-bold text-lg text-brand tracking-tight truncate flex items-center gap-2">
+                {branding.companyName || APP_NAME} <BookOpen className="w-5 h-5" />
               </span>
-              <span className="text-[10px] font-medium text-emerald-500 uppercase tracking-widest truncate">
-                {userRole === "student" ? "Student Portal" : branding.companySubtitle || "Enterprise v2.4"}
+              <span className="text-[9px] font-bold text-brand/60 uppercase tracking-widest truncate">
+                {userRole === "student" ? "Student Portal" : branding.companySubtitle || "Enterprise"}
               </span>
             </div>
           )}
@@ -234,22 +237,11 @@ export function Sidebar() {
           </button>
         )}
 
-        {/* Top Header Collapse Toggle Button */}
-        <button
-          onClick={toggle}
-          title={isExpanded ? "Collapse Sidebar" : "Expand Sidebar"}
-          className={cn(
-            "hover:bg-accent/80 text-muted-foreground hover:text-foreground transition-all flex items-center justify-center z-50",
-            isExpanded ? "p-2 rounded-lg shrink-0" : "absolute -right-3.5 top-6 bg-background border border-border shadow-sm rounded-full w-7 h-7 p-0"
-          )}
-        >
-          {isExpanded ? <PanelLeftClose className="w-5 h-5 text-brand" /> : <PanelLeft className="w-3.5 h-3.5 text-brand" />}
-        </button>
       </div>
 
       {/* Navigation Links & Settings Inside ScrollArea with pb-12 so nothing is ever obscured by OS taskbar */}
-      <ScrollArea className="flex-1 px-3 py-3">
-        <nav className="space-y-6 pb-12">
+      <ScrollArea className="flex-1 min-h-0 px-3 py-3 pb-2">
+        <nav className="space-y-5 pb-4">
           {effectiveNav.map((section) => (
             <div key={section.title}>
               <AnimatePresence>
@@ -258,7 +250,7 @@ export function Sidebar() {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground/60 mb-2.5 px-3.5"
+                    className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground/60 mb-2 px-3.5"
                   >
                     {section.title}
                   </motion.p>
@@ -275,8 +267,8 @@ export function Sidebar() {
                       className={cn(
                         "group relative flex items-center gap-3.5 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200",
                         isActive
-                          ? "nav-active"
-                          : "text-muted-foreground hover:text-foreground hover:bg-[#111111]",
+                          ? "bg-brand text-black shadow-sm"
+                          : "text-muted-foreground hover:text-foreground hover:bg-secondary",
                         !isExpanded && "justify-center px-0 w-11 h-11 mx-auto"
                       )}
                     >
@@ -323,69 +315,69 @@ export function Sidebar() {
               </div>
             </div>
           ))}
-
-          {/* Settings Section directly inside scrollable nav */}
-          <div className="pt-4 mt-2 border-t border-border/40 px-2 space-y-1">
-            {isExpanded && (
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground/60 mb-2 px-3.5">
-                SETTINGS
-              </p>
-            )}
-
-            {!isExpanded ? (
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Link
-                      href={userRole === "student" ? "/student/settings" : "/admin/settings"}
-                      className="group relative flex items-center justify-center w-11 h-11 mx-auto rounded-lg text-sm font-medium transition-all duration-200 text-muted-foreground hover:text-foreground hover:bg-[#111111]"
-                    >
-                      <Settings className="w-5 h-5 shrink-0 text-muted-foreground group-hover:text-foreground transition-colors" />
-                    </Link>
-                  }
-                />
-                <TooltipContent side="right" sideOffset={14} className="glass-popover font-heading">
-                  Settings
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <Link
-                href={userRole === "student" ? "/student/settings" : "/admin/settings"}
-                className="group relative flex items-center gap-3.5 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 text-muted-foreground hover:text-foreground hover:bg-[#111111]"
-              >
-                <Settings className="w-5 h-5 shrink-0 text-muted-foreground group-hover:text-foreground transition-colors" />
-                <span className="whitespace-nowrap">Settings</span>
-              </Link>
-            )}
-
-            {!isExpanded ? (
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <button
-                      onClick={handleLogout}
-                      className="w-full group relative flex items-center justify-center w-11 h-11 mx-auto rounded-lg text-sm font-medium transition-all duration-200 text-rose-500 hover:bg-rose-500/10"
-                    >
-                      <LogOut className="w-5 h-5 shrink-0 text-rose-500" />
-                    </button>
-                  }
-                />
-                <TooltipContent side="right" sideOffset={14} className="glass-popover font-heading text-orange-500">
-                  Logout
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <button
-                onClick={handleLogout}
-                className="w-full group relative flex items-center gap-3.5 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 text-rose-500 hover:bg-rose-500/10"
-              >
-                <LogOut className="w-5 h-5 shrink-0 text-rose-500" />
-                <span className="whitespace-nowrap">Logout</span>
-              </button>
-            )}
-          </div>
         </nav>
       </ScrollArea>
+
+      {/* Settings Footer (Fixed at bottom) */}
+      <div className="shrink-0 pt-3 mt-auto border-t border-border/40 px-3 pb-4 space-y-1">
+        {isExpanded && (
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground/60 mb-2 px-3.5">
+            SETTINGS
+          </p>
+        )}
+
+        {!isExpanded ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Link
+                  href={userRole === "student" ? "/student/settings" : "/admin/settings"}
+                  className="group relative flex items-center justify-center w-11 h-11 mx-auto rounded-lg text-sm font-medium transition-all duration-200 text-muted-foreground hover:text-foreground hover:bg-secondary"
+                >
+                  <Settings className="w-5 h-5 shrink-0 text-muted-foreground group-hover:text-foreground transition-colors" />
+                </Link>
+              }
+            />
+            <TooltipContent side="right" sideOffset={14} className="glass-popover font-heading">
+              Settings
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          <Link
+            href={userRole === "student" ? "/student/settings" : "/admin/settings"}
+            className="group relative flex items-center gap-3.5 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 text-muted-foreground hover:text-foreground hover:bg-secondary"
+          >
+            <Settings className="w-5 h-5 shrink-0 text-muted-foreground group-hover:text-foreground transition-colors" />
+            <span className="whitespace-nowrap">Settings</span>
+          </Link>
+        )}
+
+        {!isExpanded ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  onClick={handleLogout}
+                  className="w-full group relative flex items-center justify-center w-11 h-11 mx-auto rounded-lg text-sm font-medium transition-all duration-200 text-rose-500 hover:bg-rose-500/10 mt-1"
+                >
+                  <LogOut className="w-5 h-5 shrink-0 text-rose-500" />
+                </button>
+              }
+            />
+            <TooltipContent side="right" sideOffset={14} className="glass-popover font-heading text-orange-500">
+              Logout
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          <button
+            onClick={handleLogout}
+            className="w-full group relative flex items-center gap-3.5 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 text-rose-500 hover:bg-rose-500/10 mt-1"
+          >
+            <LogOut className="w-5 h-5 shrink-0 text-rose-500" />
+            <span className="whitespace-nowrap">Logout</span>
+          </button>
+        )}
+      </div>
 
       {/* Edit Company Branding Modal — portal-rendered to escape sidebar stacking context */}
       {typeof document !== "undefined" && createPortal(
