@@ -228,6 +228,7 @@ export default function CollegesPage() {
           await Promise.all(studentsToDelete.map((s) => deleteStudentProfile(s.id)));
           setSelectedExternalIds((prev) => prev.filter((id) => id !== extName));
           await fetchColleges();
+          window.location.reload();
         } catch (err) {
           console.error("Failed to delete outside institution:", err);
         } finally {
@@ -250,6 +251,7 @@ export default function CollegesPage() {
           await Promise.all(studentsToDelete.map((s) => deleteStudentProfile(s.id)));
           setSelectedExternalIds([]);
           await fetchColleges();
+          window.location.reload();
         } catch (err) {
           console.error("Failed to delete selected outside institutions:", err);
         } finally {
@@ -273,6 +275,7 @@ export default function CollegesPage() {
           await Promise.all(studentsToDelete.map((s) => deleteStudentProfile(s.id)));
           setSelectedExternalIds([]);
           await fetchColleges();
+          window.location.reload();
         } catch (err) {
           console.error("Failed to delete all outside institutions:", err);
         } finally {
@@ -699,19 +702,42 @@ export default function CollegesPage() {
                             </Button>
                           </>
                         ) : (
-                          <Button
-                            variant="default"
-                            size="sm"
-                            onClick={() => {
-                              setPromotingExternal({ name: col.name, departments: col.departments || [] });
-                              setPromoteAdminEmail("");
-                              setPromotePassword("");
-                            }}
-                            className="h-8 px-3 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs flex items-center gap-1.5 shadow"
-                          >
-                            <Plus className="w-3 h-3" />
-                            <span>Enable Login</span>
-                          </Button>
+                          <>
+                            <Button
+                              variant="default"
+                              size="sm"
+                              onClick={() => {
+                                setPromotingExternal({ name: col.name, departments: col.departments || [] });
+                                setPromoteAdminEmail("");
+                                setPromotePassword("");
+                              }}
+                              className="h-8 px-3 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs flex items-center gap-1.5 shadow"
+                            >
+                              <Plus className="w-3 h-3" />
+                              <span>Enable Login</span>
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setEditingExternal({ id: col.id, name: col.name });
+                                setEditExternalName(col.name);
+                              }}
+                              className="h-8 w-8 p-0 text-amber-500 hover:text-amber-600 hover:bg-amber-500/10 rounded-lg"
+                              title="Rename Institution"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteExternalCollege(col.name)}
+                              className="h-8 w-8 p-0 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10 rounded-lg"
+                              title="Delete Institution"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </>
                         )}
                       </div>
                     </div>
