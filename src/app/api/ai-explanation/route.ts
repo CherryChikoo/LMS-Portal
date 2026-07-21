@@ -6,7 +6,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 export const maxDuration = 60; // Max allowed for Vercel Hobby tier
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
-const MODEL_NAME = "gemini-1.5-flash"; // Recommended fast model
+const MODEL_NAME = "gemini-2.5-flash";
 
 const CHUNK_SIZE = 5; // Process 5 questions per Gemini API call to avoid timeouts/token limits
 
@@ -158,6 +158,7 @@ Do NOT wrap the output in markdown code blocks like \`\`\`json. Return RAW valid
 
   } catch (error) {
     console.error("AI Explanation Generation Error:", error);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    const errorMessage = error instanceof Error ? error.message : "Internal Server Error";
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }
