@@ -189,47 +189,62 @@ export function Sidebar() {
       initial={false}
       animate={{ width: isExpanded ? 260 : 80 }}
       transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-      className="hidden lg:flex flex-col fixed left-0 top-0 bottom-0 z-30 bg-sidebar backdrop-blur-2xl text-sidebar-foreground transition-all duration-300 border-r border-border"
+      className="hidden lg:flex flex-col fixed left-0 top-0 bottom-0 z-30 bg-sidebar backdrop-blur-2xl text-sidebar-foreground border-r border-border"
       style={{ fontFamily: '"Montserrat", sans-serif' }}
     >
       {/* Logo & Top Collapse Toggle Area */}
-      <div className={cn("flex items-center h-20 px-4 shrink-0 relative group/brand", isExpanded ? "justify-between" : "justify-center")}>
-        <Link href="/" className="flex items-center gap-2.5 overflow-hidden flex-1 min-w-0 mr-1">
+      <div className={cn("flex items-center h-20 px-4 shrink-0 relative group/brand overflow-hidden")}>
+        <Link href="/" className="flex items-center gap-2.5 flex-1 min-w-0 mr-1 overflow-hidden">
           {branding.logoBase64 ? (
             <img
               src={branding.logoBase64}
               alt="Company Logo"
-              className={cn("object-contain rounded-lg shrink-0", isExpanded ? "w-8 h-8" : "w-7 h-7 mx-auto")}
+              className={cn("object-contain rounded-lg shrink-0 transition-all duration-300", isExpanded ? "w-8 h-8" : "w-7 h-7 mx-auto")}
             />
-          ) : !isExpanded ? (
-            <div className="w-8 h-8 rounded-lg bg-brand/10 text-brand flex items-center justify-center mx-auto shrink-0 font-black text-lg">
+          ) : (
+            <div className={cn("rounded-lg bg-brand/10 text-brand flex items-center justify-center shrink-0 font-black text-lg transition-all duration-300", isExpanded ? "w-8 h-8" : "w-7 h-7 mx-auto")}>
               {(branding.companyName || APP_NAME).charAt(0).toUpperCase()}
             </div>
-          ) : null}
-          {isExpanded && (
-            <div className="flex flex-col min-w-0">
-              <span className="font-bold text-lg text-brand tracking-tight truncate flex items-center gap-2">
-                {branding.companyName || APP_NAME}
-              </span>
-              <span className="text-[9px] font-bold text-brand/60 uppercase tracking-widest truncate">
-                {userRole === "student" ? "Student Portal" : branding.companySubtitle || "Enterprise"}
-              </span>
-            </div>
           )}
+          <AnimatePresence initial={false}>
+            {isExpanded && (
+              <motion.div
+                initial={{ opacity: 0, width: 0 }}
+                animate={{ opacity: 1, width: "auto" }}
+                exit={{ opacity: 0, width: 0 }}
+                transition={{ duration: 0.2, ease: "easeInOut" }}
+                className="flex flex-col min-w-0 overflow-hidden whitespace-nowrap"
+              >
+                <span className="font-bold text-lg text-brand tracking-tight truncate flex items-center gap-2">
+                  {branding.companyName || APP_NAME}
+                </span>
+                <span className="text-[9px] font-bold text-brand/60 uppercase tracking-widest truncate">
+                  {userRole === "student" ? "Student Portal" : branding.companySubtitle || "Enterprise"}
+                </span>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </Link>
 
         {/* Admin Quick-Edit Branding Button */}
-        {isExpanded && userRole && userRole !== "student" && (
-          <button
-            type="button"
-            onClick={handleOpenBrandModal}
-            title="Edit Company Branding & Logo"
-            className="opacity-0 group-hover/brand:opacity-100 p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-all shrink-0 mr-1"
-          >
-            <Pencil className="w-3.5 h-3.5 text-brand" />
-          </button>
+        {userRole && userRole !== "student" && (
+          <AnimatePresence initial={false}>
+            {isExpanded && (
+              <motion.button
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.8 }}
+                transition={{ duration: 0.2 }}
+                type="button"
+                onClick={handleOpenBrandModal}
+                title="Edit Company Branding & Logo"
+                className="opacity-0 group-hover/brand:opacity-100 p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors shrink-0 mr-1"
+              >
+                <Pencil className="w-3.5 h-3.5 text-brand" />
+              </motion.button>
+            )}
+          </AnimatePresence>
         )}
-
       </div>
 
       {/* Navigation Links & Settings Inside ScrollArea with pb-12 so nothing is ever obscured by OS taskbar */}
@@ -237,16 +252,19 @@ export function Sidebar() {
         <nav className="space-y-5 pb-4">
           {effectiveNav.map((section) => (
             <div key={section.title}>
-              <AnimatePresence>
+              <AnimatePresence initial={false}>
                 {isExpanded && (
-                  <motion.p
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground/60 mb-2 px-3.5"
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.2, ease: "easeInOut" }}
+                    className="overflow-hidden"
                   >
-                    {section.title}
-                  </motion.p>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground/60 mb-2 px-3.5">
+                      {section.title}
+                    </p>
+                  </motion.div>
                 )}
               </AnimatePresence>
               <div className="space-y-1">
@@ -258,11 +276,11 @@ export function Sidebar() {
                     <Link
                       href={item.href}
                       className={cn(
-                        "group relative flex items-center gap-3.5 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200",
+                        "group relative flex items-center gap-3.5 px-3.5 h-11 rounded-lg text-sm font-medium transition-all duration-300 overflow-hidden",
                         isActive
                           ? "bg-brand text-black shadow-sm"
                           : "text-muted-foreground hover:text-foreground hover:bg-secondary",
-                        !isExpanded && "justify-center px-0 w-11 h-11 mx-auto"
+                        !isExpanded && "justify-center px-0 w-11 mx-auto"
                       )}
                     >
                       <Icon
@@ -271,39 +289,37 @@ export function Sidebar() {
                           isActive ? "text-black w-5 h-5" : "text-muted-foreground group-hover:text-foreground w-5 h-5"
                         )}
                       />
-                      <AnimatePresence>
+                      <AnimatePresence initial={false}>
                         {isExpanded && (
                           <motion.span
                             initial={{ opacity: 0, width: 0 }}
                             animate={{ opacity: 1, width: "auto" }}
                             exit={{ opacity: 0, width: 0 }}
-                            transition={{ duration: 0.2 }}
-                            className="whitespace-nowrap overflow-hidden flex-1"
+                            transition={{ duration: 0.2, ease: "easeInOut" }}
+                            className="whitespace-nowrap overflow-hidden flex-1 flex items-center"
                           >
                             {item.title}
+                            {item.badge && (
+                              <span className="ml-auto text-[11px] bg-brand/20 text-brand px-2 py-0.5 rounded-full font-semibold border border-brand/30 shrink-0">
+                                {item.badge}
+                              </span>
+                            )}
                           </motion.span>
                         )}
                       </AnimatePresence>
-                      {isExpanded && item.badge && (
-                        <span className="ml-auto text-[11px] bg-brand/20 text-brand px-2 py-0.5 rounded-full font-semibold border border-brand/30">
-                          {item.badge}
-                        </span>
-                      )}
                     </Link>
                   );
 
-                  if (!isExpanded) {
-                    return (
-                      <Tooltip key={item.href}>
-                        <TooltipTrigger render={linkContent} />
+                  return (
+                    <Tooltip key={item.href}>
+                      <TooltipTrigger render={linkContent} />
+                      {!isExpanded && (
                         <TooltipContent side="right" sideOffset={14} className="glass-popover border-white/10 font-medium">
                           {item.title}
                         </TooltipContent>
-                      </Tooltip>
-                    );
-                  }
-
-                  return <div key={item.href}>{linkContent}</div>;
+                      )}
+                    </Tooltip>
+                  );
                 })}
               </div>
             </div>
@@ -313,63 +329,91 @@ export function Sidebar() {
 
       {/* Settings Footer (Fixed at bottom) */}
       <div className="shrink-0 pt-3 mt-auto border-t border-border/40 px-3 pb-4 space-y-1">
-        {isExpanded && (
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground/60 mb-2 px-3.5">
-            SETTINGS
-          </p>
-        )}
+        <AnimatePresence initial={false}>
+          {isExpanded && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.2, ease: "easeInOut" }}
+              className="overflow-hidden"
+            >
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground/60 mb-2 px-3.5">
+                SETTINGS
+              </p>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-        {!isExpanded ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Link
-                  href={userRole === "student" ? "/student/settings" : "/admin/settings"}
-                  className="group relative flex items-center justify-center w-11 h-11 mx-auto rounded-lg text-sm font-medium transition-all duration-200 text-muted-foreground hover:text-foreground hover:bg-secondary"
-                >
-                  <Settings className="w-5 h-5 shrink-0 text-muted-foreground group-hover:text-foreground transition-colors" />
-                </Link>
-              }
-            />
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Link
+                href={userRole === "student" ? "/student/settings" : "/admin/settings"}
+                className={cn(
+                  "group relative flex items-center gap-3.5 px-3.5 h-11 rounded-lg text-sm font-medium transition-all duration-300 overflow-hidden",
+                  "text-muted-foreground hover:text-foreground hover:bg-secondary",
+                  !isExpanded && "justify-center px-0 w-11 mx-auto"
+                )}
+              >
+                <Settings className="w-5 h-5 shrink-0 text-muted-foreground group-hover:text-foreground transition-colors" />
+                <AnimatePresence initial={false}>
+                  {isExpanded && (
+                    <motion.span
+                      initial={{ opacity: 0, width: 0 }}
+                      animate={{ opacity: 1, width: "auto" }}
+                      exit={{ opacity: 0, width: 0 }}
+                      transition={{ duration: 0.2, ease: "easeInOut" }}
+                      className="whitespace-nowrap overflow-hidden flex-1 flex items-center"
+                    >
+                      Settings
+                    </motion.span>
+                  )}
+                </AnimatePresence>
+              </Link>
+            }
+          />
+          {!isExpanded && (
             <TooltipContent side="right" sideOffset={14} className="glass-popover font-heading">
               Settings
             </TooltipContent>
-          </Tooltip>
-        ) : (
-          <Link
-            href={userRole === "student" ? "/student/settings" : "/admin/settings"}
-            className="group relative flex items-center gap-3.5 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 text-muted-foreground hover:text-foreground hover:bg-secondary"
-          >
-            <Settings className="w-5 h-5 shrink-0 text-muted-foreground group-hover:text-foreground transition-colors" />
-            <span className="whitespace-nowrap">Settings</span>
-          </Link>
-        )}
+          )}
+        </Tooltip>
 
-        {!isExpanded ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <button
-                  onClick={handleLogout}
-                  className="w-full group relative flex items-center justify-center w-11 h-11 mx-auto rounded-lg text-sm font-medium transition-all duration-200 text-rose-500 hover:bg-rose-500/10 mt-1"
-                >
-                  <LogOut className="w-5 h-5 shrink-0 text-rose-500" />
-                </button>
-              }
-            />
-            <TooltipContent side="right" sideOffset={14} className="glass-popover font-heading text-orange-500">
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                onClick={handleLogout}
+                className={cn(
+                  "w-full group relative flex items-center gap-3.5 px-3.5 h-11 rounded-lg text-sm font-medium transition-all duration-300 overflow-hidden mt-1",
+                  "text-rose-500 hover:bg-rose-500/10",
+                  !isExpanded && "justify-center px-0 w-11 mx-auto"
+                )}
+              >
+                <LogOut className="w-5 h-5 shrink-0 text-rose-500" />
+                <AnimatePresence initial={false}>
+                  {isExpanded && (
+                    <motion.span
+                      initial={{ opacity: 0, width: 0 }}
+                      animate={{ opacity: 1, width: "auto" }}
+                      exit={{ opacity: 0, width: 0 }}
+                      transition={{ duration: 0.2, ease: "easeInOut" }}
+                      className="whitespace-nowrap overflow-hidden flex-1 flex items-center text-left"
+                    >
+                      Logout
+                    </motion.span>
+                  )}
+                </AnimatePresence>
+              </button>
+            }
+          />
+          {!isExpanded && (
+            <TooltipContent side="right" sideOffset={14} className="glass-popover font-heading text-rose-500">
               Logout
             </TooltipContent>
-          </Tooltip>
-        ) : (
-          <button
-            onClick={handleLogout}
-            className="w-full group relative flex items-center gap-3.5 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 text-rose-500 hover:bg-rose-500/10 mt-1"
-          >
-            <LogOut className="w-5 h-5 shrink-0 text-rose-500" />
-            <span className="whitespace-nowrap">Logout</span>
-          </button>
-        )}
+          )}
+        </Tooltip>
       </div>
 
       {/* Edit Company Branding Modal — portal-rendered to escape sidebar stacking context */}
