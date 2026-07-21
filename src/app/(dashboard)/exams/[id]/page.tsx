@@ -1057,15 +1057,23 @@ function TrainerExamDetails({
               <tbody className="divide-y divide-border">
                 {attempts.map((att) => {
                   const studentName = resolveStudent(att.studentId);
+                  const isDeletedData = studentName.includes("(Deleted)");
                   const isPassed = att.passed === true;
                   return (
                     <tr key={att.id} className="hover:bg-muted/20 transition-colors">
                       <td className="py-3 px-4 font-bold text-foreground">
                         <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-full bg-brand/15 text-brand flex items-center justify-center text-xs font-extrabold shrink-0">
+                          <div className={`w-8 h-8 rounded-full ${isDeletedData ? 'bg-destructive/15 text-destructive' : 'bg-brand/15 text-brand'} flex items-center justify-center text-xs font-extrabold shrink-0`}>
                             {studentName.slice(0, 2).toUpperCase()}
                           </div>
-                          <span>{studentName}</span>
+                          <div>
+                            <span className={`block text-sm leading-tight ${isDeletedData ? 'text-destructive' : ''}`}>{studentName}</span>
+                            {isDeletedData && (
+                              <span className="block text-[10px] text-destructive font-semibold uppercase tracking-wide mt-0.5">
+                                Student Deleted Data
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </td>
                       <td className="py-3 px-4 font-semibold text-foreground">

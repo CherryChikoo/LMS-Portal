@@ -58,7 +58,7 @@ function LeaderboardContent() {
     });
 
     let results: StudentRank[] = students
-      .filter(s => statsMap.has(s.id))
+      .filter(s => !s.isDeleted && statsMap.has(s.id))
       .map(student => {
         const stats = statsMap.get(student.id)!;
         const avg = stats.max > 0 ? (stats.score / stats.max) * 100 : 0;
