@@ -177,11 +177,22 @@ export default function ResultsPage() {
       return students.find((s) => {
         if (sId && (s.id === sId || s.email === sId)) return true;
         if (sEmail && s.email.toLowerCase() === sEmail.toLowerCase()) return true;
-        if (sName && s.name.toLowerCase() === sName) return true;
+        // Do not fallback to matching by name alone, as it causes false positives for deleted students with common names
         return false;
       });
     },
     [students]
+  );
+
+  const getStudentName = useCallback(
+    (attempt: ExamAttempt): string => {
+      const resolved = resolveStudent(attempt.studentId);
+      if (resolved === "Unknown Student" && attempt.studentName) {
+        return `${attempt.studentName} (Deleted)`;
+      }
+      return resolved;
+    },
+    [resolveStudent]
   );
 
   // Map examId to human-readable title. Prefer live exam titles (which persist
@@ -274,7 +285,7 @@ export default function ResultsPage() {
   const filteredAttempts = useMemo(() => {
     return filteredAttemptsByHierarchy
       .filter((att) => {
-        const name = resolveStudent(att.studentId);
+        const name = getStudentName(att);
         const isAdminAttempt =
           name.toLowerCase().includes("admin") ||
           name.toLowerCase().includes("simulator") ||
@@ -698,7 +709,8 @@ export default function ResultsPage() {
               </thead>
               <tbody className="divide-y divide-border">
                 {filteredAttempts.map((att) => {
-                  const sName = resolveStudent(att.studentId);
+                  const sName = getStudentName(att);
+                  const isDeletedData = sName.includes("(Deleted)");
                   const liveDateStr = formatLiveDate(att.submittedAt || att.createdAt || att.updatedAt);
                   return (
                     <tr 
@@ -714,11 +726,11 @@ export default function ResultsPage() {
                     >
                       {actualRole !== "student" && (
                         <td className="py-3.5 px-4 font-bold text-foreground flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-full bg-brand/15 text-brand flex items-center justify-center text-xs font-extrabold shrink-0">
+                          <div className={`w-8 h-8 rounded-full ${isDeletedData ? 'bg-destructive/15 text-destructive' : 'bg-brand/15 text-brand'} flex items-center justify-center text-xs font-extrabold shrink-0`}>
                             {sName.slice(0, 2).toUpperCase()}
                           </div>
                           <div>
-                            <span className="block text-sm leading-tight">{sName}</span>
+                            <span className={`block text-sm leading-tight ${isDeletedData ? 'text-destructive' : ''}`}>{sName}</span>
                             {actualRole !== "student" && (
                               <span className="text-[11px] text-muted-foreground font-normal">
                                 {(() => {

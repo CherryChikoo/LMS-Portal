@@ -650,7 +650,18 @@ function StudentsContent() {
                       </td>
                       <td className="py-3.5 px-4 font-mono text-xs text-muted-foreground">{student.email}</td>
                       <td className="py-3.5 px-4 font-medium text-foreground">
-                        {resolveInstitution(student.collegeId)}
+                        {(() => {
+                          const resolvedName = resolveInstitution(student.collegeId);
+                          let finalName = resolvedName;
+                          if (resolvedName === "Unknown Institution" && student.collegeName) {
+                            finalName = `${student.collegeName} (Deleted)`;
+                          }
+                          
+                          if (finalName.includes("(Deleted)")) {
+                            return <span className="text-destructive font-bold">{finalName}</span>;
+                          }
+                          return finalName;
+                        })()}
                       </td>
                       <td className="py-3.5 px-4 text-xs flex items-center gap-2">
                         <span className="font-semibold text-foreground">{student.department}</span>

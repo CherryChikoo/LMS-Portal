@@ -152,7 +152,19 @@ export default function StudentEvaluationPage({ params }: PageProps) {
               <span className="flex items-center gap-1.5"><Mail className="w-4 h-4 text-muted-foreground/70" /> {student.email}</span>
               <span className="flex items-center gap-1.5"><GraduationCap className="w-4 h-4 text-muted-foreground/70" /> {student.rollNumber || "N/A"}</span>
               {student.collegeId && (
-                <span className="flex items-center gap-1.5"><Building2 className="w-4 h-4 text-muted-foreground/70" /> {resolveInstitution(student.collegeId)}</span>
+                <span className="flex items-center gap-1.5"><Building2 className="w-4 h-4 text-muted-foreground/70" /> 
+                  {(() => {
+                    const resolvedName = resolveInstitution(student.collegeId);
+                    let finalName = resolvedName;
+                    if (resolvedName === "Unknown Institution" && student.collegeName) {
+                      finalName = `${student.collegeName} (Deleted)`;
+                    }
+                    if (finalName.includes("(Deleted)")) {
+                      return <span className="text-destructive font-bold">{finalName}</span>;
+                    }
+                    return finalName;
+                  })()}
+                </span>
               )}
               <span className="flex items-center gap-1.5"><MapPin className="w-4 h-4 text-muted-foreground/70" /> {student.department} • {student.section}</span>
             </div>
