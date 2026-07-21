@@ -88,6 +88,9 @@ export async function trainerLogin(email: string, pass: string): Promise<{ user:
   } else if (profile.role !== "trainer" && profile.role !== "admin") {
     await firebaseSignOut(auth);
     throw new Error("Unauthorized: You do not have trainer or administrator privileges.");
+  } else if (profile.isDeleted || profile.status === "deleted") {
+    await firebaseSignOut(auth);
+    throw new Error("ACCOUNT_DELETED: Your trainer account has been permanently deleted.");
   }
 
   return { user: credential.user, profile };
@@ -150,6 +153,11 @@ export async function collegeAdminLogin(email: string, pass: string): Promise<{ 
   if (!collegeDoc || collegeDoc.loginEnabled === false || collegeDoc.status === "restricted") {
     await firebaseSignOut(auth);
     throw new Error("RESTRICTED_ACCOUNT: Your college dashboard access has been disabled by the main administrator.");
+  }
+  
+  if (collegeDoc.isDeleted || collegeDoc.status === "deleted" || profile.isDeleted || profile.status === "deleted") {
+    await firebaseSignOut(auth);
+    throw new Error("ACCOUNT_DELETED: This partner institution account has been permanently deleted.");
   }
 
   return { user: credential.user, profile };
@@ -226,6 +234,11 @@ export async function studentLogin(email: string, pass: string): Promise<{ user:
   if (profile?.status === "restricted" || studentDoc?.status === "restricted") {
     await firebaseSignOut(auth);
     throw new Error("RESTRICTED_ACCOUNT: Your LMS account has been temporarily restricted by your Trainer/Admin. Please contact your Trainer for further assistance.");
+  }
+
+  if (profile?.isDeleted || profile?.status === "deleted" || studentDoc?.isDeleted || studentDoc?.status === "deleted") {
+    await firebaseSignOut(auth);
+    throw new Error("ACCOUNT_DELETED: Your student account has been permanently deleted.");
   }
 
   if (studentDoc) {
@@ -312,6 +325,11 @@ export async function studentGoogleLogin(): Promise<{ success: true; role: UserR
   if (profile?.status === "restricted" || studDocs[0]?.status === "restricted" || (existingUsersByEmail[0] as unknown as { status?: string })?.status === "restricted") {
     await firebaseSignOut(auth);
     throw new Error("RESTRICTED_ACCOUNT: Your LMS account has been temporarily restricted by your Trainer/Admin. Please contact your Trainer for further assistance.");
+  }
+
+  if (profile?.isDeleted || profile?.status === "deleted" || studDocs[0]?.isDeleted || studDocs[0]?.status === "deleted" || (existingUsersByEmail[0] as unknown as { isDeleted?: boolean })?.isDeleted) {
+    await firebaseSignOut(auth);
+    throw new Error("ACCOUNT_DELETED: Your student account has been permanently deleted.");
   }
 
   const role: UserRole = profile?.role || "student";

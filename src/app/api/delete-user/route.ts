@@ -31,8 +31,9 @@ export async function POST(request: NextRequest) {
     // 2. Soft delete the user document (best effort)
     await db.collection("users").doc(uid).update({ isDeleted: true, status: "deleted" }).catch(() => {});
 
-    // 3. Delete the Firebase Auth user (best effort)
+    // 3. Delete the Firebase Auth user and revoke active sessions (best effort)
     try {
+      await adminAuth.revokeRefreshTokens(uid).catch(() => {});
       await adminAuth.deleteUser(uid);
     } catch (authErr: any) {
       // If the user does not exist in Auth, that's fine for a JIT-only record
