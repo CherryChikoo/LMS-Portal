@@ -303,6 +303,7 @@ function StudentsContent() {
     () =>
       students
         .filter((s) => {
+          if (s.isDeleted) return false;
           const matchesSearch =
             s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
             s.email.toLowerCase().includes(searchQuery.toLowerCase()) ||

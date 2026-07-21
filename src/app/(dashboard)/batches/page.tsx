@@ -130,6 +130,7 @@ function BatchesContent() {
 
   const filteredBatches = useMemo(() => {
     return cacheBatches.filter((b) => {
+      if (b.isDeleted) return false;
       if (batchFilters.collegeId && b.collegeId !== batchFilters.collegeId) return false;
       if (batchFilters.department && b.department !== batchFilters.department) return false;
       if (batchFilters.academicYear && b.academicYear !== batchFilters.academicYear) return false;

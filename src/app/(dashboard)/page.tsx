@@ -504,7 +504,9 @@ export default function DashboardPage() {
             <div>
               <div className="text-3xl font-bold font-heading">{loading ? "0" : students.length}</div>
               <div className="flex items-center justify-between mt-1">
-                <span className="text-xs text-muted-foreground">In your batches</span>
+                <span className="text-xs text-muted-foreground">
+                  {userRole === "admin" ? "Across all colleges" : userRole === "college_admin" ? "In your college" : "In your batches"}
+                </span>
                 <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
               </div>
             </div>
