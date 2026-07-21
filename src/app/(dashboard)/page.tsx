@@ -486,7 +486,7 @@ export default function DashboardPage() {
             <div>
               <div className="text-3xl font-bold font-heading">{loading ? "0" : exams.length}</div>
               <div className="flex items-center justify-between mt-1">
-                <span className="text-xs text-muted-foreground">Created by you</span>
+                <span className="text-xs text-muted-foreground">Total overall assignments</span>
                 <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-emerald-500 transition-colors" />
               </div>
             </div>
@@ -532,17 +532,17 @@ export default function DashboardPage() {
         </motion.div>
 
         <motion.div variants={staggerItem}>
-          <GlassCard className="p-6 flex flex-col justify-between h-36 hover:border-muted-foreground/50 transition-colors cursor-pointer group">
+          <GlassCard className="p-6 flex flex-col justify-between h-36 hover:border-muted-foreground/50 transition-colors cursor-pointer group" onClick={() => router.push("/admin/resources")}>
             <div className="flex justify-between items-start mb-2">
-              <span className="text-[11px] font-bold tracking-wider text-muted-foreground uppercase">Pending Reviews</span>
+              <span className="text-[11px] font-bold tracking-wider text-muted-foreground uppercase">Shared Resources</span>
               <div className="w-9 h-9 rounded-xl bg-secondary text-muted-foreground flex items-center justify-center border border-border/50">
-                <Clock className="w-4 h-4" />
+                <Library className="w-4 h-4" />
               </div>
             </div>
             <div>
-              <div className="text-3xl font-bold font-heading">0</div>
+              <div className="text-3xl font-bold font-heading">{loading ? "0" : resources.length}</div>
               <div className="flex items-center justify-between mt-1">
-                <span className="text-xs text-muted-foreground">Awaiting evaluation</span>
+                <span className="text-xs text-muted-foreground">Total study materials</span>
                 <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
               </div>
             </div>
