@@ -53,18 +53,22 @@ export default function CollegesPage() {
 
       setAllStudents(studentsData);
 
-      const computedColleges = collegesData.map((col) => ({
-        ...col,
-        studentCount: studentsData.filter((s) => s.collegeId === col.id || s.collegeName === col.name).length,
-      }));
+      const computedColleges = collegesData
+        .filter((col) => !col.isDeleted)
+        .map((col) => ({
+          ...col,
+          studentCount: studentsData.filter((s) => !s.isDeleted && (s.collegeId === col.id || s.collegeName === col.name)).length,
+        }));
 
       const officialSet = new Set([
-        ...collegesData.map((c) => c.id?.toLowerCase()).filter(Boolean),
-        ...collegesData.map((c) => c.name?.toLowerCase()).filter(Boolean),
+        ...collegesData.filter((c) => !c.isDeleted).map((c) => c.id?.toLowerCase()).filter(Boolean),
+        ...collegesData.filter((c) => !c.isDeleted).map((c) => c.name?.toLowerCase()).filter(Boolean),
       ]);
 
       const externalMap = new Map<string, { name: string; students: Student[] }>();
       studentsData.forEach((s) => {
+        if (s.isDeleted) return;
+
         const cName = s.collegeName || "Unknown Institution";
         if (!cName) return;
         
