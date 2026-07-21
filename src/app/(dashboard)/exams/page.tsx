@@ -93,6 +93,7 @@ export default function ExamsPage() {
   const [aiReviewing, setAiReviewing] = useState(false);
   const [aiResults, setAiResults] = useState<AIReviewResult[]>([]);
   const [aiSelections, setAiSelections] = useState<Record<string, "original" | "suggested">>({});
+  const [isPublishing, setIsPublishing] = useState(false);
 
 
 
@@ -300,31 +301,39 @@ export default function ExamsPage() {
     if (endDt) examData.endTime = endDt;
     if (startDt) examData.scheduledAt = startDt;
 
-    const newExamId = await createExam(examData as Omit<Exam, "id">);
+    try {
+      setIsPublishing(true);
+      const newExamId = await createExam(examData as Omit<Exam, "id">);
 
-    // Trigger AI explanation generation in the background (fire-and-forget)
-    if (questions.length > 0) {
-      fetch("/api/ai-explanation", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ examId: newExamId })
-      }).catch((err) => {
-        console.error("Background AI generation failed to start:", err);
-        toast.error(formatAuthError(err, "Failed to start assessment generation."));
+      if (questions.length > 0) {
+        toast.info("Generating AI Explanations... Please wait.");
+        await fetch("/api/ai-explanation", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ examId: newExamId })
+        });
+        toast.success("AI Explanations successfully generated!");
+      } else {
+        toast.success("Assessment created successfully.");
+      }
+
+      setCreationMode("none");
+      setTitle("");
+      setQuestions([]);
+      setExamFilters({
+        collegeId: "",
+        department: "",
+        academicYear: "",
+        section: "",
+        batchId: "",
+        studentId: "",
       });
+    } catch (err) {
+      console.error(err);
+      toast.error(formatAuthError(err, "Failed to create assessment."));
+    } finally {
+      setIsPublishing(false);
     }
-
-    setCreationMode("none");
-    setTitle("");
-    setQuestions([]);
-    setExamFilters({
-      collegeId: "",
-      department: "",
-      academicYear: "",
-      section: "",
-      batchId: "",
-      studentId: "",
-    });
   };
 
   const handleExpire = (id: string) => {
@@ -1296,11 +1305,15 @@ export default function ExamsPage() {
                   <Button
                     type="button"
                     onClick={handlePublish}
-                    disabled={!title || questions.length === 0}
+                    disabled={!title || questions.length === 0 || isPublishing}
                     className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-2"
                   >
-                    <Send className="w-4 h-4" />
-                    <span>Publish & Assign Test</span>
+                    {isPublishing ? (
+                      <div className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                    ) : (
+                      <Send className="w-4 h-4" />
+                    )}
+                    <span>{isPublishing ? "Publishing..." : "Publish & Assign Test"}</span>
                   </Button>
                 </div>
               </div>
