@@ -155,35 +155,59 @@ export function QuestionReview({
         </div>
       ) : (
         <div className="flex flex-col gap-3 pt-1">
-          <label
-            htmlFor={`qa-${question.id}`}
-            className="text-xs font-bold uppercase tracking-wider text-muted-foreground"
-          >
-            Your answer
-          </label>
-          <input
-            id={`qa-${question.id}`}
-            type="text"
-            disabled
-            value={
-              Array.isArray(studentAnswer)
-                ? studentAnswer.join(", ")
-                : studentAnswer ?? ""
-            }
-            placeholder="No answer submitted"
-            className="h-11 w-full rounded-xl border border-border bg-muted/40 px-4 text-sm font-medium text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-brand disabled:cursor-not-allowed disabled:opacity-100"
-          />
+          {(() => {
+            const rawAnswer = Array.isArray(studentAnswer)
+              ? studentAnswer.join(", ")
+              : studentAnswer ?? "";
+            const hasAnswer = rawAnswer.trim().length > 0;
+            const isCorrect = hasAnswer && studentSet.size > 0 && [...studentSet].some(a => correctSet.has(a));
+            const isWrong = showCorrectAnswer && hasAnswer && !isCorrect;
+            const isBlank = showCorrectAnswer && !hasAnswer;
 
-          {showCorrectAnswer && correctSet.size > 0 && (
-            <div className="flex flex-col gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5">
-              <span className="text-xs font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
-                Correct answer
-              </span>
-              <span className="text-sm font-semibold text-foreground">
-                {[...correctSet].join(" / ")}
-              </span>
-            </div>
-          )}
+            const inputClasses = isWrong || isBlank
+              ? "h-11 w-full rounded-xl border border-rose-500/50 bg-rose-500/10 px-4 text-sm font-medium text-foreground ring-1 ring-rose-500/40 placeholder:text-rose-400 focus:outline-none disabled:cursor-not-allowed disabled:opacity-100"
+              : showCorrectAnswer && isCorrect
+                ? "h-11 w-full rounded-xl border border-emerald-500/50 bg-emerald-500/10 px-4 text-sm font-medium text-foreground ring-1 ring-emerald-500/40 placeholder:text-muted-foreground focus:outline-none disabled:cursor-not-allowed disabled:opacity-100"
+                : "h-11 w-full rounded-xl border border-border bg-muted/40 px-4 text-sm font-medium text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-brand disabled:cursor-not-allowed disabled:opacity-100";
+
+            return (
+              <>
+                <label
+                  htmlFor={`qa-${question.id}`}
+                  className="text-xs font-bold uppercase tracking-wider text-muted-foreground"
+                >
+                  Your answer
+                </label>
+                <div className="relative">
+                  <input
+                    id={`qa-${question.id}`}
+                    type="text"
+                    disabled
+                    value={rawAnswer}
+                    placeholder="No answer submitted"
+                    className={inputClasses}
+                  />
+                  {(isWrong || isBlank) && (
+                    <X className="absolute right-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-rose-500" />
+                  )}
+                  {showCorrectAnswer && isCorrect && (
+                    <Check className="absolute right-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-emerald-500" />
+                  )}
+                </div>
+
+                {showCorrectAnswer && correctSet.size > 0 && (
+                  <div className="flex flex-col gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5">
+                    <span className="text-xs font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+                      Correct answer
+                    </span>
+                    <span className="text-sm font-semibold text-foreground">
+                      {[...correctSet].join(" / ")}
+                    </span>
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </div>
       )}
 

@@ -60,9 +60,11 @@ export default function CollegesPage() {
           studentCount: studentsData.filter((s) => !s.isDeleted && (s.collegeId === col.id || s.collegeName === col.name)).length,
         }));
 
+      const normalize = (str: string | undefined | null) => (str || "").trim().toLowerCase().replace(/\s+/g, " ");
+
       const officialSet = new Set([
-        ...collegesData.filter((c) => !c.isDeleted).map((c) => c.id?.toLowerCase()).filter(Boolean),
-        ...collegesData.filter((c) => !c.isDeleted).map((c) => c.name?.toLowerCase()).filter(Boolean),
+        ...collegesData.filter((c) => !c.isDeleted).map((c) => c.id).filter(Boolean),
+        ...collegesData.filter((c) => !c.isDeleted).map((c) => normalize(c.name)).filter(Boolean),
       ]);
 
       const externalMap = new Map<string, { name: string; students: Student[] }>();
@@ -73,9 +75,9 @@ export default function CollegesPage() {
         if (!cName) return;
         
         const isOfficial = 
-          (cName && officialSet.has(cName.toLowerCase())) ||
-          (s.collegeId && officialSet.has(s.collegeId.toLowerCase())) ||
-          (s.collegeName && officialSet.has(s.collegeName.toLowerCase()));
+          (s.collegeId && officialSet.has(s.collegeId)) ||
+          officialSet.has(normalize(cName)) ||
+          officialSet.has(normalize(s.collegeName));
 
         if (!isOfficial) {
           if (!externalMap.has(cName)) {
