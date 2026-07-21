@@ -551,6 +551,10 @@ export default function ExamsPage() {
                 if (!isSubA && isSubB) return 1;
               }
 
+              if (userRole !== "student") {
+                return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+              }
+
               const statusA = getEffectiveExamStatus(a);
               const statusB = getEffectiveExamStatus(b);
               
@@ -881,15 +885,18 @@ export default function ExamsPage() {
                               const instName = resolveInstitution(exam.targets[0].collegeId);
                               const isUnknown = instName.includes("Unknown");
                               return (
-                                <div className={`inline-flex items-center gap-2 px-3 py-2 rounded-md border ${
+                                <div className={`inline-flex flex-col gap-0.5 px-3 py-2 rounded-lg border ${
                                   isUnknown 
-                                    ? 'bg-orange-50 border-orange-200 text-orange-700 dark:border-orange-900/50 dark:bg-orange-900/10 dark:text-orange-400' 
-                                    : 'bg-gray-100 border-gray-200 text-gray-700 dark:border-gray-700 dark:bg-gray-800/50 dark:text-gray-300'
+                                    ? 'bg-orange-50 border-orange-200 dark:border-orange-900/50 dark:bg-orange-900/10' 
+                                    : 'bg-gray-50 border-gray-200 dark:border-gray-700 dark:bg-gray-800/50'
                                 }`}>
-                                  <Building2 className="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
-                                  <span className="text-sm font-medium truncate max-w-[200px]" title={instName}>
-                                    {instName}
-                                  </span>
+                                  <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Test Provider</span>
+                                  <div className={`flex items-center gap-1.5 ${isUnknown ? 'text-orange-700 dark:text-orange-400' : 'text-gray-700 dark:text-gray-300'}`}>
+                                    <Building2 className={`w-3.5 h-3.5 shrink-0 ${isUnknown ? 'text-orange-500' : 'text-emerald-500'}`} />
+                                    <span className="text-sm font-bold truncate max-w-[200px]" title={instName}>
+                                      {instName}
+                                    </span>
+                                  </div>
                                 </div>
                               );
                             })()}
