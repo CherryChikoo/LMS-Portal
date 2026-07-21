@@ -126,7 +126,7 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "hidden lg:flex flex-col fixed left-0 top-0 bottom-0 z-30 bg-sidebar backdrop-blur-2xl text-sidebar-foreground border-r border-border transition-all duration-300 ease-in-out",
+        "hidden lg:flex flex-col fixed left-0 top-0 bottom-0 z-30 bg-sidebar text-sidebar-foreground border-r border-border transition-[width] duration-300 ease-in-out",
         isExpanded ? "w-[260px]" : "w-[80px]"
       )}
       style={{ fontFamily: '"Montserrat", sans-serif' }}
@@ -138,16 +138,16 @@ export function Sidebar() {
             <img
               src={branding.logoBase64}
               alt="Company Logo"
-              className={cn("object-contain rounded-lg shrink-0 transition-all duration-300", isExpanded ? "w-8 h-8" : "w-7 h-7 mx-auto")}
+              className={cn("object-contain rounded-lg shrink-0 transition-[width,height] duration-300", isExpanded ? "w-8 h-8" : "w-7 h-7 mx-auto")}
             />
           ) : (
-            <div className={cn("rounded-lg bg-brand/10 text-brand flex items-center justify-center shrink-0 font-black text-lg transition-all duration-300", isExpanded ? "w-8 h-8" : "w-7 h-7 mx-auto")}>
+            <div className={cn("rounded-lg bg-brand/10 text-brand flex items-center justify-center shrink-0 font-black text-lg transition-[width,height] duration-300", isExpanded ? "w-8 h-8" : "w-7 h-7 mx-auto")}>
               {(branding.companyName || APP_NAME).charAt(0).toUpperCase()}
             </div>
           )}
           <div
             className={cn(
-              "flex flex-col min-w-0 overflow-hidden whitespace-nowrap transition-all duration-300 ease-in-out",
+              "flex flex-col min-w-0 overflow-hidden whitespace-nowrap transition-opacity duration-300 ease-in-out",
               isExpanded ? "w-[160px] opacity-100 ml-2" : "w-0 opacity-0 ml-0"
             )}
           >
@@ -166,8 +166,8 @@ export function Sidebar() {
             onClick={handleOpenBrandModal}
             title="Edit Company Branding & Logo"
             className={cn(
-              "opacity-0 group-hover/brand:opacity-100 p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground shrink-0 transition-all duration-300 ease-in-out mr-1",
-              isExpanded ? "scale-100 pointer-events-auto" : "scale-75 pointer-events-none w-0 p-0 overflow-hidden"
+              "opacity-0 group-hover/brand:opacity-100 p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground shrink-0 transition-opacity duration-300 ease-in-out mr-1",
+              isExpanded ? "pointer-events-auto" : "pointer-events-none w-0 p-0 overflow-hidden"
             )}
           >
             <Pencil className="w-3.5 h-3.5 text-brand" />
@@ -182,7 +182,7 @@ export function Sidebar() {
             <div key={section.title}>
               <div
                 className={cn(
-                  "overflow-hidden transition-all duration-300 ease-in-out",
+                  "overflow-hidden transition-[max-height,opacity] duration-300 ease-in-out",
                   isExpanded ? "max-h-10 opacity-100" : "max-h-0 opacity-0"
                 )}
               >
@@ -199,7 +199,7 @@ export function Sidebar() {
                     <Link
                       href={item.href}
                       className={cn(
-                        "group relative flex items-center px-3.5 h-11 rounded-lg text-sm font-medium transition-all duration-300 overflow-hidden",
+                        "group relative flex items-center px-3.5 h-11 rounded-lg text-sm font-medium transition-colors overflow-hidden",
                         isActive
                           ? "bg-brand text-black shadow-sm"
                           : "text-muted-foreground hover:text-foreground hover:bg-secondary",
@@ -214,7 +214,7 @@ export function Sidebar() {
                       />
                       <span
                         className={cn(
-                          "whitespace-nowrap overflow-hidden flex items-center transition-all duration-300 ease-in-out",
+                          "whitespace-nowrap overflow-hidden flex items-center transition-opacity duration-300 ease-in-out",
                           isExpanded ? "w-[160px] opacity-100" : "w-0 opacity-0"
                         )}
                       >
@@ -247,7 +247,7 @@ export function Sidebar() {
       <div className="shrink-0 pt-3 mt-auto border-t border-border/40 px-3 pb-4 space-y-1">
         <div
           className={cn(
-            "overflow-hidden transition-all duration-300 ease-in-out",
+            "overflow-hidden transition-[max-height,opacity] duration-300 ease-in-out",
             isExpanded ? "max-h-10 opacity-100" : "max-h-0 opacity-0"
           )}
         >
@@ -262,7 +262,7 @@ export function Sidebar() {
               <Link
                 href={userRole === "student" ? "/student/settings" : "/admin/settings"}
                 className={cn(
-                  "group relative flex items-center px-3.5 h-11 rounded-lg text-sm font-medium transition-all duration-300 overflow-hidden",
+                  "group relative flex items-center px-3.5 h-11 rounded-lg text-sm font-medium transition-colors overflow-hidden",
                   "text-muted-foreground hover:text-foreground hover:bg-secondary",
                   isExpanded ? "gap-5" : "gap-0 justify-center px-0 w-11 mx-auto"
                 )}
@@ -270,7 +270,7 @@ export function Sidebar() {
                 <Settings className="w-5 h-5 shrink-0 text-muted-foreground group-hover:text-foreground transition-colors" />
                 <span
                   className={cn(
-                    "whitespace-nowrap overflow-hidden flex items-center transition-all duration-300 ease-in-out",
+                    "whitespace-nowrap overflow-hidden flex items-center transition-opacity duration-300 ease-in-out",
                     isExpanded ? "w-[160px] opacity-100" : "w-0 opacity-0"
                   )}
                 >
@@ -290,7 +290,7 @@ export function Sidebar() {
               <button
                 onClick={handleLogout}
                 className={cn(
-                  "w-full group relative flex items-center h-11 rounded-lg text-sm font-medium transition-all duration-300 overflow-hidden mt-1",
+                  "w-full group relative flex items-center h-11 rounded-lg text-sm font-medium transition-colors overflow-hidden mt-1",
                   "text-rose-500 hover:bg-rose-500/10",
                   isExpanded ? "gap-5 px-3.5" : "gap-0 justify-center px-0 w-11 mx-auto"
                 )}
@@ -298,7 +298,7 @@ export function Sidebar() {
                 <LogOut className="w-5 h-5 shrink-0 text-rose-500" />
                 <span
                   className={cn(
-                    "whitespace-nowrap overflow-hidden flex items-center text-left transition-all duration-300 ease-in-out",
+                    "whitespace-nowrap overflow-hidden flex items-center text-left transition-opacity duration-300 ease-in-out",
                     isExpanded ? "w-[160px] opacity-100" : "w-0 opacity-0"
                   )}
                 >
