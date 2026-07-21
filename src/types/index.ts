@@ -27,7 +27,7 @@ export interface User {
 }
 
 export type UserRole = "trainer" | "student" | "admin" | "college_admin";
-export type AccountStatus = "active" | "restricted";
+export type AccountStatus = "active" | "restricted" | "deleted";
 
 // College
 export interface CollegeBranding {
