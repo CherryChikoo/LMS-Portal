@@ -148,7 +148,7 @@ export function buildInstitutionOptions(
   if (Array.isArray(input)) {
     return input.map((inst) => {
       const display = safeDisplayName(inst.name, inst.id, "Unknown Institution");
-      return inst.type === "external" || inst.isDeleted
+      return inst.isDeleted
         ? { label: `${display} (Deleted)`, value: inst.id }
         : { label: display, value: inst.id };
     });
@@ -168,7 +168,7 @@ export function buildInstitutionOptions(
   if (includeExternalInstitutions) {
     getExternalInstitutions(hierarchy).forEach((inst) => {
       const display = safeDisplayName(inst.name, inst.id, "Unknown Institution");
-      out.push({ label: `${display} (Deleted)`, value: inst.id });
+      out.push({ label: display, value: inst.id });
     });
   }
 

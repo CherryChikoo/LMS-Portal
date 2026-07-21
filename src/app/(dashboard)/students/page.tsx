@@ -654,7 +654,7 @@ function StudentsContent() {
                           const resolvedName = resolveInstitution(student.collegeId);
                           let finalName = resolvedName;
                           if (resolvedName === "Unknown Institution" && student.collegeName) {
-                            finalName = `${student.collegeName} (Deleted)`;
+                            finalName = student.collegeName;
                           }
                           
                           if (finalName.includes("(Deleted)")) {

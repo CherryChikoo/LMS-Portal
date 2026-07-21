@@ -334,7 +334,7 @@ export function getLMSCache() {
   ];
 
   const institutionOptions: SelectOption[] = institutions.map((inst) =>
-    inst.type === "external" || inst.isDeleted
+    inst.isDeleted
       ? { label: `${inst.name} (Deleted)`, value: inst.id }
       : { label: inst.name, value: inst.id }
   );
