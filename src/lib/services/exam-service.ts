@@ -153,3 +153,27 @@ export async function clearAllResults(): Promise<void> {
   const results = await getDocuments<ExamResult>(RESULTS_COLLECTION);
   await Promise.all(results.map((r) => deleteDocument(RESULTS_COLLECTION, r.id)));
 }
+
+/**
+ * Find a student's attempt for a given exam from a pre-fetched attempts array.
+ * Matches by uid, email, or name (case-insensitive). This is a pure synchronous
+ * filter — no Firebase calls.
+ */
+export function findStudentAttemptForExam(
+  attempts: ExamResult[],
+  examId: string,
+  student: { id?: string; email?: string; name?: string } | null
+): ExamResult | undefined {
+  if (!student) return undefined;
+  const sId = student.id;
+  const sEmail = (student.email || "").toLowerCase().trim();
+  const sName = (student.name || "").toLowerCase().trim();
+
+  return attempts.find((a) => {
+    if (a.examId !== examId) return false;
+    if (sId && (a.studentId === sId || a.studentId === sEmail)) return true;
+    if (sEmail && (a.studentId?.toLowerCase() === sEmail || (a as unknown as { studentEmail?: string }).studentEmail?.toLowerCase() === sEmail)) return true;
+    if (sEmail && sName && a.studentName?.toLowerCase() === sName) return true;
+    return false;
+  });
+}

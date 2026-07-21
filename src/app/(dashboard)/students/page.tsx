@@ -169,6 +169,7 @@ function StudentsContent() {
       setEditingStudent(null);
     } catch (err) {
       console.error("Failed to update student profile:", err);
+      toast.error(formatAuthError(err, "Failed to update student profile."));
     } finally {
       setSavingEdit(false);
     }
@@ -199,6 +200,7 @@ function StudentsContent() {
       fetchStudents();
     } catch (err) {
       console.error("Import error", err);
+      toast.error(formatAuthError(err, "Failed to import students."));
     } finally {
       setImporting(false);
       setCancelling(false);
@@ -377,6 +379,7 @@ function StudentsContent() {
           await fetchStudents();
         } catch (err) {
           console.error("Failed to delete selected students:", err);
+          toast.error(formatAuthError(err, "Failed to delete selected students."));
         } finally {
           setLoading(false);
         }
@@ -401,6 +404,7 @@ function StudentsContent() {
             await updateStudentProfile(student.id, { status: newStatus });
           } catch (err) {
             console.error("Failed to restrict account:", err);
+            toast.error(formatAuthError(err, "Failed to restrict account."));
           } finally {
             setLoading(false);
           }
@@ -419,6 +423,7 @@ function StudentsContent() {
             await updateStudentProfile(student.id, { status: newStatus });
           } catch (err) {
             console.error("Failed to reactivate account:", err);
+            toast.error(formatAuthError(err, "Failed to reactivate account."));
           } finally {
             setLoading(false);
           }
@@ -441,6 +446,7 @@ function StudentsContent() {
           await fetchStudents();
         } catch (err) {
           console.error("Failed to delete student:", err);
+          toast.error(formatAuthError(err, "Failed to delete student."));
         } finally {
           setLoading(false);
         }

@@ -354,7 +354,11 @@ export default function ResourcesPage() {
                               ].filter(Boolean);
                               return parts.length > 0 ? parts.join(" → ") : "All Students";
                             }
-                            return `${t.type} • ${t.ids?.[0] || "Public"}`;
+                            // Legacy target shape — resolve IDs to names
+                            const rawId = t.ids?.[0];
+                            if (!rawId || rawId === "ALL") return "All Students";
+                            const resolvedName = getInstitutionName(rawId);
+                            return `${t.type} • ${resolvedName}`;
                           })()}
                         </span>
                       </div>

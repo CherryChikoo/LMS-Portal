@@ -12,11 +12,11 @@ import { AcademicHierarchyFilters } from "@/components/shared/academic-hierarchy
 import { useAcademicHierarchy } from "@/lib/hierarchy/use-academic-hierarchy";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
-import { getAllExams, createExam, expireExam, parseMarkdownTest, getEffectiveExamStatus, getStudentAttempts, getStudentAttemptsForCurrentUser, filterExamsForStudent, reviewQuestionsWithAI, type AIReviewResult } from "@/lib/services";
+import { getAllExams, createExam, expireExam, parseMarkdownTest, getEffectiveExamStatus, getStudentAttempts, getStudentAttemptsForCurrentUser, filterExamsForStudent, reviewQuestionsWithAI, findStudentAttemptForExam, type AIReviewResult } from "@/lib/services";
 import { getCurrentUser } from "@/lib/utils/auth-session";
 import { toDate } from "@/lib/utils/date";
 import { useLMSData } from "@/lib/data/use-lms-data";
-import { safeDisplayName } from "@/lib/hierarchy/hierarchy-data";
+import { formatAuthError } from "@/lib/services/auth-service";
 import type { Exam, Question, QuestionType, Student, AssignmentTarget, ExamAttempt } from "@/types";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -94,19 +94,8 @@ export default function ExamsPage() {
 
 
 
-  const getStudentAttemptForExam = (examId: string) => {
-    return attempts.find((a) => {
-      if (a.examId !== examId) return false;
-      const sId = studentUser?.id;
-      const sEmail = (studentUser?.email || "").toLowerCase().trim();
-      const sName = (studentUser?.name || "").toLowerCase().trim();
-
-      if (sId && (a.studentId === sId || a.studentId === sEmail)) return true;
-      if (sEmail && (a.studentId?.toLowerCase() === sEmail || (a as unknown as { studentEmail?: string }).studentEmail?.toLowerCase() === sEmail)) return true;
-      if (sEmail && sName && a.studentName?.toLowerCase() === sName) return true;
-      return false;
-    });
-  };
+  const getStudentAttemptForExam = (examId: string) =>
+    findStudentAttemptForExam(attempts, examId, studentUser);
 
   useEffect(() => {
     try {
@@ -179,7 +168,7 @@ export default function ExamsPage() {
       setAiSelections(initialSelections);
     } catch (err) {
       console.error(err);
-      toast.error("Failed to review with AI. Please check the logs.");
+      toast.error(formatAuthError(err, "Failed to review with AI. Please check the logs."));
     } finally {
       setAiReviewing(false);
     }
@@ -317,7 +306,10 @@ export default function ExamsPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ examId: newExamId })
-      }).catch((err) => console.error("Background AI generation failed to start:", err));
+      }).catch((err) => {
+        console.error("Background AI generation failed to start:", err);
+        toast.error(formatAuthError(err, "Failed to start assessment generation."));
+      });
     }
 
     setCreationMode("none");
@@ -345,7 +337,7 @@ export default function ExamsPage() {
           toast.success("Assessment expired successfully");
         } catch (err) {
           console.error("Failed to expire exam:", err);
-          toast.error("Failed to expire exam");
+          toast.error(formatAuthError(err, "Failed to expire assessment."));
         }
       }
     });
@@ -593,8 +585,8 @@ export default function ExamsPage() {
                 }
                 const isGlobalId = !t.ids || t.ids.length === 0 || t.ids.includes("ALL") || t.ids.includes("composite");
                 if (isGlobalId) return "All Students";
-                // Wrap raw IDs with safeDisplayName to avoid showing Firestore document IDs
-                const displayNames = (t.ids || []).map((id: string) => safeDisplayName(id, id, "Unknown"));
+                // Resolve raw IDs to institution names via the hierarchy
+                const displayNames = (t.ids || []).map((id: string) => getInstitutionName(id));
                 const uniqueDisplay = [...new Set(displayNames)].filter(Boolean).join(", ");
                 return `${t.type.toUpperCase()}: ${uniqueDisplay}`;
               };
