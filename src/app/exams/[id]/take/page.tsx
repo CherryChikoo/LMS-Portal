@@ -777,7 +777,7 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
             </div>
 
             {/* Grid of question buttons */}
-            <div className="grid grid-cols-5 sm:grid-cols-6 gap-3 p-2 max-h-80 overflow-y-auto">
+            <div className="grid grid-cols-5 sm:grid-cols-6 gap-4 p-4 max-h-80 overflow-y-auto">
               {questions.map((q, idx) => {
                 const state = paletteStates[q.id] || "not_visited";
                 const isCurrent = currentIdx === idx;

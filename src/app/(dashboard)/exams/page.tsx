@@ -1579,7 +1579,7 @@ export default function ExamsPage() {
                   <ArrowLeft className="w-4 h-4 mr-1.5" /> Previous
                 </Button>
 
-                <div className="flex flex-wrap gap-2 p-1.5">
+                <div className="flex flex-wrap gap-4 p-4">
                   {questions.map((_, i) => {
                     const isCurrent = previewQIdx === i;
                     const hasAnswer = previewAnswers[questions[i]?.id];

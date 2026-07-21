@@ -500,7 +500,7 @@ export default function ReviewExamPage({ params }: PageProps) {
               </div>
 
               {/* Grid of question buttons */}
-              <div className="grid grid-cols-5 sm:grid-cols-6 gap-3 p-1 max-h-96 overflow-y-auto">
+              <div className="grid grid-cols-5 sm:grid-cols-6 gap-4 p-4 max-h-96 overflow-y-auto">
                 {questions.map((q, idx) => {
                   const studentAns = answers[q.id];
                   const hasAnswer =
