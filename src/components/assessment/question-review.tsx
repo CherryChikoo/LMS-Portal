@@ -212,27 +212,27 @@ export function QuestionReview({
 
 
             {/* Answer Analysis */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2.5">
-                <h4 className="text-[11px] font-bold uppercase text-muted-foreground tracking-wider flex items-center gap-1.5">
-                  <Target className="w-3.5 h-3.5" /> Answer Analysis
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div className="space-y-3">
+                <h4 className="text-xs font-bold uppercase text-muted-foreground tracking-widest flex items-center gap-2">
+                  <Target className="w-4 h-4" /> Answer Analysis
                 </h4>
-                <div className="p-3.5 bg-emerald-500/5 rounded-xl border border-emerald-500/20 space-y-1.5">
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Why it's correct</p>
-                  <p className="text-xs text-foreground/80 leading-relaxed">
+                <div className="p-5 bg-emerald-500/5 rounded-2xl border border-emerald-500/20 space-y-2.5">
+                  <p className="text-xs font-extrabold uppercase tracking-widest text-emerald-600 dark:text-emerald-400">Why it's correct</p>
+                  <p className="text-sm text-foreground/90 leading-relaxed font-medium">
                     {question.aiExplanation.whyCorrect}
                   </p>
                 </div>
               </div>
 
               {studentAnswer && !getStudentAnswerSet(studentAnswer).has(String(question.correctAnswer)) && typeof studentAnswer === "string" && question.aiExplanation.whyIncorrect?.[studentAnswer] && (
-                <div className="space-y-2.5">
-                  <h4 className="text-[11px] font-bold uppercase text-transparent select-none tracking-wider flex items-center gap-1.5">
+                <div className="space-y-3">
+                  <h4 className="text-xs font-bold uppercase text-transparent select-none tracking-widest flex items-center gap-2">
                     _
                   </h4>
-                  <div className="p-3.5 bg-destructive/5 rounded-xl border border-destructive/20 space-y-1.5">
-                    <p className="text-[11px] font-bold uppercase tracking-wider text-destructive">Why your answer was wrong</p>
-                    <p className="text-xs text-foreground/80 leading-relaxed">
+                  <div className="p-5 bg-destructive/5 rounded-2xl border border-destructive/20 space-y-2.5">
+                    <p className="text-xs font-extrabold uppercase tracking-widest text-destructive">Why your answer was wrong</p>
+                    <p className="text-sm text-foreground/90 leading-relaxed font-medium">
                       {question.aiExplanation.whyIncorrect[studentAnswer]}
                     </p>
                   </div>
@@ -242,9 +242,9 @@ export function QuestionReview({
 
             {/* Tags & Concepts */}
             {question.aiExplanation.keyConcepts && question.aiExplanation.keyConcepts.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 pt-2 border-t border-border/50">
+              <div className="flex flex-wrap gap-2 pt-3 border-t border-border/50">
                 {question.aiExplanation.keyConcepts.map((c: string) => (
-                  <Badge key={c} variant="outline" className="text-[10px] bg-background border-border text-muted-foreground">
+                  <Badge key={c} variant="outline" className="text-xs px-2.5 py-0.5 bg-background border-border text-muted-foreground font-semibold">
                     {c}
                   </Badge>
                 ))}
