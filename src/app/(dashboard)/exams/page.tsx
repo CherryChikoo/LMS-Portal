@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, Suspense, useMemo } from "react";
+import { useEffect, useState, Suspense, useMemo, Fragment } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
@@ -16,6 +16,7 @@ import { getAllExams, createExam, expireExam, parseMarkdownTest, getEffectiveExa
 import { getCurrentUser } from "@/lib/utils/auth-session";
 import { toDate } from "@/lib/utils/date";
 import { useLMSData } from "@/lib/data/use-lms-data";
+import { safeDisplayName } from "@/lib/hierarchy/hierarchy-data";
 import type { Exam, Question, QuestionType, Student, AssignmentTarget, ExamAttempt } from "@/types";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -44,7 +45,7 @@ export default function ExamsPage() {
   const [studentUser, setStudentUser] = useState<Student | null>(null);
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm?: () => void; isAlert?: boolean; variant?: "destructive" | "warning" | "info" | "success" } | null>(null);
   const [userRole, setUserRole] = useState<string>("admin");
-  const [studentTab, setStudentTab] = useState<"active" | "upcoming" | "pending" | "completed" | "expired">("pending");
+  const [studentTab, setStudentTab] = useState<"available" | "results">("available");
   const [examSearch, setExamSearch] = useState("");
   const [examSearchRaw, setExamSearchRaw] = useState("");
 
@@ -398,15 +399,14 @@ export default function ExamsPage() {
 
       {userRole === "student" && (
         <div className="flex items-center gap-2 border-b border-border pb-3 overflow-x-auto">
-          {(["upcoming", "active", "pending", "completed", "expired"] as const).map((tab) => {
+          {(["available", "results"] as const).map((tab) => {
             const count = (studentUser ? filterExamsForStudent(exams, studentUser) : []).filter((e) => {
               const eff = getEffectiveExamStatus(e);
               const att = getStudentAttemptForExam(e.id);
-              if (tab === "upcoming") return eff === "scheduled";
-              if (tab === "active") return eff === "active";
-              if (tab === "pending") return eff === "active" && !att;
-              if (tab === "completed") return !!att;
-              if (tab === "expired") return (eff === "expired" || eff === "completed" || eff === "cancelled") && !att;
+              const isSubmitted = att && att.status === "submitted";
+              const isExpiredAndNotAttempted = !isSubmitted && (eff === "expired" || eff === "completed" || eff === "cancelled");
+              if (tab === "available") return !isSubmitted && !isExpiredAndNotAttempted;
+              if (tab === "results") return isSubmitted || isExpiredAndNotAttempted;
               return false;
             }).length;
             return (
@@ -485,11 +485,19 @@ export default function ExamsPage() {
       ) : exams.length === 0 ? (
         <EmptyState
           icon={ClipboardList}
-          title={userRole !== "student" ? "No online assessments active" : "No examinations assigned to your hierarchy"}
+          title={
+            userRole !== "student" 
+              ? "No online assessments active" 
+              : studentTab === "results" 
+                ? "You haven't completed any assessments yet." 
+                : "No assessments available."
+          }
           description={
             userRole !== "student"
               ? "Build structured examinations using our rapid Markdown generator or manual question card editor."
-              : "Check back when your trainer assigns a new assessment to your department or batch."
+              : studentTab === "results"
+                ? "Assessments you complete will appear here along with your AI Learning Review."
+                : "Check back when your trainer assigns a new assessment."
           }
           actionLabel={userRole !== "student" ? "Launch Markdown Generator" : undefined}
           onAction={userRole !== "student" ? () => setCreationMode("markdown") : () => {}}
@@ -506,11 +514,10 @@ export default function ExamsPage() {
                 if (!studentUser || filterExamsForStudent([exam], studentUser).length === 0) return false;
                 const eff = getEffectiveExamStatus(exam);
                 const att = getStudentAttemptForExam(exam.id);
-                if (studentTab === "upcoming") return eff === "scheduled";
-                if (studentTab === "active") return eff === "active";
-                if (studentTab === "pending") return eff === "active" && !att;
-                if (studentTab === "completed") return !!att;
-                if (studentTab === "expired") return (eff === "expired" || eff === "completed" || eff === "cancelled") && !att;
+                const isSubmitted = att && att.status === "submitted";
+                const isExpiredAndNotAttempted = !isSubmitted && (eff === "expired" || eff === "completed" || eff === "cancelled");
+                if (studentTab === "available") return !isSubmitted && !isExpiredAndNotAttempted;
+                if (studentTab === "results") return isSubmitted || isExpiredAndNotAttempted;
               } else {
                 const t = exam.targets?.[0];
                 if (examFilters.collegeId && t?.collegeId !== examFilters.collegeId) return false;
@@ -522,6 +529,15 @@ export default function ExamsPage() {
               return true;
             })
             .sort((a, b) => {
+              if (userRole === "student" && studentTab === "results") {
+                const attA = getStudentAttemptForExam(a.id);
+                const attB = getStudentAttemptForExam(b.id);
+                const isSubA = attA && attA.status === "submitted";
+                const isSubB = attB && attB.status === "submitted";
+                if (isSubA && !isSubB) return -1;
+                if (!isSubA && isSubB) return 1;
+              }
+
               const statusA = getEffectiveExamStatus(a);
               const statusB = getEffectiveExamStatus(b);
               
@@ -537,7 +553,7 @@ export default function ExamsPage() {
               if (wA !== wB) return wA - wB;
               return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
             })
-            .map((exam) => {
+            .map((exam, index, arr) => {
               const effStatus = getEffectiveExamStatus(exam);
               const att = getStudentAttemptForExam(exam.id);
 
@@ -577,8 +593,193 @@ export default function ExamsPage() {
                 }
                 const isGlobalId = !t.ids || t.ids.length === 0 || t.ids.includes("ALL") || t.ids.includes("composite");
                 if (isGlobalId) return "All Students";
-                return `${t.type.toUpperCase()}: ${t.ids.join(", ")}`;
+                // Wrap raw IDs with safeDisplayName to avoid showing Firestore document IDs
+                const displayNames = (t.ids || []).map((id: string) => safeDisplayName(id, id, "Unknown"));
+                const uniqueDisplay = [...new Set(displayNames)].filter(Boolean).join(", ");
+                return `${t.type.toUpperCase()}: ${uniqueDisplay}`;
               };
+
+              const isSubmitted = att && att.status === "submitted";
+              const isExpiredAndNotAttempted = !isSubmitted && (effStatus === "expired" || effStatus === "completed" || effStatus === "cancelled");
+
+              let sectionHeader = null;
+              if (userRole === "student" && studentTab === "results") {
+                const prevExam = index > 0 ? arr[index - 1] : null;
+                const prevAtt = prevExam ? getStudentAttemptForExam(prevExam.id) : null;
+                const prevIsSub = prevAtt && prevAtt.status === "submitted";
+                
+                if (index === 0 && isSubmitted) {
+                  sectionHeader = <div className="col-span-full text-sm font-bold text-muted-foreground uppercase tracking-wider mb-2 mt-2">Completed Assessments</div>;
+                } else if (isExpiredAndNotAttempted && (!prevExam || prevIsSub)) {
+                  sectionHeader = <div className="col-span-full text-sm font-bold text-muted-foreground uppercase tracking-wider mb-2 mt-4 pt-4 border-t border-border/40">Not Attempted Assessments</div>;
+                }
+              }
+
+              if (userRole === "student" && studentTab === "results" && isSubmitted) {
+                const submittedDate = att.submittedAt ? formatSafeDate(att.submittedAt) : "N/A";
+                const timeTaken = att.startTime && att.submittedAt 
+                  ? Math.max(1, Math.round((new Date(att.submittedAt).getTime() - new Date(att.startTime).getTime()) / 60000))
+                  : 0;
+
+                const card = (
+                  <motion.div
+                    key={exam.id}
+                    whileHover={{ y: -4 }}
+                    className="group relative rounded-xl border border-border bg-card p-6 flex flex-col justify-between gap-6 shadow-sm hover:border-brand/40 transition-all duration-300"
+                  >
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={`px-3 py-1 rounded-full text-[11px] font-extrabold tracking-wide uppercase flex items-center gap-1.5 bg-blue-500/15 text-blue-500`}>
+                          COMPLETED
+                        </span>
+                        <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground font-medium">
+                          <Clock className="w-3.5 h-3.5 text-brand shrink-0" />
+                          <span>{timeTaken} mins taken</span>
+                        </span>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <h3 className="text-xl font-extrabold text-foreground tracking-tight line-clamp-1 group-hover:text-brand transition-colors">
+                          {exam.title}
+                        </h3>
+                        <p className="text-xs text-muted-foreground line-clamp-1 leading-relaxed font-normal">
+                          Submitted on {submittedDate}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4 p-3.5 rounded-2xl bg-muted/30 dark:bg-white/[0.03] text-xs">
+                      <div className="flex flex-col items-center justify-center">
+                        <span className="text-[11px] font-medium text-muted-foreground">Score</span>
+                        <p className={`font-extrabold text-sm mt-0.5 ${att.passed ? "text-emerald-500" : "text-rose-500"}`}>
+                          {att.percentage}%
+                        </p>
+                      </div>
+                      <div className="flex flex-col items-center justify-center">
+                        <span className="text-[11px] font-medium text-muted-foreground">Status</span>
+                        <p className={`font-extrabold text-sm mt-0.5 ${att.passed ? "text-emerald-500" : "text-rose-500"}`}>
+                          {att.passed ? "PASSED" : "FAILED"}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="pt-1 space-y-3">
+                      <Button
+                        onClick={() => {
+                          const prefix = typeof window !== "undefined" && window.location.pathname.startsWith("/admin") ? "/admin" : "/student";
+                          router.push(`${prefix}/results/${att.id}`);
+                        }}
+                        className="w-full h-11 rounded-2xl bg-brand hover:bg-brand/90 text-brand-foreground font-bold flex items-center justify-center gap-2 shadow-md shadow-brand/20 scale-[1.01] hover:scale-[1.02] transition-transform"
+                      >
+                        <Eye className="w-4 h-4 fill-white" />
+                        <span>View Result</span>
+                      </Button>
+                      <Button
+                        onClick={() => {
+                          const prefix = typeof window !== "undefined" && window.location.pathname.startsWith("/admin") ? "/admin" : "/student";
+                          router.push(`${prefix}/results/${att.id}?ai=true`);
+                        }}
+                        variant="outline"
+                        className="w-full h-11 rounded-2xl border-brand/40 text-brand hover:bg-brand/10 font-bold flex items-center justify-center gap-2"
+                      >
+                        <Sparkles className="w-4 h-4 text-brand" />
+                        <span>AI Learning Review</span>
+                      </Button>
+                    </div>
+                  </motion.div>
+                );
+
+                if (sectionHeader) {
+                  return <Fragment key={exam.id}>{sectionHeader}{card}</Fragment>;
+                }
+                return card;
+              }
+
+              if (userRole === "student" && studentTab === "results" && isExpiredAndNotAttempted) {
+                const card = (
+                  <motion.div
+                    key={exam.id}
+                    whileHover={{ y: -4 }}
+                    className="group relative rounded-xl border border-border bg-card p-6 flex flex-col justify-between gap-6 shadow-sm hover:border-brand/40 transition-all duration-300 opacity-80"
+                  >
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={`px-3 py-1 rounded-full text-[11px] font-extrabold tracking-wide uppercase flex items-center gap-1.5 bg-rose-500/10 text-rose-500 border border-rose-500/20`}>
+                          NOT ATTEMPTED
+                        </span>
+                        <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground font-medium">
+                          <Clock className="w-3.5 h-3.5 shrink-0" />
+                          <span>{exam.duration} mins</span>
+                        </span>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <h3 className="text-xl font-extrabold text-foreground tracking-tight line-clamp-1">
+                          {exam.title}
+                        </h3>
+                        <p className="text-xs text-muted-foreground line-clamp-1 leading-relaxed font-normal">
+                          Expired on {exam.endTime ? formatSafeDate(exam.endTime) : "N/A"}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4 p-3.5 rounded-2xl bg-muted/30 dark:bg-white/[0.03] text-xs">
+                      <div className="flex flex-col items-center justify-center">
+                        <span className="text-[11px] font-medium text-muted-foreground">Total Questions</span>
+                        <p className="font-extrabold text-foreground text-sm mt-0.5">{exam.questions?.length || exam.questionIds?.length || 0}</p>
+                      </div>
+                      <div className="flex flex-col items-center justify-center">
+                        <span className="text-[11px] font-medium text-muted-foreground">Total Marks</span>
+                        <p className="font-extrabold text-foreground text-sm mt-0.5">{exam.totalMarks}</p>
+                      </div>
+                    </div>
+
+                    <div className="pt-1 space-y-3">
+                      <Button
+                        disabled
+                        variant="outline"
+                        className="w-full h-11 rounded-2xl border-border text-muted-foreground font-bold flex items-center justify-center gap-2"
+                      >
+                        <Ban className="w-4 h-4" />
+                        <span>Assessment Closed</span>
+                      </Button>
+                      <Button
+                        onClick={() => router.push(getExamDetailsPath(exam.id))}
+                        variant="outline"
+                        size="sm"
+                        className="w-full h-9 rounded-xl border-brand/40 text-brand hover:bg-brand/10 text-xs font-bold flex items-center justify-center gap-1.5"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>View Details</span>
+                      </Button>
+                    </div>
+                  </motion.div>
+                );
+
+                if (sectionHeader) {
+                  return <Fragment key={exam.id}>{sectionHeader}{card}</Fragment>;
+                }
+                return card;
+              }
+
+              let studentBadgeText = "";
+              let studentBadgeColor = "";
+              
+              if (userRole === "student") {
+                if (effStatus === "expired" || effStatus === "completed" || effStatus === "cancelled") {
+                  studentBadgeText = "NOT ATTEMPTED";
+                  studentBadgeColor = "bg-rose-500/15 text-rose-500 border border-rose-500/30";
+                } else if (effStatus === "scheduled") {
+                  studentBadgeText = "UPCOMING";
+                  studentBadgeColor = "bg-amber-500/15 text-amber-600 dark:text-amber-400";
+                } else if (att && att.status !== "submitted") {
+                  studentBadgeText = "ACTIVE";
+                  studentBadgeColor = "bg-emerald-500/15 text-emerald-500";
+                } else {
+                  studentBadgeText = "AVAILABLE";
+                  studentBadgeColor = "bg-emerald-500/15 text-emerald-500";
+                }
+              }
 
               return (
                 <motion.div
@@ -589,7 +790,8 @@ export default function ExamsPage() {
                   <div className="space-y-4">
                     <div className="flex items-center justify-between gap-2">
                       <span className={`px-3 py-1 rounded-full text-[11px] font-extrabold tracking-wide uppercase flex items-center gap-1.5 ${
-                        effStatus === "active" && !att
+                        userRole === "student" ? studentBadgeColor :
+                        (effStatus === "active" && !att
                           ? "bg-emerald-500/15 text-emerald-500"
                           : att
                           ? "bg-blue-500/15 text-blue-500"
@@ -597,10 +799,19 @@ export default function ExamsPage() {
                           ? "bg-rose-500/15 text-rose-500 border border-rose-500/30"
                           : effStatus === "scheduled"
                           ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
-                          : "bg-muted text-muted-foreground"
+                          : "bg-muted text-muted-foreground")
                       }`}>
-                        {effStatus === "active" && !att && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
-                        {att ? "COMPLETED" : effStatus === "active" ? "ACTIVE (LIVE)" : effStatus === "expired" || effStatus === "completed" || effStatus === "cancelled" ? "EXPIRED" : effStatus}
+                        {userRole === "student" ? (
+                          <>
+                            {(studentBadgeText === "ACTIVE" || studentBadgeText === "AVAILABLE") && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
+                            {studentBadgeText}
+                          </>
+                        ) : (
+                          <>
+                            {effStatus === "active" && !att && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
+                            {att ? "COMPLETED" : effStatus === "active" ? "ACTIVE (LIVE)" : effStatus === "expired" || effStatus === "completed" || effStatus === "cancelled" ? "EXPIRED" : effStatus}
+                          </>
+                        )}
                       </span>
                       <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground font-medium">
                         <Clock className="w-3.5 h-3.5 text-brand shrink-0" />
@@ -719,26 +930,17 @@ export default function ExamsPage() {
                     </div>
                   ) : (
                     <div className="pt-1 space-y-3">
-                      {att ? (
-                        <div className="space-y-3">
-                          <div className="flex items-center justify-between px-4 py-3 rounded-2xl bg-muted/40 text-xs font-semibold">
-                            <span className="text-muted-foreground flex items-center gap-1.5">
-                              <CheckCircle2 className="w-4 h-4 text-emerald-500" /> Earned Score:
-                            </span>
-                            <span className={`font-extrabold ${att.passed ? "text-emerald-500" : "text-red-500"}`}>{att.percentage}% ({att.passed ? "PASSED" : "REVIEW"})</span>
-                          </div>
-                          <Button
-                            onClick={() => {
-                              const prefix = typeof window !== "undefined" && window.location.pathname.startsWith("/admin") ? "/admin" : "/student";
-                              router.push(`${prefix}/results`);
-                            }}
-                            variant="outline"
-                            className="w-full h-11 rounded-2xl border-brand/40 text-brand hover:bg-brand/10 font-bold flex items-center justify-center gap-2"
-                          >
-                            <Eye className="w-4 h-4" />
-                            <span>View Scorecard Transcript</span>
-                          </Button>
-                        </div>
+                      {att && att.status !== "submitted" ? (
+                        <Button
+                          onClick={() => {
+                            const prefix = typeof window !== "undefined" && window.location.pathname.startsWith("/admin") ? "/admin" : "/student";
+                            router.push(`${prefix}/exams/${exam.id}/take`);
+                          }}
+                          className="w-full h-11 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-bold flex items-center justify-center gap-2 shadow-md shadow-amber-500/20 scale-[1.01] hover:scale-[1.02] transition-transform"
+                        >
+                          <Play className="w-4 h-4 fill-white" />
+                          <span>Resume Assessment</span>
+                        </Button>
                       ) : effStatus === "active" ? (
                         <Button
                           onClick={() => {

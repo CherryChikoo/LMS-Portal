@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   ClipboardList,
   Trophy,
+  Medal,
   FolderOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -56,6 +57,7 @@ export function MobileSidebar() {
           items: [
             { title: "Assigned Tests", href: "/exams", icon: ClipboardList },
             { title: "My Test Results", href: "/results", icon: Trophy },
+            { title: "Leaderboard", href: "/leaderboard", icon: Medal },
           ]
         },
         {
