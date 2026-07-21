@@ -76,6 +76,8 @@ export interface Student {
   status?: AccountStatus;
   createdAt: Date;
   updatedAt: Date;
+  isDeleted?: boolean;
+  deletedAt?: Date;
 }
 
 export interface TrainerNote {
