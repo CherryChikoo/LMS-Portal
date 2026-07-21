@@ -79,8 +79,9 @@ export function filterExamsForStudent(exams: Exam[], student: Student): Exam[] {
     const effStatus = getEffectiveExamStatus(exam);
     if (effStatus === "expired" || effStatus === "completed" || effStatus === "cancelled") {
       const studentCreatedMillis = toMillis(student.createdAt) ?? 0;
-      const examEndMillis = toMillis(exam.endTime) ?? toMillis(exam.startTime) ?? toMillis(exam.createdAt) ?? 0;
-      if (studentCreatedMillis > 0 && examEndMillis > 0 && examEndMillis < studentCreatedMillis) {
+      const examEndMillis = toMillis(exam.endTime);
+      
+      if (examEndMillis !== null && studentCreatedMillis > 0 && examEndMillis < studentCreatedMillis) {
         return false;
       }
     }

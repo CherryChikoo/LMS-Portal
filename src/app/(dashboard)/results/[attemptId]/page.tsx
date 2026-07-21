@@ -206,14 +206,7 @@ export default function AttemptAnswerSheetPage({
           Back to Results
         </Button>
 
-        <Button
-          onClick={() => router.push(`${pathname}/ai-review`)}
-          size="sm"
-          className="h-9 px-4 bg-brand hover:bg-brand/90 text-brand-foreground font-bold shadow-sm"
-        >
-          <Sparkles className="w-4 h-4 mr-1.5" />
-          AI Learning Review
-        </Button>
+
       </div>
 
       <PageHeader

@@ -186,6 +186,14 @@ export function QuestionReview({
           )}
         </div>
       )}
+      {/* AI Explanation Pending State */}
+      {showCorrectAnswer && !question.aiExplanation && question.aiExplanationStatus === "pending" && (
+        <div className="mt-2 rounded-xl border border-brand/20 bg-brand/5 p-4 flex flex-col items-center justify-center gap-2 text-brand">
+          <div className="w-5 h-5 rounded-full border-2 border-brand border-t-transparent animate-spin" />
+          <span className="text-sm font-semibold">AI Explanation is currently being generated...</span>
+        </div>
+      )}
+
 
       {/* Legacy Explanation (Fallback) */}
       {showCorrectAnswer && !question.aiExplanation && question.explanation && (

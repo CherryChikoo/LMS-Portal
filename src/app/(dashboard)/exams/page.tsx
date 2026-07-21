@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
 import { getAllExams, createExam, expireExam, parseMarkdownTest, getEffectiveExamStatus, getStudentAttempts, getStudentAttemptsForCurrentUser, filterExamsForStudent, reviewQuestionsWithAI, findStudentAttemptForExam, type AIReviewResult } from "@/lib/services";
 import { getCurrentUser } from "@/lib/utils/auth-session";
-import { toDate } from "@/lib/utils/date";
+import { toDate, toMillis } from "@/lib/utils/date";
 import { useLMSData } from "@/lib/data/use-lms-data";
 import { useEntityResolution } from "@/lib/data/use-entity-resolution";
 import { formatAuthError } from "@/lib/services/auth-service";
@@ -611,9 +611,9 @@ export default function ExamsPage() {
 
               if (userRole === "student" && studentTab === "results" && isSubmitted) {
                 const submittedDate = att.submittedAt ? formatSafeDate(att.submittedAt) : "N/A";
-                const timeTaken = att.startTime && att.submittedAt 
-                  ? Math.max(1, Math.round((new Date(att.submittedAt).getTime() - new Date(att.startTime).getTime()) / 60000))
-                  : 0;
+                const startMs = att.startTime ? toMillis(att.startTime) : 0;
+                const endMs = att.submittedAt ? toMillis(att.submittedAt) : 0;
+                const timeTaken = startMs && endMs ? Math.max(1, Math.round((endMs - startMs) / 60000)) : 0;
 
                 const card = (
                   <motion.div
@@ -657,27 +657,16 @@ export default function ExamsPage() {
                       </div>
                     </div>
 
-                    <div className="pt-1 space-y-3">
+                    <div className="pt-2 pb-1 flex justify-center">
                       <Button
                         onClick={() => {
                           const prefix = typeof window !== "undefined" && window.location.pathname.startsWith("/admin") ? "/admin" : "/student";
                           router.push(`${prefix}/results/${att.id}`);
                         }}
-                        className="w-full h-11 rounded-2xl bg-brand hover:bg-brand/90 text-brand-foreground font-bold flex items-center justify-center gap-2 shadow-md shadow-brand/20 scale-[1.01] hover:scale-[1.02] transition-transform"
+                        className="w-full max-w-[240px] h-11 rounded-2xl bg-brand hover:bg-brand/90 text-brand-foreground font-bold flex items-center justify-center gap-2 shadow-md shadow-brand/20 scale-[1.01] hover:scale-[1.02] transition-transform"
                       >
                         <Eye className="w-4 h-4 fill-white" />
                         <span>View Result</span>
-                      </Button>
-                      <Button
-                        onClick={() => {
-                          const prefix = typeof window !== "undefined" && window.location.pathname.startsWith("/admin") ? "/admin" : "/student";
-                          router.push(`${prefix}/results/${att.id}?ai=true`);
-                        }}
-                        variant="outline"
-                        className="w-full h-11 rounded-2xl border-brand/40 text-brand hover:bg-brand/10 font-bold flex items-center justify-center gap-2"
-                      >
-                        <Sparkles className="w-4 h-4 text-brand" />
-                        <span>AI Learning Review</span>
                       </Button>
                     </div>
                   </motion.div>
