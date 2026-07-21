@@ -208,20 +208,6 @@ export function QuestionReview({
       {/* AI Explanation (Gemini) */}
       {showCorrectAnswer && question.aiExplanation && (
         <div className="mt-2 rounded-xl border border-border bg-card overflow-hidden shadow-sm">
-          <div className="bg-brand/5 border-b border-border px-4 py-3 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-brand" />
-              <span className="text-xs font-extrabold uppercase tracking-wider text-brand">
-                AI Learning Explanation
-              </span>
-            </div>
-            {question.aiExplanation.overview?.difficulty && (
-              <Badge variant="outline" className="text-[10px] uppercase font-bold text-muted-foreground">
-                {question.aiExplanation.overview.difficulty}
-              </Badge>
-            )}
-          </div>
-          
           <div className="p-4 space-y-5">
 
 
