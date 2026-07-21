@@ -307,11 +307,21 @@ export default function ExamsPage() {
 
       if (questions.length > 0) {
         toast.info("Generating AI Explanations... Please wait.");
-        await fetch("/api/ai-explanation", {
+        const res = await fetch("/api/ai-explanation", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ examId: newExamId })
         });
+        
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok || (data && data.failedCount && data.failedCount > 0)) {
+          // AI generation failed for some/all questions -> Rollback
+          const { deleteDocument } = await import("@/lib/firebase/firestore");
+          await deleteDocument("exams", newExamId);
+          throw new Error("Failed to generate complete AI explanations. Assessment creation was aborted.");
+        }
+        
         toast.success("AI Explanations successfully generated!");
       } else {
         toast.success("Assessment created successfully.");
