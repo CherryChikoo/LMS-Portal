@@ -304,6 +304,8 @@ export default function DashboardPage() {
     loading,
   } = useLMSData();
 
+  const activeStudents = useMemo(() => students.filter((s) => !s.isDeleted), [students]);
+
   const [userRole, setUserRole] = useState<string>("admin");
   const [userName, setUserName] = useState<string>("Trainer");
 
@@ -361,7 +363,7 @@ export default function DashboardPage() {
       return dept;
     };
 
-    students.forEach((s) => {
+    activeStudents.forEach((s) => {
       const dept = abbreviateDept((s as any).department || "General Engineering");
       map.set(dept, (map.get(dept) || 0) + 1);
     });
@@ -374,7 +376,7 @@ export default function DashboardPage() {
       });
     }
     return Array.from(map.entries()).map(([name, value]) => ({ name, value }));
-  }, [students, colleges]);
+  }, [activeStudents, colleges]);
 
   const dynamicAssessmentAverages = useMemo(() => {
     const titleMap = new Map<string, { totalScore: number; count: number }>();
@@ -410,14 +412,14 @@ export default function DashboardPage() {
 
   const dynamicEnrollmentGrowth = useMemo(() => {
     // Generate monthly count or realistic progression based on actual student count
-    const total = students.length;
+    const total = activeStudents.length;
     if (total === 0) return [];
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"];
     return months.map((m, idx) => ({
       month: m,
       students: Math.round((total / 6) * (idx + 1)),
     }));
-  }, [students]);
+  }, [activeStudents]);
 
   if (userRole === "student") {
     return (
@@ -502,7 +504,7 @@ export default function DashboardPage() {
               </div>
             </div>
             <div>
-              <div className="text-3xl font-bold font-heading">{loading ? "0" : students.length}</div>
+              <div className="text-3xl font-bold font-heading">{loading ? "0" : activeStudents.length}</div>
               <div className="flex items-center justify-between mt-1">
                 <span className="text-xs text-muted-foreground">
                   {userRole === "admin" ? "Across all colleges" : userRole === "college_admin" ? "In your college" : "In your batches"}
