@@ -67,14 +67,6 @@ Schema for each object:
 {
   "id": "original_question_id",
   "aiExplanation": {
-    "overview": {
-      "summary": "1 sentence summary of the core concept tested.",
-      "type": "question type",
-      "topic": "main topic",
-      "subtopic": "specific subtopic",
-      "difficulty": "Easy/Medium/Hard"
-    },
-    "stepByStep": "Detailed reasoning on how to solve this. Must be a single cohesive paragraph of plain text.",
     "whyCorrect": "Detailed explanation of why the correct answer is right. Plain text only.",
     "whyIncorrect": { "Option A": "Why it's wrong", "Option B": "Why it's wrong" },
     "keyConcepts": ["Concept 1", "Concept 2"],

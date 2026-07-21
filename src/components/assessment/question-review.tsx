@@ -223,20 +223,7 @@ export function QuestionReview({
           </div>
           
           <div className="p-4 space-y-5">
-            {/* Concept Breakdown */}
-            <div className="space-y-2.5">
-              <h4 className="text-[11px] font-bold uppercase text-muted-foreground tracking-wider flex items-center gap-1.5">
-                <BrainCircuit className="w-3.5 h-3.5" /> Concept Breakdown
-              </h4>
-              <div className="p-3.5 bg-muted/30 rounded-xl space-y-2 border border-border/50">
-                <p className="text-sm font-medium text-foreground">
-                  {question.aiExplanation.overview?.summary}
-                </p>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  {question.aiExplanation.stepByStep}
-                </p>
-              </div>
-            </div>
+
 
             {/* Answer Analysis */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
