@@ -49,6 +49,10 @@ export function subscribeToAllBatches(callback: (batches: Batch[]) => void): () 
   return subscribeToDocuments<Batch>(BATCH_COLLECTION, callback);
 }
 
+export function subscribeToBatchesByCollege(collegeId: string, callback: (batches: Batch[]) => void): () => void {
+  return subscribeToDocuments<Batch>(BATCH_COLLECTION, callback, [where("collegeId", "==", collegeId)]);
+}
+
 export async function getBatchById(id: string): Promise<Batch | null> {
   return getDocument<Batch>(BATCH_COLLECTION, id);
 }

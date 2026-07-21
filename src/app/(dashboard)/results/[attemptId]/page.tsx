@@ -10,6 +10,7 @@ import {
   Clock,
   FileText,
   GraduationCap,
+  Sparkles,
   XCircle,
 } from "lucide-react";
 
@@ -194,7 +195,7 @@ export default function AttemptAnswerSheetPage({
       {...({ initial: "hidden", animate: "visible", variants: fadeInUp } as any)}
       className="space-y-6 max-w-[1400px] mx-auto pb-12 font-sans"
     >
-      <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between gap-3">
         <Button
           onClick={() => router.push(backHref)}
           variant="outline"
@@ -203,6 +204,15 @@ export default function AttemptAnswerSheetPage({
         >
           <ArrowLeft className="w-3.5 h-3.5" />
           Back to Results
+        </Button>
+
+        <Button
+          onClick={() => router.push(`${pathname}/ai-review`)}
+          size="sm"
+          className="h-9 px-4 bg-brand hover:bg-brand/90 text-brand-foreground font-bold shadow-sm"
+        >
+          <Sparkles className="w-4 h-4 mr-1.5" />
+          AI Learning Review
         </Button>
       </div>
 

@@ -1,4 +1,5 @@
 import StudentsPage from "@/app/(dashboard)/students/page";
+import StudentEvaluationPage from "@/app/(dashboard)/students/[id]/page";
 import CollegesPage from "@/app/(dashboard)/colleges/page";
 import CollegeDetailPage from "@/app/(dashboard)/colleges/[id]/page";
 import BatchesPage from "@/app/(dashboard)/batches/page";
@@ -32,7 +33,11 @@ export default async function AdminCatchAllPage({ params }: { params: Promise<{ 
 
   switch (primary) {
     case "students":
-      content = <StudentsPage />;
+      if (secondary) {
+        content = <StudentEvaluationPage params={Promise.resolve({ id: secondary })} />;
+      } else {
+        content = <StudentsPage />;
+      }
       break;
     case "colleges":
       if (secondary) {

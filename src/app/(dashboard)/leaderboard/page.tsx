@@ -11,6 +11,7 @@ import { getAllStudents, getStudentAttempts, getAllColleges } from "@/lib/servic
 import { Student, ExamAttempt, College } from "@/types";
 import { staggerContainer, staggerItem } from "@/lib/animations";
 import { cn } from "@/lib/utils";
+import { useLMSData } from "@/lib/data/use-lms-data";
 
 interface StudentRank {
   student: Student;
@@ -22,10 +23,7 @@ interface StudentRank {
 }
 
 function LeaderboardContent() {
-  const [loading, setLoading] = useState(true);
-  const [students, setStudents] = useState<Student[]>([]);
-  const [attempts, setAttempts] = useState<ExamAttempt[]>([]);
-  const [colleges, setColleges] = useState<College[]>([]);
+  const { filteredStudents: students, filteredAttempts: attempts, filteredColleges: colleges, loading } = useLMSData();
   const [userRole, setUserRole] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
@@ -40,24 +38,6 @@ function LeaderboardContent() {
       setUserRole(role);
       setCurrentUserId(user?.id);
     } catch {}
-
-    const loadData = async () => {
-      try {
-        const [studs, atts, cols] = await Promise.all([
-          getAllStudents(),
-          getStudentAttempts(),
-          getAllColleges(),
-        ]);
-        setStudents(studs);
-        setAttempts(atts);
-        setColleges(cols);
-      } catch (err) {
-        console.error("Failed to load leaderboard data", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadData();
   }, []);
 
   const rankedStudents = useMemo(() => {

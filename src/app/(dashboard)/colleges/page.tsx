@@ -65,7 +65,7 @@ export default function CollegesPage() {
 
       const externalMap = new Map<string, { name: string; students: Student[] }>();
       studentsData.forEach((s) => {
-        const cName = s.collegeName || s.collegeId;
+        const cName = s.collegeName || "Unknown Institution";
         if (!cName) return;
         
         const isOfficial = 
@@ -583,8 +583,7 @@ export default function CollegesPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {externalColleges.map((col) => {
               const isSelected = selectedExternalIds.includes(col.name);
-              const isGlobal = col.name === "Global Institute";
-              const badgeLabel = isGlobal ? "Global" : "Self-Registered";
+              const badgeLabel = "Deleted / Self-Registered";
 
               return (
                 <motion.div
@@ -690,7 +689,7 @@ export default function CollegesPage() {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-5"
+              className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-5"
             >
               <div className="flex items-center justify-between border-b border-border pb-3">
                 <h3 className="text-lg font-bold text-foreground">Register New College</h3>
@@ -708,13 +707,13 @@ export default function CollegesPage() {
                     onChange={(e) => setName(e.target.value)}
                     required
                     placeholder="e.g. Stanford Institute of Tech"
-                    className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
+                    className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
                   />
                 </div>
 
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-foreground">Initial Departments (Select all that apply)</label>
-                  <div className="max-h-52 overflow-y-auto p-3 rounded-xl border border-border bg-background/50 space-y-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="max-h-52 overflow-y-auto p-3 rounded-lg border border-border bg-background/50 grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {PREDEFINED_DEPARTMENTS.map((d) => {
                       const isChecked = selectedDepts.includes(d) || d === "General";
                       const isGeneral = d === "General";
@@ -756,7 +755,7 @@ export default function CollegesPage() {
                       onChange={(e) => setCustomDeptName(e.target.value)}
                       required
                       placeholder="e.g. Artificial Intelligence & Data Science, Robotics (comma separated)"
-                      className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
+                      className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
                     />
                     <p className="text-[10px] text-muted-foreground">You can enter multiple custom departments separated by commas.</p>
                   </div>
@@ -799,7 +798,7 @@ export default function CollegesPage() {
                             value={adminEmail}
                             onChange={(e) => setAdminEmail(e.target.value)}
                             required={loginEnabled}
-                            className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
+                            className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
                             placeholder="admin@college.edu"
                           />
                         </div>
@@ -812,7 +811,7 @@ export default function CollegesPage() {
                             value={initialPassword}
                             onChange={(e) => setInitialPassword(e.target.value)}
                             required={loginEnabled}
-                            className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
+                            className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
                             placeholder="e.g. Welcome123"
                           />
                         </div>
@@ -843,7 +842,7 @@ export default function CollegesPage() {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-5"
+              className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-5"
             >
               <div className="flex items-center justify-between border-b border-border pb-3">
                 <h3 className="text-lg font-bold text-foreground">Edit College Details</h3>
@@ -867,7 +866,7 @@ export default function CollegesPage() {
                     onChange={(e) => setEditCollegeName(e.target.value)}
                     required
                     placeholder="e.g. Stanford Institute of Tech"
-                    className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
+                    className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
                   />
                 </div>
 
@@ -905,7 +904,7 @@ export default function CollegesPage() {
                             value={editAdminEmail}
                             onChange={(e) => setEditAdminEmail(e.target.value)}
                             required={editLoginEnabled}
-                            className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
+                            className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
                             placeholder="admin@college.edu"
                           />
                         </div>
@@ -918,7 +917,7 @@ export default function CollegesPage() {
                             value={editInitialPassword}
                             onChange={(e) => setEditInitialPassword(e.target.value)}
                             required={editLoginEnabled}
-                            className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
+                            className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
                             placeholder="e.g. Welcome123"
                           />
                         </div>
@@ -956,7 +955,7 @@ export default function CollegesPage() {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-5"
+              className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-5"
             >
               <div className="flex items-center justify-between border-b border-border pb-3">
                 <div>
@@ -983,7 +982,7 @@ export default function CollegesPage() {
                     onChange={(e) => setEditExternalName(e.target.value)}
                     required
                     placeholder="e.g. Global Institute"
-                    className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
+                    className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
                   />
                 </div>
 

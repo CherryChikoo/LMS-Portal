@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import type { Question } from "@/types";
 
+export const maxDuration = 60;
+
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "AIzaSyCcLtyLTl7DP9jJAPVSlbYB7wkQEWvekR0";
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 
@@ -64,7 +66,8 @@ ${JSON.stringify(questions, null, 2)}`;
     }
 
     try {
-      const parsed = JSON.parse(textResponse);
+      const cleanJson = textResponse.replace(/```json/gi, '').replace(/```/g, '').trim();
+      const parsed = JSON.parse(cleanJson);
       return NextResponse.json({ results: parsed });
     } catch (parseError) {
       console.error("Failed to parse AI response as JSON", textResponse);

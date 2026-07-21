@@ -32,6 +32,7 @@ import { staggerContainer, staggerItem } from "@/lib/animations";
 import { getAllExamsIncludingDeleted, getAllStudents, getAllColleges, getAllResources, getEffectiveExamStatus, getStudentAttempts, filterResourcesForStudent, filterExamsForStudent, getAllBatches } from "@/lib/services";
 import { toDate } from "@/lib/utils/date";
 import type { Exam, Student, College, Resource, ExamAttempt, Batch, AssignmentTarget } from "@/types";
+import { useLMSData } from "@/lib/data/use-lms-data";
 
 function StudentPortalDashboard({
   exams,
@@ -293,13 +294,16 @@ function StudentPortalDashboard({
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [exams, setExams] = useState<Exam[]>([]);
-  const [students, setStudents] = useState<Student[]>([]);
-  const [colleges, setColleges] = useState<College[]>([]);
-  const [resources, setResources] = useState<Resource[]>([]);
-  const [attempts, setAttempts] = useState<ExamAttempt[]>([]);
-  const [batches, setBatches] = useState<Batch[]>([]);
-  const [loading, setLoading] = useState(true);
+  const {
+    filteredExams: exams,
+    filteredStudents: students,
+    filteredColleges: colleges,
+    filteredResources: resources,
+    filteredAttempts: attempts,
+    filteredBatches: batches,
+    loading,
+  } = useLMSData();
+
   const [userRole, setUserRole] = useState<string>("admin");
   const [userName, setUserName] = useState<string>("Trainer");
 
@@ -315,85 +319,6 @@ export default function DashboardPage() {
         }
       }
     } catch (e) {}
-
-    async function loadLivePortal() {
-      setLoading(true);
-      try {
-        const [ex, st, cl, rs, att, b] = await Promise.all([
-          getAllExamsIncludingDeleted(),
-          getAllStudents(),
-          getAllColleges(),
-          getAllResources(),
-          getStudentAttempts(),
-          getAllBatches(),
-        ]);
-        
-        let filteredStudents = st || [];
-        let filteredExams = ex || [];
-        let filteredAttempts = att || [];
-        let filteredColleges = cl || [];
-
-        try {
-          const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-          if (uStr) {
-            const parsed = JSON.parse(uStr);
-            if (parsed.role === "college_admin" && parsed.collegeId) {
-              filteredColleges = filteredColleges.filter(c => c.id === parsed.collegeId);
-              filteredStudents = filteredStudents.filter((s: Student) => s.collegeId === parsed.collegeId);
-              const validStudentIds = new Set(filteredStudents.map((s: Student) => s.id));
-              const validBatchIds = new Set(filteredStudents.flatMap((s: Student) => s.batchIds || []));
-              
-              filteredExams = filteredExams.filter((e: Exam) => {
-                if (!e.targets) return false;
-                return e.targets.some(t => {
-                  if (t.type === "composite") {
-                    return t.collegeId === parsed.collegeId || (t.batchId && validBatchIds.has(t.batchId));
-                  }
-                  if (t.type === "college") return t.ids.includes(parsed.collegeId);
-                  if (t.type === "batch") return t.ids.some(b => validBatchIds.has(b));
-                  if (t.type === "students") return t.ids.some(s => validStudentIds.has(s));
-                  return false;
-                });
-              });
-              
-              filteredAttempts = filteredAttempts.filter((a: ExamAttempt) => validStudentIds.has(a.studentId));
-              
-              const rsArray = rs || [];
-              const filteredRs = rsArray.filter((res: Resource) => {
-                if (!res.targets) return false;
-                return res.targets.some((t: AssignmentTarget) => {
-                  if (t.type === "composite") {
-                    return t.collegeId === parsed.collegeId || (t.batchId && validBatchIds.has(t.batchId));
-                  }
-                  if (t.type === "college") return t.ids?.includes(parsed.collegeId);
-                  if (t.type === "batch") return t.ids?.some((b: string) => validBatchIds.has(b));
-                  if (t.type === "students") return t.ids?.some((s: string) => validStudentIds.has(s));
-                  return false;
-                });
-              });
-              setResources(filteredRs);
-            } else {
-              setResources(rs || []);
-            }
-          } else {
-            setResources(rs || []);
-          }
-        } catch (_) {
-          setResources(rs || []);
-        }
-
-        setExams(filteredExams);
-        setStudents(filteredStudents);
-        setColleges(filteredColleges);
-        setAttempts(filteredAttempts);
-        setBatches(b || []);
-      } catch (err) {
-        console.error("Failed loading live portal data:", err);
-      } finally {
-        setLoading(false);
-      }
-    }
-    loadLivePortal();
   }, []);
 
   const activeOrScheduledExams = useMemo(() => {

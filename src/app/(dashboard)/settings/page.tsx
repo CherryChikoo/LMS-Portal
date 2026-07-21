@@ -622,8 +622,9 @@ export default function SettingsPage() {
       if (role === "college_admin") {
         const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
         const u = uStr ? JSON.parse(uStr) : null;
-        if (u && u.id) {
-          const college = await getCollegeById(u.id);
+        const cId = u?.collegeId;
+        if (cId) {
+          const college = await getCollegeById(cId);
           if (college && college.branding) {
             setBranding({
               companyName: college.branding.companyName || college.name,
@@ -655,8 +656,9 @@ export default function SettingsPage() {
       if (userRole === "college_admin") {
         const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
         const u = uStr ? JSON.parse(uStr) : null;
-        if (u && u.id) {
-          await updateCollege(u.id, {
+        const cId = u?.collegeId;
+        if (cId) {
+          await updateCollege(cId, {
             branding: {
               companyName: brandName.trim(),
               companySubtitle: brandSubtitle.trim(),

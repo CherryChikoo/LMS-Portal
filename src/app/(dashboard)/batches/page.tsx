@@ -13,15 +13,16 @@ import { useAcademicHierarchy } from "@/lib/hierarchy/use-academic-hierarchy";
 import { getDepartmentsForCollege, getYearsForDepartment } from "@/lib/hierarchy/hierarchy-data";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
-import { getAllBatches, createBatch, deleteBatch } from "@/lib/services";
+import { createBatch, deleteBatch } from "@/lib/services";
 import { getCurrentUser } from "@/lib/utils/auth-session";
+import { useLMSData } from "@/lib/data/use-lms-data";
 import type { Batch } from "@/types";
 
 function BatchesContent() {
   const searchParams = useSearchParams();
   const initialCollegeId = searchParams?.get("collegeId") || "";
 
-  const [batches, setBatches] = useState<Batch[]>([]);
+  const { filteredBatches: cacheBatches, loading: lmsLoading } = useLMSData();
   const [loading, setLoading] = useState(true);
   const [userRole, setUserRole] = useState<string>("admin");
 
@@ -40,89 +41,42 @@ function BatchesContent() {
   const [currentStudent, setCurrentStudent] = useState<{ uid: string; email: string; profile?: Record<string, unknown> } | null>(null);
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void } | null>(null);
 
+  // Detect user's own college for scoping
+  const userCollegeId = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    try {
+      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      const profile = uStr ? JSON.parse(uStr) : {};
+      return profile.collegeId || "";
+    } catch { return ""; }
+  }, []);
+
   // Modal State
   const [showAddModal, setShowAddModal] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [collegeId, setCollegeId] = useState(initialCollegeId);
+  const [collegeId, setCollegeId] = useState(
+    initialCollegeId || (userRole === "college_admin" && userCollegeId ? userCollegeId : "")
+  );
   const [department, setDepartment] = useState("Computer Science");
   const [academicYear, setAcademicYear] = useState("3rd Year");
   const [creating, setCreating] = useState(false);
 
-  const fetchData = async (studentUser?: { uid: string; email: string; profile?: Record<string, unknown> } | null) => {
-    setLoading(true);
-    try {
-      const bData = await getAllBatches();
-      const sData = hierarchy?.students || [];
-      const computedBatches = bData.map((b) => ({
-        ...b,
-        studentCount: sData.filter((s) => s.batchIds && (s.batchIds.includes(b.id) || s.batchIds.includes(b.name))).length,
-      }));
-
-      const role = (typeof window !== "undefined" && localStorage.getItem("lms_role")) || "admin";
-      const isStudentView = role.toLowerCase() === "student";
-
-      if (isStudentView && studentUser) {
-        const uid = studentUser.uid.toLowerCase().trim();
-        const email = studentUser.email.toLowerCase().trim();
-        const profileBatchIds = new Set(((studentUser.profile?.batchIds as string[]) || []).map((x) => x.toLowerCase()));
-        const meStudent = sData.find(
-          (s) =>
-            s.id.toLowerCase() === uid ||
-            s.email.toLowerCase() === email
-        );
-        const enrolledBatchIds = new Set([
-          ...Array.from(profileBatchIds),
-          ...((meStudent?.batchIds || []).map((x) => x.toLowerCase())),
-        ]);
-
-        const visibleBatches = computedBatches.filter((b) => {
-          const batchStudentIds = (b.studentIds || []).map((x) => x.toLowerCase());
-          if (batchStudentIds.includes(uid) || (email && batchStudentIds.includes(email))) return true;
-          if (enrolledBatchIds.has(b.id.toLowerCase()) || enrolledBatchIds.has(b.name.toLowerCase())) return true;
-          return false;
-        });
-        setBatches(visibleBatches);
-      } else if (role.toLowerCase() === "college_admin") {
-        const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-        let parsed: any = {};
-        try { parsed = JSON.parse(uStr || "{}"); } catch (_) {}
-        if (parsed.collegeId) {
-          const myStudents = sData.filter((s) => s.collegeId === parsed.collegeId);
-          const validStudentBatchIds = new Set(myStudents.flatMap((s) => s.batchIds || []));
-          setBatches(computedBatches.filter(b => b.collegeId === parsed.collegeId || validStudentBatchIds.has(b.id)));
-        } else {
-          setBatches(computedBatches);
-        }
-      } else {
-        setBatches(computedBatches);
-      }
-
-    } catch (err) {
-      console.error("Error fetching batches:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
     const role = (typeof window !== "undefined" && localStorage.getItem("lms_role")) || "admin";
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- reading initial role from localStorage
     setUserRole(role.toLowerCase());
     if (role.toLowerCase() === "student") {
       getCurrentUser().then((u) => {
         if (u) {
           setCurrentStudent({ uid: u.uid, email: u.email, profile: u.profile });
-          fetchData({ uid: u.uid, email: u.email, profile: u.profile });
-        } else {
-          fetchData(null);
         }
       });
-    } else {
-      fetchData(null);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- initial mount only
   }, []);
+
+  useEffect(() => {
+    setLoading(lmsLoading);
+  }, [lmsLoading]);
 
   useEffect(() => {
     if (initialCollegeId) {
@@ -139,7 +93,7 @@ function BatchesContent() {
       await createBatch({
         name,
         description,
-        collegeId: collegeId || "GLOBAL",
+        collegeId: userRole === "college_admin" && userCollegeId ? userCollegeId : (collegeId || "GLOBAL"),
         department,
         academicYear,
         studentIds: [],
@@ -150,7 +104,7 @@ function BatchesContent() {
       setShowAddModal(false);
       setName("");
       setDescription("");
-      fetchData(currentStudent);
+      // Data is synced by useLMSData
     } catch (err) {
       console.error("Failed to create batch:", err);
     } finally {
@@ -166,7 +120,7 @@ function BatchesContent() {
       onConfirm: async () => {
         try {
           await deleteBatch(id);
-          fetchData(currentStudent);
+          // Data is synced by useLMSData
         } catch (err) {
           console.error("Failed to delete batch:", err);
         }
@@ -175,13 +129,13 @@ function BatchesContent() {
   };
 
   const filteredBatches = useMemo(() => {
-    return batches.filter((b) => {
+    return cacheBatches.filter((b) => {
       if (batchFilters.collegeId && b.collegeId !== batchFilters.collegeId) return false;
       if (batchFilters.department && b.department !== batchFilters.department) return false;
       if (batchFilters.academicYear && b.academicYear !== batchFilters.academicYear) return false;
       return true;
     });
-  }, [batches, batchFilters]);
+  }, [cacheBatches, batchFilters]);
 
   return (
     <motion.div initial="hidden" animate="visible" variants={fadeInUp} className="space-y-6">
@@ -240,57 +194,51 @@ function BatchesContent() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredBatches.map((b) => {
-            const colName = hierarchy?.collegeMap.get(b.collegeId || "")?.name || "General Institute";
             return (
               <motion.div
                 key={b.id}
                 whileHover={{ y: -4 }}
-                className="rounded-xl border border-border bg-card p-6 flex flex-col justify-between space-y-5 shadow-sm relative group"
+                className="group relative rounded-xl border border-border bg-card p-6 flex flex-col justify-between gap-6 shadow-sm hover:border-brand/40 transition-all duration-300"
               >
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-xs font-semibold text-brand">
-                      <Building2 className="w-3.5 h-3.5" />
-                      <span>{colName}</span>
-                    </div>
+                <div className="space-y-2">
+                  <div className="flex items-start justify-between gap-4">
+                    <h3 className="text-xl font-extrabold text-foreground break-words leading-tight group-hover:text-brand transition-colors">
+                      {b.name}
+                    </h3>
                     {userRole !== "student" && (
                       <button
                         onClick={() => handleDelete(b.id)}
-                        className="text-muted-foreground hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-1"
+                        className="text-muted-foreground hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-1 shrink-0"
                         title="Delete Batch"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
                     )}
                   </div>
-                  <h3 className="text-xl font-bold text-foreground break-words leading-tight">{b.name}</h3>
                   {b.description && (
-                    <p className="text-xs text-muted-foreground line-clamp-2">{b.description}</p>
+                    <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
+                      {b.description}
+                    </p>
                   )}
                 </div>
 
-                <div className="p-3.5 rounded-xl bg-secondary border border-border space-y-2 text-xs">
-                  <div className="flex items-center justify-between text-muted-foreground">
-                    <span>Department:</span>
-                    <span className="font-semibold text-foreground">{b.department || "General"}</span>
+                <div className="pt-4 border-t border-border/60 flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-full bg-brand/10 flex items-center justify-center">
+                      <Users className="w-4 h-4 text-brand" />
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="font-extrabold text-foreground text-sm leading-none">{b.studentCount || 0}</span>
+                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">Students</span>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between text-muted-foreground">
-                    <span>Academic Year:</span>
-                    <span className="font-semibold text-foreground">{b.academicYear || "All Years"}</span>
-                  </div>
-                </div>
 
-                <div className="pt-2 border-t border-border flex items-center justify-between text-xs text-muted-foreground">
-                  <span className="flex items-center gap-1.5">
-                    <Users className="w-4 h-4 text-brand" />
-                    <span className="font-semibold text-foreground">{b.studentCount || 0} Students Enrolled</span>
-                  </span>
                   {userRole !== "student" && (
                     <Link
                       href={`/batches/${b.id}`}
-                      className="text-brand font-semibold flex items-center gap-0.5 hover:underline cursor-pointer"
+                      className="text-brand font-bold flex items-center gap-1 hover:bg-brand/10 px-3 py-1.5 rounded-lg transition-colors"
                     >
-                      Manage Students <ChevronRight className="w-3.5 h-3.5" />
+                      Manage <ChevronRight className="w-3.5 h-3.5" />
                     </Link>
                   )}
                 </div>
@@ -332,24 +280,31 @@ function BatchesContent() {
 
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-foreground">Assign to Scope / Institution</label>
-                  <select
-                    value={collegeId}
-                    onChange={(e) => {
-                      setCollegeId(e.target.value);
-                      setDepartment("");
-                      setAcademicYear("");
-                    }}
-                    className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
-                  >
-                    <option value="GLOBAL">Global Custom Batch (All Institutions)</option>
-                    {institutionOptions
-                      .filter((o) => o.value !== "" && o.value !== "GLOBAL")
-                      .map((i) => (
-                        <option key={i.value} value={i.value}>
-                          {i.label}
-                        </option>
-                      ))}
-                  </select>
+                  {userRole === "college_admin" && userCollegeId ? (
+                    /* College admins are locked to their own college */
+                    <div className="w-full h-10 px-3 rounded-xl border border-border bg-secondary/50 text-sm text-foreground flex items-center font-medium">
+                      {institutionOptions.find(o => o.value === userCollegeId)?.label || "My College"}
+                    </div>
+                  ) : (
+                    <select
+                      value={collegeId}
+                      onChange={(e) => {
+                        setCollegeId(e.target.value);
+                        setDepartment("");
+                        setAcademicYear("");
+                      }}
+                      className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
+                    >
+                      <option value="GLOBAL">Global Custom Batch (All Institutions)</option>
+                      {institutionOptions
+                        .filter((o) => o.value !== "" && o.value !== "GLOBAL")
+                        .map((i) => (
+                          <option key={i.value} value={i.value}>
+                            {i.label}
+                          </option>
+                        ))}
+                    </select>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">

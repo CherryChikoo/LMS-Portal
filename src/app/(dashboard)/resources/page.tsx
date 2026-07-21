@@ -13,12 +13,12 @@ import { fadeInUp } from "@/lib/animations";
 import { getAllResources, createResource, deleteResource, filterResourcesForStudent } from "@/lib/services";
 import { getCurrentUser } from "@/lib/utils/auth-session";
 import { formatTimestamp } from "@/lib/utils/date";
+import { useLMSData } from "@/lib/data/use-lms-data";
 import { ResourcePreviewModal, isPreviewable } from "@/components/resources/resource-preview-modal";
 import type { Resource, ResourceType, AssignmentTarget, Student } from "@/types";
 
 export default function ResourcesPage() {
-  const [resources, setResources] = useState<Resource[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { filteredResources: resources, loading } = useLMSData();
   const [userRole, setUserRole] = useState<string>("admin");
   const [currentUser, setCurrentUser] = useState<{ uid: string; email: string; profile: Record<string, unknown> } | null>(null);
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm?: () => void; isAlert?: boolean; variant?: "destructive" | "warning" | "info" | "success" } | null>(null);
@@ -52,20 +52,7 @@ export default function ResourcesPage() {
     levels: ["institution", "department", "academicYear", "section", "batch"],
   });
 
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const resData = await getAllResources();
-      setResources(resData);
-    } catch (err) {
-      console.error("Failed to fetch resources", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
-    fetchData();
     try {
       const storedRole = localStorage.getItem("lms_role");
       if (storedRole) setUserRole(storedRole.toLowerCase());
@@ -112,7 +99,6 @@ export default function ResourcesPage() {
       setLinks([""]);
       setDesc("");
       resetResourceFilters();
-      fetchData();
     } catch (err) {
       console.error("Failed to create resource", err);
     } finally {
@@ -129,7 +115,6 @@ export default function ResourcesPage() {
       onConfirm: async () => {
         try {
           await deleteResource(id);
-          fetchData();
         } catch (err) {
           console.error("Failed to delete", err);
         }
@@ -358,16 +343,16 @@ export default function ResourcesPage() {
                         <span className="font-medium text-foreground leading-relaxed truncate">
                           {(() => {
                             const t = res.targets?.[0];
-                            if (!t) return "All Students (Global)";
+                            if (!t) return "All Students";
                             if (t.type === "composite") {
                               const parts = [
                                 t.collegeId && t.collegeId !== "ALL" ? getInstitutionName(t.collegeId) : null,
                                 t.department && t.department !== "ALL" ? t.department : null,
                                 t.academicYear && t.academicYear !== "ALL" ? t.academicYear : null,
                                 t.section && t.section !== "ALL" ? `Sec ${t.section}` : null,
-                                t.batchId && t.batchId !== "ALL" ? (t.batchName || t.batchId) : null,
+                                t.batchId && t.batchId !== "ALL" ? (!t.batchName || t.batchName === t.batchId ? "Unknown Batch" : t.batchName) : null,
                               ].filter(Boolean);
-                              return parts.length > 0 ? parts.join(" → ") : "All Students (Global)";
+                              return parts.length > 0 ? parts.join(" → ") : "All Students";
                             }
                             return `${t.type} • ${t.ids?.[0] || "Public"}`;
                           })()}

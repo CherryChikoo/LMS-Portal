@@ -76,6 +76,14 @@ export interface Student {
   updatedAt: Date;
 }
 
+export interface TrainerNote {
+  id: string;
+  studentId: string;
+  text: string;
+  authorName: string;
+  createdAt: Date;
+}
+
 // Batch
 export interface Batch {
   id: string;
@@ -106,6 +114,8 @@ export interface AssignmentTarget {
   section?: string;
   batchId?: string;
   batchName?: string;
+  studentId?: string;
+  studentName?: string;
 }
 
 // Resource
@@ -127,6 +137,27 @@ export interface Resource {
 
 export type ResourceType = "pdf" | "ppt" | "doc" | "video" | "image" | "link" | "zip" | "other";
 
+export interface AIExplanation {
+  overview: {
+    summary: string;
+    type: string;
+    topic: string;
+    subtopic: string;
+    difficulty: string;
+  };
+  stepByStep: string;
+  whyCorrect: string;
+  whyIncorrect?: Record<string, string>;
+  keyConcepts: string[];
+  commonMistakes: string[];
+  revisionNotes: string;
+  relatedConcepts: string[];
+  realWorldExample?: string;
+  difficultyAnalysis: string;
+  interviewPerspective?: string;
+  learningObjective: string;
+}
+
 // Question
 export interface Question {
   id: string;
@@ -140,6 +171,8 @@ export interface Question {
   topic: string;
   difficulty: QuestionDifficulty;
   tags: string[];
+  aiExplanation?: AIExplanation;
+  aiExplanationStatus?: "pending" | "generated" | "failed";
   createdAt: Date;
   updatedAt: Date;
 }
@@ -196,6 +229,7 @@ export interface ExamResult {
   correctCount?: number;
   incorrectCount?: number;
   answers: Record<string, unknown>;
+  aiSummary?: string | Record<string, any>;
   submittedAt?: Date;
   createdAt?: Date;
   updatedAt?: Date;

@@ -143,7 +143,7 @@ export function Topbar() {
       <div className="flex items-center gap-2 sm:gap-3">
         {/* Quick Action Pill Button */}
         {userRole.toLowerCase() !== "student" && (
-          <Link href={userRole.toLowerCase() === "college_admin" || userRole.toLowerCase() === "administrator" ? "/admin/exams" : "/exams"} className="hidden md:block">
+          <Link href={userRole.toLowerCase() === "college_admin" || userRole.toLowerCase() === "administrator" ? "/admin/exams?action=new-markdown" : "/exams?action=new-markdown"} className="hidden md:block">
             <Button
               size="sm"
               className="h-10 px-4 rounded-xl bg-brand text-brand-foreground dark:text-brand-foreground font-medium border border-white/20 dark:border-black/10 shadow-none hover:opacity-95 transition-all flex items-center gap-2"

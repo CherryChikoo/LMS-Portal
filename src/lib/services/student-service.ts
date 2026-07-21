@@ -86,6 +86,15 @@ export function subscribeToAllStudents(callback: (students: Student[]) => void):
   return subscribeToDocuments<Student>(COLLECTION_NAME, callback);
 }
 
+export function subscribeToStudentsByCollege(collegeId: string, callback: (students: Student[]) => void): () => void {
+  return subscribeToDocuments<Student>(COLLECTION_NAME, callback, [where("collegeId", "==", collegeId)]);
+}
+
+export function subscribeToStudentById(studentId: string, callback: (students: Student[]) => void): () => void {
+  // We return an array of 1 student to match the signature expected by the cache
+  return subscribeToDocuments<Student>(COLLECTION_NAME, callback, [where("id", "==", studentId)]);
+}
+
 export async function getStudentsByCollege(collegeId: string): Promise<Student[]> {
   return getDocuments<Student>(COLLECTION_NAME, [where("collegeId", "==", collegeId)]);
 }
@@ -193,4 +202,26 @@ export async function deleteStudentProfile(studentId: string): Promise<void> {
     const body = await response.json().catch(() => ({}));
     throw new Error(body.error || "Failed to delete student account.");
   }
+}
+
+export async function getTrainerNotes(studentId: string): Promise<import("@/types").TrainerNote[]> {
+  const q = [where("studentId", "==", studentId)];
+  // Sort descending by createdAt after fetching, since getDocuments might not have order by default without an index
+  const notes = await getDocuments<import("@/types").TrainerNote>("trainer_notes", q);
+  return notes.sort((a, b) => {
+    const timeA = typeof a.createdAt === "object" && a.createdAt !== null && "toMillis" in (a.createdAt as any) ? (a.createdAt as any).toMillis() : new Date(a.createdAt).getTime();
+    const timeB = typeof b.createdAt === "object" && b.createdAt !== null && "toMillis" in (b.createdAt as any) ? (b.createdAt as any).toMillis() : new Date(b.createdAt).getTime();
+    return timeB - timeA;
+  });
+}
+
+export async function addTrainerNote(studentId: string, text: string, authorName: string): Promise<import("@/types").TrainerNote> {
+  const note = {
+    studentId,
+    text,
+    authorName,
+    createdAt: new Date(),
+  };
+  const docRef = await addDocument("trainer_notes", note);
+  return { id: docRef as string, ...note };
 }

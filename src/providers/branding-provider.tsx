@@ -43,7 +43,8 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
           const storedUser = localStorage.getItem("lms_user") || localStorage.getItem("user");
           if (storedUser) {
             const profile = JSON.parse(storedUser);
-            const collegeId = role === "student" ? profile.collegeId : profile.id;
+            // Both students and college_admins use profile.collegeId
+            const collegeId = profile.collegeId;
             
             if (collegeId) {
               const college = await getCollegeById(collegeId);

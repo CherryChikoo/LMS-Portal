@@ -1,4 +1,4 @@
-import { Check, HelpCircle, X } from "lucide-react";
+import { Check, HelpCircle, X, BrainCircuit, Target, Sparkles } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -187,8 +187,8 @@ export function QuestionReview({
         </div>
       )}
 
-      {/* Explanation */}
-      {showCorrectAnswer && question.explanation && (
+      {/* Legacy Explanation (Fallback) */}
+      {showCorrectAnswer && !question.aiExplanation && question.explanation && (
         <div className="flex items-start gap-3 rounded-xl border border-border bg-muted/40 p-4">
           <HelpCircle
             className="mt-0.5 h-4 w-4 shrink-0 text-brand"
@@ -201,6 +201,82 @@ export function QuestionReview({
             <p className="text-sm leading-relaxed text-foreground">
               {question.explanation}
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* AI Explanation (Gemini) */}
+      {showCorrectAnswer && question.aiExplanation && (
+        <div className="mt-2 rounded-xl border border-border bg-card overflow-hidden shadow-sm">
+          <div className="bg-brand/5 border-b border-border px-4 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-brand" />
+              <span className="text-xs font-extrabold uppercase tracking-wider text-brand">
+                AI Learning Explanation
+              </span>
+            </div>
+            {question.aiExplanation.overview?.difficulty && (
+              <Badge variant="outline" className="text-[10px] uppercase font-bold text-muted-foreground">
+                {question.aiExplanation.overview.difficulty}
+              </Badge>
+            )}
+          </div>
+          
+          <div className="p-4 space-y-5">
+            {/* Concept Breakdown */}
+            <div className="space-y-2.5">
+              <h4 className="text-[11px] font-bold uppercase text-muted-foreground tracking-wider flex items-center gap-1.5">
+                <BrainCircuit className="w-3.5 h-3.5" /> Concept Breakdown
+              </h4>
+              <div className="p-3.5 bg-muted/30 rounded-xl space-y-2 border border-border/50">
+                <p className="text-sm font-medium text-foreground">
+                  {question.aiExplanation.overview?.summary}
+                </p>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  {question.aiExplanation.stepByStep}
+                </p>
+              </div>
+            </div>
+
+            {/* Answer Analysis */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2.5">
+                <h4 className="text-[11px] font-bold uppercase text-muted-foreground tracking-wider flex items-center gap-1.5">
+                  <Target className="w-3.5 h-3.5" /> Answer Analysis
+                </h4>
+                <div className="p-3.5 bg-emerald-500/5 rounded-xl border border-emerald-500/20 space-y-1.5">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Why it's correct</p>
+                  <p className="text-xs text-foreground/80 leading-relaxed">
+                    {question.aiExplanation.whyCorrect}
+                  </p>
+                </div>
+              </div>
+
+              {studentAnswer && !getStudentAnswerSet(studentAnswer).has(String(question.correctAnswer)) && typeof studentAnswer === "string" && question.aiExplanation.whyIncorrect?.[studentAnswer] && (
+                <div className="space-y-2.5">
+                  <h4 className="text-[11px] font-bold uppercase text-transparent select-none tracking-wider flex items-center gap-1.5">
+                    _
+                  </h4>
+                  <div className="p-3.5 bg-destructive/5 rounded-xl border border-destructive/20 space-y-1.5">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-destructive">Why your answer was wrong</p>
+                    <p className="text-xs text-foreground/80 leading-relaxed">
+                      {question.aiExplanation.whyIncorrect[studentAnswer]}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Tags & Concepts */}
+            {question.aiExplanation.keyConcepts && question.aiExplanation.keyConcepts.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 pt-2 border-t border-border/50">
+                {question.aiExplanation.keyConcepts.map((c: string) => (
+                  <Badge key={c} variant="outline" className="text-[10px] bg-background border-border text-muted-foreground">
+                    {c}
+                  </Badge>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

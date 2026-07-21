@@ -16,6 +16,7 @@ import { googleProvider, signInWithGoogle } from "@/lib/firebase/auth";
 import { getDocument, setDoc, doc, getDocuments, where } from "@/lib/firebase/firestore";
 import { db } from "@/lib/firebase/config";
 import { setAuthSession, clearAuthSession } from "@/lib/utils/auth-session";
+import { invalidateLMSCache } from "@/lib/data/lms-data-cache";
 import type { User, UserRole, Student } from "@/types";
 
 // Extended user type allows Firestore docs to carry extra fields (department, collegeId, etc.)
@@ -184,11 +185,11 @@ export async function studentLogin(email: string, pass: string): Promise<{ user:
             displayName: student.name,
             role: "student",
             department: student.department || "Computer Science & Engineering",
-            collegeId: student.collegeId,
-            collegeName: student.collegeName || "Global Institute",
+            collegeId: student.collegeId || "",
+            collegeName: student.collegeName || "",
             academicYear: student.academicYear,
             section: student.section,
-            batchIds: student.batchIds,
+            batchIds: student.batchIds || [],
             createdAt: new Date(),
             updatedAt: new Date(),
           };
@@ -235,11 +236,11 @@ export async function studentLogin(email: string, pass: string): Promise<{ user:
       displayName: studentDoc.name || profile?.displayName || "Student",
       role: "student",
       department: studentDoc.department || (profile as unknown as { department?: string })?.department || "Computer Science & Engineering",
-      collegeId: studentDoc.collegeId,
-      collegeName: studentDoc.collegeName || "Global Institute",
+      collegeId: studentDoc.collegeId || "",
+      collegeName: studentDoc.collegeName || "",
       academicYear: studentDoc.academicYear,
       section: studentDoc.section,
-      batchIds: studentDoc.batchIds,
+      batchIds: studentDoc.batchIds || [],
     } as unknown as ExtendedUser;
   }
 
@@ -326,8 +327,8 @@ export async function studentGoogleLogin(): Promise<{ success: true; role: UserR
       displayName: s.name || existing.displayName || name,
       role,
       department: s.department || existing.department || "Computer Science & Engineering",
-      collegeId: s.collegeId || existing.collegeId || collegeNameToId(s.collegeName || existing.collegeName || "Global Institute"),
-      collegeName: s.collegeName || existing.collegeName || "Global Institute",
+      collegeId: s.collegeId || existing.collegeId || "",
+      collegeName: s.collegeName || existing.collegeName || "",
       academicYear: s.academicYear || existing.academicYear || null,
       section: s.section || existing.section || null,
       batchIds: s.batchIds || existing.batchIds || [],
@@ -348,11 +349,11 @@ export async function studentGoogleLogin(): Promise<{ success: true; role: UserR
     email: profile!.email,
     role,
     department: profile?.department || "Computer Science & Engineering",
-    collegeId: profile?.collegeId,
-    collegeName: profile?.collegeName || "Global Institute",
+    collegeId: profile?.collegeId || "",
+    collegeName: profile?.collegeName || "",
     academicYear: profile?.academicYear,
     section: profile?.section,
-    batchIds: profile?.batchIds,
+    batchIds: profile?.batchIds || [],
   };
 
   await setAuthSession(token, role, sessionUser);
@@ -453,6 +454,9 @@ export async function updateFirstLoginPassword(newPassword: string): Promise<voi
 }
 
 export async function logoutUser(): Promise<void> {
+  // Clear LMS singleton cache
+  invalidateLMSCache();
+  
   // Clear client-side auth session (cookies, localStorage) and redirect first.
   // This guarantees that even if firebaseSignOut hangs or rejects, the user is
   // treated as logged out by the application and middleware on the next request.

@@ -4,11 +4,16 @@ import {
   addDocument,
   updateDocument,
   deleteDocument,
+  subscribeToDocuments,
 } from "@/lib/firebase/firestore";
 import type { Resource, Student } from "@/types";
 import { isAssignedToStudent } from "./assignment-engine";
 
 const COLLECTION_NAME = "resources";
+
+export function subscribeToAllResources(callback: (resources: Resource[]) => void): () => void {
+  return subscribeToDocuments<Resource>(COLLECTION_NAME, callback);
+}
 
 export async function getAllResources(): Promise<Resource[]> {
   return getDocuments<Resource>(COLLECTION_NAME);

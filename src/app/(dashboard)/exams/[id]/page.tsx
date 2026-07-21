@@ -3,6 +3,7 @@
 import { use, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
+import { toast } from "sonner";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -19,6 +20,7 @@ import {
   GraduationCap,
   Play,
   ShieldCheck,
+  Sparkles,
   Target,
   TrendingDown,
   TrendingUp,
@@ -45,6 +47,7 @@ import {
 import { isAssignedToStudent } from "@/lib/services/assignment-engine";
 import { getCurrentUser } from "@/lib/utils/auth-session";
 import { formatTimestamp, toMillis } from "@/lib/utils/date";
+import { safeDisplayName } from "@/lib/hierarchy/hierarchy-data";
 
 import type {
   AssignmentTarget,
@@ -221,7 +224,8 @@ function groupTargets(targets: AssignmentTarget[] | undefined, students: Student
     if (type === "composite") {
       if (!isAllWildcard(target.collegeId) || !isAllWildcard(target.collegeName)) {
         const id = target.collegeId || target.collegeName || "";
-        const name = target.collegeName || target.collegeId || id;
+        const rawName = target.collegeName || "";
+        const name = safeDisplayName(rawName, id, "Unknown Institution");
         if (id) colleges.set(id, name);
         allWildcard = false;
       }
@@ -239,7 +243,7 @@ function groupTargets(targets: AssignmentTarget[] | undefined, students: Student
       }
       if (!isAllWildcard(target.batchId) || !isAllWildcard(target.batchName)) {
         const id = target.batchId || target.batchName || "";
-        const name = target.batchName || target.batchId || id;
+        const name = !target.batchName || target.batchName === target.batchId ? "Unknown Batch" : target.batchName;
         if (id) batches.set(id, name);
         allWildcard = false;
       }
@@ -249,8 +253,8 @@ function groupTargets(targets: AssignmentTarget[] | undefined, students: Student
     if (type === "college") {
       (target.ids || []).forEach((id, idx) => {
         if (isAllWildcard(id)) return;
-        const name = target.names?.[idx] || id;
-        colleges.set(id, name);
+        const name = target.names?.[idx] || "";
+        colleges.set(id, safeDisplayName(name, id, "Unknown Institution"));
         allWildcard = false;
       });
       continue;
@@ -720,6 +724,40 @@ function TrainerExamDetails({
   batches,
 }: TrainerDetailsProps) {
   const router = useRouter();
+  const [isGeneratingAI, setIsGeneratingAI] = useState(false);
+
+  const handleGenerateAI = async (forceRegenerate: boolean = false) => {
+    if (!exam) return;
+    setIsGeneratingAI(true);
+    toast.loading(forceRegenerate ? "Force regenerating all AI explanations..." : "Generating missing AI explanations...", { id: "generate-ai" });
+    try {
+      const res = await fetch("/api/ai-explanation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ examId: exam.id, forceRegenerate })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to generate AI");
+      
+      if (data.status === "skipped") {
+        toast.success(data.message || "All questions already have AI explanations.", { id: "generate-ai" });
+      } else {
+        toast.success(`Generated ${data.generatedCount || 0} explanations successfully!`, { id: "generate-ai" });
+      }
+      
+      router.refresh();
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || "Failed to generate AI explanations", { id: "generate-ai" });
+    } finally {
+      setIsGeneratingAI(false);
+    }
+  };
+
+  const missingAiCount = useMemo(() => {
+    if (!exam || !exam.questions) return 0;
+    return exam.questions.filter(q => !q.aiExplanation).length;
+  }, [exam]);
 
   const stats = useMemo(
     () => computeStats(exam, attempts, students),
@@ -919,10 +957,14 @@ function TrainerExamDetails({
             <AssignmentGroup
               icon={Building2}
               label="Colleges"
-              items={groupedTargets.colleges.map((c) => ({
-                id: c.id,
-                label: c.name || collegeNameById.get(c.id) || c.id,
-              }))}
+              items={groupedTargets.colleges.map((c) => {
+                const name = c.name || collegeNameById.get(c.id);
+                const isActive = collegeNameById.has(c.id);
+                return {
+                  id: c.id,
+                  label: name ? (isActive ? name : `${name} (Deleted)`) : `${c.id} (Deleted)`,
+                };
+              })}
               empty="No college filter"
             />
             <AssignmentGroup
@@ -955,10 +997,14 @@ function TrainerExamDetails({
             <AssignmentGroup
               icon={UserCheck}
               label="Selected Students"
-              items={groupedTargets.students.map((s) => ({
-                id: s.id,
-                label: s.name || studentNameById.get(s.id) || s.id,
-              }))}
+              items={groupedTargets.students.map((s) => {
+                const name = s.name || studentNameById.get(s.id);
+                const isActive = studentNameById.has(s.id);
+                return {
+                  id: s.id,
+                  label: name ? (isActive ? name : `${name} (Deleted)`) : `${s.id} (Deleted)`,
+                };
+              })}
               empty="No direct student selections"
             />
           </div>
@@ -1031,10 +1077,57 @@ function TrainerExamDetails({
         animate={{ opacity: 1, y: 0 }}
         className="rounded-2xl border border-border bg-card p-6 sm:p-7 shadow-sm space-y-4"
       >
-        <h3 className="text-sm font-extrabold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-          <BookOpen className="w-4 h-4 text-brand" />
-          Question Bank ({exam.questions?.length ?? 0})
-        </h3>
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-extrabold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+            <BookOpen className="w-4 h-4 text-brand" />
+            Question Bank ({exam.questions?.length ?? 0})
+          </h3>
+          {exam.questions && exam.questions.length > 0 && (
+            <div className="flex items-center gap-2">
+              {missingAiCount > 0 ? (
+                <div className="flex items-center gap-2 mr-2 border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 rounded-lg text-amber-600 dark:text-amber-400 text-xs font-bold shadow-sm">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  <span>{missingAiCount} Missing AI Explanations</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 mr-2 border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 rounded-lg text-emerald-600 dark:text-emerald-400 text-xs font-bold shadow-sm">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>All Explanations Generated</span>
+                </div>
+              )}
+              {missingAiCount > 0 && (
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => handleGenerateAI(false)}
+                  disabled={isGeneratingAI}
+                  className="text-xs font-semibold gap-1.5 bg-brand hover:bg-brand/90 text-brand-foreground shadow-sm"
+                >
+                  {isGeneratingAI ? (
+                    <div className="w-3 h-3 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5 text-white" />
+                  )}
+                  {isGeneratingAI ? "Generating..." : "Generate Missing"}
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleGenerateAI(true)}
+                disabled={isGeneratingAI}
+                className="text-xs font-semibold gap-1.5 shadow-sm"
+              >
+                {isGeneratingAI ? (
+                  <div className="w-3 h-3 rounded-full border-2 border-brand border-t-transparent animate-spin" />
+                ) : (
+                  <Sparkles className="w-3.5 h-3.5 text-brand" />
+                )}
+                {isGeneratingAI ? "Generating..." : "Force Regenerate All"}
+              </Button>
+            </div>
+          )}
+        </div>
 
         {!exam.questions || exam.questions.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-border bg-muted/30 p-6 text-sm text-muted-foreground text-center">
@@ -1085,10 +1178,14 @@ function TrainerExamDetails({
               </thead>
               <tbody className="divide-y divide-border">
                 {attempts.map((att) => {
-                  const studentName = att.studentName
+                  let studentName = att.studentName
                     || studentNameById.get(att.studentId)
-                    || studentNameById.get((att.studentId || "").toLowerCase())
-                    || "Unknown Student";
+                    || studentNameById.get((att.studentId || "").toLowerCase());
+                  
+                  const isDeleted = !studentNameById.has(att.studentId) && !studentNameById.has((att.studentId || "").toLowerCase());
+                  
+                  if (!studentName) studentName = "Unknown Student";
+                  if (isDeleted) studentName += " (Deleted)";
                   const isPassed = att.passed === true;
                   return (
                     <tr key={att.id} className="hover:bg-muted/20 transition-colors">

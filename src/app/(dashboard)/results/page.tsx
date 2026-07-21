@@ -21,19 +21,16 @@ import {
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
+import { FilterDropdown } from "@/components/shared/filter-dropdown";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { AcademicHierarchyFilters } from "@/components/shared/academic-hierarchy-filters";
 import { useAcademicHierarchy } from "@/lib/hierarchy/use-academic-hierarchy";
 import { fadeInUp } from "@/lib/animations";
 import {
-  getStudentAttempts,
-  getStudentAttemptsForCurrentUser,
-  getAllExamsIncludingDeleted,
-  getAllStudents,
-  subscribeToAllStudents,
   deleteResultById,
   clearAllResults,
 } from "@/lib/services";
+import { useLMSData } from "@/lib/data/use-lms-data";
 import { getCurrentUser } from "@/lib/utils/auth-session";
 import { uniqueOptions } from "@/lib/utils/array";
 import type { ExamAttempt, Exam, Student } from "@/types";
@@ -96,10 +93,7 @@ function toTimestampSeconds(val: unknown): number {
 export default function ResultsPage() {
   const router = useRouter();
   const pathname = usePathname();
-  const [attempts, setAttempts] = useState<ExamAttempt[]>([]);
-  const [exams, setExams] = useState<Exam[]>([]);
-  const [students, setStudents] = useState<Student[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { filteredAttempts: attempts, filteredExams: exams, filteredStudents: students, loading } = useLMSData();
   const [actualRole, setActualRole] = useState<string>("admin");
   const [currentStudentUser, setCurrentStudentUser] = useState<Student | null>(null);
 
@@ -147,65 +141,8 @@ export default function ResultsPage() {
   } | null>(null);
 
   async function loadData() {
-    setLoading(true);
-    try {
-      if (actualRole === "student") {
-        const me = await getCurrentUser();
-        if (me) {
-          const [attData, examData] = await Promise.all([
-            getStudentAttemptsForCurrentUser(me.uid, me.email),
-            getAllExamsIncludingDeleted(),
-          ]);
-          setAttempts(attData);
-          setExams(examData);
-        }
-      } else {
-        const [attData, examData, studData] = await Promise.all([
-          getStudentAttempts(),
-          getAllExamsIncludingDeleted(),
-          getAllStudents(),
-        ]);
-        
-        let filteredAttempts = attData || [];
-        let filteredExams = examData || [];
-        let filteredStudents = studData || [];
-
-        try {
-          const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-          if (uStr) {
-            const parsed = JSON.parse(uStr);
-            if (parsed.role === "college_admin" && parsed.collegeId) {
-              filteredStudents = filteredStudents.filter(s => s.collegeId === parsed.collegeId);
-              const validStudentIds = new Set(filteredStudents.map(s => s.id));
-              const validBatchIds = new Set(filteredStudents.flatMap(s => s.batchIds || []));
-              
-              filteredExams = filteredExams.filter(e => {
-                if (!e.targets) return false;
-                return e.targets.some(t => {
-                  if (t.type === "composite") {
-                    return t.collegeId === parsed.collegeId || (t.batchId && validBatchIds.has(t.batchId));
-                  }
-                  if (t.type === "college") return t.ids.includes(parsed.collegeId);
-                  if (t.type === "batch") return t.ids.some(b => validBatchIds.has(b));
-                  if (t.type === "students") return t.ids.some(s => validStudentIds.has(s));
-                  return false;
-                });
-              });
-              
-              filteredAttempts = filteredAttempts.filter(a => validStudentIds.has(a.studentId));
-            }
-          }
-        } catch (_) {}
-
-        setAttempts(filteredAttempts);
-        setExams(filteredExams);
-        setStudents(filteredStudents);
-      }
-    } catch (err) {
-      console.error("Failed to fetch results analytics", err);
-    } finally {
-      setLoading(false);
-    }
+    // The data is automatically kept in sync by useLMSData.
+    // We provide a mock manual refresh for the UI button.
   }
 
   useEffect(() => {
@@ -227,16 +164,7 @@ export default function ResultsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- initial load: only runs once on mount
   }, []);
 
-  // Live updates: keep the student list in sync so deleted accounts are
-  // immediately reflected as "Student Deleted Data" in the results table.
-  // Only trainers/admins need the global student list; students never see it.
-  useEffect(() => {
-    if (actualRole === "student") return;
-    const unsubscribe = subscribeToAllStudents((studData) => {
-      setStudents(studData);
-    });
-    return () => unsubscribe();
-  }, [actualRole]);
+  // Data is synced by useLMSData, no need for redundant subscriptions
 
   // Helper: find the live student record for an attempt by id or email.
   const getStudentForAttempt = useCallback(
@@ -440,7 +368,7 @@ export default function ResultsPage() {
       onConfirm: async () => {
         try {
           await deleteResultById(id);
-          setAttempts((prev) => prev.filter((a) => a.id !== id));
+          // useLMSData will auto-sync on delete.
         } catch (err) {
           console.error("Failed to delete record", err);
         }
@@ -455,13 +383,10 @@ export default function ResultsPage() {
       message: "WARNING: This will permanently remove all test attempt records and evaluation breakdowns from the database. Are you sure you want to proceed?",
       onConfirm: async () => {
         try {
-          setLoading(true);
           await clearAllResults();
-          setAttempts([]);
+          // useLMSData will auto-sync on clear.
         } catch (err) {
           console.error("Failed to purge all results", err);
-        } finally {
-          setLoading(false);
         }
       },
     });
@@ -671,68 +596,47 @@ export default function ResultsPage() {
         )}
 
         {/* Tier 3: Assessment & Outcome Filters */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-3 border-t border-border/60 items-center">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-3 border-t border-border/60">
           {/* Exam Section */}
-          <div className="flex flex-col gap-1">
-            <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Exam Section</span>
-            <select
-              value={examFilter}
-              onChange={(e) => setExamFilter(e.target.value)}
-              className="h-9 px-3 rounded-xl bg-background border border-border text-xs font-bold text-foreground focus:outline-none focus:ring-1 focus:ring-brand shadow-sm truncate"
-            >
-              <option value="ALL">All Exam Sections</option>
-              {examSubjectsList.map((exam) => (
-                <option key={exam.id} value={exam.id}>
-                  {exam.title}
-                </option>
-              ))}
-            </select>
-          </div>
+          <FilterDropdown
+            label="Exam Section"
+            value={examFilter === "ALL" ? "" : examFilter}
+            onChange={(val) => setExamFilter(val === "" ? "ALL" : val)}
+            options={examSubjectsList.map(exam => ({ value: exam.id, label: exam.title }))}
+          />
 
           {/* Student Filter */}
           {actualRole !== "student" && userRole === "student" && (
-            <div className="flex flex-col gap-1">
-              <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Student Name</span>
-              <select
-                value={studentFilter}
-                onChange={(e) => setStudentFilter(e.target.value)}
-                className="h-9 px-3 rounded-xl bg-background border border-border text-xs font-bold text-foreground focus:outline-none focus:ring-1 focus:ring-brand shadow-sm truncate"
-              >
-                <option value="ALL">All Students</option>
-                {studentNamesList.map((name) => (
-                  <option key={name} value={name}>{name || "Unnamed College"}</option>
-                ))}
-              </select>
-            </div>
+            <FilterDropdown
+              label="Student Name"
+              value={studentFilter === "ALL" ? "" : studentFilter}
+              onChange={(val) => setStudentFilter(val === "" ? "ALL" : val)}
+              options={studentNamesList.map(name => ({ value: name, label: name || "Unnamed College" }))}
+            />
           )}
 
           {/* Outcome Filter */}
-          <div className="flex flex-col gap-1">
-            <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Outcome</span>
-            <select
-              value={outcomeFilter}
-              onChange={(e) => setOutcomeFilter(e.target.value)}
-              className="h-9 px-3 rounded-xl bg-background border border-border text-xs font-bold text-foreground focus:outline-none focus:ring-1 focus:ring-brand shadow-sm"
-            >
-              <option value="ALL">All Outcomes</option>
-              <option value="PASSED">Passed Only</option>
-              <option value="FAILED">Failed Only</option>
-            </select>
-          </div>
+          <FilterDropdown
+            label="Outcome"
+            value={outcomeFilter === "ALL" ? "" : outcomeFilter}
+            onChange={(val) => setOutcomeFilter(val === "" ? "ALL" : val)}
+            options={[
+              { value: "PASSED", label: "Passed Only" },
+              { value: "FAILED", label: "Failed Only" },
+            ]}
+          />
 
           {/* Sort By Filter */}
-          <div className="flex flex-col gap-1">
-            <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Sort By</span>
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-              className="h-9 px-3 rounded-xl bg-background border border-border text-xs font-bold text-foreground focus:outline-none focus:ring-1 focus:ring-brand shadow-sm"
-            >
-              <option value="date_desc">Latest Submissions</option>
-              <option value="score_desc">Highest Score</option>
-              <option value="score_asc">Lowest Score</option>
-            </select>
-          </div>
+          <FilterDropdown
+            label="Sort By"
+            value={sortBy}
+            onChange={(val) => setSortBy(val as typeof sortBy)}
+            options={[
+              { value: "date_desc", label: "Latest Submissions" },
+              { value: "score_desc", label: "Highest Score" },
+              { value: "score_asc", label: "Lowest Score" },
+            ]}
+          />
         </div>
       </div>
 
@@ -816,7 +720,7 @@ export default function ResultsPage() {
                               <span className="text-[11px] text-muted-foreground font-normal">
                                 {(() => {
                                   const student = getStudentForAttempt(att);
-                                  return student?.collegeName || student?.collegeId || "General College";
+                                  return student?.collegeName || "Unknown Institution";
                                 })()}
                               </span>
                             )}

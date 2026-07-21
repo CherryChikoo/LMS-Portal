@@ -1,19 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState, Suspense, useMemo } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
-import { ClipboardList, Plus, FileCode, Play, Eye, Edit3, Trash2, Target, Clock, CheckCircle2, ArrowLeft, ArrowRight, Sparkles, Send, Search, Calendar } from "lucide-react";
+import { ClipboardList, Plus, FileCode, Play, Eye, Edit3, Trash2, Target, Clock, CheckCircle2, ArrowLeft, ArrowRight, Sparkles, Send, Search, Calendar, Building2, Ban } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
+import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { AcademicHierarchyFilters } from "@/components/shared/academic-hierarchy-filters";
 import { useAcademicHierarchy } from "@/lib/hierarchy/use-academic-hierarchy";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
-import { getAllExams, createExam, deleteExam, parseMarkdownTest, getEffectiveExamStatus, getStudentAttempts, getStudentAttemptsForCurrentUser, filterExamsForStudent, reviewQuestionsWithAI, type AIReviewResult } from "@/lib/services";
+import { getAllExams, createExam, expireExam, parseMarkdownTest, getEffectiveExamStatus, getStudentAttempts, getStudentAttemptsForCurrentUser, filterExamsForStudent, reviewQuestionsWithAI, type AIReviewResult } from "@/lib/services";
 import { getCurrentUser } from "@/lib/utils/auth-session";
 import { toDate } from "@/lib/utils/date";
+import { useLMSData } from "@/lib/data/use-lms-data";
 import type { Exam, Question, QuestionType, Student, AssignmentTarget, ExamAttempt } from "@/types";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -23,12 +25,24 @@ const formatSafeDate = (val: any, options?: Intl.DateTimeFormatOptions): string 
   return d.toLocaleDateString([], options || { month: "short", day: "numeric", year: "numeric" });
 };
 
+function ActionHandler({ onAction }: { onAction: (action: string) => void }) {
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const action = searchParams.get("action");
+    if (action) {
+      onAction(action);
+    }
+  }, [searchParams, onAction]);
+  return null;
+}
+
 export default function ExamsPage() {
   const router = useRouter();
-  const [exams, setExams] = useState<Exam[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [attempts, setAttempts] = useState<ExamAttempt[]>([]);
+  const { filteredExams: allExams, filteredAttempts: attempts, loading } = useLMSData();
+  const exams = useMemo(() => allExams.filter(e => !e.deletedAt), [allExams]);
+  
   const [studentUser, setStudentUser] = useState<Student | null>(null);
+  const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm?: () => void; isAlert?: boolean; variant?: "destructive" | "warning" | "info" | "success" } | null>(null);
   const [userRole, setUserRole] = useState<string>("admin");
   const [studentTab, setStudentTab] = useState<"active" | "upcoming" | "pending" | "completed" | "expired">("pending");
   const [examSearch, setExamSearch] = useState("");
@@ -93,63 +107,7 @@ export default function ExamsPage() {
     });
   };
 
-  const fetchExams = async () => {
-    setLoading(true);
-    try {
-      const exData = await getAllExams();
-      let filteredExams = exData;
-      let filteredAttempts: ExamAttempt[] = [];
-
-      const role = (typeof window !== "undefined" && localStorage.getItem("lms_role") || "").toLowerCase();
-      if (role === "student") {
-        const me = await getCurrentUser();
-        filteredAttempts = me ? await getStudentAttemptsForCurrentUser(me.uid, me.email) : [];
-      } else {
-        const attData = await getStudentAttempts();
-        filteredAttempts = attData || [];
-        
-        try {
-          const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-          if (uStr) {
-            const parsed = JSON.parse(uStr);
-            if (parsed.role === "college_admin" && parsed.collegeId) {
-              const { getAllStudents } = await import("@/lib/services");
-              const allSt = await getAllStudents();
-              const myStudents = allSt.filter((s: Student) => s.collegeId === parsed.collegeId);
-              const validStudentIds = new Set(myStudents.map((s: Student) => s.id));
-              const validBatchIds = new Set(myStudents.flatMap((s: Student) => s.batchIds || []));
-              
-              filteredExams = filteredExams.filter((e: Exam) => {
-                if (!e.targets) return false;
-                return e.targets.some(t => {
-                  if (t.type === "composite") {
-                    return t.collegeId === parsed.collegeId || (t.batchId && validBatchIds.has(t.batchId));
-                  }
-                  if (t.type === "college") return t.ids.includes(parsed.collegeId);
-                  if (t.type === "batch") return t.ids.some(b => validBatchIds.has(b));
-                  if (t.type === "students") return t.ids.some(s => validStudentIds.has(s));
-                  return false;
-                });
-              });
-              
-              filteredAttempts = filteredAttempts.filter((a: ExamAttempt) => validStudentIds.has(a.studentId));
-            }
-          }
-        } catch (_) {}
-      }
-
-      setExams(filteredExams);
-      setAttempts(filteredAttempts);
-    } catch (err) {
-      console.error("Failed to fetch exams", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial data load from Firestore on mount
-    fetchExams();
     try {
       const storedRole = localStorage.getItem("lms_role");
       if (storedRole) {
@@ -272,16 +230,46 @@ export default function ExamsPage() {
     }
 
     const totalMarks = questions.reduce((acc, q) => acc + (q.marks || 2), 0);
-    // Build the assignment target using the centralized helper, then map the
-    // new shape (with `level`) to the legacy `AssignmentTarget` shape expected
-    // by `createExam` so the existing assignment-engine still matches it as a
-    // composite filter.
+    // Build the assignment target using the centralized helper
     const builtTarget = buildAssignmentTarget();
+    
+    let targetCollegeId = builtTarget.collegeId;
+    let targetCollegeName = builtTarget.collegeName;
+
+    // IMPORTANT: If a college admin creates the exam, force the college assignment
+    try {
+      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      if (uStr) {
+        const parsed = JSON.parse(uStr);
+        if (parsed.role === "college_admin") {
+          targetCollegeId = parsed.collegeId;
+          targetCollegeName = parsed.collegeName || targetCollegeName;
+          
+          // Fallback: If localStorage is stale and missing collegeId, fetch it
+          if (!targetCollegeId) {
+            const { getDocument } = await import("@/lib/firebase/firestore");
+            const profile = await getDocument("users", parsed.id);
+            if (profile && (profile as any).collegeId) {
+              targetCollegeId = (profile as any).collegeId;
+              targetCollegeName = (profile as any).collegeName || targetCollegeName;
+              
+              // Update stale localStorage silently
+              parsed.collegeId = targetCollegeId;
+              parsed.collegeName = targetCollegeName;
+              localStorage.setItem("lms_user", JSON.stringify(parsed));
+            }
+          }
+        }
+      }
+    } catch(e) {
+      console.error("Failed to parse user session for college assignment:", e);
+    }
+
     const compositeTarget: AssignmentTarget = {
       type: "composite",
       ids: ["composite"],
-      collegeId: builtTarget.collegeId,
-      collegeName: builtTarget.collegeName,
+      collegeId: targetCollegeId,
+      collegeName: targetCollegeName,
       department: builtTarget.department,
       academicYear: builtTarget.academicYear,
       section: builtTarget.section,
@@ -320,7 +308,16 @@ export default function ExamsPage() {
     if (endDt) examData.endTime = endDt;
     if (startDt) examData.scheduledAt = startDt;
 
-    await createExam(examData as Omit<Exam, "id">);
+    const newExamId = await createExam(examData as Omit<Exam, "id">);
+
+    // Trigger AI explanation generation in the background (fire-and-forget)
+    if (questions.length > 0) {
+      fetch("/api/ai-explanation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ examId: newExamId })
+      }).catch((err) => console.error("Background AI generation failed to start:", err));
+    }
 
     setCreationMode("none");
     setTitle("");
@@ -333,16 +330,39 @@ export default function ExamsPage() {
       batchId: "",
       studentId: "",
     });
-    fetchExams();
   };
 
-  const handleDelete = async (id: string) => {
-    await deleteExam(id);
-    fetchExams();
+  const handleExpire = (id: string) => {
+    setConfirmConfig({
+      isOpen: true,
+      title: "Expire Assessment",
+      message: "Are you sure you want to expire this assessment early? Students will no longer be able to take it.",
+      variant: "warning",
+      onConfirm: async () => {
+        try {
+          await expireExam(id);
+          toast.success("Assessment expired successfully");
+        } catch (err) {
+          console.error("Failed to expire exam:", err);
+          toast.error("Failed to expire exam");
+        }
+      }
+    });
   };
 
   return (
     <motion.div initial="hidden" animate="visible" variants={fadeInUp} className="space-y-6">
+      <Suspense fallback={null}>
+        <ActionHandler onAction={(action) => {
+          if (action === "new-markdown" && creationMode === "none") {
+            setCreationMode("markdown");
+            setQuestions([]);
+            // Clear the query parameter so it doesn't re-open on refresh
+            window.history.replaceState(null, "", window.location.pathname);
+          }
+        }} />
+      </Suspense>
+
       <PageHeader
         title="Online Examination Manager"
         description={userRole !== "student" ? "Create dynamic tests manually or via Markdown generator, preview full user experiences, and assign to targeted academic hierarchies." : "Browse assigned evaluation papers and take live proctored examinations."}
@@ -481,7 +501,6 @@ export default function ExamsPage() {
               const q = examSearch.toLowerCase();
               const matchesSearch = !q || exam.title.toLowerCase().includes(q) || (exam.description || "").toLowerCase().includes(q);
               if (!matchesSearch) return false;
-              if (exam.deletedAt) return false;
 
               if (userRole === "student") {
                 if (!studentUser || filterExamsForStudent([exam], studentUser).length === 0) return false;
@@ -502,13 +521,29 @@ export default function ExamsPage() {
               }
               return true;
             })
+            .sort((a, b) => {
+              const statusA = getEffectiveExamStatus(a);
+              const statusB = getEffectiveExamStatus(b);
+              
+              const weight = (s: string) => {
+                if (s === "active") return 1;
+                if (s === "scheduled") return 2;
+                return 3;
+              };
+              
+              const wA = weight(statusA);
+              const wB = weight(statusB);
+              
+              if (wA !== wB) return wA - wB;
+              return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+            })
             .map((exam) => {
               const effStatus = getEffectiveExamStatus(exam);
               const att = getStudentAttemptForExam(exam.id);
 
               const getExamTargetDisplay = () => {
                 const t = exam.targets?.[0];
-                if (!t) return "All Students (Global)";
+                if (!t) return "All Students";
                 // New hierarchy shape: targets carry a `level` field (global /
                 // institution / department / academicYear / section / batch /
                 // student) instead of a `type` discriminator.
@@ -517,16 +552,16 @@ export default function ExamsPage() {
                   if (newShape.level === "student") {
                     return `Student: ${newShape.studentName || newShape.studentId}`;
                   }
-                  if (newShape.level === "global") return "All Students (Global)";
+                  if (newShape.level === "global") return "All Students";
                   const institutionLabel = t.collegeId ? getInstitutionName(t.collegeId) : null;
                   const parts = [
                     institutionLabel,
                     t.department ? t.department : null,
                     t.academicYear ? `Year ${t.academicYear}` : null,
                     t.section ? `Sec ${t.section}` : null,
-                    t.batchId ? (t.batchName || t.batchId) : null,
+                    t.batchId ? (!t.batchName || t.batchName === t.batchId ? "Unknown Batch" : t.batchName) : null,
                   ].filter(Boolean);
-                  return parts.length > 0 ? parts.join(" → ") : "All Students (Global)";
+                  return parts.length > 0 ? parts.join(" → ") : "All Students";
                 }
                 // Legacy composite shape (kept for older records).
                 if (t.type === "composite") {
@@ -536,12 +571,12 @@ export default function ExamsPage() {
                     t.department && t.department !== "ALL" ? t.department : null,
                     t.academicYear && t.academicYear !== "ALL" ? `Year ${t.academicYear}` : null,
                     t.section && t.section !== "ALL" ? `Sec ${t.section}` : null,
-                    t.batchId && t.batchId !== "ALL" ? (t.batchName || t.batchId) : null,
+                    t.batchId && t.batchId !== "ALL" ? (!t.batchName || t.batchName === t.batchId ? "Unknown Batch" : t.batchName) : null,
                   ].filter(Boolean);
-                  return parts.length > 0 ? parts.join(" → ") : "All Students (Global)";
+                  return parts.length > 0 ? parts.join(" → ") : "All Students";
                 }
                 const isGlobalId = !t.ids || t.ids.length === 0 || t.ids.includes("ALL") || t.ids.includes("composite");
-                if (isGlobalId) return "All Students (Global)";
+                if (isGlobalId) return "All Students";
                 return `${t.type.toUpperCase()}: ${t.ids.join(", ")}`;
               };
 
@@ -631,6 +666,18 @@ export default function ExamsPage() {
                             {getExamTargetDisplay()}
                           </span>
                         </div>
+                        
+                        {exam.targets?.[0]?.collegeId && exam.targets[0].collegeId !== "GLOBAL" && (
+                          <div className="flex items-center justify-between text-muted-foreground pt-1 border-t border-border/40 mt-1">
+                            <span className="inline-flex items-center gap-1.5 font-medium">
+                              <Building2 className="w-3.5 h-3.5 text-brand shrink-0" />
+                              <span className="text-[11px] uppercase tracking-wider font-bold">Created By:</span>
+                            </span>
+                            <span className="font-bold text-foreground truncate max-w-[150px] text-xs" title={getInstitutionName(exam.targets[0].collegeId)}>
+                              {getInstitutionName(exam.targets[0].collegeId)}
+                            </span>
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex items-center justify-between pt-1">
@@ -656,11 +703,16 @@ export default function ExamsPage() {
                             <span>Details</span>
                           </Button>
                           <button
-                            onClick={() => handleDelete(exam.id)}
-                            className="p-2 rounded-xl bg-destructive/10 hover:bg-destructive text-destructive hover:text-white transition-all duration-200"
-                            title="Delete Assessment"
+                            onClick={() => handleExpire(exam.id)}
+                            disabled={effStatus === "expired" || effStatus === "cancelled" || effStatus === "completed"}
+                            className={`p-2 rounded-xl transition-all duration-200 ${
+                              effStatus === "expired" || effStatus === "cancelled" || effStatus === "completed"
+                                ? "bg-muted text-muted-foreground opacity-50 cursor-not-allowed"
+                                : "bg-amber-500/10 hover:bg-amber-500 text-amber-500 hover:text-white"
+                            }`}
+                            title={effStatus === "expired" || effStatus === "cancelled" || effStatus === "completed" ? "Assessment already expired" : "Expire Assessment"}
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Ban className="w-4 h-4" />
                           </button>
                         </div>
                       </div>
@@ -1038,8 +1090,8 @@ export default function ExamsPage() {
                   <span className="font-bold text-foreground">
                     {(() => {
                       const institutionLabel = examFilters.collegeId ? getInstitutionName(examFilters.collegeId) : null;
-                      const batchLabel = examFilters.batchId ? (hierarchy?.batchMap.get(examFilters.batchId)?.name || examFilters.batchId) : null;
-                      return [institutionLabel, examFilters.department || null, examFilters.academicYear || null, examFilters.section ? `Sec ${examFilters.section}` : null, batchLabel].filter(Boolean).join(" → ") || "All Students (Global)";
+                      const batchLabel = examFilters.batchId ? (hierarchy?.batchMap.get(examFilters.batchId)?.name || "Unknown Batch") : null;
+                      return [institutionLabel, examFilters.department || null, examFilters.academicYear || null, examFilters.section ? `Sec ${examFilters.section}` : null, batchLabel].filter(Boolean).join(" → ") || "All Students";
                     })()}
                   </span>
                 </div>
@@ -1356,6 +1408,17 @@ export default function ExamsPage() {
           </div>
         )}
       </AnimatePresence>
+
+      <ConfirmModal
+        isOpen={!!confirmConfig?.isOpen}
+        onClose={() => setConfirmConfig(null)}
+        onConfirm={confirmConfig?.onConfirm || (() => {})}
+        title={confirmConfig?.title || ""}
+        message={confirmConfig?.message || ""}
+        confirmText="Confirm"
+        variant={confirmConfig?.variant || "destructive"}
+        isAlert={confirmConfig?.isAlert}
+      />
     </motion.div>
   );
 }

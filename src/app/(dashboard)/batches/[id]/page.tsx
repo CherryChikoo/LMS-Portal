@@ -3,8 +3,11 @@
 import { useEffect, useMemo, useState, use } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
-import { ArrowLeft, BookOpen, Users, Trash2, Search, Building2, UserPlus, Ban, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, BookOpen, Users, Trash2, Search, Building2, UserPlus, Ban, CheckCircle2, Edit2, X, Check } from "lucide-react";
+import { toast } from "sonner";
 import { PageHeader } from "@/components/shared/page-header";
+import { FilterDropdown } from "@/components/shared/filter-dropdown";
+import { useAcademicHierarchy } from "@/lib/hierarchy/use-academic-hierarchy";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { Button } from "@/components/ui/button";
@@ -21,6 +24,9 @@ export default function BatchDetailPage({ params }: PageProps) {
   const resolvedParams = use(params);
   const [batch, setBatch] = useState<Batch | null>(null);
   const [allStudents, setAllStudents] = useState<Student[]>([]);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [isSavingName, setIsSavingName] = useState(false);
   const [colleges, setColleges] = useState<College[]>([]);
   const [loading, setLoading] = useState(true);
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm?: () => void; confirmText?: string; variant?: "destructive" | "warning" | "info" | "success" } | null>(null);
@@ -62,6 +68,25 @@ export default function BatchDetailPage({ params }: PageProps) {
 
     fetchData();
   }, [resolvedParams.id]);
+
+  const handleRenameBatch = async () => {
+    if (!batch || !newName.trim() || newName.trim() === batch.name) {
+      setIsRenaming(false);
+      return;
+    }
+    setIsSavingName(true);
+    try {
+      await updateBatch(batch.id, { name: newName.trim() });
+      setBatch({ ...batch, name: newName.trim() });
+      toast.success("Batch renamed successfully");
+      setIsRenaming(false);
+    } catch (err) {
+      console.error("Error renaming batch:", err);
+      toast.error("Failed to rename batch");
+    } finally {
+      setIsSavingName(false);
+    }
+  };
 
   // Cascading filter option lists for the "Add Students" modal.
   // Hooks must run unconditionally, so they live above any early returns below.
@@ -343,10 +368,48 @@ export default function BatchDetailPage({ params }: PageProps) {
           >
             <ArrowLeft className="w-3.5 h-3.5" /> Back to All Batches
           </Link>
-          <PageHeader
-            title={`${batch.name}`}
-            description={batch.description || "Manage student enrollment and cohort roster for tests and resource sharing."}
-          />
+          
+          {isRenaming ? (
+            <div className="flex flex-col gap-2 mt-2">
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  className="h-10 px-3 rounded-lg border border-border bg-background text-lg font-bold text-foreground focus:outline-none focus:border-brand w-full max-w-sm"
+                  autoFocus
+                  onKeyDown={(e) => e.key === "Enter" && handleRenameBatch()}
+                />
+                <Button size="icon" onClick={handleRenameBatch} disabled={isSavingName} className="h-10 w-10 bg-brand hover:bg-brand/90 text-brand-foreground rounded-lg shrink-0">
+                  <Check className="w-4 h-4" />
+                </Button>
+                <Button size="icon" variant="outline" onClick={() => setIsRenaming(false)} disabled={isSavingName} className="h-10 w-10 rounded-lg shrink-0">
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+              <p className="text-sm text-muted-foreground max-w-2xl">
+                {batch.description || "Manage student enrollment and cohort roster for tests and resource sharing."}
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1 mt-2">
+              <div className="flex items-center gap-3">
+                <h1 className="text-3xl font-extrabold text-foreground tracking-tight">{batch.name}</h1>
+                <Button 
+                  size="icon" 
+                  variant="ghost" 
+                  onClick={() => { setNewName(batch.name); setIsRenaming(true); }}
+                  className="w-8 h-8 rounded-full bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                  title="Rename Batch"
+                >
+                  <Edit2 className="w-4 h-4" />
+                </Button>
+              </div>
+              <p className="text-sm text-muted-foreground max-w-2xl mt-1">
+                {batch.description || "Manage student enrollment and cohort roster for tests and resource sharing."}
+              </p>
+            </div>
+          )}
         </div>
 
         <Button onClick={() => setShowAddModal(true)} className="gap-2 bg-brand hover:bg-brand/90 text-brand-foreground shadow-lg shadow-brand/20">
@@ -371,8 +434,10 @@ export default function BatchDetailPage({ params }: PageProps) {
             <Building2 className="w-6 h-6" />
           </div>
           <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Target Level</p>
-            <p className="text-sm font-bold text-foreground truncate">{batch.collegeId === "GLOBAL" ? "Global Cohort" : batch.collegeId}</p>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Department</p>
+            <p className="text-sm font-bold text-foreground truncate">
+              {batch.department || "All Departments"}
+            </p>
           </div>
         </div>
 
@@ -430,7 +495,7 @@ export default function BatchDetailPage({ params }: PageProps) {
                     <td className="py-3 px-4 font-mono font-semibold text-foreground">{stud.rollNumber || "—"}</td>
                     <td className="py-3 px-4">
                       <span className="px-2.5 py-1 rounded-lg bg-accent/60 text-foreground font-semibold">
-                        {stud.collegeName || stud.collegeId}
+                        {stud.collegeName || "Unknown Institution"}
                       </span>
                     </td>
                     <td className="py-3 px-4">
@@ -528,72 +593,48 @@ export default function BatchDetailPage({ params }: PageProps) {
               </div>
 
               {/* Filters & Search */}
-              <div className="p-4 border-b border-border bg-background space-y-3">
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-2.5">
-                  <div className="relative md:col-span-2">
+              <div className="p-4 border-b border-border bg-background space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-2.5 w-full">
+                  <div className="relative w-full md:col-span-2">
                     <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                     <input
                       type="text"
                       placeholder="Search by name, email or roll..."
                       value={modalSearch}
                       onChange={(e) => setModalSearch(e.target.value)}
-                      className="w-full h-9 pl-9 pr-3 rounded-xl bg-card border border-border text-xs focus:outline-none focus:border-brand"
+                      className="w-full h-12 pl-10 pr-4 rounded-xl bg-card border border-border text-sm font-semibold focus:outline-none focus:border-brand transition-all shadow-sm"
                     />
                   </div>
 
-                  <select
-                    value={selectedCollegeFilter}
-                    onChange={(e) => setSelectedCollegeFilter(e.target.value)}
-                    className="h-9 px-2.5 rounded-xl bg-card border border-border text-xs font-semibold text-foreground"
-                  >
-                    <option value="ALL">All Colleges</option>
-                    {colleges.map((c) => (
-                      <option key={c.id} value={c.name}>{c.name || "Unnamed College"}</option>
-                    ))}
-                  </select>
+                  <FilterDropdown
+                    label="College"
+                    value={selectedCollegeFilter === "ALL" ? "" : selectedCollegeFilter}
+                    onChange={(val) => setSelectedCollegeFilter(val === "" ? "ALL" : val)}
+                    options={colleges.map(c => ({ value: c.name, label: c.name || "Unnamed College" }))}
+                  />
 
-                  <select
-                    value={selectedDeptFilter}
-                    onChange={(e) => setSelectedDeptFilter(e.target.value)}
-                    className="h-9 px-2.5 rounded-xl bg-card border border-border text-xs font-semibold text-foreground"
-                  >
-                    <option value="ALL">All Departments</option>
-                    {deptsList.map((d) => (
-                      <option key={d} value={d}>
-                        {d}
-                      </option>
-                    ))}
-                  </select>
+                  <FilterDropdown
+                    label="Department"
+                    value={selectedDeptFilter === "ALL" ? "" : selectedDeptFilter}
+                    onChange={(val) => setSelectedDeptFilter(val === "" ? "ALL" : val)}
+                    options={deptsList.map(d => ({ value: d, label: d }))}
+                  />
 
-                  <select
-                    value={selectedYearFilter}
-                    onChange={(e) => setSelectedYearFilter(e.target.value)}
-                    className="h-9 px-2.5 rounded-xl bg-card border border-border text-xs font-semibold text-foreground"
-                  >
-                    <option value="ALL">All Years</option>
-                    {yearsList.map((y) => (
-                      <option key={y} value={y}>
-                        {y}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <select
-                      value={selectedSectionFilter}
-                      onChange={(e) => setSelectedSectionFilter(e.target.value)}
-                      className="h-8 px-2 rounded-lg bg-card border border-border text-xs font-semibold text-foreground"
-                    >
-                      <option value="ALL">All Sections</option>
-                      {sectionsList.map((sec) => (
-                        <option key={sec} value={sec}>
-                          Section {sec}
-                        </option>
-                      ))}
-                    </select>
-
+                  <FilterDropdown
+                    label="Year"
+                    value={selectedYearFilter === "ALL" ? "" : selectedYearFilter}
+                    onChange={(val) => setSelectedYearFilter(val === "" ? "ALL" : val)}
+                    options={yearsList.map(y => ({ value: y, label: y }))}
+                  />
+                  <div className="flex items-center justify-between pt-2">
+                    <div className="flex items-center gap-3 w-1/2">
+                      <FilterDropdown
+                        label="Section"
+                        value={selectedSectionFilter === "ALL" ? "" : selectedSectionFilter}
+                        onChange={(val) => setSelectedSectionFilter(val === "" ? "ALL" : val)}
+                        options={sectionsList.map(sec => ({ value: sec, label: sec }))}
+                      />
+                    </div>
                     <label className="flex items-center gap-2 cursor-pointer select-none">
                       <input
                         type="checkbox"
@@ -650,7 +691,7 @@ export default function BatchDetailPage({ params }: PageProps) {
                             <p className="text-xs text-muted-foreground truncate">{stud.email}</p>
                             <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                               <span className="text-[10px] px-2 py-0.5 rounded bg-accent/80 font-semibold text-foreground">
-                                {stud.collegeName || stud.collegeId}
+                                {stud.collegeName || "Unknown Institution"}
                               </span>
                               <span className="text-[10px] px-2 py-0.5 rounded bg-brand/10 text-brand font-semibold">
                                 {stud.department}

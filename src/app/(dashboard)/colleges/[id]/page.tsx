@@ -5,6 +5,7 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
 import { ArrowLeft, Building2, FolderTree, Users, Plus, Trash2, Search, CheckCircle2, Pencil, Ban } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
+import { FilterDropdown } from "@/components/shared/filter-dropdown";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { Button } from "@/components/ui/button";
@@ -755,68 +756,42 @@ function getYearBadgeStyle(year?: string) {
           </div>
 
           <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
-            <div className="flex items-center gap-1.5">
-              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Department:</span>
-              <select
-                value={selectedDeptFilter}
-                onChange={(e) => setSelectedDeptFilter(e.target.value)}
-                className="h-9 px-2.5 rounded-xl bg-background border border-border text-xs font-medium text-foreground focus:outline-none"
-              >
-                <option value="ALL">All Departments ({students.length})</option>
-                {departmentsList.map((d) => (
-                  <option key={d} value={d}>
-                    {d} ({students.filter((s) => s.department === d).length})
-                  </option>
-                ))}
-              </select>
-            </div>
+            <FilterDropdown
+              label="Department"
+              value={selectedDeptFilter === "ALL" ? "" : selectedDeptFilter}
+              onChange={(val) => setSelectedDeptFilter(val === "" ? "ALL" : val)}
+              options={departmentsList.map(d => ({ value: d, label: `${d} (${students.filter((s) => s.department === d).length})` }))}
+              className="w-full sm:w-40 lg:w-48"
+            />
 
-            <div className="flex items-center gap-1.5">
-              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Year:</span>
-              <select
-                value={selectedYearFilter}
-                onChange={(e) => setSelectedYearFilter(e.target.value)}
-                className="h-9 px-2.5 rounded-xl bg-background border border-border text-xs font-semibold text-foreground focus:outline-none"
-              >
-                <option value="ALL">All Years ({students.length})</option>
-                {yearsList.map((y) => (
-                  <option key={y} value={y}>
-                    {y}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <FilterDropdown
+              label="Year"
+              value={selectedYearFilter === "ALL" ? "" : selectedYearFilter}
+              onChange={(val) => setSelectedYearFilter(val === "" ? "ALL" : val)}
+              options={yearsList.map(y => ({ value: y, label: y }))}
+              className="w-full sm:w-36 lg:w-40"
+            />
 
-            <div className="flex items-center gap-1.5">
-              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Added:</span>
-              <select
-                value={timeFilter}
-                onChange={(e) => setTimeFilter(e.target.value)}
-                className="h-9 px-2.5 rounded-xl bg-background border border-border text-xs font-semibold text-foreground focus:outline-none"
-              >
-                <option value="ALL">All Time</option>
-                <option value="RECENT_24H">Last 24 Hours</option>
-                <option value="RECENT_7D">Last 7 Days</option>
-                <option value="CSV">CSV Uploads</option>
-                <option value="MANUAL">Manual Entry</option>
-              </select>
-            </div>
+            <FilterDropdown
+              label="Added"
+              value={timeFilter === "ALL" ? "" : timeFilter}
+              onChange={(val) => setTimeFilter(val === "" ? "ALL" : val)}
+              options={[
+                { value: "RECENT_24H", label: "Last 24 Hours" },
+                { value: "RECENT_7D", label: "Last 7 Days" },
+                { value: "CSV", label: "CSV Uploads" },
+                { value: "MANUAL", label: "Manual Entry" },
+              ]}
+              className="w-full sm:w-36 lg:w-44"
+            />
 
-            <div className="flex items-center gap-1.5">
-              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Section:</span>
-              <select
-                value={selectedSectionFilter}
-                onChange={(e) => setSelectedSectionFilter(e.target.value)}
-                className="h-9 px-2.5 rounded-xl bg-background border border-border text-xs font-semibold text-foreground focus:outline-none"
-              >
-                <option value="ALL">All Sections</option>
-                {sectionsList.map((sec) => (
-                  <option key={sec} value={sec}>
-                    {["A", "B", "C", "D"].includes(sec) ? `Sec ${sec}` : sec}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <FilterDropdown
+              label="Section"
+              value={selectedSectionFilter === "ALL" ? "" : selectedSectionFilter}
+              onChange={(val) => setSelectedSectionFilter(val === "" ? "ALL" : val)}
+              options={sectionsList.map(sec => ({ value: sec, label: ["A", "B", "C", "D"].includes(sec) ? `Sec ${sec}` : sec }))}
+              className="w-full sm:w-36 lg:w-40"
+            />
           </div>
         </div>
 

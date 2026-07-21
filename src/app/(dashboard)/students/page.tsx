@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState, useRef, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
+import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
-import { Users, Plus, Upload, Download, Search, FileSpreadsheet, Sparkles, Trash2, StopCircle, Edit2, Ban, CheckCircle2 } from "lucide-react";
+import { Users, Plus, Upload, Download, Search, FileSpreadsheet, Sparkles, Trash2, StopCircle, Edit2, Ban, CheckCircle2, BarChart3 } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { AcademicHierarchyFilters } from "@/components/shared/academic-hierarchy-filters";
+import { FilterDropdown } from "@/components/shared/filter-dropdown";
 import { useAcademicHierarchy } from "@/lib/hierarchy/use-academic-hierarchy";
 import {
   getDepartmentsForCollege,
@@ -18,6 +20,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
 import { parseStudentsCSV, importStudentsCSV, generateCredentialsCSV, createStudentAuthProfile, updateCollege, deleteStudentProfile, updateStudentProfile, formatAuthError } from "@/lib/services";
+import { useLMSData } from "@/lib/data/use-lms-data";
 import type { Student, CSVImportSummary, College, Batch } from "@/types";
 
 type TimestampLike = Date | { toMillis(): number } | { seconds: number } | string | number | null | undefined;
@@ -32,13 +35,13 @@ function getCreatedTime(date: TimestampLike): number {
 
 function StudentsContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
   const initialCollegeId = searchParams.get("collegeId") || "";
   const initialBatchId = searchParams.get("batchId") || "";
   const actionParam = searchParams.get("action");
 
-  const [students, setStudents] = useState<Student[]>([]);
-  const [colleges, setColleges] = useState<College[]>([]);
-  const [batches, setBatches] = useState<Batch[]>([]);
+  const { filteredStudents: students, filteredColleges: colleges, filteredBatches: batches, loading: lmsLoading } = useLMSData();
   const [loading, setLoading] = useState(true);
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm?: () => void; isAlert?: boolean; variant?: "destructive" | "warning" | "info" | "success" } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -98,43 +101,20 @@ function StudentsContent() {
   const [editEmail, setEditEmail] = useState("");
   const [editCollegeId, setEditCollegeId] = useState("");
   const [editDepartment, setEditDepartment] = useState("");
+
   const [editYear, setEditYear] = useState("");
   const [editSection, setEditSection] = useState("");
   const [editBatch, setEditBatch] = useState("");
   const [editPassword, setEditPassword] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
 
-  // Sync local page state with the shared hierarchy cache. The cache manages
-  // its own Firestore subscriptions and reuses them across pages, minimizing
-  // reads while keeping all filter data live.
+  // Sync loading state and handle initialCollegeId
   useEffect(() => {
-    if (hierarchy) {
-      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-      let parsed: any = {};
-      try { parsed = JSON.parse(uStr || "{}"); } catch (_) {}
-      
-      let filteredStudents = hierarchy.students;
-      let filteredColleges = hierarchy.colleges;
-      let filteredBatches = hierarchy.batches;
-
-      if (parsed.role === "college_admin" && parsed.collegeId) {
-        filteredColleges = filteredColleges.filter(c => c.id === parsed.collegeId);
-        filteredStudents = filteredStudents.filter(s => s.collegeId === parsed.collegeId);
-        const validBatchIds = new Set(filteredStudents.flatMap(s => s.batchIds || []));
-        filteredBatches = filteredBatches.filter(b => b.collegeId === parsed.collegeId || validBatchIds.has(b.id));
-      }
-
-      /* eslint-disable react-hooks/set-state-in-effect -- syncing local page state with shared hierarchy cache snapshot */
-      setStudents(filteredStudents);
-      setColleges(filteredColleges);
-      setBatches(filteredBatches);
-      if (initialCollegeId && filteredColleges.find((c) => c.id === initialCollegeId)) {
-        setNewCollegeId(initialCollegeId);
-      }
-      /* eslint-enable react-hooks/set-state-in-effect */
+    if (initialCollegeId && colleges.find((c) => c.id === initialCollegeId)) {
+      setNewCollegeId(initialCollegeId);
     }
-    setLoading(hierarchyLoading && !hierarchy);
-  }, [hierarchy, hierarchyLoading, initialCollegeId]);
+    setLoading(hierarchyLoading || lmsLoading);
+  }, [hierarchyLoading, lmsLoading, initialCollegeId, colleges]);
 
   useEffect(() => {
     if (actionParam === "invite" || actionParam === "enroll") {
@@ -149,9 +129,8 @@ function StudentsContent() {
   }, [actionParam]);
 
   const fetchStudents = async () => {
-    // Data is kept live by the hierarchy cache; explicit fetches after
-    // mutations are no longer required but the function is retained so
-    // existing call sites stay intact.
+    // Data is kept live by the LMS cache; explicit fetches after
+    // mutations are no longer required.
   };
 
   const handleOpenEdit = (student: Student) => {
@@ -171,7 +150,7 @@ function StudentsContent() {
     setSavingEdit(true);
     try {
       const selectedColObj = colleges.find((c) => c.id === editCollegeId);
-      const colName = selectedColObj ? selectedColObj.name : "Global Institute";
+      const colName = selectedColObj ? selectedColObj.name : "";
       const payload: Partial<Student> = {
         name: editName.trim(),
         email: editEmail.toLowerCase().trim(),
@@ -246,7 +225,7 @@ function StudentsContent() {
     setCreating(true);
     try {
       const colObj = colleges.find((c) => c.id === newCollegeId);
-      const colName = colObj ? colObj.name : newCollegeId === "GLOBAL" ? "Global Institute" : newCollegeId;
+      const colName = colObj ? colObj.name : newCollegeId;
 
       await createStudentAuthProfile({
         email: newEmail,
@@ -420,9 +399,6 @@ function StudentsContent() {
           setLoading(true);
           try {
             await updateStudentProfile(student.id, { status: newStatus });
-            setStudents((prev) =>
-              prev.map((s) => (s.id === student.id ? { ...s, status: newStatus } : s))
-            );
           } catch (err) {
             console.error("Failed to restrict account:", err);
           } finally {
@@ -441,9 +417,6 @@ function StudentsContent() {
           setLoading(true);
           try {
             await updateStudentProfile(student.id, { status: newStatus });
-            setStudents((prev) =>
-              prev.map((s) => (s.id === student.id ? { ...s, status: newStatus } : s))
-            );
           } catch (err) {
             console.error("Failed to reactivate account:", err);
           } finally {
@@ -537,19 +510,18 @@ function StudentsContent() {
             institutionOptions={institutionOptions}
           />
 
-          <div className="flex flex-col gap-1 w-full sm:w-48">
-            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider px-1">Added Time</span>
-            <select
-              value={timeFilter}
-              onChange={(e) => setTimeFilter(e.target.value)}
-              className="h-9.5 px-3 rounded-xl bg-background border border-border text-xs font-bold text-foreground focus:outline-none focus:border-brand w-full"
-            >
-              <option value="ALL">All Time</option>
-              <option value="RECENT_24H">Last 24 Hours</option>
-              <option value="RECENT_7D">Last 7 Days</option>
-              <option value="CSV">CSV Uploads</option>
-              <option value="MANUAL">Manual Entry</option>
-            </select>
+          <div className="w-full sm:w-64 xl:w-48">
+            <FilterDropdown
+              label="Added Time"
+              value={timeFilter === "ALL" ? "" : timeFilter}
+              onChange={(val) => setTimeFilter(val === "" ? "ALL" : val)}
+              options={[
+                { value: "RECENT_24H", label: "Last 24 Hours" },
+                { value: "RECENT_7D", label: "Last 7 Days" },
+                { value: "CSV", label: "CSV Uploads" },
+                { value: "MANUAL", label: "Manual Entry" },
+              ]}
+            />
           </div>
         </div>
       </div>
@@ -635,8 +607,12 @@ function StudentsContent() {
                 {filteredStudents.map((student) => {
                   const isSelected = selectedIds.includes(student.id);
                   return (
-                    <tr key={student.id} className={`hover:bg-accent/50 transition-colors ${isSelected ? "bg-accent/50" : ""}`}>
-                      <td className="py-3.5 px-4">
+                    <tr 
+                      key={student.id} 
+                      onClick={() => router.push(`${pathname}/${student.id}`)}
+                      className={`hover:bg-accent/50 transition-colors cursor-pointer ${isSelected ? "bg-accent/50" : ""}`}
+                    >
+                      <td className="py-3.5 px-4" onClick={(e) => e.stopPropagation()}>
                         <input
                           type="checkbox"
                           checked={isSelected}
@@ -651,14 +627,16 @@ function StudentsContent() {
                         />
                       </td>
                       <td className="py-3.5 px-4 font-medium text-foreground flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-full bg-brand/10 text-brand flex items-center justify-center font-bold text-xs">
-                          {student.name.slice(0, 2).toUpperCase()}
+                        <div className="flex items-center gap-2.5 transition-colors group">
+                          <div className="w-8 h-8 rounded-full bg-brand/10 text-brand flex items-center justify-center font-bold text-xs group-hover:bg-brand/20 transition-colors">
+                            {student.name.slice(0, 2).toUpperCase()}
+                          </div>
+                          <span>{student.name}</span>
                         </div>
-                        <span>{student.name}</span>
                       </td>
                       <td className="py-3.5 px-4 font-mono text-xs text-muted-foreground">{student.email}</td>
                       <td className="py-3.5 px-4 font-medium text-foreground">
-                        {colleges.find((c) => c.id === student.collegeId)?.name || student.collegeName || student.collegeId}
+                        {colleges.find((c) => c.id === student.collegeId)?.name || student.collegeName || "Unknown Institution"}
                       </td>
                       <td className="py-3.5 px-4 text-xs flex items-center gap-2">
                         <span className="font-semibold text-foreground">{student.department}</span>
@@ -689,8 +667,20 @@ function StudentsContent() {
                           </span>
                         )}
                       </td>
-                      <td className="py-3.5 px-4 text-right">
+                      <td className="py-3.5 px-4 text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              router.push(`${pathname}/${student.id}`);
+                            }}
+                            className="h-8 w-8 p-0 text-indigo-500 hover:text-indigo-600 hover:bg-indigo-500/10 rounded-lg"
+                            title="View Evaluation Report"
+                          >
+                            <BarChart3 className="w-4 h-4" />
+                          </Button>
                           {student.status === "restricted" ? (
                             <Button
                               variant="ghost"
@@ -965,7 +955,7 @@ function StudentsContent() {
                       onChange={(e) => setNewCollegeId(e.target.value)}
                       className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground font-semibold"
                     >
-                      <option value="GLOBAL">Global Institute</option>
+
                       {colleges.map((c) => (
                         <option key={c.id} value={c.id}>{c.name || "Unnamed College"}</option>
                       ))}
@@ -1127,7 +1117,7 @@ function StudentsContent() {
                       onChange={(e) => setEditCollegeId(e.target.value)}
                       className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground font-semibold"
                     >
-                      <option value="GLOBAL">Global Institute</option>
+
                       {colleges.map((c) => (
                         <option key={c.id} value={c.id}>{c.name || "Unnamed College"}</option>
                       ))}

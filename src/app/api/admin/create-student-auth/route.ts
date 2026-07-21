@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
 
     const normalizedEmail = email.toLowerCase().trim();
     const studentName = name.trim();
-    const finalCollegeName = (collegeName || "Global Institute").trim().toLowerCase();
+    const finalCollegeName = (collegeName || "").trim().toLowerCase();
     const finalCollegeId = collegeId ? collegeId.trim() : collegeNameToId(finalCollegeName);
     const finalDepartment = (department || "Computer Science").trim();
     const finalAcademicYear = (academicYear || "1st Year").trim();

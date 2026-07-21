@@ -6,13 +6,22 @@ import {
   deleteDocument,
   where,
   serverTimestamp,
+  subscribeToDocuments,
 } from "@/lib/firebase/firestore";
-import type { Exam, ExamResult, Student, ExamStatus } from "@/types";
+import type { Exam, ExamResult, Student, ExamStatus, ExamAttempt } from "@/types";
 import { isAssignedToStudent } from "./assignment-engine";
 import { toMillis } from "@/lib/utils/date";
 
 const EXAMS_COLLECTION = "exams";
 const RESULTS_COLLECTION = "exam_results";
+
+export function subscribeToAllExams(callback: (exams: Exam[]) => void): () => void {
+  return subscribeToDocuments<Exam>(EXAMS_COLLECTION, callback);
+}
+
+export function subscribeToAllAttempts(callback: (attempts: ExamAttempt[]) => void): () => void {
+  return subscribeToDocuments<ExamAttempt>(RESULTS_COLLECTION, callback);
+}
 
 export async function getAllExams(): Promise<Exam[]> {
   const exams = await getDocuments<Exam>(EXAMS_COLLECTION);
@@ -37,10 +46,9 @@ export async function updateExam(id: string, data: Partial<Exam>): Promise<void>
   return updateDocument<Exam>(EXAMS_COLLECTION, id, data);
 }
 
-export async function deleteExam(id: string): Promise<void> {
+export async function expireExam(id: string): Promise<void> {
   return updateDocument<Exam>(EXAMS_COLLECTION, id, {
-    status: "cancelled",
-    deletedAt: serverTimestamp() as unknown as Date,
+    status: "expired",
   });
 }
 

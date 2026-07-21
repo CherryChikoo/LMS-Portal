@@ -2,6 +2,7 @@
 
 import { useId, useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
+import { FilterDropdown } from "@/components/shared/filter-dropdown";
 import type { SelectOption } from "@/types";
 import type { AcademicFilters } from "@/lib/hierarchy/hierarchy-data";
 import type { AcademicHierarchyLevel } from "@/lib/hierarchy/use-academic-hierarchy";
@@ -305,54 +306,27 @@ export function AcademicHierarchyFilters({
           const fieldLabel = label ?? DEFAULT_LABELS[level];
 
           return (
-            <div
+            <FilterDropdown
               key={level}
-              className={cn(
-                "flex flex-col gap-1.5",
-                isHorizontal && "min-w-[180px] flex-1"
-              )}
-            >
-              <label
-                htmlFor={id}
-                className={cn(
-                  "text-[10px] font-bold text-muted-foreground uppercase tracking-wider px-1",
-                  labelClassName
-                )}
-              >
-                {fieldLabel}
-              </label>
-              <select
-                id={id}
-                value={value}
-                disabled={isDisabled}
-                onChange={(e) => {
-                  const change = buildChangeForLevel(level, e.target.value);
-                  if (level === "batch" && disableRemaining && e.target.value !== "") {
-                    Object.assign(change, {
-                      collegeId: "",
-                      department: "",
-                      academicYear: "",
-                      section: "",
-                    });
-                  }
-                  onChange(change);
-                }}
-                className={cn(
-                  "h-11 px-3.5 rounded-2xl bg-background border border-border text-sm font-semibold text-foreground focus:outline-none focus:border-brand w-full focus:ring-2 focus:ring-brand/20 transition-all",
-                  isDisabled && "opacity-50 cursor-not-allowed bg-muted/50",
-                  selectClassName
-                )}
-              >
-                <option value="">{allLabel ?? placeholder ?? DEFAULT_ALL_LABELS[level] ?? `All ${fieldLabel}s`}</option>
-                {options
-                  .filter((o) => o.value !== "")
-                  .map((o) => (
-                    <option key={`${id}-${o.value}`} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-              </select>
-            </div>
+              label={fieldLabel}
+              value={value}
+              disabled={isDisabled}
+              placeholder={allLabel ?? placeholder ?? DEFAULT_ALL_LABELS[level] ?? `All ${fieldLabel}s`}
+              options={options}
+              variant={level === "batch" ? "batch" : "default"}
+              onChange={(val) => {
+                const change = buildChangeForLevel(level, val);
+                if (level === "batch" && disableRemaining && val !== "") {
+                  Object.assign(change, {
+                    collegeId: "",
+                    department: "",
+                    academicYear: "",
+                    section: "",
+                  });
+                }
+                onChange(change);
+              }}
+            />
           );
         })}
       </div>
