@@ -61,6 +61,8 @@ I will provide you with an array of assessment questions.
 For each question, generate a highly detailed, educational AI Explanation following this EXACT JSON schema.
 The JSON must be an array of objects corresponding to the input questions in the same order.
 
+CRITICAL INSTRUCTION: All string values MUST be plain text. DO NOT use any markdown formatting (no asterisks, no bolding, no numbered lists). Write continuous, cohesive paragraphs.
+
 Schema for each object:
 {
   "id": "original_question_id",
@@ -72,8 +74,8 @@ Schema for each object:
       "subtopic": "specific subtopic",
       "difficulty": "Easy/Medium/Hard"
     },
-    "stepByStep": "Detailed step-by-step reasoning on how to solve this.",
-    "whyCorrect": "Detailed explanation of why the correct answer is right.",
+    "stepByStep": "Detailed reasoning on how to solve this. Must be a single cohesive paragraph of plain text.",
+    "whyCorrect": "Detailed explanation of why the correct answer is right. Plain text only.",
     "whyIncorrect": { "Option A": "Why it's wrong", "Option B": "Why it's wrong" },
     "keyConcepts": ["Concept 1", "Concept 2"],
     "commonMistakes": ["Mistake 1", "Mistake 2"],
