@@ -301,12 +301,13 @@ export default function ExamsPage() {
     if (endDt) examData.endTime = endDt;
     if (startDt) examData.scheduledAt = startDt;
 
+    let loadingToastId: string | number | undefined;
     try {
       setIsPublishing(true);
       const newExamId = await createExam(examData as Omit<Exam, "id">);
 
       if (questions.length > 0) {
-        toast.info("Generating AI Explanations... Please wait.");
+        loadingToastId = toast.loading("Generating AI Explanations... Please wait.");
         const res = await fetch("/api/ai-explanation", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -322,7 +323,7 @@ export default function ExamsPage() {
           throw new Error("Failed to generate complete AI explanations. Assessment creation was aborted.");
         }
         
-        toast.success("AI Explanations successfully generated!");
+        toast.success("AI Explanations successfully generated!", { id: loadingToastId });
       } else {
         toast.success("Assessment created successfully.");
       }
@@ -340,6 +341,7 @@ export default function ExamsPage() {
       });
     } catch (err) {
       console.error(err);
+      if (loadingToastId) toast.dismiss(loadingToastId);
       toast.error(formatAuthError(err, "Failed to create assessment."));
     } finally {
       setIsPublishing(false);
@@ -552,7 +554,7 @@ export default function ExamsPage() {
               }
 
               if (userRole !== "student") {
-                return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+                return (toMillis(b.createdAt) || 0) - (toMillis(a.createdAt) || 0);
               }
 
               const statusA = getEffectiveExamStatus(a);
