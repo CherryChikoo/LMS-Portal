@@ -101,6 +101,8 @@ export interface Batch {
   studentCount: number;
   createdAt: Date;
   updatedAt: Date;
+  isDeleted?: boolean;
+  deletedAt?: Date;
 }
 
 // Assignment Target
