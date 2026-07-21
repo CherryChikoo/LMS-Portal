@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { getDocument, updateDocument } from "@/lib/firebase/firestore";
 import type { ExamResult, Exam, Question } from "@/types";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export const maxDuration = 60; // Max allowed for Vercel Hobby tier
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "AIzaSyCcLtyLTl7DP9jJAPVSlbYB7wkQEWvekR0";
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
+const MODEL_NAME = "gemini-1.5-flash"; // Recommended fast model
 
 export async function POST(req: Request) {
   try {
@@ -79,40 +80,30 @@ Schema:
 
 Do NOT wrap the output in markdown code blocks like \`\`\`json. Return RAW valid JSON only.`;
 
-    const payload = {
-      contents: [
-        { parts: [{ text: systemPrompt }] },
-        { 
-          parts: [{ 
-            text: JSON.stringify({
-              studentName: result.studentName,
-              score: result.score,
-              totalMarks: result.totalMarks,
-              percentage: result.percentage,
-              performanceData
-            }, null, 2) 
-          }] 
-        }
-      ],
+    if (!GEMINI_API_KEY) {
+      return NextResponse.json({ error: "GEMINI_API_KEY is not configured" }, { status: 500 });
+    }
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: MODEL_NAME });
+
+    const prompt = `${systemPrompt}\n\nData:\n${JSON.stringify({
+      studentName: result.studentName,
+      score: result.score,
+      totalMarks: result.totalMarks,
+      percentage: result.percentage,
+      performanceData
+    }, null, 2)}`;
+
+    const response = await model.generateContent({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
       generationConfig: {
         temperature: 0.3,
         responseMimeType: "application/json",
       }
-    };
-
-    const response = await fetch(GEMINI_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
     });
 
-    if (!response.ok) {
-      console.error("Gemini API Error (Summary):", await response.text());
-      return NextResponse.json({ error: "Failed to generate AI summary" }, { status: 500 });
-    }
-
-    const data = await response.json();
-    let textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    const resultResp = await response.response;
+    let textResponse = resultResp.text();
     
     if (!textResponse) {
       return NextResponse.json({ error: "Empty AI response" }, { status: 500 });

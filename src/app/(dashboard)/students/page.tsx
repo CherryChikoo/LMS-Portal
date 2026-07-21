@@ -21,6 +21,8 @@ import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
 import { parseStudentsCSV, importStudentsCSV, generateCredentialsCSV, createStudentAuthProfile, updateCollege, deleteStudentProfile, updateStudentProfile, formatAuthError } from "@/lib/services";
 import { useLMSData } from "@/lib/data/use-lms-data";
+import { useEntityResolution } from "@/lib/data/use-entity-resolution";
+import { toast } from "sonner";
 import type { Student, CSVImportSummary, College, Batch } from "@/types";
 
 type TimestampLike = Date | { toMillis(): number } | { seconds: number } | string | number | null | undefined;
@@ -42,6 +44,7 @@ function StudentsContent() {
   const actionParam = searchParams.get("action");
 
   const { filteredStudents: students, filteredColleges: colleges, filteredBatches: batches, loading: lmsLoading } = useLMSData();
+  const { resolveInstitution, resolveBatch } = useEntityResolution();
   const [loading, setLoading] = useState(true);
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm?: () => void; isAlert?: boolean; variant?: "destructive" | "warning" | "info" | "success" } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -142,7 +145,7 @@ function StudentsContent() {
     setEditYear(student.academicYear || "1st Year");
     setEditSection(student.section || "A");
     setEditBatch(student.batchIds?.[0] || "General Cohort");
-    setEditPassword(student.initialPassword || "");
+    setEditPassword(""); // Leave empty to keep unchanged
   };
 
   const handleSaveEdit = async () => {
@@ -162,6 +165,11 @@ function StudentsContent() {
         batchIds: [editBatch],
       };
       if (editPassword && editPassword.trim() !== "") {
+        if (editPassword.trim().length < 6) {
+          toast.error("Password must be at least 6 characters.");
+          setSavingEdit(false);
+          return;
+        }
         payload.initialPassword = editPassword.trim();
       }
       await updateStudentProfile(editingStudent.id, payload);
@@ -642,7 +650,7 @@ function StudentsContent() {
                       </td>
                       <td className="py-3.5 px-4 font-mono text-xs text-muted-foreground">{student.email}</td>
                       <td className="py-3.5 px-4 font-medium text-foreground">
-                        {colleges.find((c) => c.id === student.collegeId)?.name || student.collegeName || "Unknown Institution"}
+                        {resolveInstitution(student.collegeId)}
                       </td>
                       <td className="py-3.5 px-4 text-xs flex items-center gap-2">
                         <span className="font-semibold text-foreground">{student.department}</span>
@@ -656,7 +664,7 @@ function StudentsContent() {
                             Sec {student.section || "N/A"}
                           </span>
                           <span className="px-2 py-0.5 rounded-md bg-brand/10 border border-brand/20 font-mono text-[11px] font-semibold text-brand whitespace-nowrap">
-                            {student.batchIds?.[0] || "General"}
+                            {resolveBatch(student.batchIds?.[0])}
                           </span>
                         </div>
                       </td>

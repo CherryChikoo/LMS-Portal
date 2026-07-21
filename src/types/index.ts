@@ -51,6 +51,8 @@ export interface College {
   branding?: CollegeBranding;
   createdAt: Date;
   updatedAt: Date;
+  isDeleted?: boolean;
+  deletedAt?: Date;
 }
 
 // Student

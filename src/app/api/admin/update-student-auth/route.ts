@@ -33,8 +33,8 @@ export async function POST(request: NextRequest) {
 
     const requesterData = requesterDoc.data();
     const requesterRole = requesterData?.role;
-    if (requesterRole !== "admin" && requesterRole !== "trainer") {
-      return NextResponse.json({ error: "Only admin or trainer roles can update student auth." }, { status: 403 });
+    if (requesterRole !== "admin" && requesterRole !== "trainer" && requesterRole !== "college") {
+      return NextResponse.json({ error: "Only admin, trainer, or college roles can update student auth." }, { status: 403 });
     }
 
     // Validate that at least one of email or password is provided

@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "motion/react";
 import { Building2, Upload, X, Check } from "lucide-react";
 import { updateCompanyBranding } from "@/lib/services/branding-service";
+import { updateCollege } from "@/lib/services/college-service";
 import { useBranding } from "@/providers/branding-provider";
 import { APP_NAME } from "@/lib/constants";
 
@@ -31,11 +32,27 @@ export function BrandingModal({ isOpen, onClose }: BrandingModalProps) {
     e.preventDefault();
     setSaving(true);
     try {
-      await updateCompanyBranding({
-        companyName: editName.trim() || APP_NAME,
-        companySubtitle: editSubtitle.trim() || "Enterprise v2.4",
-        logoBase64: editLogo,
-      });
+      const userRole = localStorage.getItem("lms_role");
+      if (userRole === "college_admin") {
+        const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+        const u = uStr ? JSON.parse(uStr) : null;
+        const cId = u?.collegeId;
+        if (cId) {
+          await updateCollege(cId, {
+            branding: {
+              companyName: editName.trim() || APP_NAME,
+              companySubtitle: editSubtitle.trim() || "College Portal",
+              logoBase64: editLogo,
+            }
+          });
+        }
+      } else {
+        await updateCompanyBranding({
+          companyName: editName.trim() || APP_NAME,
+          companySubtitle: editSubtitle.trim() || "Enterprise v2.4",
+          logoBase64: editLogo,
+        });
+      }
       onClose();
     } catch (err) {
       console.error("Failed to save branding:", err);

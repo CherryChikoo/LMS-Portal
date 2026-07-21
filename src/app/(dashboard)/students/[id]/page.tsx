@@ -14,6 +14,7 @@ import {
 } from "@/lib/services";
 import type { Student, Exam, ExamAttempt } from "@/types";
 import { toDate } from "@/lib/utils/date";
+import { useEntityResolution } from "@/lib/data/use-entity-resolution";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -23,6 +24,7 @@ export default function StudentEvaluationPage({ params }: PageProps) {
   const resolvedParams = use(params);
   const router = useRouter();
   const studentId = resolvedParams.id;
+  const { resolveInstitution } = useEntityResolution();
 
   const [loading, setLoading] = useState(true);
   const [student, setStudent] = useState<Student | null>(null);
@@ -149,8 +151,8 @@ export default function StudentEvaluationPage({ params }: PageProps) {
             <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-muted-foreground font-medium">
               <span className="flex items-center gap-1.5"><Mail className="w-4 h-4 text-muted-foreground/70" /> {student.email}</span>
               <span className="flex items-center gap-1.5"><GraduationCap className="w-4 h-4 text-muted-foreground/70" /> {student.rollNumber || "N/A"}</span>
-              {student.collegeName && (
-                <span className="flex items-center gap-1.5"><Building2 className="w-4 h-4 text-muted-foreground/70" /> {student.collegeName}</span>
+              {student.collegeId && (
+                <span className="flex items-center gap-1.5"><Building2 className="w-4 h-4 text-muted-foreground/70" /> {resolveInstitution(student.collegeId)}</span>
               )}
               <span className="flex items-center gap-1.5"><MapPin className="w-4 h-4 text-muted-foreground/70" /> {student.department} • {student.section}</span>
             </div>

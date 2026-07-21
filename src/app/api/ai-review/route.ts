@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import type { Question } from "@/types";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export const maxDuration = 60;
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "AIzaSyCcLtyLTl7DP9jJAPVSlbYB7wkQEWvekR0";
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
+const MODEL_NAME = "gemini-1.5-flash";
 
 export async function POST(req: Request) {
   try {
@@ -32,34 +33,22 @@ Do NOT include Markdown formatting like \`\`\`json. Return only the raw JSON arr
 Original Questions:
 ${JSON.stringify(questions, null, 2)}`;
 
-    const payload = {
-      contents: [
-        {
-          parts: [{ text: systemPrompt }]
-        }
-      ],
+    if (!GEMINI_API_KEY) {
+      return NextResponse.json({ error: "GEMINI_API_KEY is not configured" }, { status: 500 });
+    }
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: MODEL_NAME });
+
+    const response = await model.generateContent({
+      contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
       generationConfig: {
         temperature: 0.2,
         responseMimeType: "application/json",
       }
-    };
-
-    const response = await fetch(GEMINI_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
     });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error("Gemini API Error:", errText);
-      return NextResponse.json({ error: "Failed to generate AI review" }, { status: 500 });
-    }
-
-    const data = await response.json();
-    let textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    const resultResp = await response.response;
+    let textResponse = resultResp.text();
     
     if (!textResponse) {
       return NextResponse.json({ error: "Empty response from AI" }, { status: 500 });

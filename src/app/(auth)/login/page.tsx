@@ -116,9 +116,9 @@ function LoginContent() {
                     <GraduationCap className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
                   </div>
                 )}
-                <span className="font-bold text-base sm:text-lg text-foreground tracking-tight">{branding.companyName || APP_NAME}</span>
+                <span className="font-bold text-base sm:text-lg text-foreground tracking-tight">Student Portal</span>
               </Link>
-              <span className="text-[10px] sm:text-xs text-muted-foreground">Student SSO Portal</span>
+              <span className="text-[10px] sm:text-xs text-muted-foreground">Student SSO</span>
             </div>
 
             <div className="my-auto py-6 sm:py-8 w-full max-w-sm sm:max-w-md mx-auto space-y-5 sm:space-y-6">

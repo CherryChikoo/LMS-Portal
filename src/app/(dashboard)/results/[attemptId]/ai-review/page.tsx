@@ -22,6 +22,8 @@ export default function AIReviewPage({ params }: { params: Promise<{ attemptId: 
   const [summary, setSummary] = useState<any>(null);
   
   useEffect(() => {
+    let pollInterval: NodeJS.Timeout;
+
     async function loadData() {
       try {
         const fetched = await getDocument<ExamResult>("exam_results", attemptId);
@@ -30,15 +32,27 @@ export default function AIReviewPage({ params }: { params: Promise<{ attemptId: 
           if (fetched.aiSummary) setSummary(fetched.aiSummary);
           
           const ex = await getExamById(fetched.examId);
-          if (ex) setExam(ex);
+          if (ex) {
+            setExam(ex);
+            
+            // If any question is still pending, poll every 3 seconds
+            const isPending = ex.questions?.some(q => q.aiExplanationStatus === "pending");
+            if (isPending) {
+              pollInterval = setTimeout(loadData, 3000);
+            } else {
+              setLoading(false);
+            }
+            return;
+          }
         }
       } catch (err) {
         console.error("Failed to load AI review data:", err);
-      } finally {
-        setLoading(false);
       }
+      setLoading(false);
     }
     loadData();
+
+    return () => clearTimeout(pollInterval);
   }, [attemptId]);
 
   const handleGenerateSummary = async () => {
@@ -60,11 +74,11 @@ export default function AIReviewPage({ params }: { params: Promise<{ attemptId: 
     }
   };
 
-  if (loading) {
+  if (loading || (exam?.questions?.some(q => q.aiExplanationStatus === "pending"))) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3 text-brand">
         <Sparkles className="w-8 h-8 animate-pulse" />
-        <span className="text-sm font-medium">Initializing AI Tutor...</span>
+        <span className="text-sm font-medium">Preparing AI Learning Review...</span>
       </div>
     );
   }

@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { getExamById, updateExam } from "@/lib/services/exam-service";
 import type { AIExplanation } from "@/types";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export const maxDuration = 60; // Max allowed for Vercel Hobby tier
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "AIzaSyCcLtyLTl7DP9jJAPVSlbYB7wkQEWvekR0";
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
+const MODEL_NAME = "gemini-1.5-flash"; // Recommended fast model
 
 const CHUNK_SIZE = 5; // Process 5 questions per Gemini API call to avoid timeouts/token limits
 
@@ -90,33 +91,25 @@ Do NOT wrap the output in markdown code blocks like \`\`\`json. Return RAW valid
     let generatedCount = 0;
     let failedCount = 0;
 
+    if (!GEMINI_API_KEY) {
+      return NextResponse.json({ error: "GEMINI_API_KEY is not configured" }, { status: 500 });
+    }
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: MODEL_NAME });
+
     for (const chunk of chunks) {
       try {
-        const payload = {
-          contents: [
-            { parts: [{ text: systemPrompt }] },
-            { parts: [{ text: JSON.stringify(chunk, null, 2) }] }
-          ],
+        const prompt = `${systemPrompt}\n\nQuestions:\n${JSON.stringify(chunk, null, 2)}`;
+        const result = await model.generateContent({
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
           generationConfig: {
             temperature: 0.2,
             responseMimeType: "application/json",
           }
-        };
-
-        const response = await fetch(GEMINI_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
         });
-
-        if (!response.ok) {
-          console.error("Gemini API Chunk Error:", await response.text());
-          failedCount += chunk.length;
-          continue;
-        }
-
-        const data = await response.json();
-        let textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        
+        const response = await result.response;
+        let textResponse = response.text();
         
         if (!textResponse) {
           failedCount += chunk.length;

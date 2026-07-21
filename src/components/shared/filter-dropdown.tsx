@@ -20,6 +20,8 @@ export interface FilterDropdownProps {
   disabled?: boolean;
   variant?: "default" | "batch";
   className?: string;
+  loading?: boolean;
+  resolveLabel?: (value: string) => string;
 }
 
 export function FilterDropdown({
@@ -31,6 +33,8 @@ export function FilterDropdown({
   disabled,
   variant = "default",
   className,
+  loading,
+  resolveLabel,
 }: FilterDropdownProps) {
   const isBatch = variant === "batch";
 
@@ -41,9 +45,29 @@ export function FilterDropdown({
   const isValidValue = internalValue === "ALL" || options.some(opt => opt.value === internalValue);
   const displayValue = isValidValue ? internalValue : "ALL";
 
-  const allLabel = !hasValidOptions 
-    ? `No ${label}s` 
-    : (placeholder || `All ${label}s`);
+  const allLabel = loading
+    ? `Loading ${label}s...`
+    : !hasValidOptions 
+      ? `No ${label}s` 
+      : (placeholder || `All ${label}s`);
+
+  // Determine what to render in the trigger
+  let triggerContent = allLabel;
+  if (loading) {
+    triggerContent = "Loading...";
+  } else if (internalValue !== "ALL") {
+    if (resolveLabel) {
+      triggerContent = resolveLabel(internalValue);
+      console.log(`[FilterDropdown ${label}] resolveLabel called for`, internalValue, "Result:", triggerContent);
+    } else {
+      const targetStr = String(internalValue).trim().toLowerCase();
+      const found = options.find(o => 
+        String(o.value).trim().toLowerCase() === targetStr || 
+        String(o.label).trim().toLowerCase() === targetStr
+      );
+      triggerContent = found ? found.label : `Unknown ${label}`;
+    }
+  }
 
   // Force disable if no valid options exist
   const isDisabled = disabled || !hasValidOptions;
@@ -68,7 +92,9 @@ export function FilterDropdown({
             : "border-border text-foreground hover:border-brand/40 focus-visible:border-brand focus-visible:ring-brand/20 data-[state=open]:border-brand/40",
           isDisabled && "opacity-50 cursor-not-allowed bg-muted/50"
         )}>
-          <SelectValue placeholder={allLabel} />
+          <SelectValue placeholder={allLabel}>
+             {internalValue !== "ALL" ? triggerContent : undefined}
+          </SelectValue>
         </SelectTrigger>
         <SelectContent className={cn(
           "rounded-xl shadow-xl border p-1 bg-popover",

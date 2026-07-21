@@ -25,11 +25,11 @@ export async function POST(request: NextRequest) {
         }
       });
       await batch.commit();
-      await db.collection("students").doc(uid).delete();
+      await db.collection("students").doc(uid).update({ isDeleted: true, status: "deleted" });
     }
 
-    // 2. Delete the user document (best effort)
-    await db.collection("users").doc(uid).delete();
+    // 2. Soft delete the user document (best effort)
+    await db.collection("users").doc(uid).update({ isDeleted: true, status: "deleted" }).catch(() => {});
 
     // 3. Delete the Firebase Auth user (best effort)
     try {

@@ -31,6 +31,7 @@ import {
   clearAllResults,
 } from "@/lib/services";
 import { useLMSData } from "@/lib/data/use-lms-data";
+import { useEntityResolution } from "@/lib/data/use-entity-resolution";
 import { getCurrentUser } from "@/lib/utils/auth-session";
 import { uniqueOptions } from "@/lib/utils/array";
 import type { ExamAttempt, Exam, Student } from "@/types";
@@ -93,7 +94,8 @@ function toTimestampSeconds(val: unknown): number {
 export default function ResultsPage() {
   const router = useRouter();
   const pathname = usePathname();
-  const { filteredAttempts: attempts, filteredExams: exams, filteredStudents: students, loading } = useLMSData();
+  const { filteredAttempts: attempts, filteredExams: exams, filteredStudents: students, loading: lmsLoading } = useLMSData();
+  const { resolveStudent, resolveInstitution } = useEntityResolution();
   const [actualRole, setActualRole] = useState<string>("admin");
   const [currentStudentUser, setCurrentStudentUser] = useState<Student | null>(null);
 
@@ -272,7 +274,7 @@ export default function ResultsPage() {
   const filteredAttempts = useMemo(() => {
     return filteredAttemptsByHierarchy
       .filter((att) => {
-        const name = att.studentName || "Unknown Student";
+        const name = resolveStudent(att.studentId);
         const isAdminAttempt =
           name.toLowerCase().includes("admin") ||
           name.toLowerCase().includes("simulator") ||
@@ -341,6 +343,7 @@ export default function ResultsPage() {
     outcomeFilter,
     sortBy,
     examTitleMap,
+    resolveStudent,
   ]);
 
   const resetAllFilters = () => {
@@ -411,7 +414,7 @@ export default function ResultsPage() {
 
     const rows = filteredAttempts.map(attempt => {
       const examName = examTitleMap[attempt.examId] || attempt.examId;
-      const studentName = attempt.studentName || "Unknown";
+      const studentName = resolveStudent(attempt.studentId);
       
       const st = students.find(s => s.id === attempt.studentId);
       const email = st?.email || "";
@@ -640,7 +643,7 @@ export default function ResultsPage() {
         </div>
       </div>
 
-      {loading ? (
+      {lmsLoading ? (
         <div className="p-12 text-center text-sm text-muted-foreground flex flex-col items-center justify-center gap-3">
           <div className="w-8 h-8 rounded-full border-2 border-brand border-t-transparent animate-spin" />
           <span>Analyzing performance audit records...</span>
@@ -695,7 +698,7 @@ export default function ResultsPage() {
               </thead>
               <tbody className="divide-y divide-border">
                 {filteredAttempts.map((att) => {
-                  const sName = att.studentName || "Unknown Student";
+                  const sName = resolveStudent(att.studentId);
                   const liveDateStr = formatLiveDate(att.submittedAt || att.createdAt || att.updatedAt);
                   return (
                     <tr 

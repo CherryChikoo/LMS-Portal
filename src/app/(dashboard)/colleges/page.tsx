@@ -279,6 +279,11 @@ export default function CollegesPage() {
         status: "active",
         createdAt: new Date(),
         updatedAt: new Date(),
+        branding: {
+          companyName: name,
+          companySubtitle: "College Portal",
+          logoBase64: "",
+        },
       });
       setShowAddModal(false);
       setName("");
@@ -787,7 +792,7 @@ export default function CollegesPage() {
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: "auto" }}
                         exit={{ opacity: 0, height: 0 }}
-                        className="space-y-3 overflow-hidden"
+                        className="space-y-3"
                       >
                         <div className="space-y-1.5">
                           <label className="text-[10px] sm:text-xs font-semibold text-foreground/80 uppercase tracking-wider">

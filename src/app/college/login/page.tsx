@@ -103,7 +103,7 @@ export default function CollegeLoginPage() {
               <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-md bg-gradient-to-r from-blue-600 to-cyan-600 flex items-center justify-center group-hover:scale-105 transition-transform shadow-md">
                 <GraduationCap className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
               </div>
-              <span className="font-bold text-base sm:text-lg text-foreground tracking-tight">{branding.companyName || APP_NAME} Platform</span>
+              <span className="font-bold text-base sm:text-lg text-foreground tracking-tight">College Login</span>
             </Link>
             <span className="text-[10px] sm:text-xs font-semibold px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">Partner Portal</span>
           </div>

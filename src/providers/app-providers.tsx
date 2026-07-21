@@ -6,6 +6,8 @@ import { SidebarProvider } from "@/hooks/use-sidebar";
 import { BrandingProvider } from "./branding-provider";
 import { Toaster } from "@/components/ui/sonner";
 
+import { BrandingHeadUpdater } from "@/components/shared/branding-head-updater";
+
 interface AppProvidersProps {
   children: ReactNode;
 }
@@ -14,6 +16,7 @@ export function AppProviders({ children }: AppProvidersProps) {
   return (
     <ThemeProvider>
       <BrandingProvider>
+        <BrandingHeadUpdater />
         <SidebarProvider>
           {children}
           <Toaster

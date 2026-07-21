@@ -160,11 +160,12 @@ export async function updateStudentProfile(studentId: string, data: Partial<Stud
 
         if (!response.ok) {
           const body = await response.json().catch(() => ({}));
-          console.error("Failed to sync student auth:", body.error || response.statusText);
+          throw new Error(body.error || response.statusText);
         }
       }
     } catch (err) {
       console.error("Failed to sync student auth changes to Firebase:", err);
+      throw err;
     }
   }
 

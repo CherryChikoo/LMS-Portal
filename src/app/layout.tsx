@@ -5,8 +5,8 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "LMS Portal",
-    template: "%s - LMS Portal",
+    template: "%s",
+    default: "Portal",
   },
   description:
     "A modern Learning Management System for trainers to manage colleges, students, learning resources, and online examinations.",

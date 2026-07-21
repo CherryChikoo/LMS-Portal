@@ -155,7 +155,7 @@ export function Sidebar() {
               {branding.companyName || APP_NAME}
             </span>
             <span className="text-[9px] font-bold text-brand/60 uppercase tracking-widest truncate">
-              {userRole === "student" ? "Student Portal" : branding.companySubtitle || "Enterprise"}
+              {branding.companySubtitle || (userRole === "student" ? "Student Portal" : "Enterprise")}
             </span>
           </div>
         </Link>

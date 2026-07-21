@@ -72,7 +72,7 @@ export default function AdminLoginPage() {
           <div className="relative z-10 flex items-center gap-3">
             <span className="text-[10px] uppercase font-semibold tracking-[0.25em] text-rose-400 flex items-center gap-1.5">
               <ShieldCheck className="w-3.5 h-3.5" />
-              ADMINISTRATIVE COMMAND CENTER
+              {branding.companySubtitle?.toUpperCase() || "ADMINISTRATIVE COMMAND CENTER"}
             </span>
             <div className="h-px w-12 bg-gradient-to-r from-purple-500/50 via-rose-500/50 to-transparent" />
           </div>
@@ -103,7 +103,7 @@ export default function AdminLoginPage() {
               <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-md bg-gradient-to-r from-purple-600 to-rose-600 flex items-center justify-center group-hover:scale-105 transition-transform shadow-md">
                 <GraduationCap className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
               </div>
-              <span className="font-bold text-base sm:text-lg text-foreground tracking-tight">{branding.companyName || APP_NAME} Admin</span>
+              <span className="font-bold text-base sm:text-lg text-foreground tracking-tight">Admin Login</span>
             </Link>
             <span className="text-[10px] sm:text-xs font-semibold px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20">Trainer Portal</span>
           </div>

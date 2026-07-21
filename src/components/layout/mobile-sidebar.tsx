@@ -95,7 +95,7 @@ export function MobileSidebar() {
             <div className="flex flex-col min-w-0">
               <span className="font-bold text-lg text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-teal-300 to-emerald-200 tracking-tight truncate">{branding.companyName || APP_NAME}</span>
               <span className="text-[10px] font-medium text-emerald-500 uppercase tracking-widest truncate">
-                {userRole === "student" ? "Student Portal" : branding.companySubtitle || "Enterprise v2.4"}
+                {branding.companySubtitle || (userRole === "student" ? "Student Portal" : "Enterprise v2.4")}
               </span>
             </div>
           </Link>

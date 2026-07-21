@@ -21,6 +21,7 @@ export interface Institution {
   type: "official" | "external" | "global";
   code?: string;
   departments?: string[];
+  isDeleted?: boolean;
 }
 
 export const GLOBAL_INSTITUTION_ID = "GLOBAL";
@@ -90,16 +91,20 @@ function key(...parts: (string | null | undefined)[]): string {
  */
 export function looksLikeFirestoreId(str: string): boolean {
   if (!str) return false;
-  // Remove all invisible characters and spaces
-  const s = str.replace(/[\s\u200B-\u200D\uFEFF]/g, "");
-  if (s.length < 12) return false;
-  // Allow purely alphanumeric strings with dashes/underscores
-  if (!/^[A-Za-z0-9_-]{12,}$/.test(s)) return false;
-  // Must have mixed case or numbers to be an ID
+  const s = str.trim();
+  // Firestore auto-generated IDs are exactly 20 chars. Auth UIDs are exactly 28 chars.
+  if (s.length !== 20 && s.length !== 28) return false;
+  
+  if (!/^[A-Za-z0-9_-]+$/.test(s)) return false;
+
   const hasLower = /[a-z]/.test(s);
   const hasUpper = /[A-Z]/.test(s);
   const hasNumber = /[0-9]/.test(s);
-  return (hasLower && hasUpper) || (hasNumber && (hasLower || hasUpper));
+  
+  // Must have at least 2 types of characters (high entropy)
+  const typesCount = (hasLower ? 1 : 0) + (hasUpper ? 1 : 0) + (hasNumber ? 1 : 0);
+  
+  return typesCount >= 2;
 }
 
 /**
@@ -110,7 +115,14 @@ export function safeDisplayName(name: string | undefined | null, id: string, fal
   if (!name) return fallback;
   const trimmedName = name.trim();
   const trimmedId = (id || "").trim();
-  if (trimmedName === trimmedId || looksLikeFirestoreId(trimmedName)) return fallback;
+  
+  // If name matches the ID, or if name looks like an ID
+  if (trimmedName === trimmedId || looksLikeFirestoreId(trimmedName)) {
+    return fallback;
+  }
+
+  return trimmedName;
+
   return trimmedName;
 }
 
@@ -136,8 +148,8 @@ export function buildInstitutionOptions(
   if (Array.isArray(input)) {
     return input.map((inst) => {
       const display = safeDisplayName(inst.name, inst.id, "Unknown Institution");
-      return inst.type === "external"
-        ? { label: `${display} (Deleted / Self-Registered)`, value: inst.id }
+      return inst.type === "external" || inst.isDeleted
+        ? { label: `${display} (Deleted)`, value: inst.id }
         : { label: display, value: inst.id };
     });
   }
@@ -149,13 +161,14 @@ export function buildInstitutionOptions(
   const out: SelectOption[] = [];
 
   hierarchy.colleges.forEach((c) => {
-    out.push({ label: safeDisplayName(c.name, c.id, "Unknown Institution"), value: c.id });
+    const display = safeDisplayName(c.name, c.id, "Unknown Institution");
+    out.push({ label: c.isDeleted ? `${display} (Deleted)` : display, value: c.id });
   });
 
   if (includeExternalInstitutions) {
     getExternalInstitutions(hierarchy).forEach((inst) => {
       const display = safeDisplayName(inst.name, inst.id, "Unknown Institution");
-      out.push({ label: `${display} (Deleted / Self-Registered)`, value: inst.id });
+      out.push({ label: `${display} (Deleted)`, value: inst.id });
     });
   }
 
@@ -387,8 +400,9 @@ export function toSelectOptions(values: string[]): SelectOption[] {
 
 export function toBatchOptions(batches: Batch[]): SelectOption[] {
   return batches.map((b) => {
+    const display = safeDisplayName(b.name, b.id, "Unknown Batch");
     return {
-      label: safeDisplayName(b.name, b.id, "Unknown Batch"),
+      label: b.isDeleted || b.deletedAt ? `${display} (Deleted)` : display,
       value: b.id,
     };
   });
@@ -397,7 +411,11 @@ export function toBatchOptions(batches: Batch[]): SelectOption[] {
 export function toStudentOptions(students: Student[]): SelectOption[] {
   return students.map((s) => {
     const nameLabel = safeDisplayName(s.name, s.id, "Unknown Student");
-    return { label: `${nameLabel} (${s.rollNumber || s.email || "No Email"})`, value: s.id };
+    let display = `${nameLabel} (${s.rollNumber || s.email || "No Email"})`;
+    if (s.isDeleted || s.status === "deleted") {
+      display += " (Deleted)";
+    }
+    return { label: display, value: s.id };
   });
 }
 

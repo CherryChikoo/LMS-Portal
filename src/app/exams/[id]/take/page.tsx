@@ -26,11 +26,15 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
   const [submitting, setSubmitting] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showLeaveModal, setShowLeaveModal] = useState(false);
+  const [fullScreenViolations, setFullScreenViolations] = useState(0);
+  const [showStrikeOneModal, setShowStrikeOneModal] = useState(false);
   const [showStartOverlay, setShowStartOverlay] = useState(true);
   const [candidateName, setCandidateName] = useState("");
   const [startTime, setStartTime] = useState<Date | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [offlinePending, setOfflinePending] = useState(false);
   const submitLockRef = useRef(false);
+  const lastViolationTimeRef = useRef(0);
 
   useEffect(() => {
     try {
@@ -208,18 +212,24 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
       return "";
     };
 
-    const handleVisibilityChange = () => {
-      if (!document.hidden && !showStartOverlay && !submitting) {
-        const isFullscreen =
-          Boolean(document.fullscreenElement) ||
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          Boolean((document as any).webkitFullscreenElement) ||
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          Boolean((document as any).msFullscreenElement);
-        if (!isFullscreen) {
-          setShowLeaveModal(true);
+    const handleViolation = () => {
+      if (showStartOverlay || submitting) return;
+      const now = Date.now();
+      // Debounce to prevent simultaneous events (e.g. alt-tab triggers both visibility and fullscreen change)
+      if (now - lastViolationTimeRef.current < 1000) return;
+      lastViolationTimeRef.current = now;
+
+      setFullScreenViolations((prev) => {
+        const next = prev + 1;
+        if (next === 1) {
+          setShowStrikeOneModal(true);
         }
-      }
+        return next;
+      });
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) handleViolation();
     };
 
     const handleFullscreenChange = () => {
@@ -229,8 +239,8 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
         Boolean((document as any).webkitFullscreenElement) ||
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         Boolean((document as any).msFullscreenElement);
-      if (!isFullscreen && !showStartOverlay && !submitting) {
-        setShowLeaveModal(true);
+      if (!isFullscreen) {
+        handleViolation();
       }
     };
 
@@ -343,30 +353,39 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
         return;
       }
     } catch (dupErr) {
-      // If the duplicate-check query fails, log it but still allow submission rather than blocking the student
-      console.error("Duplicate-check query failed", dupErr);
+      // If the duplicate-check query fails, allow submission rather than blocking the student
     }
 
+    const payload = {
+      examId: exam.id,
+      examTitle: exam.title,
+      studentId: currentStudId,
+      studentName: currentStudName,
+      answers: ansObj,
+      score,
+      totalMarks: exam.totalMarks,
+      percentage,
+      passed,
+      correctCount,
+      incorrectCount,
+      startTime: startTime ?? new Date(),
+      submittedAt: new Date(),
+      timeTakenMinutes: Math.ceil(((exam.duration * 60) - timeLeft) / 60),
+      status: "submitted" as const,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
     try {
-      await submitExamAttempt({
-        examId: exam.id,
-        examTitle: exam.title,
-        studentId: currentStudId,
-        studentName: currentStudName,
-        answers: ansObj,
-        score,
-        totalMarks: exam.totalMarks,
-        percentage,
-        passed,
-        correctCount,
-        incorrectCount,
-        startTime: startTime ?? new Date(),
-        submittedAt: new Date(),
-        timeTakenMinutes: Math.ceil(((exam.duration * 60) - timeLeft) / 60),
-        status: "submitted",
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("NETWORK_TIMEOUT")), 5000)
+      );
+
+      await Promise.race([
+        submitExamAttempt(payload),
+        timeoutPromise
+      ]);
+
       // Clear persisted in-progress state for this exam so it cannot be restored after submission
       try {
         if (typeof window !== "undefined") {
@@ -394,7 +413,15 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
       // visible until the navigation away from this page completes.
       return;
     } catch (err) {
-      console.error("Submission failed", err);
+      if (err instanceof Error && err.message === "NETWORK_TIMEOUT") {
+        if (typeof window !== "undefined") {
+          localStorage.setItem(`lms_offline_submit_${exam.id}`, JSON.stringify(payload));
+          sessionStorage.removeItem(`lms_exam_${exam.id}`);
+        }
+        setOfflinePending(true);
+        return;
+      }
+      
       const message =
         err instanceof Error && err.message
           ? err.message
@@ -406,6 +433,43 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
       submitLockRef.current = false;
     }
   }
+
+  // Active Anti-Cheat (Two-Strike Enforcement & Event Hijacking)
+  useEffect(() => {
+    // Two-Strike Auto-Submit Trigger
+    if (fullScreenViolations >= 2) {
+      handleFinalSubmit(true);
+    }
+  }, [fullScreenViolations]);
+
+  useEffect(() => {
+    if (!exam || submitting || showStartOverlay) return;
+
+    const preventDefault = (e: Event) => e.preventDefault();
+    const preventShortcuts = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === "c" || e.key === "v" || e.key === "x" || e.key === "C" || e.key === "V" || e.key === "X")) {
+        e.preventDefault();
+      }
+    };
+
+    window.addEventListener("contextmenu", preventDefault);
+    window.addEventListener("copy", preventDefault);
+    window.addEventListener("cut", preventDefault);
+    window.addEventListener("paste", preventDefault);
+    window.addEventListener("dragstart", preventDefault);
+    window.addEventListener("drop", preventDefault);
+    window.addEventListener("keydown", preventShortcuts);
+
+    return () => {
+      window.removeEventListener("contextmenu", preventDefault);
+      window.removeEventListener("copy", preventDefault);
+      window.removeEventListener("cut", preventDefault);
+      window.removeEventListener("paste", preventDefault);
+      window.removeEventListener("dragstart", preventDefault);
+      window.removeEventListener("drop", preventDefault);
+      window.removeEventListener("keydown", preventShortcuts);
+    };
+  }, [exam, submitting, showStartOverlay]);
 
   // Countdown timer
   useEffect(() => {
@@ -535,7 +599,15 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
   const unansweredCount = questions.length - answeredCount - reviewCount;
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col justify-between">
+    <div className="min-h-screen bg-background text-foreground flex flex-col justify-between select-none exam-container" style={{ WebkitTouchCallout: 'none' }}>
+      <style>{`
+        .exam-container input, 
+        .exam-container textarea, 
+        .exam-container [contenteditable="true"] {
+          user-select: text !important;
+          -webkit-user-select: text !important;
+        }
+      `}</style>
       {/* Top Header Bar */}
       <header className="h-16 border-b border-border px-6 flex items-center justify-between bg-card/80 backdrop-blur-md sticky top-0 z-40 shadow-sm">
         <div className="flex items-center">
@@ -718,7 +790,7 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
                   <button
                     key={q.id}
                     onClick={() => navigateToQuestion(idx)}
-                    className={`w-10 h-10 rounded-xl text-xs flex items-center justify-center transition-all outline-none focus:outline-none select-none ${bgStyle} ${
+                    className={`w-10 h-10 rounded-xl text-xs flex items-center justify-center transition-all duration-200 ease-in-out outline-none focus:outline-none select-none ${bgStyle} ${
                       isCurrent
                         ? "ring-4 ring-emerald-500/80 ring-offset-2 ring-offset-card border-2 border-white dark:border-white font-black scale-110 shadow-xl z-10"
                         : "border border-transparent hover:scale-105 opacity-90 hover:opacity-100"
@@ -847,6 +919,39 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
         )}
       </AnimatePresence>
 
+      {/* Strike One Warning Modal */}
+      <AnimatePresence>
+        {showStrikeOneModal && !submitting && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="w-full max-w-md rounded-2xl border border-destructive bg-card p-6 sm:p-8 shadow-2xl space-y-6 text-center"
+            >
+              <div className="w-16 h-16 rounded-2xl bg-destructive/15 text-destructive flex items-center justify-center mx-auto">
+                <AlertTriangle className="w-8 h-8" />
+              </div>
+              <div className="space-y-3">
+                <h3 className="text-xl font-bold text-foreground">Security Warning: Full Screen Exited</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  You have exited Full Screen Mode. <strong>This is your first and only warning.</strong> If you exit Full Screen again, your examination will be immediately terminated and automatically submitted.
+                </p>
+              </div>
+              <Button
+                onClick={async () => {
+                  setShowStrikeOneModal(false);
+                  await enterFullscreen();
+                }}
+                className="w-full h-11 bg-destructive hover:bg-destructive/90 text-destructive-foreground font-bold"
+              >
+                Return to Exam
+              </Button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Start Exam Fullscreen Overlay */}
       <AnimatePresence>
         {showStartOverlay && !loading && exam && questions.length > 0 && (
@@ -918,14 +1023,41 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
               className="w-full max-w-md rounded-2xl border border-border bg-card p-8 shadow-2xl space-y-5 text-center"
             >
               <div className="flex items-center justify-center">
-                <div className="w-14 h-14 rounded-full border-4 border-brand border-t-transparent animate-spin" />
+                {offlinePending ? (
+                  <CheckCircle2 className="w-16 h-16 text-amber-500" />
+                ) : (
+                  <div className="w-14 h-14 rounded-full border-4 border-brand border-t-transparent animate-spin" />
+                )}
               </div>
               <div className="space-y-2">
-                <h3 className="text-lg font-bold text-foreground">Submitting your assessment...</h3>
+                <h3 className="text-lg font-bold text-foreground">
+                  {offlinePending
+                    ? "Exam Submitted (Offline Pending)"
+                    : fullScreenViolations >= 2
+                    ? "Security Termination"
+                    : "Submitting your assessment..."}
+                </h3>
                 <p className="text-sm text-muted-foreground leading-relaxed">
-                  Please wait. Do not close this window, refresh the page, or press the back button.
+                  {offlinePending
+                    ? "Your exam was saved locally due to a network issue. It will be synced when you reconnect."
+                    : fullScreenViolations >= 2
+                    ? "Your exam was automatically submitted due to multiple full-screen violations. Processing results..."
+                    : "Please wait. Do not close this window, refresh the page, or press the back button."}
                 </p>
               </div>
+              {offlinePending && (
+                <div className="pt-4">
+                  <Button
+                    onClick={() => {
+                      const prefix = typeof window !== "undefined" && window.location.pathname.startsWith("/admin") ? "/admin" : "/student";
+                      router.push(`${prefix}/exams`);
+                    }}
+                    className="w-full"
+                  >
+                    Return to Dashboard
+                  </Button>
+                </div>
+              )}
             </motion.div>
           </div>
         )}

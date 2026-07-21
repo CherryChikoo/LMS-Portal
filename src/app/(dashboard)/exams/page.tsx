@@ -16,6 +16,7 @@ import { getAllExams, createExam, expireExam, parseMarkdownTest, getEffectiveExa
 import { getCurrentUser } from "@/lib/utils/auth-session";
 import { toDate } from "@/lib/utils/date";
 import { useLMSData } from "@/lib/data/use-lms-data";
+import { useEntityResolution } from "@/lib/data/use-entity-resolution";
 import { formatAuthError } from "@/lib/services/auth-service";
 import type { Exam, Question, QuestionType, Student, AssignmentTarget, ExamAttempt } from "@/types";
 
@@ -40,6 +41,7 @@ function ActionHandler({ onAction }: { onAction: (action: string) => void }) {
 export default function ExamsPage() {
   const router = useRouter();
   const { filteredExams: allExams, filteredAttempts: attempts, loading } = useLMSData();
+  const { resolveInstitution, resolveStudent, resolveBatch } = useEntityResolution();
   const exams = useMemo(() => allExams.filter(e => !e.deletedAt), [allExams]);
   
   const [studentUser, setStudentUser] = useState<Student | null>(null);
@@ -557,11 +559,11 @@ export default function ExamsPage() {
                 // student) instead of a `type` discriminator.
                 const newShape = t as unknown as { level?: string; studentName?: string; studentId?: string };
                 if (newShape.level) {
-                  if (newShape.level === "student") {
-                    return `Student: ${newShape.studentName || newShape.studentId}`;
+                  if (newShape.studentId || newShape.studentName) {
+                    return `Student: ${resolveStudent(newShape.studentId || "") || newShape.studentName}`;
                   }
-                  if (newShape.level === "global") return "All Students";
-                  const institutionLabel = t.collegeId ? getInstitutionName(t.collegeId) : null;
+                  
+                  const institutionLabel = t.collegeId ? resolveInstitution(t.collegeId) : null;
                   const parts = [
                     institutionLabel,
                     t.department ? t.department : null,
@@ -573,7 +575,7 @@ export default function ExamsPage() {
                 }
                 // Legacy composite shape (kept for older records).
                 if (t.type === "composite") {
-                  const institutionLabel = t.collegeId ? getInstitutionName(t.collegeId) : (t.collegeName || null);
+                  const institutionLabel = t.collegeId ? resolveInstitution(t.collegeId) : (t.collegeName || null);
                   const parts = [
                     institutionLabel,
                     t.department && t.department !== "ALL" ? t.department : null,
@@ -586,7 +588,7 @@ export default function ExamsPage() {
                 const isGlobalId = !t.ids || t.ids.length === 0 || t.ids.includes("ALL") || t.ids.includes("composite");
                 if (isGlobalId) return "All Students";
                 // Resolve raw IDs to institution names via the hierarchy
-                const displayNames = (t.ids || []).map((id: string) => getInstitutionName(id));
+                const displayNames = (t.ids || []).map((id: string) => resolveInstitution(id));
                 const uniqueDisplay = [...new Set(displayNames)].filter(Boolean).join(", ");
                 return `${t.type.toUpperCase()}: ${uniqueDisplay}`;
               };
@@ -760,16 +762,16 @@ export default function ExamsPage() {
               if (userRole === "student") {
                 if (effStatus === "expired" || effStatus === "completed" || effStatus === "cancelled") {
                   studentBadgeText = "NOT ATTEMPTED";
-                  studentBadgeColor = "bg-rose-500/15 text-rose-500 border border-rose-500/30";
+                  studentBadgeColor = "bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-900/50";
                 } else if (effStatus === "scheduled") {
                   studentBadgeText = "UPCOMING";
-                  studentBadgeColor = "bg-amber-500/15 text-amber-600 dark:text-amber-400";
+                  studentBadgeColor = "bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-400";
                 } else if (att && att.status !== "submitted") {
                   studentBadgeText = "ACTIVE";
-                  studentBadgeColor = "bg-emerald-500/15 text-emerald-500";
+                  studentBadgeColor = "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400";
                 } else {
                   studentBadgeText = "AVAILABLE";
-                  studentBadgeColor = "bg-emerald-500/15 text-emerald-500";
+                  studentBadgeColor = "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400";
                 }
               }
 
@@ -777,141 +779,145 @@ export default function ExamsPage() {
                 <motion.div
                   key={exam.id}
                   whileHover={{ y: -4 }}
-                  className="group relative rounded-xl border border-border bg-card p-6 flex flex-col justify-between gap-6 shadow-sm hover:border-brand/40 transition-all duration-300"
+                  className="group relative rounded-xl border border-gray-200 bg-white hover:border-gray-300 dark:border-gray-800 dark:bg-[#0B0F15] dark:hover:border-gray-600 p-6 flex flex-col justify-between gap-5 shadow-sm transition-colors duration-200"
                 >
                   <div className="space-y-4">
                     <div className="flex items-center justify-between gap-2">
                       <span className={`px-3 py-1 rounded-full text-[11px] font-extrabold tracking-wide uppercase flex items-center gap-1.5 ${
                         userRole === "student" ? studentBadgeColor :
                         (effStatus === "active" && !att
-                          ? "bg-emerald-500/15 text-emerald-500"
+                          ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400"
                           : att
-                          ? "bg-blue-500/15 text-blue-500"
+                          ? "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400"
                           : effStatus === "expired" || effStatus === "completed" || effStatus === "cancelled"
-                          ? "bg-rose-500/15 text-rose-500 border border-rose-500/30"
+                          ? "bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-900/50"
                           : effStatus === "scheduled"
-                          ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
-                          : "bg-muted text-muted-foreground")
+                          ? "bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-400"
+                          : "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400")
                       }`}>
                         {userRole === "student" ? (
                           <>
-                            {(studentBadgeText === "ACTIVE" || studentBadgeText === "AVAILABLE") && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
+                            {(studentBadgeText === "ACTIVE" || studentBadgeText === "AVAILABLE") && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse" />}
                             {studentBadgeText}
                           </>
                         ) : (
                           <>
-                            {effStatus === "active" && !att && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
+                            {effStatus === "active" && !att && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse" />}
                             {att ? "COMPLETED" : effStatus === "active" ? "ACTIVE (LIVE)" : effStatus === "expired" || effStatus === "completed" || effStatus === "cancelled" ? "EXPIRED" : effStatus}
                           </>
                         )}
                       </span>
-                      <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground font-medium">
-                        <Clock className="w-3.5 h-3.5 text-brand shrink-0" />
+                      <span className="inline-flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400 font-medium">
+                        <Clock className="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
                         <span>{exam.duration} mins</span>
                       </span>
                     </div>
 
-                    <div className="space-y-1.5">
-                      <h3 className="text-xl font-extrabold text-foreground tracking-tight line-clamp-1 group-hover:text-brand transition-colors">
+                    <div className="space-y-1">
+                      <h3 className="text-xl font-semibold text-gray-900 dark:text-white tracking-tight line-clamp-1 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
                         {exam.title}
                       </h3>
-                      <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed font-normal">
-                        {exam.startTime
-                          ? `Active window: ${(() => {
-                              const d = toDate(exam.startTime);
-                              return d ? d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "Live Active";
-                            })()}`
-                          : exam.description || "Assessment ready for students."}
+                      <p className="text-sm text-gray-500 dark:text-gray-400 line-clamp-1 font-normal">
+                        Contains {exam.questions?.length || exam.questionIds?.length || 0} questions
                       </p>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4 p-3.5 rounded-2xl bg-muted/30 dark:bg-white/[0.03] text-xs">
+                  <div className="grid grid-cols-2 gap-4 p-4 rounded-lg bg-gray-50 dark:bg-gray-800/30 text-xs mt-1">
                     <div className="flex flex-col items-center justify-center">
-                      <span className="text-[11px] font-medium text-muted-foreground">Questions</span>
-                      <p className="font-extrabold text-foreground text-sm mt-0.5">{exam.questions?.length || exam.questionIds?.length || 0}</p>
+                      <span className="text-xs uppercase tracking-wider text-gray-500 dark:text-gray-500">Questions</span>
+                      <p className="font-bold text-gray-900 dark:text-white text-lg mt-1">{exam.questions?.length || exam.questionIds?.length || 0}</p>
                     </div>
                     <div className="flex flex-col items-center justify-center">
-                      <span className="text-[11px] font-medium text-muted-foreground">Total Marks</span>
-                      <p className="font-extrabold text-brand text-sm mt-0.5">{exam.totalMarks} marks</p>
+                      <span className="text-xs uppercase tracking-wider text-gray-500 dark:text-gray-500">Total Marks</span>
+                      <p className={`font-bold text-lg mt-1 ${effStatus === 'active' ? 'text-emerald-700 dark:text-emerald-400' : 'text-gray-900 dark:text-white'}`}>{exam.totalMarks} marks</p>
                     </div>
                   </div>
 
                   {userRole !== "student" ? (
-                    <div className="space-y-4 pt-1">
-                      <div className="space-y-2 rounded-2xl bg-muted/30 dark:bg-white/[0.02] p-3.5 text-xs">
-                        <div className="flex items-center justify-between text-muted-foreground">
-                          <span className="inline-flex items-center gap-1.5 font-medium">
-                            <Calendar className="w-3.5 h-3.5 text-brand shrink-0" />
+                    <div className="space-y-4 pt-1 flex-1 flex flex-col justify-between">
+                      <div className="space-y-2 text-sm">
+                        <div className="flex items-center justify-between">
+                          <span className="inline-flex items-center gap-2 text-gray-500 dark:text-gray-400">
+                            <Calendar className="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
                             <span>Assigned:</span>
                           </span>
-                          <span className="font-semibold text-foreground">
+                          <span className="font-medium text-gray-900 dark:text-gray-100">
                             {formatSafeDate(exam.createdAt || exam.updatedAt)}
                           </span>
                         </div>
 
-                        <div className="flex items-center justify-between text-muted-foreground">
-                          <span className="inline-flex items-center gap-1.5 font-medium">
-                            <Clock className="w-3.5 h-3.5 text-brand shrink-0" />
+                        <div className="flex items-center justify-between">
+                          <span className="inline-flex items-center gap-2 text-gray-500 dark:text-gray-400">
+                            <Clock className="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
                             <span>Window:</span>
                           </span>
-                          <span className="font-semibold text-foreground truncate max-w-[170px]">
+                          <span className="font-medium text-gray-900 dark:text-gray-100 truncate max-w-[170px]">
                             {exam.startTime ? formatSafeDate(exam.startTime, { month: "short", day: "numeric" }) : "Always Active"}
                           </span>
                         </div>
 
-                        <div className="flex items-center justify-between text-muted-foreground">
-                          <span className="inline-flex items-center gap-1.5 font-medium">
-                            <Target className="w-3.5 h-3.5 text-brand shrink-0" />
+                        <div className="flex items-center justify-between">
+                          <span className="inline-flex items-center gap-2 text-gray-500 dark:text-gray-400">
+                            <Target className="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
                             <span>Audience:</span>
                           </span>
-                          <span className="font-bold text-foreground truncate max-w-[170px]" title={getExamTargetDisplay()}>
+                          <span className="font-medium text-gray-900 dark:text-gray-100 truncate max-w-[170px]" title={getExamTargetDisplay()}>
                             {getExamTargetDisplay()}
                           </span>
                         </div>
-                        
+
                         {exam.targets?.[0]?.collegeId && exam.targets[0].collegeId !== "GLOBAL" && (
-                          <div className="flex items-center justify-between text-muted-foreground pt-1 border-t border-border/40 mt-1">
-                            <span className="inline-flex items-center gap-1.5 font-medium">
-                              <Building2 className="w-3.5 h-3.5 text-brand shrink-0" />
-                              <span className="text-[11px] uppercase tracking-wider font-bold">Created By:</span>
-                            </span>
-                            <span className="font-bold text-foreground truncate max-w-[150px] text-xs" title={getInstitutionName(exam.targets[0].collegeId)}>
-                              {getInstitutionName(exam.targets[0].collegeId)}
-                            </span>
+                          <div className="pt-2">
+                            {(() => {
+                              const instName = resolveInstitution(exam.targets[0].collegeId);
+                              const isUnknown = instName.includes("Unknown");
+                              return (
+                                <div className={`inline-flex items-center gap-2 px-3 py-2 rounded-md border ${
+                                  isUnknown 
+                                    ? 'bg-orange-50 border-orange-200 text-orange-700 dark:border-orange-900/50 dark:bg-orange-900/10 dark:text-orange-400' 
+                                    : 'bg-gray-100 border-gray-200 text-gray-700 dark:border-gray-700 dark:bg-gray-800/50 dark:text-gray-300'
+                                }`}>
+                                  <Building2 className="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                                  <span className="text-sm font-medium truncate max-w-[200px]" title={instName}>
+                                    {instName}
+                                  </span>
+                                </div>
+                              );
+                            })()}
                           </div>
                         )}
                       </div>
 
-                      <div className="flex items-center justify-between pt-1">
+                      <div className="flex items-center justify-between pt-4 border-t border-gray-200 dark:border-gray-800 mt-2">
                         <div className="flex items-center gap-2">
-                          <span className="text-xs font-semibold text-muted-foreground">
-                            Pass: <strong className="text-foreground">{exam.passingMarks}%</strong>
+                          <span className="text-sm text-gray-500 dark:text-gray-400">
+                            Pass: <strong className="text-gray-900 dark:text-white font-bold">{exam.passingMarks}%</strong>
                           </span>
                           {exam.settings?.proctoring && (
-                            <span className="px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 font-bold text-[10px]">
+                            <span className="px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-400 font-bold text-[10px]">
                               Proctored
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-2">
                           <Button
                             onClick={() => router.push(getExamDetailsPath(exam.id))}
                             variant="outline"
                             size="sm"
-                            className="h-8 px-3 text-xs font-bold border-brand/40 text-brand hover:bg-brand/10 flex items-center gap-1.5"
+                            className="h-9 px-4 text-sm font-medium border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-900/50 dark:text-emerald-400 dark:hover:bg-emerald-900/20 flex items-center gap-1.5 rounded-lg"
                             title="View Assessment Details"
                           >
-                            <Eye className="w-3.5 h-3.5" />
+                            <Eye className="w-4 h-4" />
                             <span>Details</span>
                           </Button>
                           <button
                             onClick={() => handleExpire(exam.id)}
                             disabled={effStatus === "expired" || effStatus === "cancelled" || effStatus === "completed"}
-                            className={`p-2 rounded-xl transition-all duration-200 ${
+                            className={`p-2 rounded-lg transition-all duration-200 border ${
                               effStatus === "expired" || effStatus === "cancelled" || effStatus === "completed"
-                                ? "bg-muted text-muted-foreground opacity-50 cursor-not-allowed"
-                                : "bg-amber-500/10 hover:bg-amber-500 text-amber-500 hover:text-white"
+                                ? "bg-gray-100 text-gray-400 border-gray-200 dark:bg-gray-800/50 dark:text-gray-500 dark:border-gray-800 cursor-not-allowed"
+                                : "bg-transparent text-gray-500 border-gray-200 hover:bg-orange-50 hover:text-orange-600 hover:border-orange-200 dark:text-gray-400 dark:border-gray-700 dark:hover:bg-orange-900/20 dark:hover:text-orange-400 dark:hover:border-orange-900/50"
                             }`}
                             title={effStatus === "expired" || effStatus === "cancelled" || effStatus === "completed" ? "Assessment already expired" : "Expire Assessment"}
                           >
@@ -921,14 +927,14 @@ export default function ExamsPage() {
                       </div>
                     </div>
                   ) : (
-                    <div className="pt-1 space-y-3">
+                    <div className="pt-1 space-y-3 flex-1 flex flex-col justify-end">
                       {att && att.status !== "submitted" ? (
                         <Button
                           onClick={() => {
                             const prefix = typeof window !== "undefined" && window.location.pathname.startsWith("/admin") ? "/admin" : "/student";
                             router.push(`${prefix}/exams/${exam.id}/take`);
                           }}
-                          className="w-full h-11 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-bold flex items-center justify-center gap-2 shadow-md shadow-amber-500/20 scale-[1.01] hover:scale-[1.02] transition-transform"
+                          className="w-full h-11 rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-bold flex items-center justify-center gap-2 transition-transform"
                         >
                           <Play className="w-4 h-4 fill-white" />
                           <span>Resume Assessment</span>
@@ -939,7 +945,7 @@ export default function ExamsPage() {
                             const prefix = typeof window !== "undefined" && window.location.pathname.startsWith("/admin") ? "/admin" : "/student";
                             router.push(`${prefix}/exams/${exam.id}/take`);
                           }}
-                          className="w-full h-11 rounded-2xl bg-brand hover:bg-brand/90 text-brand-foreground font-bold flex items-center justify-center gap-2 shadow-md shadow-brand/20 scale-[1.01] hover:scale-[1.02] transition-transform"
+                          className="w-full h-11 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center justify-center gap-2 transition-transform"
                         >
                           <Play className="w-4 h-4 fill-white" />
                           <span>Take Assessment Now</span>
@@ -948,7 +954,7 @@ export default function ExamsPage() {
                         <Button
                           disabled
                           variant="outline"
-                          className="w-full h-11 rounded-2xl border-amber-500/30 text-amber-600 dark:text-amber-400 font-bold flex items-center justify-center gap-2 opacity-80"
+                          className="w-full h-11 rounded-lg bg-transparent border-orange-200 text-orange-600 dark:border-orange-900/50 dark:text-orange-400 font-bold flex items-center justify-center gap-2"
                         >
                           <Clock className="w-4 h-4" />
                           <span>Scheduled ({exam.startTime ? (() => { const d = toDate(exam.startTime); return d ? d.toLocaleDateString() : "Later"; })() : "Later"})</span>
@@ -957,21 +963,12 @@ export default function ExamsPage() {
                         <Button
                           disabled
                           variant="outline"
-                          className="w-full h-11 rounded-2xl border-border text-muted-foreground font-bold flex items-center justify-center gap-2"
+                          className="w-full h-11 rounded-lg bg-gray-50 border-gray-200 text-gray-500 dark:bg-transparent dark:border-gray-800 dark:text-gray-500 font-bold flex items-center justify-center gap-2"
                         >
+                          <Ban className="w-4 h-4" />
                           <span>Assessment Closed</span>
                         </Button>
                       )}
-                      <Button
-                        onClick={() => router.push(getExamDetailsPath(exam.id))}
-                        variant="outline"
-                        size="sm"
-                        className="w-full h-9 rounded-xl border-brand/40 text-brand hover:bg-brand/10 text-xs font-bold flex items-center justify-center gap-1.5"
-                        title="View Assessment Details"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                        <span>View Details</span>
-                      </Button>
                     </div>
                   )}
                 </motion.div>
@@ -1283,8 +1280,8 @@ export default function ExamsPage() {
                   <span className="text-muted-foreground">Targeting:</span>
                   <span className="font-bold text-foreground">
                     {(() => {
-                      const institutionLabel = examFilters.collegeId ? getInstitutionName(examFilters.collegeId) : null;
-                      const batchLabel = examFilters.batchId ? (hierarchy?.batchMap.get(examFilters.batchId)?.name || "Unknown Batch") : null;
+                      const institutionLabel = examFilters.collegeId ? resolveInstitution(examFilters.collegeId) : null;
+                      const batchLabel = (examFilters.batchId === "ALL" || !examFilters.batchId) ? null : resolveBatch(examFilters.batchId);
                       return [institutionLabel, examFilters.department || null, examFilters.academicYear || null, examFilters.section ? `Sec ${examFilters.section}` : null, batchLabel].filter(Boolean).join(" → ") || "All Students";
                     })()}
                   </span>

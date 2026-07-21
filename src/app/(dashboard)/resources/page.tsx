@@ -15,6 +15,7 @@ import { getCurrentUser } from "@/lib/utils/auth-session";
 import { formatTimestamp } from "@/lib/utils/date";
 import { useLMSData } from "@/lib/data/use-lms-data";
 import { ResourcePreviewModal, isPreviewable } from "@/components/resources/resource-preview-modal";
+import { useEntityResolution } from "@/lib/data/use-entity-resolution";
 import type { Resource, ResourceType, AssignmentTarget, Student } from "@/types";
 
 export default function ResourcesPage() {
@@ -31,6 +32,7 @@ export default function ResourcesPage() {
   const [links, setLinks] = useState<string[]>([""]);
   const [creating, setCreating] = useState(false);
   const [resourceSearch, setResourceSearch] = useState("");
+  const { resolveInstitution } = useEntityResolution();
 
   // Single shared cascading hierarchy used by both the page filter bar and the
   // upload/assignment modal. Avoids duplicate subscriptions and ensures the
@@ -47,7 +49,6 @@ export default function ResourcesPage() {
     sectionOptions,
     batchOptions,
     buildAssignmentTarget,
-    getInstitutionName,
   } = useAcademicHierarchy({
     levels: ["institution", "department", "academicYear", "section", "batch"],
   });
@@ -346,7 +347,7 @@ export default function ResourcesPage() {
                             if (!t) return "All Students";
                             if (t.type === "composite") {
                               const parts = [
-                                t.collegeId && t.collegeId !== "ALL" ? getInstitutionName(t.collegeId) : null,
+                                t.collegeId && t.collegeId !== "ALL" ? resolveInstitution(t.collegeId) : null,
                                 t.department && t.department !== "ALL" ? t.department : null,
                                 t.academicYear && t.academicYear !== "ALL" ? t.academicYear : null,
                                 t.section && t.section !== "ALL" ? `Sec ${t.section}` : null,
@@ -355,10 +356,11 @@ export default function ResourcesPage() {
                               return parts.length > 0 ? parts.join(" → ") : "All Students";
                             }
                             // Legacy target shape — resolve IDs to names
-                            const rawId = t.ids?.[0];
-                            if (!rawId || rawId === "ALL") return "All Students";
-                            const resolvedName = getInstitutionName(rawId);
-                            return `${t.type} • ${resolvedName}`;
+                            const resolvedNames = (t.ids || []).map(rawId => {
+                              if (rawId === "ALL") return "All Institutions";
+                              return resolveInstitution(rawId);
+                            });
+                            return `${t.type} • ${resolvedNames.join(", ")}`;
                           })()}
                         </span>
                       </div>

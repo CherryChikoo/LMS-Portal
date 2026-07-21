@@ -259,7 +259,8 @@ export function useAcademicHierarchy(options: UseAcademicHierarchyOptions = {}):
     return [
       ALL_OPTION,
       ...hierarchy.colleges.map((c) => {
-        return { label: safeDisplayName(c.name, c.id, "Unknown Institution"), value: c.id };
+        const display = safeDisplayName(c.name, c.id, "Unknown Institution");
+        return { label: c.isDeleted ? `${display} (Deleted)` : display, value: c.id };
       }),
     ];
   }, [hierarchy, isScopedRole, userCollegeId, userCollegeName]);

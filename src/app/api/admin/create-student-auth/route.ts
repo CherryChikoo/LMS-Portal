@@ -83,9 +83,9 @@ export async function POST(request: NextRequest) {
 
     const requesterData = requesterDoc.data();
     const requesterRole = requesterData?.role;
-    if (requesterRole !== "admin" && requesterRole !== "trainer") {
+    if (requesterRole !== "admin" && requesterRole !== "trainer" && requesterRole !== "college") {
       return NextResponse.json(
-        { error: "Only admin or trainer roles can create student accounts." },
+        { error: "Only admin, trainer, or college roles can create student accounts." },
         { status: 403 }
       );
     }

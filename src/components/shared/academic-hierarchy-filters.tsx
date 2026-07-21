@@ -6,6 +6,8 @@ import { FilterDropdown } from "@/components/shared/filter-dropdown";
 import type { SelectOption } from "@/types";
 import type { AcademicFilters } from "@/lib/hierarchy/hierarchy-data";
 import type { AcademicHierarchyLevel } from "@/lib/hierarchy/use-academic-hierarchy";
+import { useEntityResolution } from "@/lib/data/use-entity-resolution";
+import { useLMSData } from "@/lib/data/use-lms-data";
 
 export interface LevelConfig {
   level: AcademicHierarchyLevel;
@@ -199,6 +201,9 @@ export function AcademicHierarchyFilters({
   showInstitution = false,
 }: AcademicHierarchyFiltersProps) {
   const baseId = useId();
+  const resolvers = useEntityResolution();
+  const { loading: lmsLoading } = useLMSData();
+  const isLoading = loading ?? lmsLoading;
 
   const normalizedLevels: LevelConfig[] = levels.map((item) => {
     if (isLevelConfig(item)) return item;
@@ -314,6 +319,7 @@ export function AcademicHierarchyFilters({
               placeholder={allLabel ?? placeholder ?? DEFAULT_ALL_LABELS[level] ?? `All ${fieldLabel}s`}
               options={options}
               variant={level === "batch" ? "batch" : "default"}
+              loading={isLoading}
               onChange={(val) => {
                 const change = buildChangeForLevel(level, val);
                 if (level === "batch" && disableRemaining && val !== "") {

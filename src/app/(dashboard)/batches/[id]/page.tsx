@@ -594,7 +594,7 @@ export default function BatchDetailPage({ params }: PageProps) {
 
               {/* Filters & Search */}
               <div className="p-4 border-b border-border bg-background space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-2.5 w-full">
+                <div className="grid grid-cols-1 md:grid-cols-6 gap-2.5 w-full">
                   <div className="relative w-full md:col-span-2">
                     <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                     <input
@@ -626,28 +626,31 @@ export default function BatchDetailPage({ params }: PageProps) {
                     onChange={(val) => setSelectedYearFilter(val === "" ? "ALL" : val)}
                     options={yearsList.map(y => ({ value: y, label: y }))}
                   />
-                  <div className="flex items-center justify-between pt-2">
-                    <div className="flex items-center gap-3 w-1/2">
-                      <FilterDropdown
-                        label="Section"
-                        value={selectedSectionFilter === "ALL" ? "" : selectedSectionFilter}
-                        onChange={(val) => setSelectedSectionFilter(val === "" ? "ALL" : val)}
-                        options={sectionsList.map(sec => ({ value: sec, label: sec }))}
-                      />
-                    </div>
-                    <label className="flex items-center gap-2 cursor-pointer select-none">
-                      <input
-                        type="checkbox"
-                        checked={availableStudents.length > 0 && validSelectedStudents.length === availableStudents.length}
-                        onChange={toggleSelectAll}
-                        className="w-4 h-4 rounded border-border text-brand focus:ring-brand accent-[var(--color-brand)]"
-                      />
-                      <span className="text-xs font-bold text-foreground">
-                        Select All ({availableStudents.length})
-                      </span>
-                    </label>
-                  </div>
 
+                  <FilterDropdown
+                    label="Section"
+                    value={selectedSectionFilter === "ALL" ? "" : selectedSectionFilter}
+                    onChange={(val) => setSelectedSectionFilter(val === "" ? "ALL" : val)}
+                    options={sectionsList.map(sec => ({ value: sec, label: sec }))}
+                  />
+                </div>
+                
+                <div className="flex items-center justify-between pt-2 w-full">
+                  <div className="flex-1" />
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={availableStudents.length > 0 && validSelectedStudents.length === availableStudents.length}
+                      onChange={toggleSelectAll}
+                      className="w-4 h-4 rounded border-border text-brand focus:ring-brand accent-[var(--color-brand)]"
+                    />
+                    <span className="text-xs font-bold text-foreground">
+                      Select All ({availableStudents.length})
+                    </span>
+                  </label>
+                </div>
+
+                <div className="flex justify-end pt-2">
                   {validSelectedStudents.length > 0 && (
                     <Button
                       size="sm"

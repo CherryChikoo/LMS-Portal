@@ -225,6 +225,11 @@ function getYearBadgeStyle(year?: string) {
         studentCount: college.studentCount || students.length,
         createdAt: new Date(),
         updatedAt: new Date(),
+        branding: {
+          companyName: college.name,
+          companySubtitle: "College Portal",
+          logoBase64: "",
+        },
       });
       setIsExternal(false);
       return college.id;

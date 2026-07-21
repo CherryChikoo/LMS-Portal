@@ -47,7 +47,8 @@ import {
 import { isAssignedToStudent } from "@/lib/services/assignment-engine";
 import { getCurrentUser } from "@/lib/utils/auth-session";
 import { formatTimestamp, toMillis } from "@/lib/utils/date";
-import { safeDisplayName } from "@/lib/hierarchy/hierarchy-data";
+import { useLMSData } from "@/lib/data/use-lms-data";
+import { useEntityResolution } from "@/lib/data/use-entity-resolution";
 
 import type {
   AssignmentTarget,
@@ -196,7 +197,7 @@ interface GroupedTargets {
   isGlobal: boolean;
 }
 
-function groupTargets(targets: AssignmentTarget[] | undefined, students: Student[]): GroupedTargets {
+function groupTargets(targets: AssignmentTarget[] | undefined, students: Student[], resolveInstitution: (id: string) => string, resolveBatch: (id: string) => string, resolveStudent: (id: string) => string): GroupedTargets {
   const colleges = new Map<string, string>();
   const departments = new Set<string>();
   const years = new Set<string>();
@@ -224,9 +225,8 @@ function groupTargets(targets: AssignmentTarget[] | undefined, students: Student
     if (type === "composite") {
       if (!isAllWildcard(target.collegeId) || !isAllWildcard(target.collegeName)) {
         const id = target.collegeId || target.collegeName || "";
-        const rawName = target.collegeName || "";
-        const name = safeDisplayName(rawName, id, "Unknown Institution");
-        if (id) colleges.set(id, name);
+        const name = resolveInstitution(id);
+        colleges.set(id, name);
         allWildcard = false;
       }
       if (!isAllWildcard(target.department)) {
@@ -243,18 +243,17 @@ function groupTargets(targets: AssignmentTarget[] | undefined, students: Student
       }
       if (!isAllWildcard(target.batchId) || !isAllWildcard(target.batchName)) {
         const id = target.batchId || target.batchName || "";
-        const name = !target.batchName || target.batchName === target.batchId ? "Unknown Batch" : target.batchName;
-        if (id) batches.set(id, name);
+        const name = resolveBatch(id);
+        batches.set(id, name);
         allWildcard = false;
       }
       continue;
     }
 
     if (type === "college") {
-      (target.ids || []).forEach((id, idx) => {
+      (target.ids || []).forEach((id) => {
         if (isAllWildcard(id)) return;
-        const name = target.names?.[idx] || "";
-        colleges.set(id, safeDisplayName(name, id, "Unknown Institution"));
+        colleges.set(id, resolveInstitution(id));
         allWildcard = false;
       });
       continue;
@@ -288,10 +287,9 @@ function groupTargets(targets: AssignmentTarget[] | undefined, students: Student
     }
 
     if (type === "batch") {
-      (target.ids || []).forEach((id, idx) => {
+      (target.ids || []).forEach((id) => {
         if (isAllWildcard(id)) return;
-        const name = target.names?.[idx] || id;
-        batches.set(id, name);
+        batches.set(id, resolveBatch(id));
         allWildcard = false;
       });
       continue;
@@ -300,8 +298,7 @@ function groupTargets(targets: AssignmentTarget[] | undefined, students: Student
     if (type === "students") {
       (target.ids || []).forEach((id) => {
         if (isAllWildcard(id)) return;
-        const matched = students.find((s) => s.id === id || s.email.toLowerCase() === id.toLowerCase());
-        selectedStudents.set(id, matched?.name || id);
+        selectedStudents.set(id, resolveStudent(id));
         allWildcard = false;
       });
       continue;
@@ -323,6 +320,9 @@ export default function ExamDetailsPage({ params }: PageProps) {
   const resolvedParams = use(params);
   const router = useRouter();
 
+  const { filteredColleges: colleges, filteredBatches: batches, filteredStudents: students, loading: globalLoading } = useLMSData();
+  const { resolveInstitution, resolveBatch, resolveStudent } = useEntityResolution();
+  
   const [exam, setExam] = useState<Exam | null>(null);
   const [loading, setLoading] = useState(true);
   const [actualRole] = useState<string>(() => {
@@ -341,9 +341,6 @@ export default function ExamDetailsPage({ params }: PageProps) {
   });
 
   const [attempts, setAttempts] = useState<ExamResult[]>([]);
-  const [students, setStudents] = useState<Student[]>([]);
-  const [colleges, setColleges] = useState<College[]>([]);
-  const [batches, setBatches] = useState<Batch[]>([]);
 
   useEffect(() => {
     const role = resolveRoleFromStorage();
@@ -376,16 +373,8 @@ export default function ExamDetailsPage({ params }: PageProps) {
             }
           }
         } else {
-          const [attData, studData, colData, batData] = await Promise.all([
-            getResultsByExam(id),
-            getAllStudents(),
-            getAllColleges(),
-            getAllBatches(),
-          ]);
+          const attData = await getResultsByExam(id);
           setAttempts(attData || []);
-          setStudents(studData || []);
-          setColleges(colData || []);
-          setBatches(batData || []);
         }
       } catch (err) {
         console.error("Failed to load exam details", err);
@@ -397,7 +386,7 @@ export default function ExamDetailsPage({ params }: PageProps) {
     load();
   }, [resolvedParams.id, router]);
 
-  if (loading) {
+  if (loading || globalLoading) {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4">
         <div className="w-10 h-10 rounded-full border-2 border-brand border-t-transparent animate-spin" />
@@ -438,6 +427,9 @@ export default function ExamDetailsPage({ params }: PageProps) {
       students={students}
       colleges={colleges}
       batches={batches}
+      resolveInstitution={resolveInstitution}
+      resolveBatch={resolveBatch}
+      resolveStudent={resolveStudent}
     />
   );
 }
@@ -714,6 +706,9 @@ interface TrainerDetailsProps {
   students: Student[];
   colleges: College[];
   batches: Batch[];
+  resolveInstitution: (id: string) => string;
+  resolveBatch: (id: string) => string;
+  resolveStudent: (id: string) => string;
 }
 
 function TrainerExamDetails({
@@ -722,37 +717,12 @@ function TrainerExamDetails({
   students,
   colleges,
   batches,
+  resolveInstitution,
+  resolveBatch,
+  resolveStudent,
 }: TrainerDetailsProps) {
   const router = useRouter();
-  const [isGeneratingAI, setIsGeneratingAI] = useState(false);
 
-  const handleGenerateAI = async (forceRegenerate: boolean = false) => {
-    if (!exam) return;
-    setIsGeneratingAI(true);
-    toast.loading(forceRegenerate ? "Force regenerating all AI explanations..." : "Generating missing AI explanations...", { id: "generate-ai" });
-    try {
-      const res = await fetch("/api/ai-explanation", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ examId: exam.id, forceRegenerate })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to generate AI");
-      
-      if (data.status === "skipped") {
-        toast.success(data.message || "All questions already have AI explanations.", { id: "generate-ai" });
-      } else {
-        toast.success(`Generated ${data.generatedCount || 0} explanations successfully!`, { id: "generate-ai" });
-      }
-      
-      router.refresh();
-    } catch (err: any) {
-      console.error(err);
-      toast.error(err.message || "Failed to generate AI explanations", { id: "generate-ai" });
-    } finally {
-      setIsGeneratingAI(false);
-    }
-  };
 
   const missingAiCount = useMemo(() => {
     if (!exam || !exam.questions) return 0;
@@ -765,42 +735,9 @@ function TrainerExamDetails({
   );
 
   const groupedTargets = useMemo(
-    () => groupTargets(exam.targets, students),
-    [exam.targets, students],
+    () => groupTargets(exam.targets, students, resolveInstitution, resolveBatch, resolveStudent),
+    [exam.targets, students, resolveInstitution, resolveBatch, resolveStudent],
   );
-
-  const studentNameById = useMemo(() => {
-    const map = new Map<string, string>();
-    students.forEach((s) => {
-      if (s.id) map.set(s.id, s.name || s.email);
-      if (s.email) map.set(s.email.toLowerCase(), s.name || s.email);
-    });
-    attempts.forEach((a) => {
-      if (a.studentId && a.studentName) {
-        map.set(a.studentId, a.studentName);
-        map.set(a.studentId.toLowerCase(), a.studentName);
-      }
-    });
-    return map;
-  }, [students, attempts]);
-
-  const collegeNameById = useMemo(() => {
-    const map = new Map<string, string>();
-    colleges.forEach((c) => {
-      map.set(c.id, c.name);
-      map.set(c.name.toLowerCase(), c.name);
-    });
-    return map;
-  }, [colleges]);
-
-  const batchNameById = useMemo(() => {
-    const map = new Map<string, string>();
-    batches.forEach((b) => {
-      map.set(b.id, b.name);
-      map.set(b.name.toLowerCase(), b.name);
-    });
-    return map;
-  }, [batches]);
 
   const effStatus = getEffectiveExamStatus(exam);
   const statusBadge = buildStatusBadge(effStatus);
@@ -843,13 +780,6 @@ function TrainerExamDetails({
             >
               <Eye className="w-4 h-4 mr-2" />
               Preview
-            </Button>
-            <Button
-              onClick={() => router.push(`${getBackHref().replace(/\/exams$/, "")}/exams/${exam.id}/edit`)}
-              className="bg-brand hover:bg-brand/90 text-brand-foreground"
-            >
-              <Edit3 className="w-4 h-4 mr-2" />
-              Edit
             </Button>
           </div>
         }
@@ -957,14 +887,10 @@ function TrainerExamDetails({
             <AssignmentGroup
               icon={Building2}
               label="Colleges"
-              items={groupedTargets.colleges.map((c) => {
-                const name = c.name || collegeNameById.get(c.id);
-                const isActive = collegeNameById.has(c.id);
-                return {
+              items={groupedTargets.colleges.map((c) => ({
                   id: c.id,
-                  label: name ? (isActive ? name : `${name} (Deleted)`) : `${c.id} (Deleted)`,
-                };
-              })}
+                  label: c.name,
+              }))}
               empty="No college filter"
             />
             <AssignmentGroup
@@ -990,21 +916,17 @@ function TrainerExamDetails({
               label="Batches"
               items={groupedTargets.batches.map((b) => ({
                 id: b.id,
-                label: b.name || batchNameById.get(b.id) || b.id,
+                label: b.name,
               }))}
               empty="No batch filter"
             />
             <AssignmentGroup
               icon={UserCheck}
               label="Selected Students"
-              items={groupedTargets.students.map((s) => {
-                const name = s.name || studentNameById.get(s.id);
-                const isActive = studentNameById.has(s.id);
-                return {
+              items={groupedTargets.students.map((s) => ({
                   id: s.id,
-                  label: name ? (isActive ? name : `${name} (Deleted)`) : `${s.id} (Deleted)`,
-                };
-              })}
+                  label: s.name,
+              }))}
               empty="No direct student selections"
             />
           </div>
@@ -1082,51 +1004,7 @@ function TrainerExamDetails({
             <BookOpen className="w-4 h-4 text-brand" />
             Question Bank ({exam.questions?.length ?? 0})
           </h3>
-          {exam.questions && exam.questions.length > 0 && (
-            <div className="flex items-center gap-2">
-              {missingAiCount > 0 ? (
-                <div className="flex items-center gap-2 mr-2 border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 rounded-lg text-amber-600 dark:text-amber-400 text-xs font-bold shadow-sm">
-                  <AlertTriangle className="w-3.5 h-3.5" />
-                  <span>{missingAiCount} Missing AI Explanations</span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 mr-2 border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 rounded-lg text-emerald-600 dark:text-emerald-400 text-xs font-bold shadow-sm">
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>All Explanations Generated</span>
-                </div>
-              )}
-              {missingAiCount > 0 && (
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={() => handleGenerateAI(false)}
-                  disabled={isGeneratingAI}
-                  className="text-xs font-semibold gap-1.5 bg-brand hover:bg-brand/90 text-brand-foreground shadow-sm"
-                >
-                  {isGeneratingAI ? (
-                    <div className="w-3 h-3 rounded-full border-2 border-white border-t-transparent animate-spin" />
-                  ) : (
-                    <Sparkles className="w-3.5 h-3.5 text-white" />
-                  )}
-                  {isGeneratingAI ? "Generating..." : "Generate Missing"}
-                </Button>
-              )}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleGenerateAI(true)}
-                disabled={isGeneratingAI}
-                className="text-xs font-semibold gap-1.5 shadow-sm"
-              >
-                {isGeneratingAI ? (
-                  <div className="w-3 h-3 rounded-full border-2 border-brand border-t-transparent animate-spin" />
-                ) : (
-                  <Sparkles className="w-3.5 h-3.5 text-brand" />
-                )}
-                {isGeneratingAI ? "Generating..." : "Force Regenerate All"}
-              </Button>
-            </div>
-          )}
+
         </div>
 
         {!exam.questions || exam.questions.length === 0 ? (
@@ -1178,14 +1056,7 @@ function TrainerExamDetails({
               </thead>
               <tbody className="divide-y divide-border">
                 {attempts.map((att) => {
-                  let studentName = att.studentName
-                    || studentNameById.get(att.studentId)
-                    || studentNameById.get((att.studentId || "").toLowerCase());
-                  
-                  const isDeleted = !studentNameById.has(att.studentId) && !studentNameById.has((att.studentId || "").toLowerCase());
-                  
-                  if (!studentName) studentName = "Unknown Student";
-                  if (isDeleted) studentName += " (Deleted)";
+                  const studentName = resolveStudent(att.studentId);
                   const isPassed = att.passed === true;
                   return (
                     <tr key={att.id} className="hover:bg-muted/20 transition-colors">

@@ -13,6 +13,8 @@ import { staggerContainer, staggerItem } from "@/lib/animations";
 import { cn } from "@/lib/utils";
 import { useLMSData } from "@/lib/data/use-lms-data";
 
+import { useEntityResolution } from "@/lib/data/use-entity-resolution";
+
 interface StudentRank {
   student: Student;
   totalAttempts: number;
@@ -24,6 +26,7 @@ interface StudentRank {
 
 function LeaderboardContent() {
   const { filteredStudents: students, filteredAttempts: attempts, filteredColleges: colleges, loading } = useLMSData();
+  const { resolveInstitution } = useEntityResolution();
   const [userRole, setUserRole] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
@@ -178,7 +181,7 @@ function LeaderboardContent() {
                     )}
                   </h4>
                   <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
-                    <span className="flex items-center gap-1"><Building2 className="w-3 h-3" /> {r.student.collegeName === r.student.collegeId ? "Unknown College" : (r.student.collegeName || "No College")}</span>
+                    <span className="flex items-center gap-1"><Building2 className="w-3 h-3" /> {resolveInstitution(r.student.collegeId)}</span>
                     <span className="flex items-center gap-1"><GraduationCap className="w-3 h-3" /> {r.student.department || "No Department"}</span>
                   </div>
                 </div>

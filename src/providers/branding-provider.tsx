@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import { CompanyBranding, subscribeToCompanyBranding } from "@/lib/services/branding-service";
 import { getCollegeById } from "@/lib/services/college-service";
 
@@ -21,8 +22,24 @@ const BrandingContext = createContext<BrandingContextType>({
 });
 
 export function BrandingProvider({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
   const [masterBranding, setMasterBranding] = useState<CompanyBranding>(defaultBranding);
-  const [collegeBranding, setCollegeBranding] = useState<CompanyBranding | null>(null);
+  const [collegeBranding, setCollegeBranding] = useState<CompanyBranding | null>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const cached = localStorage.getItem("lms_college_branding");
+        const storedUser = localStorage.getItem("lms_user") || localStorage.getItem("user");
+        if (cached && storedUser) {
+          const parsedCached = JSON.parse(cached);
+          const profile = JSON.parse(storedUser);
+          if (parsedCached.collegeId === profile.collegeId) {
+            return parsedCached.branding;
+          }
+        }
+      } catch (e) {}
+    }
+    return null;
+  });
   const [loading, setLoading] = useState(true);
 
   // Subscribe to Master Branding
@@ -59,6 +76,7 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
                 // Only set if they actually overrode something
                 if (college.branding.logoBase64 || college.branding.companyName) {
                   setCollegeBranding(cBrand);
+                  localStorage.setItem("lms_college_branding", JSON.stringify({ collegeId, branding: cBrand }));
                   return;
                 }
               }
@@ -66,9 +84,9 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
           }
         }
       } catch (err) {
-        console.error("Error fetching college branding:", err);
       }
       setCollegeBranding(null);
+      localStorage.removeItem("lms_college_branding");
     };
 
     fetchCollegeBranding();
@@ -76,10 +94,12 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
     // Listen for storage changes in case of login/logout
     window.addEventListener("storage", fetchCollegeBranding);
     return () => window.removeEventListener("storage", fetchCollegeBranding);
-  }, []);
+  }, [pathname]);
 
-  // College Branding takes precedence over Master Branding if it exists.
-  const activeBranding = collegeBranding || masterBranding;
+  const isPublicRoute = !pathname || pathname === "/" || pathname === "/college/login" || pathname === "/admin/login" || pathname === "/register";
+
+  // College Branding takes precedence over Master Branding if it exists, UNLESS it's a public route.
+  const activeBranding = (isPublicRoute ? null : collegeBranding) || masterBranding;
 
   return (
     <BrandingContext.Provider value={{ branding: activeBranding, loading }}>
