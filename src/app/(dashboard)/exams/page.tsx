@@ -420,6 +420,13 @@ export default function ExamsPage() {
               const att = getStudentAttemptForExam(e.id);
               const isSubmitted = att && att.status === "submitted";
               const isExpiredAndNotAttempted = !isSubmitted && (eff === "expired" || eff === "completed" || eff === "cancelled");
+              
+              const examCreatedMillis = toMillis(e.createdAt) ?? 0;
+              const studentCreatedMillis = studentUser ? toMillis(studentUser.createdAt) ?? 0 : 0;
+              const wasCreatedBeforeStudent = examCreatedMillis > 0 && studentCreatedMillis > 0 && examCreatedMillis < studentCreatedMillis;
+              
+              if (isExpiredAndNotAttempted && wasCreatedBeforeStudent) return false;
+              
               if (tab === "available") return !isSubmitted && !isExpiredAndNotAttempted;
               if (tab === "results") return isSubmitted || isExpiredAndNotAttempted;
               return false;
@@ -531,6 +538,13 @@ export default function ExamsPage() {
                 const att = getStudentAttemptForExam(exam.id);
                 const isSubmitted = att && att.status === "submitted";
                 const isExpiredAndNotAttempted = !isSubmitted && (eff === "expired" || eff === "completed" || eff === "cancelled");
+                
+                const examCreatedMillis = toMillis(exam.createdAt) ?? 0;
+                const studentCreatedMillis = studentUser ? toMillis(studentUser.createdAt) ?? 0 : 0;
+                const wasCreatedBeforeStudent = examCreatedMillis > 0 && studentCreatedMillis > 0 && examCreatedMillis < studentCreatedMillis;
+                
+                if (isExpiredAndNotAttempted && wasCreatedBeforeStudent) return false;
+
                 if (studentTab === "available") return !isSubmitted && !isExpiredAndNotAttempted;
                 if (studentTab === "results") return isSubmitted || isExpiredAndNotAttempted;
               } else {
