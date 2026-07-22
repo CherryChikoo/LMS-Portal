@@ -84,11 +84,11 @@ function recomputeScopedData() {
     cache.resources && 
     cache.attempts
   ) {
-    let fColleges = cache.colleges.data;
-    let fBatches = cache.batches.data;
-    let fStudents = cache.students.data;
-    let fExams = cache.exams.data;
-    let fResources = cache.resources.data;
+    let fColleges = cache.colleges.data.filter(c => c.status !== "deleted" && c.status !== "inactive");
+    let fBatches = cache.batches.data.filter(b => b.status !== "deleted" && b.status !== "inactive");
+    let fStudents = cache.students.data.filter(s => s.status !== "deleted" && s.status !== "inactive");
+    let fExams = cache.exams.data.filter(e => e.status !== "deleted" && e.status !== "inactive");
+    let fResources = cache.resources.data.filter(r => r.status !== "deleted" && r.status !== "inactive");
     let fAttempts = cache.attempts.data;
 
     try {
