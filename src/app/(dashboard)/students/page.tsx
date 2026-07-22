@@ -153,7 +153,7 @@ function StudentsContent() {
     setSavingEdit(true);
     try {
       const selectedColObj = colleges.find((c) => c.id === editCollegeId);
-      const colName = selectedColObj ? selectedColObj.name : "";
+      const colName = selectedColObj ? selectedColObj.name : (editCollegeId === "UNASSIGNED" ? "Unassigned" : "");
       const payload: Partial<Student> = {
         name: editName.trim(),
         email: editEmail.toLowerCase().trim(),
@@ -235,7 +235,7 @@ function StudentsContent() {
     setCreating(true);
     try {
       const colObj = colleges.find((c) => c.id === newCollegeId);
-      const colName = colObj ? colObj.name : newCollegeId;
+      const colName = colObj ? colObj.name : (newCollegeId === "UNASSIGNED" ? "Unassigned" : newCollegeId);
 
       await createStudentAuthProfile({
         email: newEmail,
@@ -651,7 +651,11 @@ function StudentsContent() {
                       </td>
                       <td className="py-3.5 px-4 font-mono text-xs text-muted-foreground">{student.email}</td>
                       <td className="py-3.5 px-4 font-medium text-foreground">
+                      <td className="py-3.5 px-4 font-medium text-foreground">
                         {(() => {
+                          if (student.collegeId === "UNASSIGNED" || student.collegeName === "Unassigned") {
+                            return <span className="px-2.5 py-1 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 text-xs font-bold uppercase tracking-wider">Unassigned</span>;
+                          }
                           const resolvedName = resolveInstitution(student.collegeId);
                           let finalName = resolvedName;
                           if (resolvedName === "Unknown Institution" && student.collegeName) {
@@ -982,6 +986,9 @@ function StudentsContent() {
                       className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground font-semibold"
                     >
 
+                      {userRole !== "college_admin" && (
+                        <option value="UNASSIGNED">Unassigned</option>
+                      )}
                       {colleges.map((c) => (
                         <option key={c.id} value={c.id}>{c.name || "Unnamed College"}</option>
                       ))}
@@ -1144,6 +1151,9 @@ function StudentsContent() {
                       className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground font-semibold"
                     >
 
+                      {userRole !== "college_admin" && (
+                        <option value="UNASSIGNED">Unassigned</option>
+                      )}
                       {colleges.map((c) => (
                         <option key={c.id} value={c.id}>{c.name || "Unnamed College"}</option>
                       ))}
