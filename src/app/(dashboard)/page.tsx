@@ -333,7 +333,7 @@ export default function DashboardPage() {
 
   const liveActivity = useMemo(() => {
     return [
-      ...exams.slice(0, 5).map((ex) => ({
+      ...activeOrScheduledExams.slice(0, 5).map((ex) => ({
         id: `ex-${ex.id}`,
         action: getEffectiveExamStatus(ex) === "active" ? "Live Assessment Active" : "Assessment Scheduled",
         detail: `${ex.title} (${ex.duration} mins, ${ex.totalMarks} marks)`,

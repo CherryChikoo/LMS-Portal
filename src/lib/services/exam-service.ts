@@ -62,7 +62,7 @@ export async function expireExam(id: string): Promise<void> {
 }
 
 export function getEffectiveExamStatus(exam: Exam): ExamStatus {
-  if (exam.status === "draft" || exam.status === "cancelled" || exam.status === "expired") return exam.status;
+  if (exam.status === "draft" || exam.status === "cancelled" || exam.status === "expired" || exam.status === "completed") return exam.status;
 
   const now = new Date().getTime();
   const startTime = toMillis(exam.startTime) ?? toMillis(exam.scheduledAt);
@@ -79,20 +79,18 @@ export function getEffectiveExamStatus(exam: Exam): ExamStatus {
 
 /**
  * Filter exams assigned to a specific student based on hierarchy or direct student target.
- * Hides old expired/completed tests that ended before the student's account was created.
+ * Only shows exams that were created AFTER the student account was created.
  */
 export function filterExamsForStudent(exams: Exam[], student: Student): Exam[] {
   return exams.filter((exam) => {
     if (!isAssignedToStudent(exam.targets, student)) return false;
 
-    const effStatus = getEffectiveExamStatus(exam);
-    if (effStatus === "expired" || effStatus === "completed" || effStatus === "cancelled") {
-      const studentCreatedMillis = toMillis(student.createdAt) ?? 0;
-      const examEndMillis = toMillis(exam.endTime);
-      
-      if (examEndMillis !== null && studentCreatedMillis > 0 && examEndMillis < studentCreatedMillis) {
-        return false;
-      }
+    const studentCreatedMillis = toMillis(student.createdAt) ?? 0;
+    const examCreatedMillis = toMillis(exam.createdAt) ?? 0;
+
+    // If the exam was created BEFORE the student's account was created, hide it
+    if (studentCreatedMillis > 0 && examCreatedMillis > 0 && examCreatedMillis < studentCreatedMillis) {
+      return false;
     }
 
     return true;
