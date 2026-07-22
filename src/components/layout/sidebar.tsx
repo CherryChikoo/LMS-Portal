@@ -126,7 +126,7 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "hidden lg:flex flex-col fixed left-0 top-0 bottom-0 z-30 bg-sidebar text-sidebar-foreground border-r border-border transition-[width] duration-300 ease-in-out",
+        "hidden lg:flex flex-col fixed left-0 top-0 bottom-0 z-30 bg-sidebar text-sidebar-foreground border-r border-border",
         isExpanded ? "w-[260px]" : "w-[80px]"
       )}
       style={{ fontFamily: '"Montserrat", sans-serif' }}
@@ -138,10 +138,10 @@ export function Sidebar() {
             <img
               src={branding.logoBase64}
               alt="Company Logo"
-              className={cn("object-contain rounded-lg shrink-0 transition-[width,height] duration-300", isExpanded ? "w-8 h-8" : "w-7 h-7 mx-auto")}
+              className={cn("object-contain rounded-lg shrink-0", isExpanded ? "w-8 h-8" : "w-7 h-7 mx-auto")}
             />
           ) : (
-            <div className={cn("rounded-lg bg-brand/10 text-brand flex items-center justify-center shrink-0 font-black text-lg transition-[width,height] duration-300", isExpanded ? "w-8 h-8" : "w-7 h-7 mx-auto")}>
+            <div className={cn("rounded-lg bg-brand/10 text-brand flex items-center justify-center shrink-0 font-black text-lg", isExpanded ? "w-8 h-8" : "w-7 h-7 mx-auto")}>
               {(branding.companyName || APP_NAME).charAt(0).toUpperCase()}
             </div>
           )}

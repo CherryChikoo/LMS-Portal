@@ -169,7 +169,7 @@ export default function DashboardLayout({
 
       {/* Main content area */}
       <div
-        className={`flex-1 flex flex-col min-h-[100dvh] relative z-10 transition-[margin] duration-300 ease-in-out ${
+        className={`flex-1 flex flex-col min-h-[100dvh] relative z-10 ${
           isExpanded ? "lg:ml-[260px]" : "lg:ml-[80px]"
         }`}
       >

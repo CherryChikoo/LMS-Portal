@@ -107,11 +107,11 @@ function LoginContent() {
         transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
         className="double-bezel-outer w-full p-2 sm:p-3"
       >
-        <div className="double-bezel-inner grid grid-cols-1 lg:grid-cols-12 overflow-hidden min-h-[auto] lg:min-h-[640px]">
+        <div className="double-bezel-inner grid grid-cols-1 lg:grid-cols-12 overflow-hidden min-h-[auto] lg:min-h-[580px]">
           {/* Right Form - first on mobile, right on desktop */}
-          <div className="order-1 lg:order-2 lg:col-span-6 p-5 sm:p-8 lg:p-14 flex flex-col justify-between bg-card/40 backdrop-blur-xl">
+          <div className="order-1 lg:order-2 lg:col-span-6 p-5 sm:p-8 lg:p-10 flex flex-col bg-card/40 backdrop-blur-xl">
 
-            <div className="my-auto py-6 sm:py-8 w-full max-w-sm sm:max-w-md mx-auto space-y-5 sm:space-y-6">
+            <div className="flex-1 flex flex-col justify-center w-full max-w-sm sm:max-w-md mx-auto space-y-5 sm:space-y-6 py-4">
               <div className="space-y-1.5">
                 <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">Sign In</h2>
                 <p className="text-sm text-muted-foreground">Log in to your account</p>
@@ -276,7 +276,7 @@ function LoginContent() {
           {/* Left Canvas (Decorative visual) - second on mobile, left on desktop */}
           <div className="order-2 lg:order-1 lg:col-span-6 relative p-5 sm:p-8 lg:p-12 flex-col justify-between overflow-hidden bg-zinc-950 text-white min-h-[160px] sm:min-h-[200px]">
             <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
-              <div className="absolute -top-24 -left-24 w-96 h-96 bg-brand/30 rounded-full blur-3xl animate-pulse" />
+              <div className="absolute -top-24 -left-24 w-96 h-96 bg-brand/30 rounded-full blur-3xl" />
               <div className="absolute top-1/3 -right-20 w-80 h-80 bg-blue-500/20 rounded-full blur-2xl" />
               <div className="absolute -bottom-20 left-10 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl" />
             </div>
