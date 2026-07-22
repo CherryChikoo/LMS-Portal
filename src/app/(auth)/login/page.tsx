@@ -123,7 +123,7 @@ function LoginContent() {
                     <GraduationCap className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
                   </div>
                 )}
-                <span className="font-bold text-base sm:text-lg text-foreground tracking-tight">Access Portal</span>
+
               </Link>
               <span className="text-[10px] sm:text-xs text-muted-foreground">Secure Login</span>
             </div>
@@ -215,7 +215,7 @@ function LoginContent() {
                       </span>
                     ) : (
                       <>
-                        <span>Sign In to Classroom</span>
+                        <span>Sign In</span>
                         <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center group-hover:translate-x-0.5 transition-transform">
                           <ArrowRight className="w-3.5 h-3.5" />
                         </div>
