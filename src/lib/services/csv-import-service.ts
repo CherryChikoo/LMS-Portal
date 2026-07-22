@@ -334,12 +334,14 @@ export async function importStudentsCSV(
               updatedAt: new Date(),
             };
 
-            // Execute auth updateProfile and both Firestore document writes in parallel
-            await Promise.all([
-              cred.user ? updateProfile(cred.user, { displayName: name }) : Promise.resolve(),
-              setDoc(doc(db, "students", uid), studentDoc),
-              setDoc(doc(db, "users", uid), { ...userDoc, mustChangePassword: true }),
-            ]);
+            // Execute auth updateProfile and atomic Firestore document writes
+            if (cred.user) {
+              await updateProfile(cred.user, { displayName: name });
+            }
+            const batch = writeBatch(db);
+            batch.set(doc(db, "students", uid), studentDoc);
+            batch.set(doc(db, "users", uid), { ...userDoc, mustChangePassword: true });
+            await batch.commit();
 
             summary.createdCount++;
             summary.results.push({
@@ -395,10 +397,10 @@ export async function importStudentsCSV(
                 };
 
                 try {
-                  await Promise.all([
-                    setDoc(doc(db, "students", uid), studentDoc),
-                    setDoc(doc(db, "users", uid), { ...userDoc, mustChangePassword: true }),
-                  ]);
+                  const batch = writeBatch(db);
+                  batch.set(doc(db, "students", uid), studentDoc);
+                  batch.set(doc(db, "users", uid), { ...userDoc, mustChangePassword: true });
+                  await batch.commit();
                   summary.createdCount++;
                   summary.results.push({
                     name,

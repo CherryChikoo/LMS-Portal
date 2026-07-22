@@ -557,10 +557,10 @@ export async function studentRegister(
     updatedAt: new Date(),
   };
 
-  await Promise.all([
-    setDoc(doc(db, USERS_COLLECTION, uid), userDoc),
-    setDoc(doc(db, STUDENTS_COLLECTION, uid), studentDoc),
-  ]);
+  const batch = writeBatch(db);
+  batch.set(doc(db, USERS_COLLECTION, uid), userDoc);
+  batch.set(doc(db, STUDENTS_COLLECTION, uid), studentDoc);
+  await batch.commit();
 
   return { user: credential.user };
 }
@@ -617,10 +617,10 @@ export async function completeStudentAcademicDetails(
     updatedAt: now,
   };
 
-  await Promise.all([
-    setDoc(doc(db, USERS_COLLECTION, uid), userDoc, { merge: true }),
-    setDoc(doc(db, STUDENTS_COLLECTION, uid), studentDoc, { merge: true }),
-  ]);
+  const batch = writeBatch(db);
+  batch.set(doc(db, USERS_COLLECTION, uid), userDoc, { merge: true });
+  batch.set(doc(db, STUDENTS_COLLECTION, uid), studentDoc, { merge: true });
+  await batch.commit();
 }
 
 /**
