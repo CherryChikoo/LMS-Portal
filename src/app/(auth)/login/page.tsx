@@ -78,7 +78,7 @@ function LoginContent() {
         batchIds: res.profile?.batchIds,
       };
       
-      await setAuthSession(uObj, res.role as string);
+      await setAuthSession(uObj, res.role as "admin" | "trainer" | "college_admin" | "student");
 
       if (res.role === "student") {
         window.location.assign("/student");
