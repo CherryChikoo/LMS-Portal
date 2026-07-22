@@ -163,43 +163,40 @@ export default function RegisterPage() {
         {/* Left Canvas */}
         <div className="lg:col-span-6 relative p-8 sm:p-12 flex flex-col justify-between overflow-hidden bg-zinc-950 text-white">
           <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
-            <div className="absolute -top-24 -left-24 w-96 h-96 bg-gradient-to-br from-emerald-500/40 via-teal-500/20 to-transparent rounded-full blur-3xl animate-pulse" />
-            <div className="absolute top-1/3 -right-20 w-80 h-80 bg-gradient-to-tr from-emerald-600/30 via-cyan-500/20 to-transparent rounded-full blur-2xl" />
-            <div className="absolute -bottom-20 left-10 w-96 h-96 bg-gradient-to-t from-[#10B981]/30 via-emerald-950/40 to-transparent rounded-full blur-3xl" />
+            <div className="absolute -top-24 -left-24 w-96 h-96 bg-brand/30 rounded-full blur-3xl" />
+            <div className="absolute top-1/3 -right-20 w-80 h-80 bg-blue-500/20 rounded-full blur-2xl" />
+            <div className="absolute -bottom-20 left-10 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl" />
           </div>
 
           <div className="relative z-10 flex items-center gap-3">
-            <span className="text-[10px] uppercase font-semibold tracking-[0.25em] text-emerald-400">
-              STUDENT LEARNING PORTAL
+            <span className="text-[10px] uppercase font-semibold tracking-[0.25em] text-brand-foreground/80 flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5" />
+              STUDENT REGISTRATION
             </span>
-            <div className="h-px w-12 bg-gradient-to-r from-emerald-500/50 to-transparent" />
+            <div className="h-px w-12 bg-gradient-to-r from-brand/50 to-transparent" />
           </div>
 
           <div className="relative z-10 my-auto py-8 space-y-5 max-w-md">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.07] border border-white/10 backdrop-blur-md text-xs font-medium text-emerald-300">
-              <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Strict Field & Password Verification</span>
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 border border-white/10 text-xs font-medium text-white/90">
+              <CheckCircle2 className="w-3.5 h-3.5 text-brand-foreground" />
+              <span>Secure Student Enrollment</span>
             </div>
-            <h1 className="text-3xl sm:text-4xl font-bold tracking-tight leading-[1.1] font-sans text-transparent bg-clip-text bg-gradient-to-b from-white via-white to-slate-300">
+            <h1 className="text-3xl sm:text-4xl font-bold tracking-tight leading-[1.1] font-sans text-transparent bg-clip-text bg-gradient-to-b from-white via-white to-white/60">
               Create Your Academic Account
             </h1>
-            <p className="text-sm text-slate-300 leading-relaxed font-normal">
+            <p className="text-sm text-white/60 leading-relaxed font-light">
               Join your college workspace to access lecture resources, complete online assessments, and participate in academic Q&A discussions.
             </p>
           </div>
 
-          <div className="relative z-10 flex items-center gap-4 text-xs text-slate-400 border-t border-white/10 pt-6">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span>Verified Identity Engine</span>
-            </div>
-            <span>•</span>
-            <span>Zero Password Database Storage</span>
+          <div className="relative z-10 pt-6 border-t border-white/10 flex items-center justify-between text-xs text-white/50">
+            <span className="font-medium text-white/70">Verified Identity Engine</span>
+            <span className="font-mono text-[11px] text-brand-foreground/70">Secure Enrollment</span>
           </div>
         </div>
 
         {/* Right Canvas: Registration Form */}
-        <div className="lg:col-span-6 p-6 sm:p-10 flex flex-col justify-center bg-card/60 backdrop-blur-xl relative overflow-y-auto max-h-[90vh] lg:max-h-none">
+        <div className="lg:col-span-6 p-6 sm:p-10 flex flex-col justify-center bg-card/80 relative overflow-y-auto max-h-[90vh] lg:max-h-none">
           {registered ? (
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="space-y-6 text-center py-6">
               <div className="w-16 h-16 rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 flex items-center justify-center mx-auto">

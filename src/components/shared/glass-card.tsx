@@ -6,23 +6,15 @@ import { cn } from "@/lib/utils";
 
 interface GlassCardProps extends HTMLAttributes<HTMLDivElement> {
   variant?: "default" | "elevated" | "interactive" | "subtle";
-  blur?: "sm" | "md" | "lg";
   hover?: boolean;
   gradient?: boolean;
 }
-
-const blurMap = {
-  sm: "backdrop-blur-[2px]",
-  md: "backdrop-blur-sm",
-  lg: "backdrop-blur-md",
-};
 
 const GlassCard = forwardRef<HTMLDivElement, GlassCardProps>(
   (
     {
       className,
       variant = "default",
-      blur = "md",
       hover = false,
       gradient = false,
       children,
@@ -34,8 +26,7 @@ const GlassCard = forwardRef<HTMLDivElement, GlassCardProps>(
       <div
         ref={ref}
         className={cn(
-          "rounded-xl border transition-all duration-300",
-          blurMap[blur],
+          "rounded-xl border transition-shadow duration-200",
           // Variants
           variant === "default" && "glass-card",
           variant === "elevated" &&
@@ -63,7 +54,6 @@ GlassCard.displayName = "GlassCard";
 
 interface AnimatedGlassCardProps extends HTMLMotionProps<"div"> {
   variant?: "default" | "elevated" | "interactive" | "subtle";
-  blur?: "sm" | "md" | "lg";
   hover?: boolean;
   gradient?: boolean;
 }
@@ -73,17 +63,15 @@ function AnimatedGlassCard({
   children,
   hover = true,
   variant = "default",
-  blur = "md",
   gradient = false,
   ...props
 }: AnimatedGlassCardProps) {
   return (
     <motion.div
-      whileHover={hover ? { y: -2, transition: { duration: 0.2 } } : undefined}
+      whileHover={hover ? { y: -2, transition: { duration: 0.15 } } : undefined}
       whileTap={hover ? { scale: 0.995 } : undefined}
       className={cn(
-        "rounded-xl border transition-all duration-300",
-        blurMap[blur],
+        "rounded-xl border transition-shadow duration-200",
         variant === "default" && "glass-card",
         variant === "elevated" && "glass-card shadow-lg dark:shadow-xl dark:shadow-black/20",
         variant === "interactive" && "glass-card cursor-pointer",

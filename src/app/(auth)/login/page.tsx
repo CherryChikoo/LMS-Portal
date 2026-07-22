@@ -125,7 +125,7 @@ function LoginContent() {
       >
         <div className="double-bezel-inner grid grid-cols-1 lg:grid-cols-12 overflow-hidden min-h-[auto] lg:min-h-[580px]">
           {/* Right Form - first on mobile, right on desktop */}
-          <div className="order-1 lg:order-2 lg:col-span-6 p-5 sm:p-8 lg:p-10 flex flex-col bg-card/40 backdrop-blur-xl">
+          <div className="order-1 lg:order-2 lg:col-span-6 p-5 sm:p-8 lg:p-10 flex flex-col bg-card/80">
 
             <div className="flex-1 flex flex-col justify-center w-full max-w-sm sm:max-w-md mx-auto space-y-4">
               <div className="space-y-1.5">
@@ -271,6 +271,7 @@ function LoginContent() {
                     </>
                   )}
                 </Button>
+                <p className="text-[10px] text-center text-muted-foreground/70 mt-1">Google Sign-In is available for student accounts only</p>
               </form>
                     <div className="text-center text-xs text-muted-foreground pt-3 mt-2 border-t border-border/50">
                 Don't have an account?{" "}

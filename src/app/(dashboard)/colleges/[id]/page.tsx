@@ -365,7 +365,13 @@ function getYearBadgeStyle(year?: string) {
       setStudEmail("");
       setCustomStudSection("");
       await refreshData();
-    } catch (err) {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("already exists")) {
+        setEnrollError("This email is already registered. The student can sign in directly using the Login page instead of being re-enrolled.");
+      } else {
+        setEnrollError(msg || "Failed to enroll student. Please try again.");
+      }
       console.error("Error enrolling student:", err);
     } finally {
       setEnrolling(false);

@@ -18,7 +18,7 @@ export const springs = {
   counter: { type: "spring" as const, stiffness: 50, damping: 15, mass: 0.5 },
 };
 
-// Fade animations
+// Fade animations — fast and subtle
 export const fadeIn: Variants = {
   hidden: { opacity: 0 },
   visible: {
@@ -28,7 +28,7 @@ export const fadeIn: Variants = {
 };
 
 export const fadeInUp: Variants = {
-  hidden: { opacity: 0, y: 20 },
+  hidden: { opacity: 0, y: 8 },
   visible: {
     opacity: 1,
     y: 0,
@@ -37,7 +37,7 @@ export const fadeInUp: Variants = {
 };
 
 export const fadeInDown: Variants = {
-  hidden: { opacity: 0, y: -20 },
+  hidden: { opacity: 0, y: -8 },
   visible: {
     opacity: 1,
     y: 0,
@@ -46,7 +46,7 @@ export const fadeInDown: Variants = {
 };
 
 export const fadeInScale: Variants = {
-  hidden: { opacity: 0, scale: 0.95 },
+  hidden: { opacity: 0, scale: 0.97 },
   visible: {
     opacity: 1,
     scale: 1,
@@ -56,7 +56,7 @@ export const fadeInScale: Variants = {
 
 // Slide animations
 export const slideInLeft: Variants = {
-  hidden: { opacity: 0, x: -30 },
+  hidden: { opacity: 0, x: -12 },
   visible: {
     opacity: 1,
     x: 0,
@@ -65,7 +65,7 @@ export const slideInLeft: Variants = {
 };
 
 export const slideInRight: Variants = {
-  hidden: { opacity: 0, x: 30 },
+  hidden: { opacity: 0, x: 12 },
   visible: {
     opacity: 1,
     x: 0,
@@ -73,41 +73,41 @@ export const slideInRight: Variants = {
   },
 };
 
-// Stagger container
+// Stagger container — nearly instant cascade
 export const staggerContainer: Variants = {
   hidden: { opacity: 0 },
   visible: {
     opacity: 1,
     transition: {
       staggerChildren: 0.02,
-      delayChildren: 0.05,
+      delayChildren: 0.02,
     },
   },
 };
 
 export const staggerItem: Variants = {
-  hidden: { opacity: 0, y: 16 },
+  hidden: { opacity: 0, y: 6 },
   visible: {
     opacity: 1,
     y: 0,
-    transition: { duration: 0.2, ease: easings.smooth },
+    transition: { duration: 0.18, ease: easings.smooth },
   },
 };
 
 // Glass hover effect
 export const glassHover = {
-  scale: 1.02,
-  transition: { duration: 0.3, ease: easings.smooth },
+  scale: 1.01,
+  transition: { duration: 0.15, ease: easings.smooth },
 };
 
 export const glassActive = {
-  scale: 0.98,
-  transition: { duration: 0.15 },
+  scale: 0.99,
+  transition: { duration: 0.1 },
 };
 
 // Page transition
 export const pageTransition: Variants = {
-  initial: { opacity: 0, y: 8 },
+  initial: { opacity: 0, y: 4 },
   animate: {
     opacity: 1,
     y: 0,
@@ -115,8 +115,8 @@ export const pageTransition: Variants = {
   },
   exit: {
     opacity: 0,
-    y: -8,
-    transition: { duration: 0.3, ease: easings.smooth },
+    y: -4,
+    transition: { duration: 0.1, ease: easings.smooth },
   },
 };
 
@@ -124,11 +124,11 @@ export const pageTransition: Variants = {
 export const sidebarVariants: Variants = {
   expanded: {
     width: 260,
-    transition: { duration: 0.3, ease: easings.smooth },
+    transition: { duration: 0.2, ease: easings.smooth },
   },
   collapsed: {
     width: 72,
-    transition: { duration: 0.3, ease: easings.smooth },
+    transition: { duration: 0.2, ease: easings.smooth },
   },
 };
 
@@ -136,32 +136,32 @@ export const sidebarVariants: Variants = {
 export const navItemVariants: Variants = {
   inactive: {
     backgroundColor: "rgba(255, 255, 255, 0)",
-    transition: { duration: 0.2 },
+    transition: { duration: 0.15 },
   },
   active: {
     backgroundColor: "rgba(255, 255, 255, 0.08)",
-    transition: { duration: 0.2 },
+    transition: { duration: 0.15 },
   },
 };
 
 // Tooltip/dropdown appear
 export const popoverVariants: Variants = {
-  hidden: { opacity: 0, scale: 0.95, y: -4 },
+  hidden: { opacity: 0, scale: 0.97, y: -2 },
   visible: {
     opacity: 1,
     scale: 1,
     y: 0,
-    transition: { duration: 0.2, ease: easings.smooth },
+    transition: { duration: 0.12, ease: easings.smooth },
   },
 };
 
 // Shared transition presets
 export const defaultTransition: Transition = {
-  duration: 0.3,
+  duration: 0.2,
   ease: easings.smooth,
 };
 
 export const slowTransition: Transition = {
-  duration: 0.6,
+  duration: 0.35,
   ease: easings.gentle,
 };
