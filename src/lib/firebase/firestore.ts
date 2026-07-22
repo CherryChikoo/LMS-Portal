@@ -39,9 +39,9 @@ export async function getDocuments<T extends DocumentData>(
 ): Promise<T[]> {
   const q = query(collection(db, collectionName), ...constraints);
   const querySnapshot = await getDocs(q);
-  return querySnapshot.docs.map(
-    (d) => ({ id: d.id, ...d.data() } as unknown as T)
-  );
+  return querySnapshot.docs
+    .map((d) => ({ id: d.id, ...d.data() } as unknown as T))
+    .filter((d: any) => !d.isDeleted && !d.deletedAt);
 }
 
 /**
@@ -130,9 +130,9 @@ export async function getPaginatedDocuments<T extends DocumentData>(
   }
   const q = query(collection(db, collectionName), ...baseConstraints);
   const querySnapshot = await getDocs(q);
-  const data = querySnapshot.docs.map(
-    (d) => ({ id: d.id, ...d.data() } as unknown as T)
-  );
+  const data = querySnapshot.docs
+    .map((d) => ({ id: d.id, ...d.data() } as unknown as T))
+    .filter((d: any) => !d.isDeleted && !d.deletedAt);
   const last = querySnapshot.docs[querySnapshot.docs.length - 1] || null;
   return { data, lastDoc: last };
 }
@@ -144,9 +144,9 @@ export function subscribeToDocuments<T extends DocumentData>(
 ): () => void {
   const q = query(collection(db, collectionName), ...constraints);
   return onSnapshot(q, (snapshot) => {
-    const data = snapshot.docs.map(
-      (d) => ({ id: d.id, ...d.data() } as unknown as T)
-    );
+    const data = snapshot.docs
+      .map((d) => ({ id: d.id, ...d.data() } as unknown as T))
+      .filter((d: any) => !d.isDeleted && !d.deletedAt);
     callback(data);
   });
 }
