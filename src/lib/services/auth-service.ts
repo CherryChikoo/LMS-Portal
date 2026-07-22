@@ -762,17 +762,19 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
        const studentDoc = await getDocument<Student>("students", uid);
        if (studentDoc) {
            profile = {
-             id: studentDoc.id || uid,
-             email: studentDoc.email || credential.user.email || cleanEmail,
-             displayName: studentDoc.name || "Student",
-             role: "student",
-             department: studentDoc.department || "Computer Science & Engineering",
-             collegeId: studentDoc.collegeId || "",
-             collegeName: studentDoc.collegeName || "",
-             academicYear: studentDoc.academicYear,
-             section: studentDoc.section,
-             batchIds: studentDoc.batchIds || [],
-           };
+              id: studentDoc.id || uid,
+              email: studentDoc.email || credential.user.email || cleanEmail,
+              displayName: studentDoc.name || "Student",
+              role: "student",
+              department: studentDoc.department || "Computer Science & Engineering",
+              collegeId: studentDoc.collegeId || "",
+              collegeName: studentDoc.collegeName || "",
+              academicYear: studentDoc.academicYear || undefined,
+              section: studentDoc.section || undefined,
+              batchIds: studentDoc.batchIds || [],
+              createdAt: studentDoc.createdAt || new Date(),
+              updatedAt: studentDoc.updatedAt || new Date(),
+            } as ExtendedUser;
        } else {
            await firebaseSignOut(auth);
            throw new Error("Unauthorized: Account not found in directory.");
