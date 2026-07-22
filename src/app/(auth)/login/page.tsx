@@ -50,12 +50,12 @@ function LoginContent() {
         name: res.profile?.displayName || res.user.displayName || res.user.email?.split("@")[0] || "User",
         email: res.profile?.email || res.user.email || "",
         role: res.role,
-        department: res.profile?.department || "General",
-        collegeId: res.profile?.collegeId || "",
-        collegeName: res.profile?.collegeName || "",
-        academicYear: res.profile?.academicYear,
-        section: res.profile?.section,
-        batchIds: res.profile?.batchIds,
+        department: (res.profile as any)?.department || "General",
+        collegeId: (res.profile as any)?.collegeId || "",
+        collegeName: (res.profile as any)?.collegeName || "",
+        academicYear: (res.profile as any)?.academicYear,
+        section: (res.profile as any)?.section,
+        batchIds: (res.profile as any)?.batchIds,
       };
       
       await setAuthSession(uObj, res.role as "admin" | "trainer" | "college_admin" | "student");
