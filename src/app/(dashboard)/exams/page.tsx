@@ -386,7 +386,8 @@ export default function ExamsPage() {
   };
 
   return (
-    <motion.div initial="hidden" animate="visible" variants={fadeInUp} className="space-y-6">
+    <>
+      <motion.div initial="hidden" animate="visible" variants={fadeInUp} className="space-y-6">
       <Suspense fallback={null}>
         <ActionHandler onAction={(action) => {
           if (action === "new-markdown" && creationMode === "none") {
@@ -1061,6 +1062,7 @@ export default function ExamsPage() {
             })}
             </div>
           )}
+      </motion.div>
 
       {/* Test Creation Modal (Manual / Markdown) */}
       <AnimatePresence>
@@ -1714,6 +1716,6 @@ Marks: 1`}
         variant={confirmConfig?.variant || "destructive"}
         isAlert={confirmConfig?.isAlert}
       />
-    </motion.div>
+    </>
   );
 }
