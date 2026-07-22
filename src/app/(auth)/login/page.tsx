@@ -44,6 +44,22 @@ function LoginContent() {
     setError(null);
     try {
       const res = await unifiedGoogleLogin();
+      
+      const uObj = {
+        id: res.user.uid,
+        name: res.profile?.displayName || res.user.displayName || res.user.email?.split("@")[0] || "User",
+        email: res.profile?.email || res.user.email || "",
+        role: res.role,
+        department: res.profile?.department || "General",
+        collegeId: res.profile?.collegeId || "",
+        collegeName: res.profile?.collegeName || "",
+        academicYear: res.profile?.academicYear,
+        section: res.profile?.section,
+        batchIds: res.profile?.batchIds,
+      };
+      
+      await setAuthSession(uObj, res.role as "admin" | "trainer" | "college_admin" | "student");
+      
       const target = res.role === "student" ? "/student" : (res.role === "college_admin" ? "/colleges" : "/admin");
       window.location.assign(target);
     } catch (err: unknown) {
@@ -298,7 +314,7 @@ function LoginContent() {
                 Welcome to {APP_NAME}
               </h1>
               <p className="text-xs sm:text-sm lg:text-base text-white/60 leading-relaxed font-light">
-                Sign in to access your assessments, manage your institution, or oversee administrative operations.
+                Sign in securely to access your personalized learning dashboard, manage institutional records, and track your progress.
               </p>
             </div>
 
