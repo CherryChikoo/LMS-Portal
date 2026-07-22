@@ -48,6 +48,7 @@ export default function ExamsPage() {
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm?: () => void; isAlert?: boolean; variant?: "destructive" | "warning" | "info" | "success" } | null>(null);
   const [userRole, setUserRole] = useState<string>("admin");
   const [studentTab, setStudentTab] = useState<"available" | "results">("available");
+  const [adminTab, setAdminTab] = useState<"live" | "expired">("live");
   const [examSearch, setExamSearch] = useState("");
   const [examSearchRaw, setExamSearchRaw] = useState("");
 
@@ -466,6 +467,32 @@ export default function ExamsPage() {
         </div>
       )}
 
+      {userRole !== "student" && (
+        <div className="flex items-center gap-2 border-b border-border pb-3 overflow-x-auto mt-6">
+          {(["live", "expired"] as const).map((tab) => {
+            const count = exams.filter((e) => {
+              const eff = getEffectiveExamStatus(e);
+              if (tab === "live") return eff === "active" || eff === "scheduled" || eff === "draft";
+              if (tab === "expired") return eff === "expired" || eff === "completed" || eff === "cancelled";
+              return false;
+            }).length;
+            return (
+              <button
+                key={tab}
+                onClick={() => setAdminTab(tab)}
+                className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${
+                  adminTab === tab
+                    ? "bg-brand text-white shadow"
+                    : "bg-muted/40 hover:bg-muted text-muted-foreground"
+                }`}
+              >
+                {tab === "live" ? "Live & Upcoming" : "Past & Expired"} ({count})
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Search & Powerful Hierarchy Filter Bar for Exams */}
       {!loading && exams.length > 0 && (
         <div className="flex flex-col gap-3.5 bg-card/60 backdrop-blur-md p-4 rounded-2xl border border-border/80 shadow-sm">
@@ -566,6 +593,10 @@ export default function ExamsPage() {
                 if (studentTab === "available") return !isSubmitted && !isExpiredAndNotAttempted;
                 if (studentTab === "results") return isSubmitted || isExpiredAndNotAttempted;
               } else {
+                const eff = getEffectiveExamStatus(exam);
+                if (adminTab === "live" && !(eff === "active" || eff === "scheduled" || eff === "draft")) return false;
+                if (adminTab === "expired" && !(eff === "expired" || eff === "completed" || eff === "cancelled")) return false;
+
                 const t = exam.targets?.[0];
                 if (examFilters.collegeId && t?.collegeId !== examFilters.collegeId) return false;
                 if (examFilters.department && t?.department !== examFilters.department) return false;
