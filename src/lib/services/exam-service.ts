@@ -46,6 +46,15 @@ export async function updateExam(id: string, data: Partial<Exam>): Promise<void>
   return updateDocument<Exam>(EXAMS_COLLECTION, id, data);
 }
 
+export async function deleteExam(id: string): Promise<void> {
+  // Hard delete the exam and all associated results
+  const results = await getResultsByExam(id);
+  if (results.length > 0) {
+    await Promise.all(results.map(r => deleteDocument(RESULTS_COLLECTION, r.id)));
+  }
+  return deleteDocument(EXAMS_COLLECTION, id);
+}
+
 export async function expireExam(id: string): Promise<void> {
   return updateDocument<Exam>(EXAMS_COLLECTION, id, {
     status: "expired",

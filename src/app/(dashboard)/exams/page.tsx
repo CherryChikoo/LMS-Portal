@@ -12,7 +12,7 @@ import { AcademicHierarchyFilters } from "@/components/shared/academic-hierarchy
 import { useAcademicHierarchy } from "@/lib/hierarchy/use-academic-hierarchy";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
-import { getAllExams, createExam, expireExam, parseMarkdownTest, getEffectiveExamStatus, getStudentAttempts, getStudentAttemptsForCurrentUser, filterExamsForStudent, reviewQuestionsWithAI, findStudentAttemptForExam, type AIReviewResult } from "@/lib/services";
+import { getAllExams, createExam, expireExam, deleteExam, parseMarkdownTest, getEffectiveExamStatus, getStudentAttempts, getStudentAttemptsForCurrentUser, filterExamsForStudent, reviewQuestionsWithAI, findStudentAttemptForExam, type AIReviewResult } from "@/lib/services";
 import { getCurrentUser } from "@/lib/utils/auth-session";
 import { toDate, toMillis } from "@/lib/utils/date";
 import { useLMSData } from "@/lib/data/use-lms-data";
@@ -361,6 +361,24 @@ export default function ExamsPage() {
         } catch (err) {
           console.error("Failed to expire exam:", err);
           toast.error(formatAuthError(err, "Failed to expire assessment."));
+        }
+      }
+    });
+  };
+
+  const handleDeleteExam = (id: string) => {
+    setConfirmConfig({
+      isOpen: true,
+      title: "Delete Assessment",
+      message: "Are you sure you want to permanently delete this assessment? ALL associated student results will also be deleted completely. This action cannot be undone.",
+      variant: "danger",
+      onConfirm: async () => {
+        try {
+          await deleteExam(id);
+          toast.success("Assessment deleted successfully");
+        } catch (err) {
+          console.error("Failed to delete exam:", err);
+          toast.error(formatAuthError(err, "Failed to delete assessment."));
         }
       }
     });
@@ -947,12 +965,17 @@ export default function ExamsPage() {
                             disabled={effStatus === "expired" || effStatus === "cancelled" || effStatus === "completed"}
                             className={`p-2 rounded-lg transition-all duration-200 border ${
                               effStatus === "expired" || effStatus === "cancelled" || effStatus === "completed"
-                                ? "bg-gray-100 text-gray-400 border-gray-200 dark:bg-gray-800/50 dark:text-gray-500 dark:border-gray-800 cursor-not-allowed"
-                                : "bg-transparent text-gray-500 border-gray-200 hover:bg-orange-50 hover:text-orange-600 hover:border-orange-200 dark:text-gray-400 dark:border-gray-700 dark:hover:bg-orange-900/20 dark:hover:text-orange-400 dark:hover:border-orange-900/50"
                             }`}
                             title={effStatus === "expired" || effStatus === "cancelled" || effStatus === "completed" ? "Assessment already expired" : "Expire Assessment"}
                           >
                             <Ban className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteExam(exam.id)}
+                            className="p-2 rounded-lg transition-all duration-200 bg-transparent text-gray-500 border-gray-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200 dark:text-gray-400 dark:hover:bg-red-900/20 dark:hover:text-red-400 dark:hover:border-red-900/50"
+                            title="Delete Assessment"
+                          >
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
                       </div>

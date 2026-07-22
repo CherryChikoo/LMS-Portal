@@ -37,7 +37,7 @@ export async function updateCollege(id: string, data: Partial<College>): Promise
 }
 
 export async function deleteCollege(id: string): Promise<void> {
-  return updateDocument<College>(COLLEGE_COLLECTION, id, { isDeleted: true });
+  return deleteDocument(COLLEGE_COLLECTION, id);
 }
 
 // Batches
@@ -70,7 +70,7 @@ export async function updateBatch(id: string, data: Partial<Batch>): Promise<voi
 }
 
 export async function deleteBatch(id: string): Promise<void> {
-  return updateDocument<Batch>(BATCH_COLLECTION, id, { isDeleted: true });
+  return deleteDocument(BATCH_COLLECTION, id);
 }
 
 // Department helpers

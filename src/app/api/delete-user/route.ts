@@ -12,24 +12,22 @@ export async function POST(request: NextRequest) {
 
     const db = getFirestore();
 
-    // 1. Preserve student name in exam_results before deleting the student record
+    // 1. Delete all exam_results for this student
     const studentDoc = await db.collection("students").doc(uid).get();
     if (studentDoc.exists) {
-      const studentData = studentDoc.data() || {};
       const resultsSnap = await db.collection("exam_results").where("studentId", "==", uid).get();
       const batch = db.batch();
       resultsSnap.docs.forEach((docSnap) => {
-        const data = docSnap.data();
-        if (!data.studentName && studentData.name) {
-          batch.update(docSnap.ref, { studentName: studentData.name });
-        }
+        batch.delete(docSnap.ref);
       });
       await batch.commit();
-      await db.collection("students").doc(uid).update({ isDeleted: true, status: "deleted" });
+      
+      // Delete the student document
+      await db.collection("students").doc(uid).delete();
     }
 
-    // 2. Soft delete the user document (best effort)
-    await db.collection("users").doc(uid).update({ isDeleted: true, status: "deleted" }).catch(() => {});
+    // 2. Delete the user document (best effort)
+    await db.collection("users").doc(uid).delete().catch(() => {});
 
     // 3. Delete the Firebase Auth user and revoke active sessions (best effort)
     try {
