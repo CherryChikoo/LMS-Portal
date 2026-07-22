@@ -651,7 +651,6 @@ function StudentsContent() {
                       </td>
                       <td className="py-3.5 px-4 font-mono text-xs text-muted-foreground">{student.email}</td>
                       <td className="py-3.5 px-4 font-medium text-foreground">
-                      <td className="py-3.5 px-4 font-medium text-foreground">
                         {(() => {
                           if (student.collegeId === "UNASSIGNED" || student.collegeName === "Unassigned") {
                             return <span className="px-2.5 py-1 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 text-xs font-bold uppercase tracking-wider">Unassigned</span>;
