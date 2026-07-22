@@ -66,9 +66,18 @@ export async function createStudentAuthProfile(
     }),
   });
 
-  const body = await response.json().catch(() => ({}));
+  let body: any = {};
+  let rawText = "";
+  try {
+    const text = await response.text();
+    rawText = text;
+    body = JSON.parse(text);
+  } catch (err) {
+    console.error("Failed to parse response as JSON. Raw response:", rawText);
+  }
+
   if (!response.ok) {
-    throw new Error(body.error || `Failed to create student account (${response.status}).`);
+    throw new Error(body.error || `Failed to create student account (${response.status}). ${rawText ? "Raw: " + rawText.slice(0, 100) : ""}`);
   }
 
   return {
