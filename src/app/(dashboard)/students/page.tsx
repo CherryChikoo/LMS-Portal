@@ -42,6 +42,7 @@ function StudentsContent() {
   const initialCollegeId = searchParams.get("collegeId") || "";
   const initialBatchId = searchParams.get("batchId") || "";
   const actionParam = searchParams.get("action");
+  const userRole = typeof window !== "undefined" ? localStorage.getItem("lms_role") : "admin";
 
   const { filteredStudents: students, filteredColleges: colleges, filteredBatches: batches, loading: lmsLoading } = useLMSData();
   const { resolveInstitution, resolveBatch } = useEntityResolution();
