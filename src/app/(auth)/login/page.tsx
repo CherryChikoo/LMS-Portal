@@ -111,7 +111,7 @@ function LoginContent() {
           {/* Right Form - first on mobile, right on desktop */}
           <div className="order-1 lg:order-2 lg:col-span-6 p-5 sm:p-8 lg:p-10 flex flex-col bg-card/40 backdrop-blur-xl">
 
-            <div className="flex-1 flex flex-col justify-center w-full max-w-sm sm:max-w-md mx-auto space-y-5 sm:space-y-6 py-4">
+            <div className="flex-1 flex flex-col justify-center w-full max-w-sm sm:max-w-md mx-auto space-y-4">
               <div className="space-y-1.5">
                 <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">Sign In</h2>
                 <p className="text-sm text-muted-foreground">Log in to your account</p>
@@ -124,7 +124,7 @@ function LoginContent() {
                 </div>
               )}
 
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <form onSubmit={handleSubmit} className="space-y-3">
                 <div className="space-y-1.5">
                   <label className="text-[10px] sm:text-xs font-semibold text-foreground/80 uppercase tracking-wider">
                     Email Address
@@ -134,7 +134,7 @@ function LoginContent() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
-                    className="w-full h-10 sm:h-11 min-h-[44px] px-3 sm:px-4 rounded-xl border border-white/10 dark:border-white/10 bg-card/50 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-brand/50"
+                    className="w-full h-9 sm:h-10 min-h-[36px] px-3 sm:px-4 rounded-xl border border-white/10 dark:border-white/10 bg-card/50 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-brand/50"
                     placeholder="you@example.com"
                   />
                 </div>
@@ -149,7 +149,7 @@ function LoginContent() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       required
-                      className="w-full h-10 sm:h-11 min-h-[44px] pl-3 sm:pl-4 pr-11 rounded-xl border border-white/10 dark:border-white/10 bg-card/50 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-brand/50"
+                      className="w-full h-9 sm:h-10 min-h-[36px] pl-3 sm:pl-4 pr-11 rounded-xl border border-white/10 dark:border-white/10 bg-card/50 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-brand/50"
                       placeholder="••••••••"
                     />
                     <button
@@ -182,11 +182,11 @@ function LoginContent() {
                   </span>
                 </div>
 
-                <div className="pt-2">
+                <div className="pt-1">
                   <Button
                     type="submit"
                     disabled={loading}
-                    className="w-full h-10 sm:h-11 min-h-[44px] rounded-xl bg-brand text-brand-foreground font-medium hover:bg-brand/90 transition-all flex items-center justify-center gap-2 group text-sm sm:text-base"
+                    className="w-full h-9 sm:h-10 min-h-[36px] rounded-xl bg-brand text-brand-foreground font-medium hover:bg-brand/90 transition-all flex items-center justify-center gap-2 group text-sm sm:text-base"
                   >
                     {loading ? (
                       <span className="flex items-center gap-2">
@@ -207,7 +207,7 @@ function LoginContent() {
                   </Button>
                 </div>
 
-                <div className="relative my-4">
+                <div className="relative my-3">
                   <div className="absolute inset-0 flex items-center">
                     <div className="w-full border-t border-border" />
                   </div>
@@ -221,7 +221,7 @@ function LoginContent() {
                   variant="outline"
                   onClick={handleGoogleLogin}
                   disabled={loading || googleLoading}
-                  className="w-full h-10 sm:h-11 min-h-[44px] rounded-xl border border-white/10 dark:border-white/10 bg-card hover:bg-muted font-semibold text-foreground flex items-center justify-center gap-2 sm:gap-3 transition-all shadow-sm text-xs sm:text-sm"
+                  className="w-full h-9 sm:h-10 min-h-[36px] rounded-xl border border-white/10 dark:border-white/10 bg-card hover:bg-muted font-semibold text-foreground flex items-center justify-center gap-2 sm:gap-3 transition-all shadow-sm text-xs sm:text-sm"
                 >
                   {googleLoading ? (
                     <span className="flex items-center gap-2 text-xs">
@@ -256,7 +256,7 @@ function LoginContent() {
                   )}
                 </Button>
               </form>
-                    <div className="text-center text-xs text-muted-foreground pt-4 border-t border-border/50">
+                    <div className="text-center text-xs text-muted-foreground pt-3 mt-2 border-t border-border/50">
                 Don't have an account?{" "}
                 <Link href="/register" className="text-brand font-semibold hover:underline">
                   Create Account
@@ -264,7 +264,7 @@ function LoginContent() {
               </div>
             </div>
 
-            <div className="pt-6 mt-6 border-t border-border/50 flex flex-col sm:flex-row items-center justify-between text-xs text-muted-foreground gap-3">
+            <div className="pt-4 mt-auto border-t border-border/50 flex flex-col sm:flex-row items-center justify-between text-xs text-muted-foreground gap-3">
               <span>&copy; {new Date().getFullYear()} {APP_NAME}. All rights reserved.</span>
               <div className="flex items-center gap-4">
                 <Link href="/privacy" className="hover:text-foreground transition-colors">Privacy</Link>
