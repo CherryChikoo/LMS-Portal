@@ -372,7 +372,7 @@ export default function ExamsPage() {
       isOpen: true,
       title: "Delete Assessment",
       message: "Are you sure you want to permanently delete this assessment? ALL associated student results will also be deleted completely. This action cannot be undone.",
-      variant: "danger",
+      variant: "destructive",
       onConfirm: async () => {
         try {
           await deleteExam(id);
