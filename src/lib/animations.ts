@@ -23,7 +23,7 @@ export const fadeIn: Variants = {
   hidden: { opacity: 0 },
   visible: {
     opacity: 1,
-    transition: { duration: 0.15, ease: easings.smooth },
+    transition: { duration: 0.2, ease: easings.smooth },
   },
 };
 
@@ -32,7 +32,7 @@ export const fadeInUp: Variants = {
   visible: {
     opacity: 1,
     y: 0,
-    transition: { duration: 0.2, ease: easings.smooth },
+    transition: { duration: 0.25, ease: easings.smooth },
   },
 };
 
@@ -41,7 +41,7 @@ export const fadeInDown: Variants = {
   visible: {
     opacity: 1,
     y: 0,
-    transition: { duration: 0.2, ease: easings.smooth },
+    transition: { duration: 0.25, ease: easings.smooth },
   },
 };
 
@@ -50,7 +50,7 @@ export const fadeInScale: Variants = {
   visible: {
     opacity: 1,
     scale: 1,
-    transition: { duration: 0.15, ease: easings.smooth },
+    transition: { duration: 0.2, ease: easings.smooth },
   },
 };
 
@@ -60,7 +60,7 @@ export const slideInLeft: Variants = {
   visible: {
     opacity: 1,
     x: 0,
-    transition: { duration: 0.2, ease: easings.smooth },
+    transition: { duration: 0.25, ease: easings.smooth },
   },
 };
 
@@ -69,7 +69,7 @@ export const slideInRight: Variants = {
   visible: {
     opacity: 1,
     x: 0,
-    transition: { duration: 0.2, ease: easings.smooth },
+    transition: { duration: 0.25, ease: easings.smooth },
   },
 };
 
@@ -79,7 +79,7 @@ export const staggerContainer: Variants = {
   visible: {
     opacity: 1,
     transition: {
-      staggerChildren: 0.02,
+      staggerChildren: 0.04,
       delayChildren: 0.02,
     },
   },
@@ -90,19 +90,19 @@ export const staggerItem: Variants = {
   visible: {
     opacity: 1,
     y: 0,
-    transition: { duration: 0.18, ease: easings.smooth },
+    transition: { duration: 0.25, ease: easings.smooth },
   },
 };
 
 // Glass hover effect
 export const glassHover = {
   scale: 1.01,
-  transition: { duration: 0.15, ease: easings.smooth },
+  transition: { duration: 0.2, ease: easings.smooth },
 };
 
 export const glassActive = {
   scale: 0.99,
-  transition: { duration: 0.1 },
+  transition: { duration: 0.15 },
 };
 
 // Page transition
@@ -111,24 +111,12 @@ export const pageTransition: Variants = {
   animate: {
     opacity: 1,
     y: 0,
-    transition: { duration: 0.15, ease: easings.smooth },
+    transition: { duration: 0.25, ease: easings.smooth },
   },
   exit: {
     opacity: 0,
     y: -4,
-    transition: { duration: 0.1, ease: easings.smooth },
-  },
-};
-
-// Sidebar animation
-export const sidebarVariants: Variants = {
-  expanded: {
-    width: 260,
-    transition: { duration: 0.2, ease: easings.smooth },
-  },
-  collapsed: {
-    width: 72,
-    transition: { duration: 0.2, ease: easings.smooth },
+    transition: { duration: 0.18, ease: easings.smooth },
   },
 };
 
@@ -136,11 +124,11 @@ export const sidebarVariants: Variants = {
 export const navItemVariants: Variants = {
   inactive: {
     backgroundColor: "rgba(255, 255, 255, 0)",
-    transition: { duration: 0.15 },
+    transition: { duration: 0.2 },
   },
   active: {
     backgroundColor: "rgba(255, 255, 255, 0.08)",
-    transition: { duration: 0.15 },
+    transition: { duration: 0.2 },
   },
 };
 
@@ -151,13 +139,13 @@ export const popoverVariants: Variants = {
     opacity: 1,
     scale: 1,
     y: 0,
-    transition: { duration: 0.12, ease: easings.smooth },
+    transition: { duration: 0.18, ease: easings.smooth },
   },
 };
 
 // Shared transition presets
 export const defaultTransition: Transition = {
-  duration: 0.2,
+  duration: 0.25,
   ease: easings.smooth,
 };
 

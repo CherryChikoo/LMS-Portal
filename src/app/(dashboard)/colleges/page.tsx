@@ -186,7 +186,6 @@ export default function CollegesPage() {
           setSelectedExternalIds((prev) => prev.filter((id) => id !== extName));
           await fetchColleges();
           setSuccessPopup(`Outside institution "${extName}" was deleted successfully.`);
-          setTimeout(() => window.location.reload(), 1500);
         } catch (err) {
           console.error("Failed to delete outside institution:", err);
         } finally {
@@ -210,7 +209,6 @@ export default function CollegesPage() {
           setSelectedExternalIds([]);
           await fetchColleges();
           setSuccessPopup(`${selectedExternalIds.length} outside institution(s) were deleted successfully.`);
-          setTimeout(() => window.location.reload(), 1500);
         } catch (err) {
           console.error("Failed to delete selected outside institutions:", err);
         } finally {
@@ -235,7 +233,6 @@ export default function CollegesPage() {
           setSelectedExternalIds([]);
           await fetchColleges();
           setSuccessPopup("All outside institutions were deleted successfully.");
-          setTimeout(() => window.location.reload(), 1500);
         } catch (err) {
           console.error("Failed to delete all outside institutions:", err);
         } finally {

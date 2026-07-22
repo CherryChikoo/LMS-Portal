@@ -147,8 +147,8 @@ export function Sidebar() {
           )}
           <div
             className={cn(
-              "flex flex-col min-w-0 overflow-hidden whitespace-nowrap transition-opacity duration-300 ease-in-out",
-              isExpanded ? "w-[160px] opacity-100 ml-2" : "w-0 opacity-0 ml-0"
+              "absolute left-[52px] flex flex-col min-w-[160px] whitespace-nowrap transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
+              isExpanded ? "opacity-100 translate-x-0 pointer-events-auto" : "opacity-0 -translate-x-4 pointer-events-none"
             )}
           >
             <span className="font-bold text-lg text-brand tracking-tight truncate flex items-center gap-2">
@@ -182,8 +182,8 @@ export function Sidebar() {
             <div key={section.title}>
               <div
                 className={cn(
-                  "overflow-hidden transition-[max-height,opacity] duration-300 ease-in-out",
-                  isExpanded ? "max-h-10 opacity-100" : "max-h-0 opacity-0"
+                  "overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
+                  isExpanded ? "opacity-100 max-h-10 transform-none" : "opacity-0 max-h-0 -translate-x-4 pointer-events-none"
                 )}
               >
                 <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground/60 mb-2 px-3.5 mt-2">
@@ -214,8 +214,8 @@ export function Sidebar() {
                       />
                       <span
                         className={cn(
-                          "whitespace-nowrap overflow-hidden flex items-center transition-opacity duration-300 ease-in-out",
-                          isExpanded ? "w-[160px] opacity-100" : "w-0 opacity-0"
+                          "absolute left-[52px] min-w-[160px] flex items-center transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
+                          isExpanded ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-4 pointer-events-none"
                         )}
                       >
                         {item.title}
@@ -247,8 +247,8 @@ export function Sidebar() {
       <div className="shrink-0 pt-3 mt-auto border-t border-border/40 px-3 pb-4 space-y-1">
         <div
           className={cn(
-            "overflow-hidden transition-[max-height,opacity] duration-300 ease-in-out",
-            isExpanded ? "max-h-10 opacity-100" : "max-h-0 opacity-0"
+            "overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
+            isExpanded ? "opacity-100 max-h-10 transform-none" : "opacity-0 max-h-0 -translate-x-4 pointer-events-none"
           )}
         >
           <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground/60 mb-2 px-3.5 mt-2">
@@ -270,8 +270,8 @@ export function Sidebar() {
                 <Settings className="w-5 h-5 shrink-0 text-muted-foreground group-hover:text-foreground transition-colors" />
                 <span
                   className={cn(
-                    "whitespace-nowrap overflow-hidden flex items-center transition-opacity duration-300 ease-in-out",
-                    isExpanded ? "w-[160px] opacity-100" : "w-0 opacity-0"
+                    "absolute left-[52px] min-w-[160px] flex items-center transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
+                    isExpanded ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-4 pointer-events-none"
                   )}
                 >
                   Settings
@@ -298,8 +298,8 @@ export function Sidebar() {
                 <LogOut className="w-5 h-5 shrink-0 text-rose-500" />
                 <span
                   className={cn(
-                    "whitespace-nowrap overflow-hidden flex items-center text-left transition-opacity duration-300 ease-in-out",
-                    isExpanded ? "w-[160px] opacity-100" : "w-0 opacity-0"
+                    "absolute left-[52px] min-w-[160px] flex items-center text-left transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
+                    isExpanded ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-4 pointer-events-none"
                   )}
                 >
                   Logout
