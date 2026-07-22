@@ -31,9 +31,7 @@ export function middleware(request: NextRequest) {
   // Public authentication routes
   const isPublicRoute =
     pathname === "/login" ||
-    pathname === "/register" ||
-    pathname === "/admin/login" ||
-    pathname === "/college/login";
+    pathname === "/register";
 
   if (isPublicRoute) {
     if (isAuth) {
@@ -48,14 +46,20 @@ export function middleware(request: NextRequest) {
 
   // If not authenticated and trying to access any protected page
   if (!isAuth) {
-    const loginPath = pathname.startsWith("/admin") ? "/admin/login" : "/login";
-    return NextResponse.redirect(new URL(loginPath, request.url));
+    return NextResponse.redirect(new URL("/login", request.url));
   }
 
   // If authenticated but account is restricted, redirect to login with error
   if (statusCookie === "restricted") {
-    const loginPath = pathname.startsWith("/admin") ? "/admin/login?error=restricted" : "/login?error=restricted";
-    return NextResponse.redirect(new URL(loginPath, request.url));
+    return NextResponse.redirect(new URL("/login?error=restricted", request.url));
+  }
+
+  // Handle /college routes
+  if (pathname.startsWith("/college") || pathname.startsWith("/colleges")) {
+    if (roleCookie !== "college_admin" && roleCookie !== "admin" && roleCookie !== "trainer") {
+      return NextResponse.redirect(new URL("/login", request.url));
+    }
+    return applyNoCacheHeaders(NextResponse.next());
   }
 
   // Handle /admin routes

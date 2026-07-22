@@ -624,6 +624,324 @@ export async function completeStudentAcademicDetails(
 }
 
 /**
+ * Unified Login: Authenticates and dynamically determines user role
+ */
+export async function unifiedLogin(email: string, pass: string): Promise<{ user: FirebaseUser; profile: ExtendedUser | null; role: UserRole | string; mustChangePassword?: boolean }> {
+  let credential;
+  const cleanEmail = email.toLowerCase().trim();
+
+  // Try authenticating first
+  try {
+    credential = await signInWithEmailAndPassword(auth, cleanEmail, pass);
+  } catch (_err: unknown) {
+    // Auth failed. Check if it's a first-time login for a student or college.
+    let createdUid: string | null = null;
+    let foundProfile: Record<string, any> | null = null;
+    let foundRole = "";
+
+    // 1. Check Students
+    const studentDocs = await getDocuments<Student & { initialPassword?: string }>("students", [where("email", "==", cleanEmail)]);
+    if (studentDocs.length > 0) {
+      const student = studentDocs[0];
+      if (student.initialPassword === pass) {
+        try {
+          credential = await createUserWithEmailAndPassword(auth, cleanEmail, pass);
+          await updateProfile(credential.user, { displayName: student.name });
+        } catch {
+          credential = await signInWithEmailAndPassword(auth, cleanEmail, pass);
+        }
+        createdUid = credential.user.uid;
+        foundRole = "student";
+        foundProfile = {
+          id: createdUid,
+          email: student.email,
+          displayName: student.name,
+          role: "student",
+          department: student.department || "Computer Science & Engineering",
+          collegeId: student.collegeId || "",
+          collegeName: student.collegeName || "",
+          academicYear: student.academicYear,
+          section: student.section,
+          batchIds: student.batchIds || [],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+      }
+    }
+
+    // 2. Check Colleges
+    if (!createdUid) {
+      const collegeDocs = await getDocuments<import("@/types").College>("colleges", [where("adminEmail", "==", cleanEmail)]);
+      if (collegeDocs.length > 0) {
+        const college = collegeDocs[0];
+        if (college.initialPassword === pass && college.loginEnabled !== false) {
+          try {
+            credential = await createUserWithEmailAndPassword(auth, cleanEmail, pass);
+            await updateProfile(credential.user, { displayName: `${college.name} Admin` });
+          } catch {
+            credential = await signInWithEmailAndPassword(auth, cleanEmail, pass);
+          }
+          createdUid = credential.user.uid;
+          foundRole = "college_admin";
+          foundProfile = {
+            id: createdUid,
+            email: cleanEmail,
+            displayName: `${college.name} Admin`,
+            role: "college_admin",
+            collegeId: college.id,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          };
+          await setDoc(doc(db, USERS_COLLECTION, createdUid), foundProfile);
+        }
+      }
+    }
+
+    // 3. Check Master Admins fallback
+    if (!createdUid) {
+      if ((cleanEmail === "trainer@lms.dev" || cleanEmail === "admin@lms.dev") && pass === "admin123456") {
+        try {
+          credential = await createUserWithEmailAndPassword(auth, cleanEmail, pass);
+        } catch {
+          throw new Error("Invalid trainer credentials.");
+        }
+        createdUid = credential.user.uid;
+        foundRole = cleanEmail === "admin@lms.dev" ? "admin" : "trainer";
+        foundProfile = {
+          id: createdUid,
+          email: cleanEmail,
+          displayName: credential.user.displayName || (cleanEmail === "admin@lms.dev" ? "Chief Assessment Officer" : "Lead Trainer Faculty"),
+          role: foundRole,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        await setDoc(doc(db, USERS_COLLECTION, createdUid), foundProfile);
+      }
+    }
+
+    if (createdUid && foundProfile) {
+      return {
+        user: credential!.user,
+        profile: foundProfile as unknown as ExtendedUser,
+        role: foundRole,
+        mustChangePassword: foundRole === "student" ? true : false,
+      };
+    }
+
+    // Check if google
+    try {
+      const methods = await fetchSignInMethodsForEmail(auth, cleanEmail);
+      if (methods.includes("google.com") && !methods.includes("password")) {
+        throw new Error("This account was authenticated using Google Sign-In. To log in right now, please click 'Sign in with Google' above.");
+      }
+    } catch (methodErr: unknown) {
+      if (methodErr instanceof Error && methodErr.message.includes("Google Sign-In")) {
+        throw methodErr;
+      }
+    }
+
+    throw new Error("Invalid credentials or incorrect password.");
+  }
+
+  // If we reach here, signInWithEmailAndPassword succeeded. We have a UID.
+  const uid = credential.user.uid;
+  let profile = await getDocument<ExtendedUser>(USERS_COLLECTION, uid);
+
+  if (!profile) {
+    if (cleanEmail === "trainer@lms.dev" || cleanEmail === "admin@lms.dev") {
+      profile = {
+        id: uid,
+        email: cleanEmail,
+        displayName: credential.user.displayName || (cleanEmail === "admin@lms.dev" ? "Chief Assessment Officer" : "Lead Trainer Faculty"),
+        role: cleanEmail === "admin@lms.dev" ? "admin" : "trainer",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      await setDoc(doc(db, USERS_COLLECTION, uid), profile);
+    } else {
+       const studentDoc = await getDocument<Student>("students", uid);
+       if (studentDoc) {
+           profile = {
+             id: studentDoc.id || uid,
+             email: studentDoc.email || credential.user.email || cleanEmail,
+             displayName: studentDoc.name || "Student",
+             role: "student",
+             department: studentDoc.department || "Computer Science & Engineering",
+             collegeId: studentDoc.collegeId || "",
+             collegeName: studentDoc.collegeName || "",
+             academicYear: studentDoc.academicYear,
+             section: studentDoc.section,
+             batchIds: studentDoc.batchIds || [],
+           };
+       } else {
+           await firebaseSignOut(auth);
+           throw new Error("Unauthorized: Account not found in directory.");
+       }
+    }
+  } else if (profile.role === "student") {
+    // Enhance with student doc
+    const studentDoc = await getDocument<Student>("students", uid);
+    if (studentDoc) {
+       profile = {
+         ...profile,
+         id: studentDoc.id || uid,
+         email: studentDoc.email || credential.user.email || cleanEmail,
+         displayName: studentDoc.name || profile.displayName || "Student",
+         department: studentDoc.department || profile.department || "Computer Science & Engineering",
+         collegeId: studentDoc.collegeId || profile.collegeId || "",
+         collegeName: studentDoc.collegeName || profile.collegeName || "",
+         academicYear: studentDoc.academicYear || profile.academicYear,
+         section: studentDoc.section || profile.section,
+         batchIds: studentDoc.batchIds || profile.batchIds || [],
+       };
+    }
+  }
+
+  const role = profile.role;
+
+  // Validation
+  if (role === "student") {
+    const studentDoc = await getDocument<Student>("students", uid);
+    if (profile?.status === "restricted" || studentDoc?.status === "restricted") {
+      await firebaseSignOut(auth);
+      throw new Error("RESTRICTED_ACCOUNT: Your LMS account has been temporarily restricted by your Trainer/Admin. Please contact your Trainer for further assistance.");
+    }
+    if (profile?.isDeleted || profile?.status === "deleted" || studentDoc?.isDeleted || studentDoc?.status === "deleted") {
+      await firebaseSignOut(auth);
+      throw new Error("ACCOUNT_DELETED: Your student account has been permanently deleted.");
+    }
+  } else if (role === "college_admin") {
+    const collegeDoc = await getDocument<import("@/types").College>("colleges", (profile as any).collegeId || "");
+    if (!collegeDoc || collegeDoc.loginEnabled === false || collegeDoc.status === "restricted") {
+      await firebaseSignOut(auth);
+      throw new Error("RESTRICTED_ACCOUNT: Your college dashboard access has been disabled by the main administrator.");
+    }
+    if (collegeDoc.isDeleted || collegeDoc.status === "deleted" || profile.isDeleted || profile.status === "deleted") {
+      await firebaseSignOut(auth);
+      throw new Error("ACCOUNT_DELETED: This partner institution account has been permanently deleted.");
+    }
+  } else if (role === "trainer" || role === "admin") {
+    if (profile.isDeleted || profile.status === "deleted") {
+      await firebaseSignOut(auth);
+      throw new Error("ACCOUNT_DELETED: Your trainer account has been permanently deleted.");
+    }
+  } else {
+    await firebaseSignOut(auth);
+    throw new Error("Unauthorized: Role not recognized.");
+  }
+
+  return { user: credential.user, profile, role, mustChangePassword: false };
+}
+
+/**
+ * Unified Google Sign-In
+ */
+export async function unifiedGoogleLogin(): Promise<{ success: true; role: UserRole | string; user: FirebaseUser; profile: User }> {
+  const credential = await signInWithPopup(auth, googleProvider);
+  const uid = credential.user.uid;
+  const email = (credential.user.email || "").toLowerCase().trim();
+  const name = credential.user.displayName || email.split("@")[0] || "User";
+
+  const token = await getIdToken(credential.user, true);
+  
+  let profile = await getDocument<ExtendedUser>(USERS_COLLECTION, uid);
+  const existingUsersByEmail = await getDocuments<ExtendedUser>(USERS_COLLECTION, [where("email", "==", email)]);
+
+  if (!profile && existingUsersByEmail.length > 0) {
+    const matchedUser = existingUsersByEmail[0];
+    profile = {
+      ...matchedUser,
+      id: uid,
+      updatedAt: new Date(),
+    };
+  }
+
+  let role = profile?.role;
+  let isStudent = false;
+
+  if (!profile) {
+    // Check if they are a student via email
+    const studDocs = await getDocuments<Student>(STUDENTS_COLLECTION, [where("email", "==", email)]);
+    if (studDocs.length > 0) {
+      role = "student";
+      isStudent = true;
+      const s = studDocs[0];
+      profile = {
+        id: uid,
+        email: s.email || email,
+        displayName: s.name || name,
+        role,
+        department: s.department || "Computer Science & Engineering",
+        collegeId: s.collegeId || "",
+        collegeName: s.collegeName || "",
+        academicYear: s.academicYear || null,
+        section: s.section || null,
+        batchIds: s.batchIds || [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as ExtendedUser;
+      await setDoc(doc(db, USERS_COLLECTION, uid), profile, { merge: true });
+    } else {
+      await firebaseSignOut(auth);
+      throw new Error(
+        "No account found for this Google email. Please register first."
+      );
+    }
+  }
+
+  if (!role) role = profile.role || "student";
+  
+  if (role === "student") {
+    const studDocs = await getDocuments<Student>(STUDENTS_COLLECTION, [where("email", "==", email)]);
+    const s = studDocs[0] || ({} as Student);
+    profile = {
+      ...profile,
+      department: s.department || profile.department || "Computer Science & Engineering",
+      collegeId: s.collegeId || profile.collegeId || "",
+      collegeName: s.collegeName || profile.collegeName || "",
+      academicYear: s.academicYear || profile.academicYear || null,
+      section: s.section || profile.section || null,
+      batchIds: s.batchIds || profile.batchIds || [],
+    } as ExtendedUser;
+    
+    // Remove undefined fields
+    const cleanProfile = { ...profile } as Record<string, any>;
+    Object.keys(cleanProfile).forEach(key => cleanProfile[key] === undefined && delete cleanProfile[key]);
+    await setDoc(doc(db, USERS_COLLECTION, uid), cleanProfile, { merge: true });
+  }
+
+  // Validate
+  if (role === "student") {
+    const studentDoc = await getDocument<Student>("students", uid) || (await getDocuments<Student>(STUDENTS_COLLECTION, [where("email", "==", email)]))[0];
+    if (profile?.status === "restricted" || studentDoc?.status === "restricted") {
+      await firebaseSignOut(auth);
+      throw new Error("RESTRICTED_ACCOUNT: Your LMS account has been temporarily restricted.");
+    }
+    if (profile?.isDeleted || profile?.status === "deleted" || studentDoc?.isDeleted || studentDoc?.status === "deleted") {
+      await firebaseSignOut(auth);
+      throw new Error("ACCOUNT_DELETED: Your student account has been permanently deleted.");
+    }
+  } else if (role === "college_admin") {
+    const collegeDoc = await getDocument<import("@/types").College>("colleges", (profile as any).collegeId || "");
+    if (!collegeDoc || collegeDoc.loginEnabled === false || collegeDoc.status === "restricted") {
+      await firebaseSignOut(auth);
+      throw new Error("RESTRICTED_ACCOUNT: Your college dashboard access has been disabled.");
+    }
+    if (collegeDoc.isDeleted || collegeDoc.status === "deleted" || profile.isDeleted || profile.status === "deleted") {
+      await firebaseSignOut(auth);
+      throw new Error("ACCOUNT_DELETED: This partner institution account has been permanently deleted.");
+    }
+  } else if (role === "trainer" || role === "admin") {
+    if (profile.isDeleted || profile.status === "deleted") {
+      await firebaseSignOut(auth);
+      throw new Error("ACCOUNT_DELETED: Your trainer account has been permanently deleted.");
+    }
+  }
+
+  return { success: true, role, user: credential.user, profile: profile as User };
+}
+
+/**
  * Converts Firebase authentication error codes and messages into clean, professional custom alert strings.
  */
 export function formatAuthError(err: unknown, defaultMessage?: string): string {

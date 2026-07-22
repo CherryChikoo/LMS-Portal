@@ -10,7 +10,7 @@ export default function AdminRootLayout({
 }) {
   const pathname = usePathname();
   const isLoginPage =
-    pathname === "/admin/login" || pathname?.startsWith("/admin/login/");
+    pathname === "/login" || pathname?.startsWith("/login/");
   const isExamTakeRoute =
     pathname !== null && /^\/admin\/exams\/[^/]+\/take(\/|$)/.test(pathname);
 

@@ -101,7 +101,7 @@ export function getCurrentUser(): Promise<{ uid: string; email: string; profile:
 export async function clearAuthSession(redirectPath?: string): Promise<void> {
   // Capture the role before clearing any storage so we can route to the correct login page.
   const role = getLogoutRole();
-  const targetPath = redirectPath || (role === "student" ? "/login" : role === "college_admin" ? "/college/login" : "/admin/login");
+  const targetPath = redirectPath || "/login";
 
   // Invalidate all storage
   localStorage.clear();

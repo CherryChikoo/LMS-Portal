@@ -96,7 +96,7 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("storage", fetchCollegeBranding);
   }, [pathname]);
 
-  const isPublicRoute = !pathname || pathname === "/" || pathname === "/college/login" || pathname === "/admin/login" || pathname === "/register";
+  const isPublicRoute = !pathname || pathname === "/" || pathname === "/login" || pathname === "/register";
 
   // College Branding takes precedence over Master Branding if it exists, UNLESS it's a public route.
   const activeBranding = (isPublicRoute ? null : collegeBranding) || masterBranding;

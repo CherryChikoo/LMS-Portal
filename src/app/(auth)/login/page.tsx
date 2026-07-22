@@ -8,7 +8,7 @@ import Link from "next/link";
 import { APP_NAME } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
-import { studentLogin, studentGoogleLogin, formatAuthError } from "@/lib/services/auth-service";
+import { unifiedLogin, unifiedGoogleLogin, formatAuthError } from "@/lib/services/auth-service";
 import { setAuthSession } from "@/lib/utils/auth-session";
 import type { Student } from "@/types";
 import { useBranding } from "@/providers/branding-provider";
@@ -43,8 +43,8 @@ function LoginContent() {
     setGoogleLoading(true);
     setError(null);
     try {
-      const res = await studentGoogleLogin();
-      const target = res.role === "student" ? "/student" : "/admin";
+      const res = await unifiedGoogleLogin();
+      const target = res.role === "student" ? "/student" : (res.role === "college_admin" ? "/colleges" : "/admin");
       window.location.assign(target);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -63,29 +63,36 @@ function LoginContent() {
     setLoading(true);
     setError(null);
     try {
-      const res = await studentLogin(email, password);
-      const profile = res.profile as Partial<Student>;
+      const res = await unifiedLogin(email, password);
+      
       const uObj = {
         id: res.user.uid,
-        name: res.profile?.displayName || res.user.displayName || email.split("@")[0] || "Student",
-        email: profile?.email || res.user.email || email,
-        role: "student",
-        department: profile?.department || "Computer Science & Engineering",
-        collegeId: profile?.collegeId || "",
-        collegeName: profile?.collegeName || "",
-        academicYear: profile?.academicYear,
-        section: profile?.section,
-        batchIds: profile?.batchIds,
+        name: res.profile?.displayName || res.user.displayName || email.split("@")[0] || "User",
+        email: res.profile?.email || res.user.email || email,
+        role: res.role,
+        department: res.profile?.department || "General",
+        collegeId: res.profile?.collegeId || "",
+        collegeName: res.profile?.collegeName || "",
+        academicYear: res.profile?.academicYear,
+        section: res.profile?.section,
+        batchIds: res.profile?.batchIds,
       };
-      await setAuthSession(uObj, "student");
+      
+      await setAuthSession(uObj, res.role as string);
 
-      window.location.assign("/student");
+      if (res.role === "student") {
+        window.location.assign("/student");
+      } else if (res.role === "college_admin") {
+        window.location.assign("/colleges");
+      } else {
+        window.location.assign("/admin");
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("RESTRICTED_ACCOUNT") || msg.toLowerCase().includes("restricted")) {
         setRestrictedModalOpen(true);
       } else {
-        setError(formatAuthError(err, "Invalid student credentials."));
+        setError(formatAuthError(err, "Invalid credentials."));
       }
     } finally {
       setLoading(false);
@@ -116,15 +123,15 @@ function LoginContent() {
                     <GraduationCap className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
                   </div>
                 )}
-                <span className="font-bold text-base sm:text-lg text-foreground tracking-tight">Student Portal</span>
+                <span className="font-bold text-base sm:text-lg text-foreground tracking-tight">Access Portal</span>
               </Link>
-              <span className="text-[10px] sm:text-xs text-muted-foreground">Student SSO</span>
+              <span className="text-[10px] sm:text-xs text-muted-foreground">Secure Login</span>
             </div>
 
             <div className="my-auto py-6 sm:py-8 w-full max-w-sm sm:max-w-md mx-auto space-y-5 sm:space-y-6">
               <div className="space-y-1.5">
-                <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">Student Login</h2>
-                <p className="text-sm text-muted-foreground">Enter your college email and password</p>
+                <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">Sign In</h2>
+                <p className="text-sm text-muted-foreground">Log in to your account</p>
               </div>
 
               {error && (
@@ -137,7 +144,7 @@ function LoginContent() {
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-1.5">
                   <label className="text-[10px] sm:text-xs font-semibold text-foreground/80 uppercase tracking-wider">
-                    College Email Address
+                    Email Address
                   </label>
                   <input
                     type="email"
@@ -145,7 +152,7 @@ function LoginContent() {
                     onChange={(e) => setEmail(e.target.value)}
                     required
                     className="w-full h-10 sm:h-11 min-h-[44px] px-3 sm:px-4 rounded-xl border border-white/10 dark:border-white/10 bg-card/50 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-brand/50"
-                    placeholder="student@college.edu"
+                    placeholder="you@example.com"
                   />
                 </div>
 
@@ -266,47 +273,55 @@ function LoginContent() {
                   )}
                 </Button>
               </form>
+                    <div className="text-center text-xs text-muted-foreground pt-4 border-t border-border/50">
+                Don't have an account?{" "}
+                <Link href="/register" className="text-brand font-semibold hover:underline">
+                  Create Account
+                </Link>
+              </div>
             </div>
 
-            <div className="text-center text-xs text-muted-foreground">
-              Don&apos;t have a student account yet?{" "}
-              <Link href="/register" className="font-semibold text-emerald-400 hover:underline">
-                Create Student Account
-              </Link>
+            <div className="pt-6 mt-6 border-t border-border/50 flex flex-col sm:flex-row items-center justify-between text-xs text-muted-foreground gap-3">
+              <span>&copy; {new Date().getFullYear()} {APP_NAME}. All rights reserved.</span>
+              <div className="flex items-center gap-4">
+                <Link href="/privacy" className="hover:text-foreground transition-colors">Privacy</Link>
+                <Link href="/terms" className="hover:text-foreground transition-colors">Terms</Link>
+              </div>
             </div>
           </div>
 
-          {/* Left Canvas - hidden on mobile, left on desktop */}
-          <div className="hidden lg:flex order-2 lg:order-1 lg:col-span-6 relative p-4 sm:p-6 lg:p-12 flex-col justify-between overflow-hidden bg-zinc-950 text-white min-h-[120px] sm:min-h-[160px] lg:min-h-[640px]">
+          {/* Left Canvas (Decorative visual) - second on mobile, left on desktop */}
+          <div className="order-2 lg:order-1 lg:col-span-6 relative p-5 sm:p-8 lg:p-12 flex-col justify-between overflow-hidden bg-zinc-950 text-white min-h-[160px] sm:min-h-[200px]">
             <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
-              <div className="absolute -top-24 -left-24 w-96 h-96 bg-gradient-to-br from-emerald-500/40 via-teal-500/20 to-transparent rounded-full blur-3xl animate-pulse" />
-              <div className="absolute top-1/3 -right-20 w-80 h-80 bg-gradient-to-tr from-emerald-600/30 via-cyan-500/20 to-transparent rounded-full blur-2xl" />
-              <div className="absolute -bottom-20 left-10 w-96 h-96 bg-gradient-to-t from-[#10B981]/30 via-emerald-950/40 to-transparent rounded-full blur-3xl" />
+              <div className="absolute -top-24 -left-24 w-96 h-96 bg-brand/30 rounded-full blur-3xl animate-pulse" />
+              <div className="absolute top-1/3 -right-20 w-80 h-80 bg-blue-500/20 rounded-full blur-2xl" />
+              <div className="absolute -bottom-20 left-10 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl" />
             </div>
 
             <div className="relative z-10 flex items-center gap-3">
-              <span className="text-[10px] uppercase font-semibold tracking-[0.25em] text-emerald-400">
-                STUDENT LEARNING PORTAL
+              <span className="text-[10px] uppercase font-semibold tracking-[0.25em] text-brand-foreground/80 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5" />
+                CENTRALIZED ACCESS
               </span>
-              <div className="hidden sm:block h-px w-12 bg-gradient-to-r from-emerald-500/50 to-transparent" />
+              <div className="h-px w-12 bg-gradient-to-r from-brand/50 to-transparent" />
             </div>
 
-            <div className="relative z-10 my-auto py-4 sm:py-6 lg:py-12 space-y-2 sm:space-y-4 lg:space-y-6 max-w-md">
-              <div className="hidden sm:inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.07] border border-white/10 backdrop-blur-md text-[10px] sm:text-xs font-medium text-emerald-300">
-                <Sparkles className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-400" />
-                <span>One Student Account Per Email</span>
+            <div className="relative z-10 my-auto py-6 sm:py-10 lg:py-12 space-y-4 sm:space-y-6 max-w-md">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 border border-white/10 backdrop-blur-md text-[10px] sm:text-xs font-medium text-white/90">
+                <Check className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-brand-foreground" />
+                <span>Unified Login Portal</span>
               </div>
-              <h1 className="text-xl sm:text-3xl lg:text-5xl font-bold tracking-tight leading-[1.1] font-sans text-transparent bg-clip-text bg-gradient-to-b from-white via-white to-slate-300">
-                Welcome to Your Classroom
+              <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight leading-[1.1] font-sans text-transparent bg-clip-text bg-gradient-to-b from-white via-white to-white/60">
+                Welcome to {APP_NAME}
               </h1>
-              <p className="hidden sm:block text-xs sm:text-sm lg:text-base text-slate-300/80 leading-relaxed font-light">
-                Access your assigned study resources, interactive markdown examinations, and real-time performance analytics.
+              <p className="text-xs sm:text-sm lg:text-base text-white/60 leading-relaxed font-light">
+                Sign in to access your assessments, manage your institution, or oversee administrative operations.
               </p>
             </div>
 
-            <div className="relative z-10 pt-4 lg:pt-6 border-t border-white/10 hidden sm:flex items-center justify-between text-xs text-slate-400">
-              <span className="font-medium text-slate-300">Verified College Access Only</span>
-              <span className="font-mono text-[11px] text-emerald-400/80">v1.0 Secure</span>
+            <div className="relative z-10 pt-6 border-t border-white/10 flex items-center justify-between text-xs text-white/50">
+              <span className="font-medium text-white/70">Secure Authentication</span>
+              <span className="font-mono text-[11px] text-brand-foreground/70">Role-Based Access</span>
             </div>
           </div>
         </div>

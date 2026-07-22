@@ -1172,7 +1172,7 @@ export default function SettingsPage() {
                     onChange={(e) => setLoginEmail(e.target.value)}
                     className="glass-input h-11 rounded-xl font-mono"
                   />
-                  <p className="text-[11px] text-muted-foreground">This email will be used when signing in at `/admin/login`.</p>
+                  <p className="text-[11px] text-muted-foreground">This email will be used when signing in at `/login`.</p>
                 </div>
 
                 <Separator className="opacity-40 py-2" />
