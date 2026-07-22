@@ -1193,8 +1193,23 @@ export default function ExamsPage() {
                   <textarea
                     value={mdText}
                     onChange={(e) => setMdText(e.target.value)}
-                    rows={6}
-                    className="w-full p-3 rounded-xl border border-border bg-background font-mono text-xs text-foreground focus:outline-none"
+                    rows={10}
+                    placeholder={`# Question 1
+What is the capital of France?
+A. Paris
+B. London
+C. Berlin
+D. Madrid
+Answer: A
+Marks: 2
+
+# Question 2
+React is a framework for backend development.
+A. True
+B. False
+Answer: B
+Marks: 1`}
+                    className="w-full p-3 rounded-xl border border-border bg-background font-mono text-xs text-foreground focus:outline-none placeholder:text-muted-foreground/50"
                   />
                 </div>
               )}
