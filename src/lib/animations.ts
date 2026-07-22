@@ -23,7 +23,7 @@ export const fadeIn: Variants = {
   hidden: { opacity: 0 },
   visible: {
     opacity: 1,
-    transition: { duration: 0.4, ease: easings.smooth },
+    transition: { duration: 0.15, ease: easings.smooth },
   },
 };
 
@@ -32,7 +32,7 @@ export const fadeInUp: Variants = {
   visible: {
     opacity: 1,
     y: 0,
-    transition: { duration: 0.5, ease: easings.smooth },
+    transition: { duration: 0.2, ease: easings.smooth },
   },
 };
 
@@ -41,7 +41,7 @@ export const fadeInDown: Variants = {
   visible: {
     opacity: 1,
     y: 0,
-    transition: { duration: 0.5, ease: easings.smooth },
+    transition: { duration: 0.2, ease: easings.smooth },
   },
 };
 
@@ -50,7 +50,7 @@ export const fadeInScale: Variants = {
   visible: {
     opacity: 1,
     scale: 1,
-    transition: { duration: 0.4, ease: easings.smooth },
+    transition: { duration: 0.15, ease: easings.smooth },
   },
 };
 
@@ -60,7 +60,7 @@ export const slideInLeft: Variants = {
   visible: {
     opacity: 1,
     x: 0,
-    transition: { duration: 0.5, ease: easings.smooth },
+    transition: { duration: 0.2, ease: easings.smooth },
   },
 };
 
@@ -69,7 +69,7 @@ export const slideInRight: Variants = {
   visible: {
     opacity: 1,
     x: 0,
-    transition: { duration: 0.5, ease: easings.smooth },
+    transition: { duration: 0.2, ease: easings.smooth },
   },
 };
 
@@ -79,8 +79,8 @@ export const staggerContainer: Variants = {
   visible: {
     opacity: 1,
     transition: {
-      staggerChildren: 0.06,
-      delayChildren: 0.1,
+      staggerChildren: 0.02,
+      delayChildren: 0.05,
     },
   },
 };
@@ -90,7 +90,7 @@ export const staggerItem: Variants = {
   visible: {
     opacity: 1,
     y: 0,
-    transition: { duration: 0.5, ease: easings.smooth },
+    transition: { duration: 0.2, ease: easings.smooth },
   },
 };
 
@@ -111,7 +111,7 @@ export const pageTransition: Variants = {
   animate: {
     opacity: 1,
     y: 0,
-    transition: { duration: 0.4, ease: easings.smooth },
+    transition: { duration: 0.15, ease: easings.smooth },
   },
   exit: {
     opacity: 0,

@@ -12,9 +12,9 @@ interface GlassCardProps extends HTMLAttributes<HTMLDivElement> {
 }
 
 const blurMap = {
-  sm: "backdrop-blur-sm",
-  md: "backdrop-blur-md",
-  lg: "backdrop-blur-xl",
+  sm: "backdrop-blur-[2px]",
+  md: "backdrop-blur-sm",
+  lg: "backdrop-blur-md",
 };
 
 const GlassCard = forwardRef<HTMLDivElement, GlassCardProps>(

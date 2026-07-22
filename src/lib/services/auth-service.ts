@@ -894,7 +894,30 @@ export async function unifiedGoogleLogin(): Promise<{ success: true; role: UserR
   if (!role) role = profile.role || "student";
   
   if (role === "student") {
-    const studDocs = await getDocuments<Student>(STUDENTS_COLLECTION, [where("email", "==", email)]);
+    let studDocs = await getDocuments<Student>(STUDENTS_COLLECTION, [where("email", "==", email)]);
+    
+    // Auto-create basic student doc if they skipped registration step 2
+    if (studDocs.length === 0) {
+      const newStudentDoc: Partial<Student> = {
+        id: uid,
+        name: profile?.displayName || name || email.split("@")[0],
+        email: email,
+        collegeName: "Not Specified",
+        collegeId: "",
+        department: "General",
+        academicYear: "1st Year",
+        semester: 1,
+        section: "A",
+        rollNumber: `ROLL-${Math.floor(1000 + Math.random() * 9000)}`,
+        batchIds: [],
+        enrollmentType: "self",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      await setDoc(doc(db, STUDENTS_COLLECTION, uid), newStudentDoc);
+      studDocs = [newStudentDoc as Student];
+    }
+
     const s = studDocs[0] || ({} as Student);
     profile = {
       ...profile,
