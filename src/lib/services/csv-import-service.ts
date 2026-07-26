@@ -168,7 +168,7 @@ export async function importStudentsCSV(
   if (currentUser) {
     try {
       const adminIdToken = await currentUser.getIdToken();
-      const CHUNK_SIZE = 30; // 30 rows per HTTP request to ensure sub-2s response time and 0 Vercel 504 timeouts
+      const CHUNK_SIZE = 50;
       const combinedSummary: CSVImportSummary = {
         total: rows.length,
         createdCount: 0,
@@ -186,7 +186,7 @@ export async function importStudentsCSV(
       }
 
       let processedCount = 0;
-      const MAX_CONCURRENT_REQUESTS = 3;
+      const MAX_CONCURRENT_REQUESTS = 5;
 
       const sendChunkWithRetry = async (chunk: CSVStudentRow[], retries = 3): Promise<any> => {
         for (let attempt = 1; attempt <= retries; attempt++) {

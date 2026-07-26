@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
 
     // 1. Pre-fetch existing colleges to register/sync any missing colleges
     const collegesSnap = await db.collection("colleges").get();
-    const collegeMap = new Map<string, { id: string; name: string; departments: Set<string> }>();
+    const collegeMap = new Map<string, { id: string; name: string; departments: Set<string>; initialDepsCount: number }>();
 
     collegesSnap.docs.forEach((d) => {
       const data = d.data();
@@ -69,14 +69,14 @@ export async function POST(request: NextRequest) {
         const normName = (data.name || "").toLowerCase().trim();
         const normId = d.id.toLowerCase().trim();
         const deps = new Set<string>(Array.isArray(data.departments) ? data.departments : []);
-        const entry = { id: d.id, name: data.name || formatCollegeTitle(normName), departments: deps };
+        const entry = { id: d.id, name: data.name || formatCollegeTitle(normName), departments: deps, initialDepsCount: deps.size };
         if (normName) collegeMap.set(normName, entry);
         if (normId) collegeMap.set(normId, entry);
       }
     });
 
     // Extract unique colleges from the import rows
-    const newCollegesToCreate = new Map<string, { id: string; name: string; departments: Set<string> }>();
+    const newCollegesToCreate = new Map<string, { id: string; name: string; departments: Set<string>; initialDepsCount: number }>();
 
     const RESERVED_COLLEGE_NAMES = new Set([
       "all",
@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
         const colTitle = formatCollegeTitle(rawCol);
         const deps = new Set<string>(["Computer Science & Engineering (CSE)", "General"]);
         if (dept) deps.add(dept);
-        const colEntry = { id: colId, name: colTitle, departments: deps };
+        const colEntry = { id: colId, name: colTitle, departments: deps, initialDepsCount: deps.size };
         newCollegesToCreate.set(normCol, colEntry);
         collegeMap.set(normCol, colEntry);
       }
@@ -146,11 +146,11 @@ export async function POST(request: NextRequest) {
       await batchCol.commit();
     }
 
-    // Update departments for existing registered colleges if new departments were found
+    // Update departments for existing registered colleges ONLY if new departments were added
     const updatedCollegeBatches = db.batch();
     let hasColUpdates = false;
     collegeMap.forEach((col) => {
-      if (!newCollegesToCreate.has(col.name.toLowerCase())) {
+      if (!newCollegesToCreate.has(col.name.toLowerCase()) && col.departments.size > col.initialDepsCount) {
         const colRef = db.collection("colleges").doc(col.id);
         updatedCollegeBatches.set(
           colRef,
@@ -187,7 +187,6 @@ export async function POST(request: NextRequest) {
     // Targeted email duplicate lookup (query only emails in this chunk)
     const existingEmailSet = new Set<string>();
     if (chunkEmails.length > 0) {
-      // Divide emails into sub-batches of 30 for Firestore 'in' query limit
       const EMAIL_BATCH_SIZE = 30;
       const emailLookups: Promise<any>[] = [];
       for (let i = 0; i < chunkEmails.length; i += EMAIL_BATCH_SIZE) {
@@ -203,15 +202,13 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const CONCURRENCY_LIMIT = 10;
     const now = FieldValue.serverTimestamp();
     const batchWrite = db.batch();
     let hasWrites = false;
 
-    for (let i = 0; i < items.length; i += CONCURRENCY_LIMIT) {
-      const chunk = items.slice(i, i + CONCURRENCY_LIMIT);
-      await Promise.all(
-        chunk.map(async (row) => {
+    // Process all items in this request batch in parallel
+    await Promise.all(
+      items.map(async (row) => {
           const email = (row.collegeEmail || "").toLowerCase().trim();
           const name = (row.studentName || "").trim();
           const rawCol = (row.college || "Default College").trim().toLowerCase();
@@ -314,9 +311,8 @@ export async function POST(request: NextRequest) {
           summary.results.push({ name, email, password: tempPassword, status: "created" });
         })
       );
-    }
 
-    if (hasWrites) {
+      if (hasWrites) {
       await batchWrite.commit();
     }
 
