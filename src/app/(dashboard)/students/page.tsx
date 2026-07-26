@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useRef, Suspense, useDeferredValue } from
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
-import { Users, Plus, Upload, Download, Search, FileSpreadsheet, Sparkles, Trash2, StopCircle, Edit2, Ban, CheckCircle2, BarChart3 } from "lucide-react";
+import { Users, Plus, Upload, Download, Search, FileSpreadsheet, FolderOpen, Sparkles, Trash2, StopCircle, Edit2, Ban, CheckCircle2, BarChart3 } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
@@ -215,7 +215,8 @@ function StudentsContent() {
 
     const allRows: CSVStudentRow[] = [];
     for (const file of files) {
-      if (file.name.toLowerCase().endsWith(".csv")) {
+      const name = file.name.toLowerCase();
+      if (name.endsWith(".csv") || name.endsWith(".txt") || name.endsWith(".json") || !name.includes(".")) {
         const text = await file.text();
         const rows = parseStudentsCSV(text);
         allRows.push(...rows);
@@ -877,14 +878,33 @@ function StudentsContent() {
                     >
                       <FileSpreadsheet className="w-10 h-10 text-brand mx-auto" />
                       <div className="space-y-1">
-                        <p className="text-sm font-semibold text-foreground">Select or Drag & Drop CSV File(s) / Folder</p>
-                        <p className="text-xs text-muted-foreground">Upload single .csv files, multiple CSVs, or entire folders</p>
+                        <p className="text-sm font-semibold text-foreground">Select or Drag & Drop CSV / Data File(s) or Entire Folder</p>
+                        <p className="text-xs text-muted-foreground">Upload single files, multiple CSVs, or select a whole folder</p>
                       </div>
-                      <div className="flex items-center justify-center gap-3 pt-2">
+                      <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
                         <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-brand text-brand-foreground text-xs font-bold cursor-pointer hover:bg-brand/90 transition-all shadow-sm">
                           <FileSpreadsheet className="w-4 h-4 shrink-0" />
-                          <span>Select CSV File(s)</span>
-                          <input type="file" accept=".csv" multiple onChange={handleFileUpload} disabled={importing} className="hidden" />
+                          <span>Select CSV / Data File(s)</span>
+                          <input
+                            type="file"
+                            accept=".csv,.txt,.json,text/csv,text/plain,application/json,*"
+                            multiple
+                            onChange={handleFileUpload}
+                            disabled={importing}
+                            className="hidden"
+                          />
+                        </label>
+                        <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent text-foreground border border-border text-xs font-bold cursor-pointer hover:bg-accent/80 transition-all shadow-sm">
+                          <FolderOpen className="w-4 h-4 text-brand shrink-0" />
+                          <span>Select Entire Folder</span>
+                          <input
+                            type="file"
+                            {...({ webkitdirectory: "", directory: "" } as React.InputHTMLAttributes<HTMLInputElement>)}
+                            multiple
+                            onChange={handleFileUpload}
+                            disabled={importing}
+                            className="hidden"
+                          />
                         </label>
                       </div>
                     </div>
