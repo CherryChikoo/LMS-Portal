@@ -63,13 +63,13 @@ export default function CollegesPage() {
         try {
           setDeletingIds((prev) => [...prev, col.id]);
 
-          // 1. Instant client-side Firestore document deletion
-          await deleteCollege(col.id);
-
-          // 2. Instant optimistic local deletion
+          // 1. Instant optimistic local deletion
           optimisticDeleteCollege(col.id);
           setSelectedAdminIds((prev) => prev.filter((id) => id !== col.id));
           toast.success(`College "${col.name}" deleted successfully.`);
+
+          // 2. Instant client-side Firestore document deletion
+          await deleteCollege(col.id);
 
           // 3. Background server API cleanup for student accounts & auth records
           const auth = getAuth();

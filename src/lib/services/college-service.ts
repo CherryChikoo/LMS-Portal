@@ -44,8 +44,22 @@ export async function updateCollege(id: string, data: Partial<College>): Promise
   return updateDocument<College>(COLLEGE_COLLECTION, id, formatted);
 }
 
+import { markCollegeAsDeleted } from "@/lib/hierarchy/hierarchy-data";
+
 export async function deleteCollege(id: string): Promise<void> {
-  return deleteDocument(COLLEGE_COLLECTION, id);
+  markCollegeAsDeleted(id);
+  const col = await getDocument<College>(COLLEGE_COLLECTION, id).catch(() => null);
+  if (col?.name) markCollegeAsDeleted(col.name);
+
+  await deleteDocument(COLLEGE_COLLECTION, id);
+
+  try {
+    fetch("/api/admin/delete-college", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ collegeId: id }),
+    }).catch(() => {});
+  } catch (_) {}
 }
 
 // Batches

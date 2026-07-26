@@ -444,6 +444,14 @@ export function getCollegeName(hierarchy: Hierarchy | null, collegeId: string): 
   return "Unknown Institution";
 }
 
+export const deletedCollegesSet = new Set<string>();
+
+export function markCollegeAsDeleted(idOrName: string) {
+  if (!idOrName) return;
+  const normalized = idOrName.trim().toLowerCase();
+  deletedCollegesSet.add(normalized);
+}
+
 /**
  * Derives the list of institutions present in cached student data that are NOT
  * represented in the official `colleges` collection. These are typically
@@ -508,8 +516,8 @@ export function getExternalInstitutions(
 
     // Completely ignore student records associated with deleted colleges so they never jump to Outside Institutions
     if (
-      (!isIgnored(cId) && deletedCollegeIds.has(cId)) ||
-      (!isIgnored(cName) && deletedCollegeNames.has(cName.toLowerCase()))
+      (!isIgnored(cId) && (deletedCollegeIds.has(cId) || deletedCollegesSet.has(cId.toLowerCase()))) ||
+      (!isIgnored(cName) && (deletedCollegeNames.has(cName.toLowerCase()) || deletedCollegesSet.has(cName.toLowerCase())))
     ) {
       return;
     }

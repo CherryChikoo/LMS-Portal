@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { College, Batch, Student, Exam, Resource, ExamAttempt, SelectOption } from "@/types";
-import type { Hierarchy, Institution } from "@/lib/hierarchy/hierarchy-data";
+import { markCollegeAsDeleted, type Hierarchy, type Institution } from "@/lib/hierarchy/hierarchy-data";
 
 export interface LMSStoreState {
   colleges: College[];
@@ -96,12 +96,16 @@ export function optimisticDeleteStudent(studentId: string): LMSStoreState {
  * Optimistically delete a college from local store state
  */
 export function optimisticDeleteCollege(collegeId: string): LMSStoreState {
+  markCollegeAsDeleted(collegeId);
   const prev = storeState;
   const colObj = prev.colleges.find(
     (c) => c.id === collegeId || c.name.toLowerCase() === collegeId.toLowerCase()
   );
   const targetId = colObj?.id || collegeId;
   const targetName = (colObj?.name || collegeId).toLowerCase();
+
+  markCollegeAsDeleted(targetId);
+  markCollegeAsDeleted(targetName);
 
   const isMatch = (id?: string, name?: string) => {
     if (id && (id === targetId || id.toLowerCase() === targetName)) return true;
