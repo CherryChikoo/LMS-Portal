@@ -232,6 +232,13 @@
 
   html {
     @apply font-sans scroll-smooth;
+    background-color: #0B0F17;
+    color: #F8FAFC;
+  }
+
+  html:not(.dark) {
+    background-color: #F8FAFC;
+    color: #0F172A;
   }
 
   /* Completely hide webkit scrollbars globally */

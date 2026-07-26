@@ -184,7 +184,7 @@ export default function DashboardLayout({
           isExpanded ? "lg:ml-[260px]" : "lg:ml-[80px]"
         )}
         style={{
-          transition: 'margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+          transition: 'margin-left 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
           willChange: 'margin-left'
         }}
       >
