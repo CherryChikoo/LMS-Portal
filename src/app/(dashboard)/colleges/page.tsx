@@ -150,19 +150,26 @@ export default function CollegesPage() {
   };
 
   const handleDeleteExternalCollege = (extName: string) => {
-    const studentsToDelete = allStudents.filter((s) => s.collegeName === extName || s.collegeId === extName);
+    const studentsToDelete = allStudents.filter(
+      (s) => s.collegeName === extName || s.collegeId === extName || s.collegeName?.toLowerCase() === extName.toLowerCase()
+    );
     setConfirmConfig({
       isOpen: true,
       title: "Delete Outside Institution",
       message: `Are you sure you want to delete outside institution "${extName}" along with its ${studentsToDelete.length} enrolled student profile(s)?`,
       onConfirm: async () => {
         try {
-          await Promise.all(studentsToDelete.map((s) => deleteStudentProfile(s.id)));
+          setDeletingIds((prev) => [...prev, extName]);
+          optimisticDeleteCollege(extName);
           setSelectedExternalIds((prev) => prev.filter((id) => id !== extName));
           toast.success(`Outside institution "${extName}" deleted.`);
+
+          await Promise.all(studentsToDelete.map((s) => deleteStudentProfile(s.id)));
         } catch (err) {
           console.error("Failed to delete outside institution:", err);
           toast.error("Failed to delete outside institution.");
+        } finally {
+          setDeletingIds((prev) => prev.filter((id) => id !== extName));
         }
       }
     });
@@ -170,16 +177,24 @@ export default function CollegesPage() {
 
   const handleDeleteSelectedExternalColleges = () => {
     if (selectedExternalIds.length === 0) return;
-    const studentsToDelete = allStudents.filter((s) => (s.collegeName && selectedExternalIds.includes(s.collegeName)) || (s.collegeId && selectedExternalIds.includes(s.collegeId)));
+    const studentsToDelete = allStudents.filter(
+      (s) =>
+        (s.collegeName && selectedExternalIds.includes(s.collegeName)) ||
+        (s.collegeId && selectedExternalIds.includes(s.collegeId)) ||
+        (s.collegeName && selectedExternalIds.map((e) => e.toLowerCase()).includes(s.collegeName.toLowerCase()))
+    );
     setConfirmConfig({
       isOpen: true,
       title: "Delete Selected Outside Institutions",
       message: `Are you sure you want to delete ${selectedExternalIds.length} selected outside institution(s) along with ${studentsToDelete.length} enrolled student profile(s)?`,
       onConfirm: async () => {
         try {
-          await Promise.all(studentsToDelete.map((s) => deleteStudentProfile(s.id)));
+          const namesToDelete = [...selectedExternalIds];
+          namesToDelete.forEach((extName) => optimisticDeleteCollege(extName));
           setSelectedExternalIds([]);
           toast.success("Selected outside institutions deleted.");
+
+          await Promise.all(studentsToDelete.map((s) => deleteStudentProfile(s.id)));
         } catch (err) {
           console.error("Failed to delete selected outside institutions:", err);
           toast.error("Failed to delete selected outside institutions.");
@@ -191,16 +206,23 @@ export default function CollegesPage() {
   const handleDeleteAllExternalColleges = () => {
     if (externalColleges.length === 0) return;
     const allExternalNames: string[] = externalColleges.map((c) => c.name);
-    const studentsToDelete = allStudents.filter((s) => (s.collegeName && allExternalNames.includes(s.collegeName)) || (s.collegeId && allExternalNames.includes(s.collegeId)));
+    const studentsToDelete = allStudents.filter(
+      (s) =>
+        (s.collegeName && allExternalNames.includes(s.collegeName)) ||
+        (s.collegeId && allExternalNames.includes(s.collegeId)) ||
+        (s.collegeName && allExternalNames.map((e) => e.toLowerCase()).includes(s.collegeName.toLowerCase()))
+    );
     setConfirmConfig({
       isOpen: true,
       title: "Permanently Clear All Outside Institutions",
       message: `Are you sure you want to permanently delete ALL ${externalColleges.length} outside institutions along with their ${studentsToDelete.length} student profile(s)?`,
       onConfirm: async () => {
         try {
-          await Promise.all(studentsToDelete.map((s) => deleteStudentProfile(s.id)));
+          allExternalNames.forEach((extName) => optimisticDeleteCollege(extName));
           setSelectedExternalIds([]);
           toast.success("All outside institutions deleted.");
+
+          await Promise.all(studentsToDelete.map((s) => deleteStudentProfile(s.id)));
         } catch (err) {
           console.error("Failed to delete all outside institutions:", err);
           toast.error("Failed to delete all outside institutions.");
@@ -620,10 +642,15 @@ export default function CollegesPage() {
                           variant="ghost"
                           size="sm"
                           onClick={() => handleDeleteExternalCollege(col.name)}
-                          className="h-8 w-8 p-0 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10 rounded-lg"
+                          disabled={deletingIds.includes(col.name)}
+                          className="h-8 w-8 p-0 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10 rounded-lg cursor-pointer disabled:opacity-50"
                           title="Delete Institution"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          {deletingIds.includes(col.name) ? (
+                            <Loader2 className="w-4 h-4 animate-spin text-rose-500" />
+                          ) : (
+                            <Trash2 className="w-4 h-4" />
+                          )}
                         </Button>
                       </div>
                     </div>

@@ -97,14 +97,31 @@ export function optimisticDeleteStudent(studentId: string): LMSStoreState {
  */
 export function optimisticDeleteCollege(collegeId: string): LMSStoreState {
   const prev = storeState;
-  const nextColleges = prev.colleges.filter((c) => c.id !== collegeId);
-  const nextFiltered = prev.filteredColleges.filter((c) => c.id !== collegeId);
-  const nextInstitutions = prev.institutions.filter((i) => i.id !== collegeId);
-  const nextExternal = prev.externalInstitutions.filter((i) => i.id !== collegeId && i.name !== collegeId);
+  const colObj = prev.colleges.find(
+    (c) => c.id === collegeId || c.name.toLowerCase() === collegeId.toLowerCase()
+  );
+  const targetId = colObj?.id || collegeId;
+  const targetName = (colObj?.name || collegeId).toLowerCase();
+
+  const isMatch = (id?: string, name?: string) => {
+    if (id && (id === targetId || id.toLowerCase() === targetName)) return true;
+    if (name && name.toLowerCase() === targetName) return true;
+    return false;
+  };
+
+  const nextColleges = prev.colleges.filter((c) => !isMatch(c.id, c.name));
+  const nextFilteredColleges = prev.filteredColleges.filter((c) => !isMatch(c.id, c.name));
+  const nextStudents = prev.students.filter((s) => !isMatch(s.collegeId, s.collegeName));
+  const nextFilteredStudents = prev.filteredStudents.filter((s) => !isMatch(s.collegeId, s.collegeName));
+  const nextInstitutions = prev.institutions.filter((i) => !isMatch(i.id, i.name));
+  const nextExternal = prev.externalInstitutions.filter((i) => !isMatch(i.id, i.name));
+
   const nextState: LMSStoreState = {
     ...prev,
     colleges: nextColleges,
-    filteredColleges: nextFiltered,
+    filteredColleges: nextFilteredColleges,
+    students: nextStudents,
+    filteredStudents: nextFilteredStudents,
     institutions: nextInstitutions,
     externalInstitutions: nextExternal,
   };
