@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Menu, Search, Sparkles, Moon, Sun, PanelLeft } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useTheme } from "next-themes";
+import { useTheme } from "@/providers/theme-provider";
 import { useSidebar } from "@/hooks/use-sidebar";
 import { useIsMobile } from "@/hooks/use-media-query";
 import { useMounted } from "@/hooks/use-mounted";
@@ -32,22 +32,22 @@ export function Topbar() {
   const { theme, setTheme } = useTheme();
   const pathname = usePathname();
 
-  const [userName, setUserName] = useState("Trainer");
-  const [userRole, setUserRole] = useState("Trainer");
-  const [initials, setInitials] = useState("TR");
+  const [userName, setUserName] = useState("User");
+  const [userRole, setUserRole] = useState("Student");
+  const [initials, setInitials] = useState("US");
 
   const loadUserInfo = useCallback(() => {
+    if (typeof window === "undefined") return;
     const savedUser = localStorage.getItem("lms_user") || localStorage.getItem("user");
     const savedRole = localStorage.getItem("lms_role");
     if (savedUser) {
       try {
         const u = JSON.parse(savedUser);
-        if (u.name || u.displayName) {
-          const name = u.name || u.displayName;
-          setUserName(name);
-          const parts = name.split(" ");
-          setInitials(parts.length > 1 ? `${parts[0][0]}${parts[parts.length - 1][0]}` : parts[0].slice(0, 2).toUpperCase());
-        }
+        const name = u.name || u.displayName || "User";
+        setUserName(name);
+        const parts = name.split(" ").filter(Boolean);
+        const init = parts.length > 1 ? `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase() : parts[0]?.slice(0, 2).toUpperCase() || "US";
+        setInitials(init);
         if (u.role === "student" || savedRole === "student") {
           setUserRole("Student");
         } else if (u.role === "admin" || savedRole === "admin") {
@@ -55,11 +55,15 @@ export function Topbar() {
         } else {
           setUserRole("Trainer");
         }
-      } catch (e) { }
+      } catch (e) {}
     } else if (savedRole === "admin") {
       setUserName("System Admin");
       setUserRole("Administrator");
       setInitials("AD");
+    } else if (savedRole === "student") {
+      setUserName("Student");
+      setUserRole("Student");
+      setInitials("ST");
     }
   }, []);
 
@@ -176,11 +180,11 @@ export function Topbar() {
               >
                 <Avatar className="h-7 w-7 ring-2 ring-brand/30">
                   <AvatarImage src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(userName)}`} />
-                  <AvatarFallback className="bg-brand text-brand-foreground dark:text-brand-foreground text-xs font-bold">
+                  <AvatarFallback className="bg-brand text-brand-foreground dark:text-brand-foreground text-xs font-bold" suppressHydrationWarning>
                     {initials}
                   </AvatarFallback>
                 </Avatar>
-                <span className="text-sm font-semibold text-foreground hidden sm:inline-block">
+                <span className="text-sm font-semibold text-foreground hidden sm:inline-block" suppressHydrationWarning>
                   {userName}
                 </span>
               </Button>
@@ -188,8 +192,8 @@ export function Topbar() {
           />
           <DropdownMenuContent align="end" className="w-56 bg-popover border-border rounded-xl p-2 shadow-2xl">
             <div className="px-3 py-2.5 border-b border-border mb-1">
-              <p className="text-sm font-bold text-foreground">{userName}</p>
-              <p className="text-xs font-mono text-brand">{userRole}</p>
+              <p className="text-sm font-bold text-foreground" suppressHydrationWarning>{userName}</p>
+              <p className="text-xs text-muted-foreground font-medium" suppressHydrationWarning>{userRole}</p>
             </div>
             <DropdownMenuItem render={<Link href={userRole.toLowerCase() === "student" ? "/student/settings" : "/admin/settings"}>Account Settings</Link>} className="rounded-md cursor-pointer" />
             {userRole.toLowerCase() !== "student" && (

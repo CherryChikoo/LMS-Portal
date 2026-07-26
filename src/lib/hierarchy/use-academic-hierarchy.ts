@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { SelectOption, Batch, AssignmentTarget, College } from "@/types";
+import type { SelectOption, Batch, AssignmentTarget, College, Student } from "@/types";
 import {
   EMPTY_FILTERS,
   GLOBAL_INSTITUTION_ID,
@@ -83,14 +83,14 @@ export function useAcademicHierarchy(options: UseAcademicHierarchyOptions = {}):
 
   // Detect user role and college for data scoping
   const { userRole, userCollegeId, userCollegeName } = useMemo(() => {
-    if (typeof window === "undefined") return { userRole: "admin", userCollegeId: "", userCollegeName: "" };
+    if (typeof window === "undefined") return { userRole: "student", userCollegeId: "", userCollegeName: "" };
     try {
-      const role = localStorage.getItem("lms_role") || "admin";
+      const role = localStorage.getItem("lms_role") || "student";
       const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
       const profile = uStr ? JSON.parse(uStr) : {};
       return { userRole: role, userCollegeId: profile.collegeId || "", userCollegeName: profile.collegeName || "" };
     } catch {
-      return { userRole: "admin", userCollegeId: "", userCollegeName: "" };
+      return { userRole: "student", userCollegeId: "", userCollegeName: "" };
     }
   }, []);
 
@@ -225,9 +225,9 @@ export function useAcademicHierarchy(options: UseAcademicHierarchyOptions = {}):
   const institutionOptions = useMemo<SelectOption[]>(() => {
     if (isScopedRole && hierarchy) {
       // Only show the user's own college
-      let myCollege: College | undefined = hierarchy.colleges.find((c) => c.id === userCollegeId);
+      let myCollege: College | undefined = (hierarchy.colleges as College[]).find((c: College) => c.id === userCollegeId);
       if (!myCollege) {
-        myCollege = getExternalInstitutions(hierarchy).find((c) => c.id === userCollegeId) as unknown as College;
+        myCollege = (getExternalInstitutions(hierarchy) as unknown as College[]).find((c: College) => c.id === userCollegeId);
       }
       if (myCollege) {
         return [{ label: safeDisplayName(myCollege.name, myCollege.id, "My Institution"), value: myCollege.id }];
@@ -244,9 +244,9 @@ export function useAcademicHierarchy(options: UseAcademicHierarchyOptions = {}):
   const collegeOptions = useMemo<SelectOption[]>(() => {
     if (!hierarchy) return [ALL_OPTION];
     if (isScopedRole) {
-      let myCollege: College | undefined = hierarchy.colleges.find((c) => c.id === userCollegeId);
+      let myCollege: College | undefined = (hierarchy.colleges as College[]).find((c: College) => c.id === userCollegeId);
       if (!myCollege) {
-        myCollege = getExternalInstitutions(hierarchy).find((c) => c.id === userCollegeId) as unknown as College;
+        myCollege = (getExternalInstitutions(hierarchy) as unknown as College[]).find((c: College) => c.id === userCollegeId);
       }
       if (myCollege) {
         return [{ label: safeDisplayName(myCollege.name, myCollege.id, "My Institution"), value: myCollege.id }];
@@ -258,7 +258,7 @@ export function useAcademicHierarchy(options: UseAcademicHierarchyOptions = {}):
     }
     return [
       ALL_OPTION,
-      ...hierarchy.colleges.map((c) => {
+      ...(hierarchy.colleges as College[]).map((c: College) => {
         const display = safeDisplayName(c.name, c.id, "Unknown Institution");
         return { label: c.isDeleted ? `${display} (Deleted)` : display, value: c.id };
       }),
@@ -297,7 +297,7 @@ export function useAcademicHierarchy(options: UseAcademicHierarchyOptions = {}):
 
   const batchOptions = useMemo<SelectOption[]>(() => {
     if (!hierarchy) return [ALL_OPTION];
-    const list = hierarchy.batches.filter((b) => {
+    const list = (hierarchy.batches as Batch[]).filter((b: Batch) => {
       if (filters.collegeId && filters.collegeId !== GLOBAL_INSTITUTION_ID && b.collegeId && b.collegeId !== filters.collegeId) return false;
       if (filters.department && b.department && b.department !== filters.department) return false;
       if (filters.academicYear && b.academicYear && b.academicYear !== filters.academicYear) return false;
@@ -306,7 +306,7 @@ export function useAcademicHierarchy(options: UseAcademicHierarchyOptions = {}):
     });
     const seen = new Set<string>();
     const uniqueList: Batch[] = [];
-    list.forEach((b) => {
+    list.forEach((b: Batch) => {
       if (!seen.has(b.id)) {
         seen.add(b.id);
         uniqueList.push(b);
@@ -349,7 +349,7 @@ export function useAcademicHierarchy(options: UseAcademicHierarchyOptions = {}):
 
     const batch = filters.batchId ? hierarchy?.batchMap.get(filters.batchId) : undefined;
     const student = filters.studentId
-      ? hierarchy?.students.find((s) => s.id === filters.studentId)
+      ? (hierarchy?.students as Student[])?.find((s: Student) => s.id === filters.studentId)
       : undefined;
 
     const target: AssignmentTarget = { 

@@ -122,20 +122,16 @@ function LoginContent() {
         className="w-full relative"
       >
         <div className="absolute inset-0 bg-white/5 dark:bg-white/5 rounded-2xl md:rounded-[32px] blur-xl" />
-        <div className="relative bg-black/40 backdrop-blur-3xl border border-white/10 shadow-2xl rounded-2xl md:rounded-[32px] overflow-hidden p-6 sm:p-10 flex flex-col items-center">
+        <div className="relative bg-black/40 backdrop-blur-3xl border border-white/10 shadow-2xl rounded-2xl md:rounded-[32px] overflow-hidden p-5 sm:p-8 flex flex-col items-center">
           
           {/* Logo */}
-          <div className="w-16 h-16 sm:w-20 sm:h-20 bg-brand/10 border border-brand/20 rounded-2xl flex items-center justify-center mb-6 sm:mb-8 shadow-inner shadow-brand/20">
-            {branding.logoBase64 ? (
+          {branding.logoBase64 && (
+            <div className="w-14 h-14 sm:w-16 sm:h-16 bg-brand/10 border border-brand/20 rounded-2xl flex items-center justify-center mb-5 shadow-inner shadow-brand/20">
               <img src={branding.logoBase64} alt="Logo" className="w-10 h-10 sm:w-12 sm:h-12 object-contain" />
-            ) : (
-              <span className="text-2xl sm:text-3xl font-black text-brand tracking-tighter">
-                {(branding.companyName || APP_NAME).charAt(0)}
-              </span>
-            )}
-          </div>
+            </div>
+          )}
 
-          <div className="text-center space-y-2 mb-8">
+          <div className="text-center space-y-1.5 mb-6">
             <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">Welcome Back</h2>
             <p className="text-sm text-white/60">Sign in to your account to continue</p>
           </div>
@@ -234,7 +230,7 @@ function LoginContent() {
               </Button>
             </div>
 
-            <div className="relative my-6">
+            <div className="relative my-4">
               <div className="absolute inset-0 flex items-center">
                 <div className="w-full border-t border-white/10" />
               </div>
@@ -273,7 +269,7 @@ function LoginContent() {
             <p className="text-[10px] text-center text-white/40 mt-3 font-medium">Google Sign-In is for student accounts only</p>
           </form>
           
-          <div className="w-full mt-8 pt-6 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between text-[11px] text-white/40 gap-4">
+          <div className="w-full mt-6 pt-5 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between text-[11px] text-white/40 gap-3">
             <span className="font-medium">&copy; {new Date().getFullYear()} {APP_NAME}.</span>
             <div className="flex items-center gap-4 font-medium">
               <Link href="/privacy" className="hover:text-white transition-colors">Privacy</Link>

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminAuth } from "@/lib/firebase/admin";
+import { getAdminApp, getAdminAuth } from "@/lib/firebase/admin";
 import { getFirestore } from "firebase-admin/firestore";
 
 export async function POST(request: NextRequest) {
@@ -10,7 +10,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "User ID (uid) is required." }, { status: 400 });
     }
 
-    const db = getFirestore();
+    const app = getAdminApp();
+    const db = getFirestore(app);
 
     // SAFETY CHECK: Only allow deleting students. Never delete admin/trainer/college_admin users.
     const userDoc = await db.collection("users").doc(uid).get();
@@ -34,9 +35,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 1. Delete all exam_results for this student
+    // 1. Find email and clean up exam_results
+    let targetEmail = "";
     const studentDoc = await db.collection("students").doc(uid).get();
     if (studentDoc.exists) {
+      const sData = studentDoc.data();
+      if (sData?.email) targetEmail = sData.email.toLowerCase().trim();
       const resultsSnap = await db.collection("exam_results").where("studentId", "==", uid).get();
       if (!resultsSnap.empty) {
         const batch = db.batch();
@@ -45,12 +49,27 @@ export async function POST(request: NextRequest) {
         });
         await batch.commit();
       }
-      
-      // Delete the student document
       await db.collection("students").doc(uid).delete();
     }
 
-    // 2. Delete the user document (only if role is student or missing)
+    if (!targetEmail && userDoc.exists) {
+      const uData = userDoc.data();
+      if (uData?.email) targetEmail = uData.email.toLowerCase().trim();
+    }
+
+    // Delete any additional student or user documents matching targetEmail
+    if (targetEmail) {
+      const matchingStuds = await db.collection("students").where("email", "==", targetEmail).get();
+      matchingStuds.forEach((d) => d.ref.delete().catch(() => {}));
+      const matchingUsers = await db.collection("users").where("email", "==", targetEmail).get();
+      matchingUsers.forEach((d) => {
+        if (d.data()?.role === "student" || !d.data()?.role) {
+          d.ref.delete().catch(() => {});
+        }
+      });
+    }
+
+    // 2. Delete the user document
     if (userDoc.exists) {
       const userData = userDoc.data();
       if (!userData?.role || userData.role === "student") {
@@ -58,19 +77,21 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 3. Delete the Firebase Auth user and revoke active sessions (best effort)
+    // 3. Delete the Firebase Auth user by UID and email
+    const auth = getAdminAuth();
     try {
-      await adminAuth.revokeRefreshTokens(uid).catch(() => {});
-      await adminAuth.deleteUser(uid);
-    } catch (authErr: any) {
-      // If the user does not exist in Auth, that's fine for a JIT-only record
-      if (authErr?.code !== "auth/user-not-found") {
-        console.error("Failed to delete Auth user:", authErr);
-        return NextResponse.json(
-          { error: "Failed to delete Firebase Auth user.", details: authErr?.message || String(authErr) },
-          { status: 500 }
-        );
-      }
+      await auth.revokeRefreshTokens(uid).catch(() => {});
+      await auth.deleteUser(uid);
+    } catch (_) {}
+
+    if (targetEmail) {
+      try {
+        const authUserByEmail = await auth.getUserByEmail(targetEmail);
+        if (authUserByEmail) {
+          await auth.revokeRefreshTokens(authUserByEmail.uid).catch(() => {});
+          await auth.deleteUser(authUserByEmail.uid);
+        }
+      } catch (_) {}
     }
 
     return NextResponse.json({ success: true });

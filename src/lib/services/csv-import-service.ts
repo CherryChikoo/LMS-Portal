@@ -151,6 +151,29 @@ export async function importStudentsCSV(
   shouldCancel?: () => boolean,
   enrollmentType: "csv" | "manual" = "csv"
 ): Promise<CSVImportSummary> {
+  // High-speed Server-side Admin Bulk Import Attempt
+  const currentUser = auth.currentUser;
+  if (currentUser) {
+    try {
+      const adminIdToken = await currentUser.getIdToken();
+      if (onProgress) onProgress(Math.floor(rows.length * 0.2), rows.length);
+      const response = await fetch("/api/admin/bulk-import-students", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adminIdToken, rows, enrollmentType }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.summary) {
+          if (onProgress) onProgress(rows.length, rows.length);
+          return data.summary;
+        }
+      }
+    } catch (apiErr) {
+      console.warn("Server bulk import failed, falling back to resilient client import:", apiErr);
+    }
+  }
+
   const summary: CSVImportSummary = {
     total: rows.length,
     createdCount: 0,

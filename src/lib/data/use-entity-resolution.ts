@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { useLMSData } from "./use-lms-data";
 import { resolveEntity } from "@/lib/utils/resolveEntity";
+import type { Student } from "@/types";
 
 export function useEntityResolution() {
   const { 
@@ -12,14 +13,15 @@ export function useEntityResolution() {
     filteredExams, 
     filteredResources,
     hierarchy,
-    institutions
+    institutions,
+    rawColleges
   } = useLMSData();
 
   return useMemo(() => ({
     resolveInstitution: (id: string | number | undefined | null): string => {
       if (!id || String(id) === "ALL" || String(id) === "GLOBAL") return String(id) === "ALL" ? "All Institutions" : "Global";
       
-      const sourceColleges = institutions || hierarchy?.colleges || filteredColleges || [];
+      const sourceColleges = rawColleges?.length > 0 ? rawColleges : (institutions || hierarchy?.colleges || filteredColleges || []);
       const resolved = resolveEntity(sourceColleges, id, "Institution");
       return resolved.name;
     },
@@ -40,7 +42,7 @@ export function useEntityResolution() {
       
       // Fallback for email matching legacy systems
       if (!resolved.isResolved) {
-        const foundByEmail = sourceStudents.find(s => s.email && String(s.email).toLowerCase() === String(id).toLowerCase());
+        const foundByEmail = (sourceStudents as Student[]).find((s: Student) => s.email && String(s.email).toLowerCase() === String(id).toLowerCase());
         if (foundByEmail) {
           const isDeleted = foundByEmail.isDeleted === true || foundByEmail.status === 'deleted';
           return isDeleted ? `${foundByEmail.name} (Deleted)` : foundByEmail.name;
@@ -68,5 +70,5 @@ export function useEntityResolution() {
       }
       return resolved.name;
     }
-  }), [filteredColleges, filteredBatches, filteredStudents, filteredExams, filteredResources, hierarchy, institutions]);
+  }), [rawColleges, filteredColleges, filteredBatches, filteredStudents, filteredExams, filteredResources, hierarchy, institutions]);
 }

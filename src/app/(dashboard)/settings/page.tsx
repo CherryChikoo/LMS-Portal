@@ -566,7 +566,14 @@ function StudentAccountSettings() {
 }
 
 export default function SettingsPage() {
-  const [userRole, setUserRole] = useState<string>("admin");
+  const [userRole, setUserRole] = useState<string>(() => {
+    if (typeof window === "undefined") return "student";
+    try {
+      const role = localStorage.getItem("lms_role");
+      if (role) return role.toLowerCase();
+    } catch {}
+    return "student";
+  });
   const [activeTab, setActiveTab] = useState<"profile" | "security" | "branding">("profile");
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm?: () => void; isAlert?: boolean; variant?: "destructive" | "warning" | "info" | "success" } | null>(null);
 

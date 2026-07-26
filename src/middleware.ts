@@ -29,16 +29,17 @@ export function middleware(request: NextRequest) {
   const isAuth = authCookie === "true";
 
   // Public authentication routes
-  const isPublicRoute =
-    pathname === "/login" ||
-    pathname === "/register";
+  const isPublicRoute = pathname === "/login" || pathname === "/register";
 
   if (isPublicRoute) {
-    if (isAuth) {
+    if (isAuth && roleCookie) {
       if (statusCookie === "restricted") {
         return NextResponse.next();
       }
-      const target = (roleCookie === "admin" || roleCookie === "trainer" || roleCookie === "college_admin") ? "/admin" : "/student";
+      const target =
+        roleCookie === "admin" || roleCookie === "trainer" || roleCookie === "college_admin"
+          ? "/"
+          : "/student";
       return NextResponse.redirect(new URL(target, request.url));
     }
     return NextResponse.next();
@@ -54,39 +55,50 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/login?error=restricted", request.url));
   }
 
-  // Handle /college routes
-  if (pathname.startsWith("/college") || pathname.startsWith("/colleges")) {
-    if (roleCookie !== "college_admin" && roleCookie !== "admin" && roleCookie !== "trainer") {
-      return NextResponse.redirect(new URL("/login", request.url));
+  const isAdminOrTrainer =
+    roleCookie === "admin" || roleCookie === "trainer" || roleCookie === "college_admin";
+
+  // Handle student role route restrictions
+  if (!isAdminOrTrainer && roleCookie === "student") {
+    const trainerOnlyRoutes = [
+      "/students",
+      "/colleges",
+      "/batches",
+      "/question-bank",
+      "/reports",
+      "/announcements",
+      "/audit",
+      "/admin",
+    ];
+
+    const isBlocked = trainerOnlyRoutes.some(
+      (r) => pathname === r || pathname.startsWith(`${r}/`)
+    );
+
+    if (isBlocked) {
+      return NextResponse.redirect(new URL("/student", request.url));
     }
-    return applyNoCacheHeaders(NextResponse.next());
   }
 
-  // Handle /admin routes
+  // For /admin prefixed aliases
   if (pathname.startsWith("/admin")) {
-    if (roleCookie === "student") {
+    if (!isAdminOrTrainer && roleCookie === "student") {
       return NextResponse.redirect(new URL("/student", request.url));
     }
     return applyNoCacheHeaders(NextResponse.next());
   }
 
-  // Handle /student routes
+  // For /student prefixed aliases
   if (pathname.startsWith("/student")) {
-    if (roleCookie !== "student") {
-      return NextResponse.redirect(new URL("/admin", request.url));
-    }
     const stripped = pathname.replace(/^\/student/, "") || "/";
-    const trainerOnlyRoutes = ["/colleges", "/students", "/batches"];
-    if (trainerOnlyRoutes.some((r) => stripped === r || stripped.startsWith(`${r}/`))) {
+    const trainerOnlyRoutes = ["/colleges", "/students", "/batches", "/question-bank", "/reports"];
+    if (!isAdminOrTrainer && trainerOnlyRoutes.some((r) => stripped === r || stripped.startsWith(`${r}/`))) {
       return NextResponse.redirect(new URL("/student", request.url));
     }
     return applyNoCacheHeaders(NextResponse.next());
   }
 
-  // If logged-in user accesses unprefixed root or path directly, redirect to their role prefix
-  const prefix = (roleCookie === "admin" || roleCookie === "trainer" || roleCookie === "college_admin") ? "/admin" : "/student";
-  const targetPath = pathname === "/" ? prefix : `${prefix}${pathname}`;
-  return NextResponse.redirect(new URL(targetPath, request.url));
+  return applyNoCacheHeaders(NextResponse.next());
 }
 
 export const config = {

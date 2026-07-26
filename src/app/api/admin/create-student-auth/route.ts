@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminAuth } from "@/lib/firebase/admin";
+import { getAdminAuth } from "@/lib/firebase/admin";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 
 const DEFAULT_STUDENT_PASSWORD = "Welcome@123";
@@ -63,7 +63,8 @@ export async function POST(request: NextRequest) {
 
     let decodedToken;
     try {
-      decodedToken = await adminAuth.verifyIdToken(adminIdToken);
+      const auth = getAdminAuth();
+      decodedToken = await auth.verifyIdToken(adminIdToken);
     } catch {
       return NextResponse.json(
         { error: "Invalid or expired admin session." },
@@ -99,16 +100,33 @@ export async function POST(request: NextRequest) {
     const finalSection = (section || "A").toString().trim();
     const finalBatch = (batch || "General Cohort").trim();
 
-    // Ensure the email is not already registered in Firebase Auth
+    const auth = getAdminAuth();
+    let authUser = null;
+
     try {
-      const existingUser = await adminAuth.getUserByEmail(normalizedEmail);
-      return NextResponse.json(
-        {
-          error: "An account with this email address already exists.",
-          uid: existingUser.uid,
-        },
-        { status: 409 }
-      );
+      const existingUser = await auth.getUserByEmail(normalizedEmail);
+      // Check if an active student profile doc exists in Firestore
+      const studentDocSnap = await db.collection("students").doc(existingUser.uid).get();
+      const emailQuerySnap = await db.collection("students").where("email", "==", normalizedEmail).get();
+
+      const activeStudentExists = studentDocSnap.exists || !emailQuerySnap.empty;
+
+      if (activeStudentExists) {
+        return NextResponse.json(
+          {
+            error: "An account with this email address already exists.",
+            uid: existingUser.uid,
+          },
+          { status: 409 }
+        );
+      }
+
+      // Re-use existing Auth account whose Firestore student profile was deleted
+      await auth.updateUser(existingUser.uid, {
+        password: DEFAULT_STUDENT_PASSWORD,
+        displayName: studentName,
+      });
+      authUser = existingUser;
     } catch (err) {
       const code = getErrorCode(err);
       if (code !== "auth/user-not-found") {
@@ -120,29 +138,30 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Create the Firebase Auth user with the default password
-    let authUser;
-    try {
-      authUser = await adminAuth.createUser({
-        email: normalizedEmail,
-        password: DEFAULT_STUDENT_PASSWORD,
-        displayName: studentName,
-      });
-    } catch (authErr) {
-      console.error("Admin createUser error:", authErr);
-      if (getErrorCode(authErr) === "auth/email-already-exists") {
+    // Create the Firebase Auth user if it didn't exist
+    if (!authUser) {
+      try {
+        authUser = await auth.createUser({
+          email: normalizedEmail,
+          password: DEFAULT_STUDENT_PASSWORD,
+          displayName: studentName,
+        });
+      } catch (authErr) {
+        console.error("Admin createUser error:", authErr);
+        if (getErrorCode(authErr) === "auth/email-already-exists") {
+          return NextResponse.json(
+            { error: "An account with this email address already exists." },
+            { status: 409 }
+          );
+        }
         return NextResponse.json(
-          { error: "An account with this email address already exists." },
-          { status: 409 }
+          {
+            error: "Failed to create Firebase Auth account.",
+            details: getErrorMessage(authErr),
+          },
+          { status: 500 }
         );
       }
-      return NextResponse.json(
-        {
-          error: "Failed to create Firebase Auth account.",
-          details: getErrorMessage(authErr),
-        },
-        { status: 500 }
-      );
     }
 
     const uid = authUser.uid;
@@ -192,7 +211,8 @@ export async function POST(request: NextRequest) {
     } catch (dbErr) {
       // Best-effort rollback of the Auth user if Firestore write fails
       try {
-        await adminAuth.deleteUser(uid);
+        const auth = getAdminAuth();
+        await auth.deleteUser(uid);
       } catch {
         // ignore rollback error
       }

@@ -7,6 +7,8 @@ import { MobileSidebar } from "@/components/layout/mobile-sidebar";
 import { Topbar } from "@/components/layout/topbar";
 import { NavigationProgress } from "@/components/layout/navigation-progress";
 import { usePathname } from "next/navigation";
+import { cn } from "@/lib/utils";
+import { subscribeToLMSCache } from "@/lib/data/lms-data-cache";
 
 export default function DashboardLayout({
   children,
@@ -23,7 +25,9 @@ export default function DashboardLayout({
     const verifyAuth = () => {
       const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
       if (!uStr) {
-        window.location.replace("/login");
+        import("@/lib/utils/auth-session").then(({ clearAuthSession }) => {
+          clearAuthSession("/login");
+        });
       } else {
         try {
           const parsed = JSON.parse(uStr);
@@ -150,6 +154,9 @@ export default function DashboardLayout({
       });
     }
 
+    const unsubLMS = subscribeToLMSCache(() => {});
+    unsubs.push(unsubLMS);
+
     return () => {
       window.removeEventListener("pageshow", verifyAuth);
       unsubs.forEach((u) => u());
@@ -169,12 +176,13 @@ export default function DashboardLayout({
 
       {/* Main content area */}
       <div
-        className={`flex-1 flex flex-col min-h-[100dvh] relative z-10 ${
+        className={cn(
+          "flex-1 flex flex-col min-h-[100dvh] relative z-10 min-w-0 w-full transition-[margin-left] duration-300 ease-out will-change-[margin-left]",
           isExpanded ? "lg:ml-[260px]" : "lg:ml-[80px]"
-        }`}
+        )}
       >
         <Topbar />
-        <main className="flex-1 p-5 sm:p-7 lg:p-9 lg:pb-16 pb-20 max-w-[1600px] w-full mx-auto">
+        <main className="flex-1 p-4 sm:p-7 lg:p-9 lg:pb-16 pb-20 max-w-[100vw] lg:max-w-[1600px] w-full mx-auto min-w-0">
           {children}
         </main>
       </div>

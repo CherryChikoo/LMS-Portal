@@ -14,6 +14,7 @@ import {
 import { auth } from "@/lib/firebase/config";
 import { googleProvider, signInWithGoogle } from "@/lib/firebase/auth";
 import { getDocument, setDoc, doc, getDocuments, where } from "@/lib/firebase/firestore";
+import { writeBatch } from "firebase/firestore";
 import { db } from "@/lib/firebase/config";
 import { setAuthSession, clearAuthSession } from "@/lib/utils/auth-session";
 import { invalidateLMSCache } from "@/lib/data/lms-data-cache";
@@ -44,8 +45,7 @@ export async function trainerLogin(email: string, pass: string): Promise<{ user:
   } catch (_err: unknown) {
     // If account doesn't exist yet in Firebase Auth, only bootstrap if exact default master credentials match
     if (
-      (email.toLowerCase() === "trainer@lms.dev" && pass === "admin123456") ||
-      (email.toLowerCase() === "admin@lms.dev" && pass === "admin123456")
+      email.toLowerCase() === "trainer@gmail.com" && pass === "admin123456"
     ) {
       try {
         credential = await createUserWithEmailAndPassword(auth, email, pass);
@@ -71,12 +71,12 @@ export async function trainerLogin(email: string, pass: string): Promise<{ user:
 
   // If initial bootstrap admin (e.g. first login or trainer account creation)
   if (!profile) {
-    if (email.toLowerCase() === "trainer@lms.dev" || email.toLowerCase() === "admin@lms.dev") {
+    if (email.toLowerCase() === "trainer@gmail.com") {
       profile = {
         id: uid,
         email: email.toLowerCase(),
-        displayName: credential.user.displayName || (email.toLowerCase() === "admin@lms.dev" ? "Chief Assessment Officer" : "Lead Trainer Faculty"),
-        role: email.toLowerCase() === "admin@lms.dev" ? "admin" : "trainer",
+        displayName: credential.user.displayName || "Super Administrator",
+        role: "admin",
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -521,10 +521,22 @@ export async function studentRegister(
   try {
     credential = await createUserWithEmailAndPassword(auth, collegeEmail.trim(), password);
   } catch (err: unknown) {
-    if (err instanceof Error && err.message.includes("auth/email-already-in-use")) {
-      throw new Error("An account with this College Email ID already exists. Please sign in instead.");
+    const isEmailInUse = (err instanceof Error && err.message.includes("auth/email-already-in-use")) || (err as { code?: string })?.code === "auth/email-already-in-use";
+    if (isEmailInUse) {
+      const cleanEmail = collegeEmail.toLowerCase().trim();
+      const existingStuds = await getDocuments<Student>(STUDENTS_COLLECTION, [where("email", "==", cleanEmail)]);
+      if (existingStuds.length === 0) {
+        try {
+          credential = await signInWithEmailAndPassword(auth, cleanEmail, password);
+        } catch (_) {
+          throw new Error("An account with this email address already exists. Please sign in with your existing password.");
+        }
+      } else {
+        throw new Error("An account with this College Email ID already exists. Please sign in instead.");
+      }
+    } else {
+      throw err;
     }
-    throw err;
   }
   const uid = credential.user.uid;
 
@@ -697,21 +709,21 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
       }
     }
 
-    // 3. Check Master Admins fallback
+    // 3. Check Master Admin fallback
     if (!createdUid) {
-      if ((cleanEmail === "trainer@lms.dev" || cleanEmail === "admin@lms.dev") && pass === "admin123456") {
+      if (cleanEmail === "trainer@gmail.com" && pass === "admin123456") {
         try {
           credential = await createUserWithEmailAndPassword(auth, cleanEmail, pass);
         } catch {
           throw new Error("Invalid trainer credentials.");
         }
         createdUid = credential.user.uid;
-        foundRole = cleanEmail === "admin@lms.dev" ? "admin" : "trainer";
+        foundRole = "admin";
         foundProfile = {
           id: createdUid,
           email: cleanEmail,
-          displayName: credential.user.displayName || (cleanEmail === "admin@lms.dev" ? "Chief Assessment Officer" : "Lead Trainer Faculty"),
-          role: foundRole,
+          displayName: credential.user.displayName || "Super Administrator",
+          role: "admin",
           createdAt: new Date(),
           updatedAt: new Date(),
         };
@@ -748,54 +760,75 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
   let profile = await getDocument<ExtendedUser>(USERS_COLLECTION, uid);
 
   if (!profile) {
-    if (cleanEmail === "trainer@lms.dev" || cleanEmail === "admin@lms.dev") {
+    const existingUsersByEmail = await getDocuments<ExtendedUser>(USERS_COLLECTION, [where("email", "==", cleanEmail)]);
+    if (existingUsersByEmail.length > 0) {
+      profile = existingUsersByEmail[0];
+    }
+  }
+
+  if (!profile) {
+    if (cleanEmail === "trainer@gmail.com") {
       profile = {
         id: uid,
         email: cleanEmail,
-        displayName: credential.user.displayName || (cleanEmail === "admin@lms.dev" ? "Chief Assessment Officer" : "Lead Trainer Faculty"),
-        role: cleanEmail === "admin@lms.dev" ? "admin" : "trainer",
+        displayName: credential.user.displayName || "Super Administrator",
+        role: "admin",
         createdAt: new Date(),
         updatedAt: new Date(),
       };
       await setDoc(doc(db, USERS_COLLECTION, uid), profile);
     } else {
-       const studentDoc = await getDocument<Student>("students", uid);
-       if (studentDoc) {
-           profile = {
-              id: studentDoc.id || uid,
-              email: studentDoc.email || credential.user.email || cleanEmail,
-              displayName: studentDoc.name || "Student",
-              role: "student",
-              department: studentDoc.department || "Computer Science & Engineering",
-              collegeId: studentDoc.collegeId || "",
-              collegeName: studentDoc.collegeName || "",
-              academicYear: studentDoc.academicYear || undefined,
-              section: studentDoc.section || undefined,
-              batchIds: studentDoc.batchIds || [],
-              createdAt: studentDoc.createdAt || new Date(),
-              updatedAt: studentDoc.updatedAt || new Date(),
-            } as ExtendedUser;
-       } else {
-           await firebaseSignOut(auth);
-           throw new Error("Unauthorized: Account not found in directory.");
-       }
+      let studentDoc = await getDocument<Student>("students", uid);
+      if (!studentDoc) {
+        const studsByEmail = await getDocuments<Student>("students", [where("email", "==", cleanEmail)]);
+        if (studsByEmail.length > 0) {
+          studentDoc = studsByEmail[0];
+        }
+      }
+
+      if (studentDoc) {
+        profile = {
+          id: studentDoc.id || uid,
+          email: studentDoc.email || credential.user.email || cleanEmail,
+          displayName: studentDoc.name || "Student",
+          role: "student",
+          department: studentDoc.department || "Computer Science & Engineering",
+          collegeId: studentDoc.collegeId || "",
+          collegeName: studentDoc.collegeName || "",
+          academicYear: studentDoc.academicYear || undefined,
+          section: studentDoc.section || undefined,
+          batchIds: studentDoc.batchIds || [],
+          createdAt: studentDoc.createdAt || new Date(),
+          updatedAt: studentDoc.updatedAt || new Date(),
+        } as ExtendedUser;
+        // Save user doc under Auth UID for fast future lookups
+        await setDoc(doc(db, USERS_COLLECTION, uid), profile, { merge: true });
+      } else {
+        await firebaseSignOut(auth);
+        throw new Error("Unauthorized: Account not found in directory.");
+      }
     }
   } else if (profile.role === "student") {
-    // Enhance with student doc
-    const studentDoc = await getDocument<Student>("students", uid);
+    let studentDoc = await getDocument<Student>("students", uid);
+    if (!studentDoc) {
+      const studsByEmail = await getDocuments<Student>("students", [where("email", "==", cleanEmail)]);
+      if (studsByEmail.length > 0) {
+        studentDoc = studsByEmail[0];
+      }
+    }
     if (studentDoc) {
-       profile = {
-         ...profile,
-         id: studentDoc.id || uid,
-         email: studentDoc.email || credential.user.email || cleanEmail,
-         displayName: studentDoc.name || profile.displayName || "Student",
-         department: studentDoc.department || profile.department || "Computer Science & Engineering",
-         collegeId: studentDoc.collegeId || profile.collegeId || "",
-         collegeName: studentDoc.collegeName || profile.collegeName || "",
-         academicYear: studentDoc.academicYear || profile.academicYear,
-         section: studentDoc.section || profile.section,
-         batchIds: studentDoc.batchIds || profile.batchIds || [],
-       };
+      profile = {
+        ...profile,
+        id: studentDoc.id || uid,
+        email: studentDoc.email || credential.user.email || cleanEmail,
+        displayName: studentDoc.name || profile.displayName || "Student",
+        department: studentDoc.department || profile.department || "Computer Science & Engineering",
+        collegeId: studentDoc.collegeId || profile.collegeId || "",
+        collegeName: studentDoc.collegeName || profile.collegeName || "",
+        academicYear: studentDoc.academicYear || profile.academicYear,
+        section: studentDoc.section || profile.section,
+        batchIds: studentDoc.batchIds || profile.batchIds || [],
+      };
     }
   }
 
@@ -803,7 +836,11 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
 
   // Validation
   if (role === "student") {
-    const studentDoc = await getDocument<Student>("students", uid);
+    let studentDoc = await getDocument<Student>("students", uid);
+    if (!studentDoc) {
+      const studsByEmail = await getDocuments<Student>("students", [where("email", "==", cleanEmail)]);
+      if (studsByEmail.length > 0) studentDoc = studsByEmail[0];
+    }
     if (profile?.status === "restricted" || studentDoc?.status === "restricted") {
       await firebaseSignOut(auth);
       throw new Error("RESTRICTED_ACCOUNT: Your LMS account has been temporarily restricted by your Trainer/Admin. Please contact your Trainer for further assistance.");
@@ -978,7 +1015,7 @@ export function formatAuthError(err: unknown, defaultMessage?: string): string {
   }
 
   if (msg.includes("auth/user-not-found") || msg.includes("user-not-found") || msg.includes("auth/invalid-credential") || msg.includes("invalid-credential") || msg.includes("auth/wrong-password") || msg.includes("wrong-password")) {
-    return "Invalid email address or incorrect password. Please check your credentials or ask your trainer for assistance.";
+    return "Invalid credentials. If no account exists, please contact your administrator or sign up to create one.";
   }
   if (msg.includes("auth/email-already-in-use") || msg.includes("email-already-in-use") || msg.includes("already exists")) {
     return "An account with this email address already exists. Please try signing in instead.";

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { motion, AnimatePresence } from "motion/react";
 import { GraduationCap, Plus, Building2, Layers, Users, FolderTree, ChevronRight, Trash2, Pencil } from "lucide-react";
 import Link from "next/link";
@@ -9,16 +10,20 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
-import { getAllColleges, createCollege, getAllStudents, deleteCollege, deleteStudentProfile, updateCollege, updateStudentProfile, renameCollegeAndMigrate, PREDEFINED_DEPARTMENTS, ensureGeneralDepartment } from "@/lib/services";
+import { getAllColleges, createCollege, getAllStudents, deleteStudentProfile, updateCollege, updateStudentProfile, renameCollegeAndMigrate, PREDEFINED_DEPARTMENTS, ensureGeneralDepartment } from "@/lib/services";
+import { useLMSDataSelector } from "@/lib/data/use-lms-data";
+import { getAuth } from "firebase/auth";
 import type { College, Student } from "@/types";
 
 export default function CollegesPage() {
-  const [colleges, setColleges] = useState<College[]>([]);
-  const [externalColleges, setExternalColleges] = useState<{ isPromoted?: boolean; collegeData?: College; id: string; name: string; studentCount: number; departments: string[] }[]>([]);
-  const [allStudents, setAllStudents] = useState<Student[]>([]);
+  const colleges = useLMSDataSelector((s) => s.filteredColleges);
+  const externalColleges = useLMSDataSelector((s) => s.externalInstitutions);
+  const allStudents = useLMSDataSelector((s) => s.students);
+  const lmsLoading = useLMSDataSelector((s) => s.loading);
+
   const [selectedAdminIds, setSelectedAdminIds] = useState<string[]>([]);
   const [selectedExternalIds, setSelectedExternalIds] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void } | null>(null);
   const [name, setName] = useState("");
@@ -44,85 +49,42 @@ export default function CollegesPage() {
 
 
   const fetchColleges = async () => {
-    setLoading(true);
-    try {
-      const [collegesData, studentsData] = await Promise.all([
-        getAllColleges(),
-        getAllStudents(),
-      ]);
-
-      setAllStudents(studentsData);
-
-      const computedColleges = collegesData
-        .filter((col) => !col.isDeleted)
-        .map((col) => ({
-          ...col,
-          studentCount: studentsData.filter((s) => !s.isDeleted && (s.collegeId === col.id || s.collegeName === col.name)).length,
-        }));
-
-      const normalize = (str: string | undefined | null) => (str || "").trim().toLowerCase().replace(/\s+/g, " ");
-
-      const officialSet = new Set([
-        ...collegesData.filter((c) => !c.isDeleted).map((c) => c.id).filter(Boolean),
-        ...collegesData.filter((c) => !c.isDeleted).map((c) => normalize(c.name)).filter(Boolean),
-      ]);
-
-      const externalMap = new Map<string, { name: string; students: Student[] }>();
-      studentsData.forEach((s) => {
-        if (s.isDeleted) return;
-
-        const cName = s.collegeName || "Unknown Institution";
-        if (!cName) return;
-        
-        const isOfficial = 
-          (s.collegeId && officialSet.has(s.collegeId)) ||
-          officialSet.has(normalize(cName)) ||
-          officialSet.has(normalize(s.collegeName));
-
-        if (!isOfficial) {
-          if (!externalMap.has(cName)) {
-            externalMap.set(cName, { name: cName, students: [] });
-          }
-          externalMap.get(cName)!.students.push(s);
-        }
-      });
-
-      const computedExternal = Array.from(externalMap.values()).map((ext) => ({
-        id: ext.name,
-        name: ext.name,
-        studentCount: ext.students.length,
-        departments: Array.from(new Set(ext.students.map((s) => s.department).filter(Boolean))),
-      }));
-
-      setColleges(computedColleges);
-      setExternalColleges(computedExternal);
-    } catch (err) {
-      console.error("Failed to fetch colleges data", err);
-    } finally {
-      setLoading(false);
-    }
+    // Reactive updates are handled automatically via useLMSDataSelector
   };
-
-
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial data load on mount
-    fetchColleges();
-  }, []);
 
   const handleDeleteAdminCollege = (col: College) => {
     setConfirmConfig({
       isOpen: true,
       title: "Delete Partner Institution",
-      message: `Are you sure you want to permanently delete "${col.name}"? This action cannot be undone.`,
+      message: `Are you sure you want to permanently delete "${col.name}"? This action will also delete all students, departments, and associated data. This cannot be undone.`,
       onConfirm: async () => {
         setLoading(true);
         try {
-          await deleteCollege(col.id);
+          const auth = getAuth();
+          const token = await auth.currentUser?.getIdToken();
+          if (!token) throw new Error("Not authenticated");
+
+          const res = await fetch("/api/admin/delete-college", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              id: col.id,
+              adminIdToken: token,
+            }),
+          });
+          
+          if (!res.ok) {
+            const data = await res.json();
+            throw new Error(data.error || "Failed to delete college");
+          }
+
           setSelectedAdminIds((prev) => prev.filter((id) => id !== col.id));
           await fetchColleges();
-        } catch (err) {
+        } catch (err: any) {
           console.error("Failed to delete college:", err);
+          alert(err.message || "Failed to delete college");
         } finally {
           setLoading(false);
         }
@@ -161,11 +123,26 @@ export default function CollegesPage() {
       onConfirm: async () => {
         setLoading(true);
         try {
-          await Promise.all(selectedAdminIds.map((id) => deleteCollege(id)));
+          const auth = getAuth();
+          const token = await auth.currentUser?.getIdToken();
+          if (!token) throw new Error("Not authenticated");
+
+          await Promise.all(selectedAdminIds.map(async (id) => {
+            const res = await fetch("/api/admin/delete-college", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id, adminIdToken: token }),
+            });
+            if (!res.ok) {
+              const data = await res.json();
+              throw new Error(data.error || "Failed to delete college");
+            }
+          }));
           setSelectedAdminIds([]);
           await fetchColleges();
-        } catch (err) {
+        } catch (err: any) {
           console.error("Failed to delete selected colleges:", err);
+          alert(err.message || "Failed to delete selected colleges");
         } finally {
           setLoading(false);
         }
@@ -244,7 +221,18 @@ export default function CollegesPage() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name) return;
+    const trimName = name.trim();
+    if (!trimName) return;
+
+    // Duplicate Validation
+    const existsInOfficial = colleges.some(c => c.name.toLowerCase() === trimName.toLowerCase());
+    const existsInExternal = externalColleges.some(c => c.name.toLowerCase() === trimName.toLowerCase());
+    
+    if (existsInOfficial || existsInExternal) {
+      toast.error(`An institution named "${trimName}" already exists.`);
+      return;
+    }
+
     setCreating(true);
     try {
       const deptsList: string[] = [];
@@ -428,7 +416,7 @@ export default function CollegesPage() {
                 <motion.div
                   key={col.id}
                   whileHover={{ y: -4 }}
-                  className={`rounded-2xl border ${isSelected ? "border-brand bg-brand/5" : "border-border bg-card/60"} backdrop-blur-md p-6 flex flex-col justify-between space-y-5 shadow-lg relative`}
+                  className={`rounded-2xl border ${isSelected ? "border-brand bg-brand/5" : "border-border bg-card/95"} p-6 flex flex-col justify-between space-y-5 shadow-lg relative`}
                 >
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
@@ -597,7 +585,7 @@ export default function CollegesPage() {
                 <motion.div
                   key={col.id}
                   whileHover={{ y: -4 }}
-                  className={`rounded-2xl border ${isSelected ? "border-amber-500 bg-amber-500/5" : "border-amber-500/30 bg-card/60"} backdrop-blur-md p-6 flex flex-col justify-between space-y-5 shadow-lg relative overflow-hidden`}
+                  className={`rounded-2xl border ${isSelected ? "border-amber-500 bg-amber-500/5" : "border-amber-500/30 bg-card/95"} p-6 flex flex-col justify-between space-y-5 shadow-lg relative overflow-hidden`}
                 >
                   <div className="absolute top-0 right-0 px-3 py-1 bg-amber-500/10 border-l border-b border-amber-500/20 rounded-bl-xl text-[10px] font-bold text-amber-500 uppercase tracking-wider">
                     {badgeLabel}

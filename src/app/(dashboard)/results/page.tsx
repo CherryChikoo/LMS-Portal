@@ -96,7 +96,14 @@ export default function ResultsPage() {
   const pathname = usePathname();
   const { filteredAttempts: attempts, filteredExams: exams, filteredStudents: students, loading: lmsLoading } = useLMSData();
   const { resolveStudent, resolveInstitution } = useEntityResolution();
-  const [actualRole, setActualRole] = useState<string>("admin");
+  const [actualRole, setActualRole] = useState<string>(() => {
+    if (typeof window === "undefined") return "student";
+    try {
+      const role = localStorage.getItem("lms_role");
+      if (role) return role.toLowerCase();
+    } catch {}
+    return "student";
+  });
   const [currentStudentUser, setCurrentStudentUser] = useState<Student | null>(null);
 
   // Compute the route for an attempt's answer sheet. Trainers/admins see
@@ -174,7 +181,7 @@ export default function ResultsPage() {
       const sId = attempt.studentId;
       const sEmail = (attempt as unknown as { studentEmail?: string }).studentEmail;
       const sName = attempt.studentName?.toLowerCase().trim();
-      return students.find((s) => {
+      return (students as Student[]).find((s: Student) => {
         if (sId && (s.id === sId || s.email === sId)) return true;
         if (sEmail && s.email.toLowerCase() === sEmail.toLowerCase()) return true;
         // Do not fallback to matching by name alone, as it causes false positives for deleted students with common names
@@ -200,10 +207,10 @@ export default function ResultsPage() {
   // then fall back to the title persisted on the attempt, then "Deleted Assessment".
   const examTitleMap = useMemo(() => {
     const map: Record<string, string> = {};
-    attempts.forEach((a) => {
+    (attempts as ExamAttempt[]).forEach((a: ExamAttempt) => {
       if (a.examId) map[a.examId] = a.examTitle || "Deleted Assessment";
     });
-    exams.forEach((e) => {
+    (exams as Exam[]).forEach((e: Exam) => {
       if (e.id) map[e.id] = e.title || map[e.id] || "Deleted Assessment";
     });
     return map;
@@ -212,7 +219,7 @@ export default function ResultsPage() {
   // Attempts narrowed by the cascading hierarchy filters. Used to derive the
   // cascading Exam and Student dropdown options and the final filtered list.
   const filteredAttemptsByHierarchy = useMemo(() => {
-    return attempts.filter((att) => {
+    return (attempts as ExamAttempt[]).filter((att: ExamAttempt) => {
       const student = getStudentForAttempt(att);
       if (!student) return false;
       if (academicFilters.collegeId && student.collegeId !== academicFilters.collegeId) return false;
@@ -228,9 +235,9 @@ export default function ResultsPage() {
   const examSubjectsList = useMemo(() => {
     return uniqueOptions(
       filteredAttemptsByHierarchy
-        .filter((a) => Boolean(a.examId))
-        .map((a) => ({ id: a.examId as string, title: examTitleMap[a.examId] || a.examTitle || "Deleted Assessment" })),
-      (e) => e.id
+        .filter((a: ExamAttempt) => Boolean(a.examId))
+        .map((a: ExamAttempt) => ({ id: a.examId as string, title: examTitleMap[a.examId] || a.examTitle || "Deleted Assessment" })),
+      (e: { id: string }) => e.id
     );
   }, [filteredAttemptsByHierarchy, examTitleMap]);
 
@@ -249,19 +256,19 @@ export default function ResultsPage() {
     };
 
     const attemptNames = filteredAttemptsByHierarchy
-      .filter((a) => a.studentName && !isAdminAttempt(a))
-      .map((a) => a.studentName as string);
+      .filter((a: ExamAttempt) => a.studentName && !isAdminAttempt(a))
+      .map((a: ExamAttempt) => a.studentName as string);
 
-    const studentNames = students
-      .map((s) => s.name)
+    const studentNames = (students as Student[])
+      .map((s: Student) => s.name)
       .filter((n): n is string => Boolean(n));
 
-    return uniqueOptions([...attemptNames, ...studentNames], (n) => n.toLowerCase());
+    return uniqueOptions([...attemptNames, ...studentNames], (n: string) => n.toLowerCase());
   }, [filteredAttemptsByHierarchy, students]);
 
   // Track which student accounts still exist so deleted-student records can be labelled
   const existingStudentIds = useMemo(() => {
-    return new Set(students.map((s) => s.id).filter(Boolean));
+    return new Set((students as Student[]).map((s: Student) => s.id).filter(Boolean));
   }, [students]);
 
   // Reset child filters (Exam, Student) when the hierarchy selection or the derived
@@ -423,11 +430,11 @@ export default function ResultsPage() {
       "Outcome",
     ].join(",");
 
-    const rows = filteredAttempts.map(attempt => {
+    const rows = filteredAttempts.map((attempt: ExamAttempt) => {
       const examName = examTitleMap[attempt.examId] || attempt.examId;
       const studentName = resolveStudent(attempt.studentId);
       
-      const st = students.find(s => s.id === attempt.studentId);
+      const st = (students as Student[]).find((s: Student) => s.id === attempt.studentId);
       const email = st?.email || "";
       const college = st?.collegeName || "";
       const dept = st?.department || "";

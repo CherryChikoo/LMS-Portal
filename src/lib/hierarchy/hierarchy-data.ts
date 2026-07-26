@@ -22,6 +22,8 @@ export interface Institution {
   code?: string;
   departments?: string[];
   isDeleted?: boolean;
+  studentCount?: number;
+  isPromoted?: boolean;
 }
 
 export const GLOBAL_INSTITUTION_ID = "GLOBAL";
@@ -116,10 +118,14 @@ export function safeDisplayName(name: string | undefined | null, id: string, fal
   const trimmedName = name.trim();
   const trimmedId = (id || "").trim();
   
-  // If name matches the ID, or if name looks like an ID
-  if (trimmedName === trimmedId || looksLikeFirestoreId(trimmedName)) {
+  // If name looks like an ID, use fallback.
+  if (looksLikeFirestoreId(trimmedName)) {
     return fallback;
   }
+  
+  // If name matches ID, but it DOESN'T look like a Firestore ID,
+  // it's probably a manual external institution where ID = Name.
+  // We can safely return the name.
 
   return trimmedName;
 
@@ -383,17 +389,26 @@ export function getAllAcademicYears(hierarchy: Hierarchy): string[] {
   return aggregateValues(collected);
 }
 
+export function cleanSectionName(section: string): string {
+  if (!section) return "";
+  const trimmed = section.trim();
+  const match = /^section\s+([a-z0-9]+)$/i.exec(trimmed);
+  if (match) return match[1].toUpperCase();
+  return trimmed;
+}
+
 export function getAllSections(hierarchy: Hierarchy): string[] {
   if (!hierarchy) return [];
   const collected: string[] = [];
-  hierarchy.students.forEach((s) => collected.push(s.section));
-  hierarchy.batches.forEach((b) => collected.push(b.section || ""));
+  hierarchy.students.forEach((s) => collected.push(cleanSectionName(s.section)));
+  hierarchy.batches.forEach((b) => collected.push(cleanSectionName(b.section || "")));
   return aggregateValues(collected);
 }
 
 export function toSelectOptions(values: string[]): SelectOption[] {
   return values.map((v) => {
-    const label = looksLikeFirestoreId(v) ? "Unknown" : v;
+    const cleaned = cleanSectionName(v);
+    const label = looksLikeFirestoreId(cleaned) ? "Unknown" : cleaned;
     return { label, value: v };
   });
 }
@@ -442,46 +457,77 @@ export function getExternalInstitutions(
   studentsOrHierarchy: Student[] | Hierarchy | null,
   collegesArg?: College[]
 ): Institution[] {
-  let students: Student[];
+  let rawStudents: Student[];
   let colleges: College[];
 
   if (Array.isArray(studentsOrHierarchy)) {
-    students = studentsOrHierarchy;
+    rawStudents = studentsOrHierarchy;
     colleges = collegesArg || [];
   } else {
     const hierarchy = studentsOrHierarchy;
     if (!hierarchy) return [];
-    students = hierarchy.students;
+    rawStudents = hierarchy.students;
     colleges = hierarchy.colleges;
   }
+
+  // Filter out deleted or inactive students
+  const activeStudents = rawStudents.filter(
+    (s) => !s.isDeleted && s.status !== "deleted"
+  );
+
+  const isIgnored = (val: string | undefined | null) => {
+    if (!val) return true;
+    const n = normalize(val).toLowerCase();
+    return (
+      !n ||
+      n === "global" ||
+      n === "unassigned" ||
+      n === "unknown institution" ||
+      n === GLOBAL_INSTITUTION_ID.toLowerCase()
+    );
+  };
 
   const officialIds = new Set(colleges.map((c) => c.id));
   const officialNames = new Set(
     colleges.map((c) => normalize(c.name).toLowerCase()).filter(Boolean)
   );
-  const byId = new Map<string, Institution>();
 
-  const consider = (id: string, name: string) => {
-    const normId = normalize(id);
-    const normName = normalize(name);
-    if (!normId || normId === GLOBAL_INSTITUTION_ID.toLowerCase()) return;
-    if (officialIds.has(normId)) return;
-    if (normName && officialNames.has(normName.toLowerCase())) return;
-    if (byId.has(normId)) return;
-    // Never use a Firestore ID as a display name
-    const displayName = safeDisplayName(normName, normId, "Unknown Institution");
-    byId.set(normId, {
-      id: normId,
-      name: displayName,
-      type: "external",
-    });
-  };
+  const externalMap = new Map<string, { id: string; name: string; students: Student[] }>();
 
-  students.forEach((s) => {
-    consider(s.collegeId, s.collegeName || "");
+  activeStudents.forEach((s) => {
+    const cId = normalize(s.collegeId);
+    const cName = normalize(s.collegeName || "");
+
+    if (isIgnored(cId) && isIgnored(cName)) return;
+
+    const isOfficial =
+      (!isIgnored(cId) && officialIds.has(cId)) ||
+      (!isIgnored(cName) && (officialNames.has(cName.toLowerCase()) || officialIds.has(cName)));
+
+    if (!isOfficial) {
+      const displayName = !isIgnored(cName)
+        ? safeDisplayName(cName, cId, "External Institution")
+        : safeDisplayName(cId, cId, "External Institution");
+      
+      const key = displayName.toLowerCase();
+      if (!externalMap.has(key)) {
+        externalMap.set(key, {
+          id: displayName,
+          name: displayName,
+          students: [],
+        });
+      }
+      externalMap.get(key)!.students.push(s);
+    }
   });
 
-  return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
+  return Array.from(externalMap.values()).map((ext) => ({
+    id: ext.name,
+    name: ext.name,
+    type: "external" as const,
+    studentCount: ext.students.length,
+    departments: Array.from(new Set(ext.students.map((s) => s.department).filter(Boolean))),
+  })).sort((a, b) => a.name.localeCompare(b.name));
 }
 
 
@@ -501,8 +547,9 @@ export function getInstitutionName(
   input: Institution[] | Hierarchy | null,
   id: string
 ): string {
-  if (!input || !id) return "Unknown Institution";
-  if (id === GLOBAL_INSTITUTION_ID) return "All Students"; // Fallback for existing global targets
+  if (!input || !id || id.toLowerCase() === "global" || id.toLowerCase() === "unassigned") {
+    return "Unassigned";
+  }
 
   if (Array.isArray(input)) {
     const found = input.find((i) => i.id === id);

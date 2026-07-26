@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminAuth } from "@/lib/firebase/admin";
+import { getAdminAuth } from "@/lib/firebase/admin";
 import { getFirestore } from "firebase-admin/firestore";
 
 export async function POST(request: NextRequest) {
@@ -17,7 +17,8 @@ export async function POST(request: NextRequest) {
 
     let decodedToken;
     try {
-      decodedToken = await adminAuth.verifyIdToken(adminIdToken);
+      const auth = getAdminAuth();
+      decodedToken = await auth.verifyIdToken(adminIdToken);
     } catch {
       return NextResponse.json({ error: "Invalid or expired admin session." }, { status: 401 });
     }
@@ -67,45 +68,67 @@ export async function POST(request: NextRequest) {
 
     // Update the Firebase Auth user
     try {
-      await adminAuth.updateUser(uid, authUpdateFields);
+      const auth = getAdminAuth();
+      await auth.updateUser(uid, authUpdateFields);
     } catch (authErr: unknown) {
-      if ((authErr as { code?: string }).code === "auth/email-already-exists") {
-        return NextResponse.json(
-          { error: "This email address is already in use by another account." },
-          { status: 409 }
-        );
-      }
-      if ((authErr as { code?: string }).code === "auth/user-not-found") {
-        try {
-          const studentDoc = await db.collection("students").doc(uid).get();
-          const studentData = studentDoc.data() || {};
-          const fallbackEmail = email ? (email as string).toLowerCase().trim() : studentData.email;
-          const fallbackPassword = password || studentData.initialPassword || "Welcome@123";
-          const fallbackName = studentData.name || "Student";
+      const authErrCode = (authErr as { code?: string })?.code;
 
-          if (!fallbackEmail) {
-            return NextResponse.json(
-              { error: "Student email is required to create an Auth account." },
-              { status: 400 }
-            );
+      if (authErrCode === "auth/email-already-exists" || authErrCode === "auth/user-not-found") {
+        try {
+          const auth = getAdminAuth();
+          const targetEmail = email ? (email as string).toLowerCase().trim() : "";
+          let existingAuthUser = null;
+
+          if (targetEmail) {
+            try {
+              existingAuthUser = await auth.getUserByEmail(targetEmail);
+            } catch (_) {}
           }
 
-          await adminAuth.createUser({
-            uid: uid,
-            email: fallbackEmail,
-            password: fallbackPassword,
-            displayName: fallbackName,
-          });
-        } catch (createErr: unknown) {
-          if ((createErr as { code?: string }).code === "auth/email-already-exists") {
+          if (existingAuthUser) {
+            // The Auth account exists under this email. Update its password/displayName if needed.
+            const updateFields: Record<string, string> = {};
+            if (password) updateFields.password = password;
+            if (Object.keys(updateFields).length > 0) {
+              await auth.updateUser(existingAuthUser.uid, updateFields);
+            }
+          } else if (authErrCode === "auth/user-not-found") {
+            // Auth account really doesn't exist, create it with the requested UID
+            const studentDoc = await db.collection("students").doc(uid).get();
+            const studentData = studentDoc.data() || {};
+            const fallbackEmail = targetEmail || studentData.email;
+            const fallbackPassword = password || studentData.initialPassword || "Welcome@123";
+            const fallbackName = studentData.name || "Student";
+
+            if (!fallbackEmail) {
+              return NextResponse.json(
+                { error: "Student email is required to create an Auth account." },
+                { status: 400 }
+              );
+            }
+
+            await auth.createUser({
+              uid: uid,
+              email: fallbackEmail,
+              password: fallbackPassword,
+              displayName: fallbackName,
+            });
+          } else {
             return NextResponse.json(
               { error: "This email address is already in use by another account." },
               { status: 409 }
             );
           }
-          console.error("Admin createUser fallback error:", createErr);
+        } catch (fallbackErr: unknown) {
+          if ((fallbackErr as { code?: string })?.code === "auth/email-already-exists") {
+            return NextResponse.json(
+              { error: "This email address is already in use by another account." },
+              { status: 409 }
+            );
+          }
+          console.error("Admin updateUser/createUser fallback error:", fallbackErr);
           return NextResponse.json(
-            { error: "Failed to create Firebase Auth account for existing profile.", details: (createErr as Error)?.message || String(createErr) },
+            { error: "Failed to update Firebase Auth account.", details: (fallbackErr as Error)?.message || String(fallbackErr) },
             { status: 500 }
           );
         }

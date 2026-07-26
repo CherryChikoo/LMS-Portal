@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminAuth } from "@/lib/firebase/admin";
+import { getAdminAuth } from "@/lib/firebase/admin";
 
 export async function POST(request: NextRequest) {
   try {
@@ -22,7 +22,8 @@ export async function POST(request: NextRequest) {
 
     let decodedToken;
     try {
-      decodedToken = await adminAuth.verifyIdToken(idToken);
+      const auth = getAdminAuth();
+      decodedToken = await auth.verifyIdToken(idToken);
     } catch {
       return NextResponse.json(
         { error: "Invalid or expired session. Please sign in again." },
@@ -34,7 +35,8 @@ export async function POST(request: NextRequest) {
 
     // Enforce uniqueness: ensure the new email is not already used by another account
     try {
-      const existingUser = await adminAuth.getUserByEmail(newEmail);
+      const auth = getAdminAuth();
+      const existingUser = await auth.getUserByEmail(newEmail);
       if (existingUser.uid !== uid) {
         return NextResponse.json(
           { error: "This email address is already associated with another account." },
@@ -52,7 +54,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Update the user's login email directly (no verification email sent)
-    await adminAuth.updateUser(uid, { email: newEmail });
+    const auth = getAdminAuth();
+    await auth.updateUser(uid, { email: newEmail });
 
     return NextResponse.json({ success: true, uid });
   } catch (error: any) {

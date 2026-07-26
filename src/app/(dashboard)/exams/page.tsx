@@ -42,11 +42,18 @@ export default function ExamsPage() {
   const router = useRouter();
   const { filteredExams: allExams, filteredAttempts: attempts, loading } = useLMSData();
   const { resolveInstitution, resolveStudent, resolveBatch } = useEntityResolution();
-  const exams = useMemo(() => allExams.filter(e => !e.deletedAt), [allExams]);
+  const exams = useMemo(() => (allExams as Exam[]).filter((e: Exam) => !e.deletedAt), [allExams]);
   
   const [studentUser, setStudentUser] = useState<Student | null>(null);
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm?: () => void; isAlert?: boolean; variant?: "destructive" | "warning" | "info" | "success" } | null>(null);
-  const [userRole, setUserRole] = useState<string>("admin");
+  const [userRole, setUserRole] = useState<string>(() => {
+    if (typeof window === "undefined") return "student";
+    try {
+      const role = localStorage.getItem("lms_role");
+      if (role) return role.toLowerCase();
+    } catch {}
+    return "student";
+  });
   const [studentTab, setStudentTab] = useState<"available" | "results">("available");
   const [adminTab, setAdminTab] = useState<"live" | "expired">("live");
   const [examSearch, setExamSearch] = useState("");
@@ -403,7 +410,7 @@ export default function ExamsPage() {
         title="Online Examination Manager"
         description={userRole !== "student" ? "Create dynamic tests manually or via Markdown generator, preview full user experiences, and assign to targeted academic hierarchies." : "Browse assigned evaluation papers and take live proctored examinations."}
         actions={
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
             {userRole !== "student" && (
               <>
                 <Button
@@ -411,20 +418,20 @@ export default function ExamsPage() {
                     setCreationMode("markdown");
                     setQuestions([]);
                   }}
-                  className="bg-brand/10 hover:bg-brand/20 border-0 text-brand flex items-center gap-2 font-bold h-11 px-6 rounded-xl"
+                  className="bg-brand/10 hover:bg-brand/20 border-0 text-brand flex items-center justify-center gap-2 font-bold h-11 px-4 sm:px-6 rounded-xl w-full sm:w-auto"
                 >
-                  <FileCode className="w-4 h-4" />
-                  <span>Markdown Generator</span>
+                  <FileCode className="w-4 h-4 shrink-0" />
+                  <span className="whitespace-nowrap">Markdown Generator</span>
                 </Button>
                 <Button
                   onClick={() => {
                     setCreationMode("manual");
                     setQuestions([]);
                   }}
-                  className="bg-brand hover:bg-brand/90 text-brand-foreground flex items-center gap-2 font-bold h-11 px-6 rounded-xl"
+                  className="bg-brand hover:bg-brand/90 text-brand-foreground flex items-center justify-center gap-2 font-bold h-11 px-4 sm:px-6 rounded-xl w-full sm:w-auto"
                 >
-                  <Plus className="w-4 h-4" />
-                  <span>Manual Test Creator</span>
+                  <Plus className="w-4 h-4 shrink-0" />
+                  <span className="whitespace-nowrap">Manual Test Creator</span>
                 </Button>
               </>
             )}
@@ -496,7 +503,7 @@ export default function ExamsPage() {
 
       {/* Search & Powerful Hierarchy Filter Bar for Exams */}
       {!loading && exams.length > 0 && (
-        <div className="flex flex-col gap-3.5 bg-card/60 backdrop-blur-md p-4 rounded-2xl border border-border/80 shadow-sm">
+        <div className="flex flex-col gap-3.5 bg-card/95 p-4 rounded-2xl border border-border/80 shadow-sm">
           <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
             <div className="relative w-full sm:w-80">
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />

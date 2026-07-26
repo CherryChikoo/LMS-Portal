@@ -25,7 +25,7 @@ export default function RegisterPage() {
   const [fullName, setFullName] = useState("");
   const [collegeName, setCollegeName] = useState("");
   const [department, setDepartment] = useState("Computer Science & Engineering");
-  const [section, setSection] = useState("Section A");
+  const [section, setSection] = useState("A");
 
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
@@ -524,7 +524,7 @@ export default function RegisterPage() {
                     value={section}
                     onBlur={() => handleBlur("section")}
                     onChange={(e) => setSection(e.target.value)}
-                    placeholder="e.g. Section A"
+                    placeholder="e.g. A"
                     className={`w-full h-10 px-3 rounded-xl border bg-background/80 text-sm text-foreground focus:outline-none transition-all ${
                       touched.section && !sectionValid
                         ? "border-destructive ring-1 ring-destructive/40"

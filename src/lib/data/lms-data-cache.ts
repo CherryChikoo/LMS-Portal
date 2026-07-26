@@ -25,6 +25,7 @@ import {
   type Institution,
 } from "@/lib/hierarchy/hierarchy-data";
 import type { College, Batch, Student, SelectOption, Exam, Resource, ExamAttempt } from "@/types";
+import { setLMSStoreState } from "./lms-store";
 
 interface CacheEntry<T> {
   data: T;
@@ -40,6 +41,7 @@ export interface LMSDataCacheState {
   attempts: CacheEntry<ExamAttempt[]> | null;
   
   hierarchy: Hierarchy | null;
+  rawColleges: College[];
   filteredColleges: College[];
   filteredBatches: Batch[];
   filteredStudents: Student[];
@@ -51,6 +53,8 @@ export interface LMSDataCacheState {
   unsubscribers: Array<() => void>;
   error: Error | null;
   loading: boolean;
+  
+  _exportedState: any;
 }
 
 const cache: LMSDataCacheState = {
@@ -62,6 +66,7 @@ const cache: LMSDataCacheState = {
   attempts: null,
 
   hierarchy: null,
+  rawColleges: [],
   filteredColleges: [],
   filteredBatches: [],
   filteredStudents: [],
@@ -73,106 +78,108 @@ const cache: LMSDataCacheState = {
   unsubscribers: [],
   error: null,
   loading: false,
+  _exportedState: null,
 };
 
 function recomputeScopedData() {
-  if (
-    cache.colleges && 
-    cache.batches && 
-    cache.students && 
-    cache.exams && 
-    cache.resources && 
-    cache.attempts
-  ) {
-    let fColleges = cache.colleges.data.filter(c => (c.status as string) !== "deleted" && (c.status as string) !== "inactive");
-    let fBatches = cache.batches.data.filter(b => ((b as any).status as string) !== "deleted" && ((b as any).status as string) !== "inactive");
-    let fStudents = cache.students.data.filter(s => (s.status as string) !== "deleted" && (s.status as string) !== "inactive");
-    let fExams = cache.exams.data.filter(e => (e.status as string) !== "deleted" && (e.status as string) !== "inactive");
-    let fResources = cache.resources.data.filter(r => ((r as any).status as string) !== "deleted" && ((r as any).status as string) !== "inactive");
-    let fAttempts = cache.attempts.data;
+  const collegesData = cache.colleges?.data || [];
+  const batchesData = cache.batches?.data || [];
+  const studentsData = cache.students?.data || [];
+  const examsData = cache.exams?.data || [];
+  const resourcesData = cache.resources?.data || [];
+  const attemptsData = cache.attempts?.data || [];
 
-    try {
-      const uStr = typeof window !== "undefined" ? localStorage.getItem("lms_user") || localStorage.getItem("user") : null;
-      const role = typeof window !== "undefined" ? localStorage.getItem("lms_role") : null;
-      
-      if (uStr) {
-        const parsed = JSON.parse(uStr);
-        const r = role?.toLowerCase() || parsed.role?.toLowerCase() || "admin";
+  cache.rawColleges = collegesData;
+  let fColleges = collegesData.filter((c) => (c.status as string) !== "deleted" && (c.status as string) !== "inactive");
+  let fBatches = batchesData.filter((b) => ((b as any).status as string) !== "deleted" && ((b as any).status as string) !== "inactive");
+  let fStudents = studentsData.filter((s) => (s.status as string) !== "deleted" && (s.status as string) !== "inactive");
+  let fExams = examsData.filter((e) => (e.status as string) !== "deleted" && (e.status as string) !== "inactive");
+  let fResources = resourcesData.filter((r) => ((r as any).status as string) !== "deleted" && ((r as any).status as string) !== "inactive");
+  let fAttempts = attemptsData;
 
-        if (r === "college_admin" && parsed.collegeId) {
-          fColleges = fColleges.filter(c => c.id === parsed.collegeId);
-          fStudents = fStudents.filter(s => s.collegeId === parsed.collegeId);
-          
-          const validStudentIds = new Set(fStudents.map(s => s.id));
-          const validStudentBatchIds = new Set(fStudents.flatMap(s => s.batchIds || []));
-          
-          fBatches = fBatches.filter(b => b.collegeId === parsed.collegeId || validStudentBatchIds.has(b.id));
+  try {
+    const uStr = typeof window !== "undefined" ? localStorage.getItem("lms_user") || localStorage.getItem("user") : null;
+    const role = typeof window !== "undefined" ? localStorage.getItem("lms_role") : null;
 
-          fExams = fExams.filter(e => {
-            if (!e.targets) return false;
-            return e.targets.some(t => {
-              if (t.type === "composite") {
-                return t.collegeId === parsed.collegeId || (t.batchId && validStudentBatchIds.has(t.batchId));
-              }
-              if (t.type === "college") return t.ids.includes(parsed.collegeId);
-              if (t.type === "batch") return t.ids.some(b => validStudentBatchIds.has(b));
-              if (t.type === "students") return t.ids.some(s => validStudentIds.has(s));
-              return false;
-            });
+    if (uStr) {
+      const parsed = JSON.parse(uStr);
+      const r = (role || parsed.role || "").toLowerCase();
+
+      if (r === "college_admin" && parsed.collegeId) {
+        fColleges = fColleges.filter((c) => c.id === parsed.collegeId);
+        fStudents = fStudents.filter((s) => s.collegeId === parsed.collegeId);
+
+        const validStudentIds = new Set(fStudents.map((s) => s.id));
+        const validStudentBatchIds = new Set(fStudents.flatMap((s) => s.batchIds || []));
+
+        fBatches = fBatches.filter((b) => b.collegeId === parsed.collegeId || validStudentBatchIds.has(b.id));
+
+        fExams = fExams.filter((e) => {
+          if (!e.targets) return false;
+          return e.targets.some((t) => {
+            if (t.type === "composite") {
+              return t.collegeId === parsed.collegeId || (t.batchId && validStudentBatchIds.has(t.batchId));
+            }
+            if (t.type === "college") return t.ids.includes(parsed.collegeId);
+            if (t.type === "batch") return t.ids.some((b) => validStudentBatchIds.has(b));
+            if (t.type === "students") return t.ids.some((s) => validStudentIds.has(s));
+            return false;
           });
+        });
 
-          fResources = fResources.filter(res => {
-            if (!res.targets) return false;
-            return res.targets.some(t => {
-              if (t.type === "composite") {
-                return t.collegeId === parsed.collegeId || (t.batchId && validStudentBatchIds.has(t.batchId));
-              }
-              if (t.type === "college") return t.ids?.includes(parsed.collegeId);
-              if (t.type === "batch") return t.ids?.some((b: string) => validStudentBatchIds.has(b));
-              if (t.type === "students") return t.ids?.some((s: string) => validStudentIds.has(s));
-              return false;
-            });
+        fResources = fResources.filter((res) => {
+          if (!res.targets) return false;
+          return res.targets.some((t) => {
+            if (t.type === "composite") {
+              return t.collegeId === parsed.collegeId || (t.batchId && validStudentBatchIds.has(t.batchId));
+            }
+            if (t.type === "college") return t.ids?.includes(parsed.collegeId);
+            if (t.type === "batch") return t.ids?.some((b: string) => validStudentBatchIds.has(b));
+            if (t.type === "students") return t.ids?.some((s: string) => validStudentIds.has(s));
+            return false;
           });
+        });
 
-          fAttempts = fAttempts.filter(a => validStudentIds.has(a.studentId));
-        } else if (r === "student" && parsed.id) {
-          fColleges = fColleges.filter(c => c.id === parsed.collegeId);
-          fStudents = fStudents.filter(s => s.collegeId === parsed.collegeId);
-          const validStudentBatchIds = new Set(fStudents.flatMap(s => s.batchIds || []));
-          fBatches = fBatches.filter(b => b.collegeId === parsed.collegeId || validStudentBatchIds.has(b.id));
-          fAttempts = fAttempts.filter(a => a.studentId === parsed.id || a.studentId === parsed.email);
+        fAttempts = fAttempts.filter((a) => validStudentIds.has(a.studentId));
+      } else if (r === "student" && parsed.id) {
+        if (parsed.collegeId) {
+          fColleges = fColleges.filter((c) => c.id === parsed.collegeId);
+          fStudents = fStudents.filter((s) => s.collegeId === parsed.collegeId);
+          const validStudentBatchIds = new Set(fStudents.flatMap((s) => s.batchIds || []));
+          fBatches = fBatches.filter((b) => b.collegeId === parsed.collegeId || validStudentBatchIds.has(b.id));
         }
+        fAttempts = fAttempts.filter((a) => a.studentId === parsed.id || a.studentId === parsed.email);
       }
-    } catch (_) {}
+    }
+  } catch (_) {}
 
-    // Dynamically compute accurate student counts for colleges and batches based on current students
-    fColleges = fColleges.map((c) => ({
-      ...c,
-      studentCount: fStudents.filter((s) => s.collegeId === c.id).length,
-    }));
+  // Dynamically compute accurate student counts for colleges and batches based on current students
+  fColleges = fColleges.map((c) => ({
+    ...c,
+    studentCount: fStudents.filter((s) => s.collegeId === c.id).length,
+  }));
 
-    fBatches = fBatches.map((b) => ({
-      ...b,
-      studentCount: fStudents.filter((s) => s.batchIds?.includes(b.id)).length,
-    }));
+  fBatches = fBatches.map((b) => ({
+    ...b,
+    studentCount: fStudents.filter((s) => s.batchIds?.includes(b.id)).length,
+  }));
 
-    cache.filteredColleges = fColleges;
-    cache.filteredBatches = fBatches;
-    cache.filteredStudents = fStudents;
-    cache.filteredExams = fExams;
-    cache.filteredResources = fResources;
-    cache.filteredAttempts = fAttempts;
+  cache.filteredColleges = fColleges;
+  cache.filteredBatches = fBatches;
+  cache.filteredStudents = fStudents;
+  cache.filteredExams = fExams;
+  cache.filteredResources = fResources;
+  cache.filteredAttempts = fAttempts;
 
-    cache.hierarchy = buildHierarchy(
-      fColleges,
-      fBatches,
-      fStudents
-    );
+  cache.hierarchy = buildHierarchy(fColleges, fBatches, fStudents);
+
+  if (cache.colleges || cache.students || cache.exams || cache.resources || cache.batches || cache.attempts) {
     cache.loading = false;
   }
 }
 
 function notifyListeners() {
+  computeExportedState();
   callbacks.forEach((cb) => {
     try {
       cb();
@@ -183,8 +190,14 @@ function notifyListeners() {
 }
 
 const callbacks = new Set<() => void>();
+let cleanupTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function subscribeToLMSCache(callback: () => void): () => void {
+  if (cleanupTimer) {
+    clearTimeout(cleanupTimer);
+    cleanupTimer = null;
+  }
+
   callbacks.add(callback);
   if (cache.listeners === 0) {
     startSubscriptions();
@@ -195,7 +208,11 @@ export function subscribeToLMSCache(callback: () => void): () => void {
     callbacks.delete(callback);
     cache.listeners = Math.max(0, cache.listeners - 1);
     if (cache.listeners === 0) {
-      stopSubscriptions();
+      cleanupTimer = setTimeout(() => {
+        if (cache.listeners === 0) {
+          stopSubscriptions();
+        }
+      }, 5000); // 5s grace period to keep subscriptions warm during route transitions
     }
   };
 }
@@ -205,17 +222,19 @@ function startSubscriptions() {
   cache.error = null;
 
   let uStr: string | null = null;
-  let role: string = "admin";
+  let role: string = "";
   let parsed: any = null;
 
   if (typeof window !== "undefined") {
     uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-    role = localStorage.getItem("lms_role")?.toLowerCase() || "admin";
     if (uStr) {
       try {
         parsed = JSON.parse(uStr);
         if (parsed.role) role = parsed.role.toLowerCase();
       } catch (e) {}
+    }
+    if (!role) {
+      role = localStorage.getItem("lms_role")?.toLowerCase() || "admin";
     }
   }
 
@@ -273,37 +292,6 @@ function startSubscriptions() {
   cache.unsubscribers = [
     unsubColleges, unsubBatches, unsubStudents, unsubExams, unsubResources, unsubAttempts
   ];
-
-  if (!cache.colleges || !cache.batches || !cache.students || !cache.exams || !cache.resources || !cache.attempts) {
-    Promise.all([
-      getAllColleges(),
-      isCollegeAdmin ? getBatchesByCollege(parsed.collegeId) : getAllBatches(),
-      isCollegeAdmin ? getStudentsByCollege(parsed.collegeId) : getAllStudents(),
-      getAllExamsIncludingDeleted(),
-      getAllResources(),
-      import("@/lib/services").then(m => m.getStudentAttempts ? m.getStudentAttempts() : [])
-    ])
-      .then(([colleges, batches, students, exams, resources, attempts]) => {
-        cache.colleges = { data: colleges, updatedAt: Date.now() };
-        cache.batches = { data: batches, updatedAt: Date.now() };
-        cache.students = { data: students, updatedAt: Date.now() };
-        cache.exams = { data: exams, updatedAt: Date.now() };
-        cache.resources = { data: resources, updatedAt: Date.now() };
-        cache.attempts = { data: attempts as ExamAttempt[], updatedAt: Date.now() };
-        recomputeScopedData();
-        notifyListeners();
-      })
-      .catch((err) => {
-        cache.error = err instanceof Error ? err : new Error(String(err));
-        notifyListeners();
-      })
-      .finally(() => {
-        if (cache.colleges && cache.batches && cache.students && cache.exams && cache.resources && cache.attempts) {
-           cache.loading = false;
-           notifyListeners();
-        }
-      });
-  }
 }
 
 function stopSubscriptions() {
@@ -311,8 +299,7 @@ function stopSubscriptions() {
   cache.unsubscribers = [];
 }
 
-export function getLMSCache() {
-  // CRITICAL: Derive institutions from the FILTERED hierarchy, not raw cache data.
+function computeExportedState() {
   const hierarchy = cache.hierarchy;
   const colleges = hierarchy?.colleges || [];
   const students = hierarchy?.students || [];
@@ -339,14 +326,38 @@ export function getLMSCache() {
       : { label: inst.name, value: inst.id }
   );
 
-  return {
-    ...cache,
+  // We explicitly omit the internal properties and only expose what's needed
+  cache._exportedState = {
+    colleges: cache.colleges?.data || [],
+    batches: cache.batches?.data || [],
+    students: cache.students?.data || [],
+    exams: cache.exams?.data || [],
+    resources: cache.resources?.data || [],
+    attempts: cache.attempts?.data || [],
+    rawColleges: cache.rawColleges,
+    filteredColleges: cache.filteredColleges,
+    filteredBatches: cache.filteredBatches,
+    filteredStudents: cache.filteredStudents,
+    filteredExams: cache.filteredExams,
+    filteredResources: cache.filteredResources,
+    filteredAttempts: cache.filteredAttempts,
+    error: cache.error,
+    loading: cache.loading,
     hierarchy,
     institutions,
     externalInstitutions: externals,
     institutionOptions,
     getInstitutionName: (id: string) => resolveInstitutionName(institutions, id),
   };
+
+  setLMSStoreState(cache._exportedState);
+}
+
+export function getLMSCache() {
+  if (!cache._exportedState) {
+    computeExportedState();
+  }
+  return cache._exportedState;
 }
 
 export function invalidateLMSCache(): void {

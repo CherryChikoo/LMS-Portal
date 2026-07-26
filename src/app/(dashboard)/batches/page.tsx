@@ -129,7 +129,7 @@ function BatchesContent() {
   };
 
   const filteredBatches = useMemo(() => {
-    return cacheBatches.filter((b) => {
+    return (cacheBatches as Batch[]).filter((b: Batch) => {
       if (b.isDeleted) return false;
       if (batchFilters.collegeId && b.collegeId !== batchFilters.collegeId) return false;
       if (batchFilters.department && b.department !== batchFilters.department) return false;
@@ -194,7 +194,7 @@ function BatchesContent() {
         />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredBatches.map((b) => {
+          {filteredBatches.map((b: Batch) => {
             return (
               <motion.div
                 key={b.id}

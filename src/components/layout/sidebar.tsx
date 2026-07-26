@@ -2,123 +2,105 @@
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { motion, AnimatePresence } from "motion/react";
 import { useState, useEffect, useMemo } from "react";
-import { createPortal } from "react-dom";
 import {
-  PanelLeftClose,
-  PanelLeft,
-  LogOut,
   Settings,
+  LogOut,
   LayoutDashboard,
   ClipboardList,
   Trophy,
   Medal,
   FolderOpen,
   Pencil,
-  Upload,
-  X,
-  Check,
-  Building2,
-  BookOpen,
-  AlertCircle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSidebar } from "@/hooks/use-sidebar";
-import { useIsDesktop } from "@/hooks/use-media-query";
 import { NAVIGATION, APP_NAME } from "@/lib/constants";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { useMounted } from "@/hooks/use-mounted";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { logoutUser } from "@/lib/services/auth-service";
 import { useBranding } from "@/providers/branding-provider";
 import { BrandingModal } from "@/components/shared/branding-modal";
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { isExpanded, toggle } = useSidebar();
-  const isDesktop = useIsDesktop();
+  const { isExpanded } = useSidebar();
+  const { branding } = useBranding();
+  const mounted = useMounted();
+  const [showBrandModal, setShowBrandModal] = useState(false);
   const [userRole, setUserRole] = useState<string | null>(null);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
     try {
-      const role = localStorage.getItem("lms_role");
-      setUserRole(role ? role.toLowerCase() : null);
+      const role = localStorage.getItem("lms_role") || localStorage.getItem("role");
+      if (role) {
+        setUserRole(role.toLowerCase());
+      } else {
+        const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+        if (uStr) {
+          const parsed = JSON.parse(uStr);
+          if (parsed.role) setUserRole(parsed.role.toLowerCase());
+        }
+      }
     } catch {
-      // ignore
+      setUserRole("student");
     }
   }, []);
 
-  const { branding } = useBranding();
-  const [showBrandModal, setShowBrandModal] = useState(false);
-
-  useEffect(() => {
-    const checkRole = () => {
-      try {
-        const role = localStorage.getItem("lms_role");
-        setUserRole(role ? role.toLowerCase() : null);
-      } catch {
-        setUserRole(null);
-      }
-    };
-    checkRole();
-    window.addEventListener("storage", checkRole);
-    return () => window.removeEventListener("storage", checkRole);
-  }, []);
-
   const handleLogout = async () => {
-    try { await logoutUser(); } catch {}
-  };
-
-  const handleOpenBrandModal = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setShowBrandModal(true);
+    try {
+      await logoutUser();
+    } catch {}
   };
 
   const effectiveNav = useMemo(() => {
     if (!userRole) return [];
-    const base = userRole === "student" ? [
-      {
-        title: "Academic Portal",
-        items: [
-          { title: "My Dashboard", href: "/", icon: LayoutDashboard },
+    const isStudent = userRole === "student";
+    const isCollegeAdmin = userRole === "college_admin";
+
+    const base = isStudent
+      ? [
+          {
+            title: "Academic Portal",
+            items: [{ title: "My Dashboard", href: "/", icon: LayoutDashboard }],
+          },
+          {
+            title: "Examinations",
+            items: [
+              { title: "Assigned Tests", href: "/exams", icon: ClipboardList },
+              { title: "My Test Results", href: "/results", icon: Trophy },
+              { title: "Leaderboard", href: "/leaderboard", icon: Medal },
+            ],
+          },
+          {
+            title: "Study Resources",
+            items: [{ title: "Course Material", href: "/resources", icon: FolderOpen }],
+          },
         ]
-      },
-      {
-        title: "Examinations",
-        items: [
-          { title: "Assigned Tests", href: "/exams", icon: ClipboardList },
-          { title: "My Test Results", href: "/results", icon: Trophy },
-          { title: "Leaderboard", href: "/leaderboard", icon: Medal },
-        ]
-      },
-      {
-        title: "Study Resources",
-        items: [
-          { title: "Course Material", href: "/resources", icon: FolderOpen },
-        ]
-      }
-    ] : NAVIGATION;
+      : NAVIGATION;
 
     let filteredBase = base;
-    if (userRole === "college_admin") {
-      filteredBase = base.map(sec => ({
-        ...sec,
-        items: sec.items.filter(it => it.href !== "/colleges" && it.href !== "/audit")
-      })).filter(sec => sec.items.length > 0);
+    if (isCollegeAdmin) {
+      filteredBase = base
+        .map((sec) => ({
+          ...sec,
+          items: sec.items.filter((it) => it.href !== "/colleges" && it.href !== "/audit"),
+        }))
+        .filter((sec) => sec.items.length > 0);
     }
 
-    const prefix = userRole === "student" ? "/student" : "/admin";
+    const prefix = isStudent ? "/student" : "/admin";
     return filteredBase.map((sec) => ({
       ...sec,
       items: sec.items.map((it) => ({
         ...it,
-        href: it.href === "/" && userRole === "college_admin" ? "/" : it.href === "/" ? prefix : `${prefix}${it.href}`,
+        href:
+          it.href === "/" && isCollegeAdmin
+            ? "/"
+            : it.href === "/"
+            ? prefix
+            : `${prefix}${it.href}`,
       })),
     }));
   }, [userRole]);
@@ -126,32 +108,34 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "hidden lg:flex flex-col fixed left-0 top-0 bottom-0 z-30 bg-sidebar text-sidebar-foreground border-r border-border",
+        "hidden lg:flex flex-col fixed left-0 top-0 bottom-0 z-30 bg-sidebar text-sidebar-foreground border-r border-border transition-[width] duration-300 ease-out will-change-[width]",
         isExpanded ? "w-[260px]" : "w-[80px]"
       )}
       style={{ fontFamily: '"Montserrat", sans-serif' }}
     >
-      {/* Logo & Top Collapse Toggle Area */}
-      <div className={cn("flex items-center h-20 px-4 shrink-0 relative group/brand overflow-hidden")}>
-        <Link href="/" className={cn("flex items-center flex-1 min-w-0 mr-1 overflow-hidden", isExpanded ? "gap-2.5" : "gap-0")}>
-          {branding.logoBase64 ? (
-            <img
-              src={branding.logoBase64}
-              alt="Company Logo"
-              className={cn("object-contain rounded-lg shrink-0", isExpanded ? "w-8 h-8" : "w-7 h-7 mx-auto")}
-            />
-          ) : (
-            <div className={cn("rounded-lg bg-brand/10 text-brand flex items-center justify-center shrink-0 font-black text-lg", isExpanded ? "w-8 h-8" : "w-7 h-7 mx-auto")}>
-              {(branding.companyName || APP_NAME).charAt(0).toUpperCase()}
-            </div>
-          )}
+      {/* Brand Header */}
+      <div className="flex items-center h-20 px-4 shrink-0 relative group/brand overflow-hidden">
+        <Link href="/" className="flex items-center w-full min-w-0">
+          <div className="w-11 h-11 flex items-center justify-center shrink-0">
+            {branding.logoBase64 ? (
+              <img
+                src={branding.logoBase64}
+                alt="Logo"
+                className="w-8 h-8 object-contain rounded-lg shrink-0"
+              />
+            ) : (
+              <div className="w-9 h-9 rounded-xl bg-brand/10 text-brand flex items-center justify-center font-black text-base shrink-0 border border-brand/20">
+                {(branding.companyName || APP_NAME).charAt(0).toUpperCase()}
+              </div>
+            )}
+          </div>
           <div
             className={cn(
-              "absolute left-[52px] flex flex-col min-w-[160px] whitespace-nowrap transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
-              isExpanded ? "opacity-100 translate-x-0 pointer-events-auto" : "opacity-0 -translate-x-4 pointer-events-none"
+              "flex flex-col min-w-0 pl-2 transition-all duration-300 ease-out transform-gpu",
+              isExpanded ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-3 pointer-events-none absolute"
             )}
           >
-            <span className="font-bold text-lg text-brand tracking-tight truncate flex items-center gap-2">
+            <span className="font-bold text-base text-brand tracking-tight truncate">
               {branding.companyName || APP_NAME}
             </span>
             <span className="text-[9px] font-bold text-brand/60 uppercase tracking-widest truncate">
@@ -160,78 +144,67 @@ export function Sidebar() {
           </div>
         </Link>
 
-        {userRole && userRole !== "student" && (
+        {mounted && userRole && userRole !== "student" && isExpanded && (
           <button
             type="button"
-            onClick={handleOpenBrandModal}
-            title="Edit Company Branding & Logo"
-            className={cn(
-              "opacity-0 group-hover/brand:opacity-100 p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground shrink-0 transition-opacity duration-300 ease-in-out mr-1",
-              isExpanded ? "pointer-events-auto" : "pointer-events-none w-0 p-0 overflow-hidden"
-            )}
+            onClick={(e) => {
+              e.preventDefault();
+              setShowBrandModal(true);
+            }}
+            title="Edit Company Branding"
+            className="opacity-0 group-hover/brand:opacity-100 p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground shrink-0 transition-opacity duration-200 ml-auto"
           >
             <Pencil className="w-3.5 h-3.5 text-brand" />
           </button>
         )}
       </div>
 
-      {/* Navigation Links & Settings Inside ScrollArea with pb-12 so nothing is ever obscured by OS taskbar */}
-      <ScrollArea className="flex-1 min-h-0 px-3 py-3 pb-2">
-        <nav className="space-y-5 pb-4">
+      {/* Nav List */}
+      <ScrollArea className="flex-1 px-3 py-2 min-h-0">
+        <nav className="space-y-6 pb-6">
           {effectiveNav.map((section) => (
             <div key={section.title}>
-              <div
-                className={cn(
-                  "overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
-                  isExpanded ? "opacity-100 max-h-10 transform-none" : "opacity-0 max-h-0 -translate-x-4 pointer-events-none"
-                )}
-              >
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground/60 mb-2 px-3.5 mt-2">
+              {isExpanded && (
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground/60 mb-2 px-3 mt-1 truncate">
                   {section.title}
                 </p>
-              </div>
+              )}
               <div className="space-y-1">
                 {section.items.map((item) => {
-                  const isActive = pathname === item.href || (item.href !== "/admin" && item.href !== "/student" && pathname.startsWith(item.href + "/"));
+                  const isActive =
+                    pathname === item.href ||
+                    (item.href !== "/admin" && item.href !== "/student" && pathname.startsWith(item.href + "/"));
                   const Icon = item.icon;
 
-                  const linkContent = (
+                  const content = (
                     <Link
                       href={item.href}
                       className={cn(
-                        "group relative flex items-center px-3.5 h-11 rounded-lg text-sm font-medium transition-colors overflow-hidden",
+                        "group flex items-center h-11 rounded-xl text-sm font-medium transition-colors transform-gpu overflow-hidden",
                         isActive
-                          ? "bg-brand text-black shadow-sm"
-                          : "text-muted-foreground hover:text-foreground hover:bg-secondary",
-                        isExpanded ? "gap-5" : "gap-0 justify-center px-0 w-11 mx-auto"
+                          ? "bg-brand text-black shadow-sm font-bold"
+                          : "text-muted-foreground hover:text-foreground hover:bg-secondary/80",
+                        isExpanded ? "px-3 gap-3" : "justify-center px-0 w-11 mx-auto"
                       )}
                     >
-                      <Icon
-                        className={cn(
-                          "shrink-0 transition-transform duration-200 group-hover:scale-110",
-                          isActive ? "text-black w-5 h-5" : "text-muted-foreground group-hover:text-foreground w-5 h-5"
-                        )}
-                      />
+                      <div className="w-5 h-5 flex items-center justify-center shrink-0">
+                        <Icon className={cn("w-5 h-5 shrink-0", isActive ? "text-black" : "text-muted-foreground group-hover:text-foreground")} />
+                      </div>
                       <span
                         className={cn(
-                          "absolute left-[52px] min-w-[160px] flex items-center transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
-                          isExpanded ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-4 pointer-events-none"
+                          "truncate text-sm transition-all duration-300 ease-out transform-gpu min-w-0 flex-1",
+                          isExpanded ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-3 pointer-events-none absolute"
                         )}
                       >
                         {item.title}
-                        {item.badge && (
-                          <span className="ml-auto text-[11px] bg-brand/20 text-brand px-2 py-0.5 rounded-full font-semibold border border-brand/30 shrink-0">
-                            {item.badge}
-                          </span>
-                        )}
                       </span>
                     </Link>
                   );
 
                   return (
                     <Tooltip key={item.href} disabled={isExpanded}>
-                      <TooltipTrigger render={linkContent} />
-                      <TooltipContent side="right" sideOffset={14} className="glass-popover border-white/10 font-medium">
+                      <TooltipTrigger render={content} />
+                      <TooltipContent side="right" sideOffset={12} className="glass-popover font-medium">
                         {item.title}
                       </TooltipContent>
                     </Tooltip>
@@ -243,35 +216,25 @@ export function Sidebar() {
         </nav>
       </ScrollArea>
 
-      {/* Settings Footer (Fixed at bottom) */}
-      <div className="shrink-0 pt-3 mt-auto border-t border-border/40 px-3 pb-4 space-y-1">
-        <div
-          className={cn(
-            "overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
-            isExpanded ? "opacity-100 max-h-10 transform-none" : "opacity-0 max-h-0 -translate-x-4 pointer-events-none"
-          )}
-        >
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground/60 mb-2 px-3.5 mt-2">
-            SETTINGS
-          </p>
-        </div>
-
+      {/* Footer Settings & Logout */}
+      <div className="shrink-0 pt-2 border-t border-border/40 px-3 pb-4 space-y-1">
         <Tooltip disabled={isExpanded}>
           <TooltipTrigger
             render={
               <Link
                 href={userRole === "student" ? "/student/settings" : "/admin/settings"}
                 className={cn(
-                  "group relative flex items-center px-3.5 h-11 rounded-lg text-sm font-medium transition-colors overflow-hidden",
-                  "text-muted-foreground hover:text-foreground hover:bg-secondary",
-                  isExpanded ? "gap-5" : "gap-0 justify-center px-0 w-11 mx-auto"
+                  "group flex items-center h-11 rounded-xl text-sm font-medium transition-colors text-muted-foreground hover:text-foreground hover:bg-secondary/80 transform-gpu overflow-hidden",
+                  isExpanded ? "px-3 gap-3" : "justify-center px-0 w-11 mx-auto"
                 )}
               >
-                <Settings className="w-5 h-5 shrink-0 text-muted-foreground group-hover:text-foreground transition-colors" />
+                <div className="w-5 h-5 flex items-center justify-center shrink-0">
+                  <Settings className="w-5 h-5 text-muted-foreground group-hover:text-foreground" />
+                </div>
                 <span
                   className={cn(
-                    "absolute left-[52px] min-w-[160px] flex items-center transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
-                    isExpanded ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-4 pointer-events-none"
+                    "truncate text-sm transition-all duration-300 ease-out transform-gpu min-w-0 flex-1",
+                    isExpanded ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-3 pointer-events-none absolute"
                   )}
                 >
                   Settings
@@ -279,7 +242,7 @@ export function Sidebar() {
               </Link>
             }
           />
-          <TooltipContent side="right" sideOffset={14} className="glass-popover font-heading">
+          <TooltipContent side="right" sideOffset={12} className="glass-popover font-medium">
             Settings
           </TooltipContent>
         </Tooltip>
@@ -290,16 +253,17 @@ export function Sidebar() {
               <button
                 onClick={handleLogout}
                 className={cn(
-                  "w-full group relative flex items-center h-11 rounded-lg text-sm font-medium transition-colors overflow-hidden mt-1",
-                  "text-rose-500 hover:bg-rose-500/10",
-                  isExpanded ? "gap-5 px-3.5" : "gap-0 justify-center px-0 w-11 mx-auto"
+                  "w-full group flex items-center h-11 rounded-xl text-sm font-medium transition-colors text-rose-500 hover:bg-rose-500/10 transform-gpu overflow-hidden",
+                  isExpanded ? "px-3 gap-3" : "justify-center px-0 w-11 mx-auto"
                 )}
               >
-                <LogOut className="w-5 h-5 shrink-0 text-rose-500" />
+                <div className="w-5 h-5 flex items-center justify-center shrink-0">
+                  <LogOut className="w-5 h-5 text-rose-500" />
+                </div>
                 <span
                   className={cn(
-                    "absolute left-[52px] min-w-[160px] flex items-center text-left transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
-                    isExpanded ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-4 pointer-events-none"
+                    "truncate text-sm font-semibold transition-all duration-300 ease-out transform-gpu min-w-0 flex-1 text-left",
+                    isExpanded ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-3 pointer-events-none absolute"
                   )}
                 >
                   Logout
@@ -307,17 +271,13 @@ export function Sidebar() {
               </button>
             }
           />
-          <TooltipContent side="right" sideOffset={14} className="glass-popover font-heading text-rose-500">
+          <TooltipContent side="right" sideOffset={12} className="glass-popover text-rose-500 font-medium">
             Logout
           </TooltipContent>
         </Tooltip>
       </div>
 
-      {/* Edit Company Branding Modal */}
-      <BrandingModal
-        isOpen={showBrandModal}
-        onClose={() => setShowBrandModal(false)}
-      />
+      <BrandingModal isOpen={showBrandModal} onClose={() => setShowBrandModal(false)} />
     </aside>
   );
 }

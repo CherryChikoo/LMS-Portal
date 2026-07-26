@@ -48,7 +48,7 @@ function LeaderboardContent() {
 
     const statsMap = new Map<string, { score: number; max: number; count: number }>();
     
-    attempts.forEach(att => {
+    (attempts as ExamAttempt[]).forEach((att: ExamAttempt) => {
       const current = statsMap.get(att.studentId) || { score: 0, max: 0, count: 0 };
       statsMap.set(att.studentId, {
         score: current.score + (att.score || 0),
@@ -57,9 +57,9 @@ function LeaderboardContent() {
       });
     });
 
-    let results: StudentRank[] = students
-      .filter(s => !s.isDeleted && statsMap.has(s.id))
-      .map(student => {
+    let results: StudentRank[] = (students as Student[])
+      .filter((s: Student) => !s.isDeleted && statsMap.has(s.id))
+      .map((student: Student) => {
         const stats = statsMap.get(student.id)!;
         const avg = stats.max > 0 ? (stats.score / stats.max) * 100 : 0;
         return {
@@ -129,12 +129,12 @@ function LeaderboardContent() {
             <Select value={filterCollege} onValueChange={(val) => setFilterCollege(val || "all")}>
               <SelectTrigger className="h-10 bg-background border-border">
                 <SelectValue placeholder="All Colleges">
-                  {filterCollege === "all" ? "All Colleges" : (colleges.find(c => c.id === filterCollege)?.name || "Unknown College")}
+                  {filterCollege === "all" ? "All Colleges" : ((colleges as College[]).find((c: College) => c.id === filterCollege)?.name || "Unknown College")}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Colleges</SelectItem>
-                {colleges.map(c => (
+                {(colleges as College[]).map((c: College) => (
                   <SelectItem key={c.id} value={c.id}>{c.name === c.id ? "Unknown" : c.name || "Unknown"}</SelectItem>
                 ))}
               </SelectContent>

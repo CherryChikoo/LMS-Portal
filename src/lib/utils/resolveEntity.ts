@@ -3,7 +3,7 @@ export const resolveEntity = (entitiesArray: any[], targetId: string | number | 
     return { name: `Select ${entityType}`, isResolved: false, isDeleted: false };
   }
   
-  if (!entitiesArray || entitiesArray.length === 0) {
+  if (!entitiesArray) {
     return { name: "Loading...", isResolved: false, isLoading: true };
   }
 

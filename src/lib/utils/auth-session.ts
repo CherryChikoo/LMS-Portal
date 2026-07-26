@@ -19,7 +19,7 @@ function getLogoutRole(): "student" | "admin" | "college_admin" {
   const lsRole = typeof localStorage !== "undefined" ? localStorage.getItem("lms_role") : null;
   if (lsRole === "student") return "student";
   if (lsRole === "college_admin") return "college_admin";
-  return "admin";
+  return "student";
 }
 
 export async function setAuthSession(

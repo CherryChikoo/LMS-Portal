@@ -20,7 +20,14 @@ import type { Resource, ResourceType, AssignmentTarget, Student } from "@/types"
 
 export default function ResourcesPage() {
   const { filteredResources: resources, loading } = useLMSData();
-  const [userRole, setUserRole] = useState<string>("admin");
+  const [userRole, setUserRole] = useState<string>(() => {
+    if (typeof window === "undefined") return "student";
+    try {
+      const role = localStorage.getItem("lms_role");
+      if (role) return role.toLowerCase();
+    } catch {}
+    return "student";
+  });
   const [currentUser, setCurrentUser] = useState<{ uid: string; email: string; profile: Record<string, unknown> } | null>(null);
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm?: () => void; isAlert?: boolean; variant?: "destructive" | "warning" | "info" | "success" } | null>(null);
 
@@ -140,7 +147,7 @@ export default function ResourcesPage() {
   // For trainers/admins, also apply the cascading hierarchy filter bar.
   const displayResources = useMemo(() => {
     if (userRole !== "student") {
-      return resources.filter((res) => {
+      return (resources as Resource[]).filter((res: Resource) => {
         const t = res.targets?.[0];
         if (resourceFilters.collegeId && t?.collegeId !== resourceFilters.collegeId) return false;
         if (resourceFilters.department && t?.department !== resourceFilters.department) return false;
@@ -188,11 +195,11 @@ export default function ResourcesPage() {
         title={userRole === "student" ? "Department Study Notes & Resources" : "Learning Resources Hub"}
         description={userRole === "student" ? "Access course notes, reference materials, presentations, and lecture notes targeted for your department." : "Distribute PDFs, presentations, videos, and external materials with granular academic hierarchy targeting."}
         actions={
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
             {userRole !== "student" && (
-              <Button onClick={() => setShowUploadModal(true)} className="bg-brand hover:bg-brand/90 text-brand-foreground font-bold flex items-center gap-2">
-                <Upload className="w-4 h-4" />
-                <span>Upload Resource</span>
+              <Button onClick={() => setShowUploadModal(true)} className="bg-brand hover:bg-brand/90 text-brand-foreground font-bold flex items-center justify-center gap-2 w-full sm:w-auto">
+                <Upload className="w-4 h-4 shrink-0" />
+                <span className="whitespace-nowrap">Upload Resource</span>
               </Button>
             )}
           </div>

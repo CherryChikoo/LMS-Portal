@@ -5,8 +5,8 @@ const { getAuth } = require("firebase-admin/auth");
 const { getFirestore } = require("firebase-admin/firestore");
 
 const KEEP_EMAILS = [
-  "trainer@lms.dev",
-  "lohitpawanmail@gmail.com",
+  "trainer@gmail.com",
+  "tallurisanju1@gmail.com",
 ];
 
 const normalize = (email) => (email || "").toLowerCase().trim();

@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { AcademicHierarchyFilters } from "@/components/shared/academic-hierarchy-filters";
 import { FilterDropdown } from "@/components/shared/filter-dropdown";
+import { useDebounce } from "@/hooks/use-debounce";
 import { useAcademicHierarchy } from "@/lib/hierarchy/use-academic-hierarchy";
 import {
   getDepartmentsForCollege,
@@ -20,7 +21,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
 import { parseStudentsCSV, importStudentsCSV, generateCredentialsCSV, createStudentAuthProfile, updateCollege, deleteStudentProfile, updateStudentProfile, formatAuthError } from "@/lib/services";
-import { useLMSData } from "@/lib/data/use-lms-data";
+import { useLMSData, useLMSDataSelector } from "@/lib/data/use-lms-data";
+import { optimisticDeleteStudent, optimisticUpdateStudent } from "@/lib/data/lms-store";
+import { StudentRow } from "@/components/students/student-row";
+import { StudentCard } from "@/components/students/student-card";
 import { useEntityResolution } from "@/lib/data/use-entity-resolution";
 import { toast } from "sonner";
 import type { Student, CSVImportSummary, College, Batch } from "@/types";
@@ -42,14 +46,21 @@ function StudentsContent() {
   const initialCollegeId = searchParams.get("collegeId") || "";
   const initialBatchId = searchParams.get("batchId") || "";
   const actionParam = searchParams.get("action");
-  const userRole = typeof window !== "undefined" ? localStorage.getItem("lms_role") : "admin";
+  const userRole = typeof window !== "undefined" ? (localStorage.getItem("lms_role") || "student") : "student";
 
-  const { filteredStudents: students, filteredColleges: colleges, filteredBatches: batches, loading: lmsLoading } = useLMSData();
+  const students = useLMSDataSelector((s) => s.filteredStudents);
+  const colleges = useLMSDataSelector((s) => s.filteredColleges);
+  const batches = useLMSDataSelector((s) => s.filteredBatches);
+  const lmsLoading = useLMSDataSelector((s) => s.loading);
   const { resolveInstitution, resolveBatch } = useEntityResolution();
   const [loading, setLoading] = useState(true);
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm?: () => void; isAlert?: boolean; variant?: "destructive" | "warning" | "info" | "success" } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchRaw, setSearchRaw] = useState("");
+  const debouncedSearch = useDebounce(searchRaw, 300);
+  
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 20;
   const [timeFilter, setTimeFilter] = useState("ALL");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
@@ -305,10 +316,11 @@ function StudentsContent() {
       students
         .filter((s) => {
           if (s.isDeleted) return false;
+          const searchVal = debouncedSearch.toLowerCase();
           const matchesSearch =
-            s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            s.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            s.department.toLowerCase().includes(searchQuery.toLowerCase());
+            s.name.toLowerCase().includes(searchVal) ||
+            s.email.toLowerCase().includes(searchVal) ||
+            s.department.toLowerCase().includes(searchVal);
           const matchesCollege = !academicFilters.collegeId || s.collegeId === academicFilters.collegeId;
           const matchesDepartment = !academicFilters.department || s.department === academicFilters.department;
           const matchesYear = matchesYearFilter(s.academicYear, academicFilters.academicYear);
@@ -335,8 +347,19 @@ function StudentsContent() {
           }
           return 0;
         }),
-    [students, searchQuery, academicFilters, timeFilter]
+    [students, debouncedSearch, academicFilters, timeFilter]
   );
+
+  const totalPages = Math.ceil(filteredStudents.length / itemsPerPage);
+  const paginatedStudents = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    return filteredStudents.slice(start, start + itemsPerPage);
+  }, [filteredStudents, currentPage, itemsPerPage]);
+
+  // Reset page to 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearch, academicFilters, timeFilter]);
 
   // Cascading options for the manual-add modal.
   const addModalDepartments = useMemo(
@@ -449,16 +472,16 @@ function StudentsContent() {
       message: `This will permanently remove ${student.name} (${student.email}) from Firebase Auth and the database. The student will no longer have access and must create a new account to regain access. Exam results will remain and be labelled "Student Deleted Data".`,
       variant: "destructive",
       onConfirm: async () => {
-        setLoading(true);
+        // Optimistic UI update
+        optimisticDeleteStudent(student.id);
+        setSelectedIds((prev) => prev.filter((id) => id !== student.id));
+        toast.success(`Student profile for ${student.name} deleted.`);
+
         try {
           await deleteStudentProfile(student.id);
-          setSelectedIds((prev) => prev.filter((id) => id !== student.id));
-          await fetchStudents();
         } catch (err) {
-          console.error("Failed to delete student:", err);
-          toast.error(formatAuthError(err, "Failed to delete student."));
-        } finally {
-          setLoading(false);
+          console.error("Failed to delete student on backend:", err);
+          toast.error(formatAuthError(err, "Failed to delete student on server. Refreshing..."));
         }
       }
     });
@@ -470,23 +493,23 @@ function StudentsContent() {
         title="Students & Enrollment"
         description="Enroll students manually into specific colleges, departments, and custom batches, or import CSV lists."
         actions={
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
             <Button
               onClick={() => setShowAddModal(true)}
-              className="bg-brand hover:bg-brand/90 text-brand-foreground flex items-center gap-2 font-bold h-11 px-6 rounded-xl"
+              className="bg-brand hover:bg-brand/90 text-brand-foreground flex items-center justify-center gap-2 font-bold h-11 px-4 sm:px-6 rounded-xl w-full sm:w-auto"
             >
-              <Plus className="w-4 h-4" />
-              <span>Invite / Enroll Student</span>
+              <Plus className="w-4 h-4 shrink-0" />
+              <span className="whitespace-nowrap">Invite / Enroll Student</span>
             </Button>
             <Button
               onClick={() => {
                 setImportSummary(null);
                 setShowImportModal(true);
               }}
-              className="bg-brand/10 hover:bg-brand/20 border-0 text-brand flex items-center gap-2 font-bold h-11 px-6 rounded-xl"
+              className="bg-brand/10 hover:bg-brand/20 border-0 text-brand flex items-center justify-center gap-2 font-bold h-11 px-4 sm:px-6 rounded-xl w-full sm:w-auto"
             >
-              <Upload className="w-4 h-4" />
-              <span>Import CSV</span>
+              <Upload className="w-4 h-4 shrink-0" />
+              <span className="whitespace-nowrap">Import CSV</span>
             </Button>
           </div>
         }
@@ -510,34 +533,38 @@ function StudentsContent() {
           </div>
         </div>
 
-        <div className="pt-3 border-t border-border/60 space-y-3">
-          <AcademicHierarchyFilters
-            levels={["institution", "department", "academicYear", "section", "batch"]}
-            filters={academicFilters}
-            onChange={setAcademicFilters}
-            collegeOptions={collegeOptions}
-            departmentOptions={departmentOptions}
-            academicYearOptions={academicYearOptions}
-            sectionOptions={sectionOptions}
-            batchOptions={batchOptions}
-            studentOptions={[]}
-            loading={hierarchyLoading}
-            showInstitution
-            institutionOptions={institutionOptions}
-          />
+        <div className="pt-3 border-t border-border/60">
+          <div className="grid grid-cols-1 md:flex md:flex-wrap items-end gap-3">
+            <div className="flex-1 min-w-[280px]">
+              <AcademicHierarchyFilters
+                levels={["institution", "department", "academicYear", "section", "batch"]}
+                filters={academicFilters}
+                onChange={setAcademicFilters}
+                collegeOptions={collegeOptions}
+                departmentOptions={departmentOptions}
+                academicYearOptions={academicYearOptions}
+                sectionOptions={sectionOptions}
+                batchOptions={batchOptions}
+                studentOptions={[]}
+                loading={hierarchyLoading}
+                showInstitution
+                institutionOptions={institutionOptions}
+              />
+            </div>
 
-          <div className="w-full sm:w-64 xl:w-48">
-            <FilterDropdown
-              label="Added Time"
-              value={timeFilter === "ALL" ? "" : timeFilter}
-              onChange={(val) => setTimeFilter(val === "" ? "ALL" : val)}
-              options={[
-                { value: "RECENT_24H", label: "Last 24 Hours" },
-                { value: "RECENT_7D", label: "Last 7 Days" },
-                { value: "CSV", label: "CSV Uploads" },
-                { value: "MANUAL", label: "Manual Entry" },
-              ]}
-            />
+            <div className="w-full md:w-64 xl:w-48">
+              <FilterDropdown
+                label="Added Time"
+                value={timeFilter === "ALL" ? "" : timeFilter}
+                onChange={(val) => setTimeFilter(val === "" ? "ALL" : val)}
+                options={[
+                  { value: "RECENT_24H", label: "Last 24 Hours" },
+                  { value: "RECENT_7D", label: "Last 7 Days" },
+                  { value: "CSV", label: "CSV Uploads" },
+                  { value: "MANUAL", label: "Manual Entry" },
+                ]}
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -591,173 +618,112 @@ function StudentsContent() {
           onAction={() => setShowImportModal(true)}
         />
       ) : (
-        <div className="rounded-xl border border-border bg-card overflow-hidden shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-border bg-muted/50 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                  <th className="py-3.5 px-4 w-10">
-                    <input
-                      type="checkbox"
-                      checked={filteredStudents.length > 0 && selectedIds.length === filteredStudents.length}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setSelectedIds(filteredStudents.map((s) => s.id));
-                        } else {
-                          setSelectedIds([]);
-                        }
-                      }}
-                      className="rounded border-border text-brand focus:ring-brand/50 cursor-pointer"
-                    />
-                  </th>
-                  <th className="py-3.5 px-4">Student Name</th>
-                  <th className="py-3.5 px-4">Email Address</th>
-                  <th className="py-3.5 px-4">College</th>
-                  <th className="py-3.5 px-4">Department & Year</th>
-                  <th className="py-3.5 px-4">Section / Batch</th>
-                  <th className="py-3.5 px-4">Status</th>
-                  <th className="py-3.5 px-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border text-sm">
-                {filteredStudents.map((student) => {
-                  const isSelected = selectedIds.includes(student.id);
-                  return (
-                    <tr 
-                      key={student.id} 
-                      onClick={() => router.push(`${pathname}/${student.id}`)}
-                      className={`hover:bg-accent/50 transition-colors cursor-pointer ${isSelected ? "bg-accent/50" : ""}`}
-                    >
-                      <td className="py-3.5 px-4" onClick={(e) => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedIds((prev) => [...prev, student.id]);
-                            } else {
-                              setSelectedIds((prev) => prev.filter((id) => id !== student.id));
-                            }
-                          }}
-                          className="rounded border-border text-brand focus:ring-brand/50 cursor-pointer"
-                        />
-                      </td>
-                      <td className="py-3.5 px-4 font-medium text-foreground flex items-center gap-2.5">
-                        <div className="flex items-center gap-2.5 transition-colors group">
-                          <div className="w-8 h-8 rounded-full bg-brand/10 text-brand flex items-center justify-center font-bold text-xs group-hover:bg-brand/20 transition-colors">
-                            {student.name.slice(0, 2).toUpperCase()}
-                          </div>
-                          <span>{student.name}</span>
-                        </div>
-                      </td>
-                      <td className="py-3.5 px-4 font-mono text-xs text-muted-foreground">{student.email}</td>
-                      <td className="py-3.5 px-4 font-medium text-foreground">
-                        {(() => {
-                          if (student.collegeId === "UNASSIGNED" || student.collegeName === "Unassigned") {
-                            return <span className="px-2.5 py-1 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 text-xs font-bold uppercase tracking-wider">Unassigned</span>;
-                          }
-                          const resolvedName = resolveInstitution(student.collegeId);
-                          let finalName = resolvedName;
-                          if (resolvedName === "Unknown Institution" && student.collegeName) {
-                            finalName = student.collegeName;
-                          }
-                          
-                          if (finalName.includes("(Deleted)")) {
-                            return <span className="text-destructive font-bold">{finalName}</span>;
-                          }
-                          return finalName;
-                        })()}
-                      </td>
-                      <td className="py-3.5 px-4 text-xs flex items-center gap-2">
-                        <span className="font-semibold text-foreground">{student.department}</span>
-                        <span className={`px-2 py-0.5 rounded-full font-bold text-[11px] ${getYearBadgeStyle(student.academicYear)}`}>
-                          {student.academicYear || "1st Year"}
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-4 text-xs">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="px-2 py-0.5 rounded-md bg-accent/80 border border-border/50 font-mono text-[11px] font-semibold text-foreground whitespace-nowrap">
-                            Sec {student.section || "N/A"}
-                          </span>
-                          <span className="px-2 py-0.5 rounded-md bg-brand/10 border border-brand/20 font-mono text-[11px] font-semibold text-brand whitespace-nowrap">
-                            {resolveBatch(student.batchIds?.[0])}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="py-3.5 px-4">
-                        {student.status === "restricted" ? (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-500/15 text-rose-500 border border-rose-500/30">
-                            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
-                            Restricted
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                            Active
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-3.5 px-4 text-right" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              router.push(`${pathname}/${student.id}`);
-                            }}
-                            className="h-8 w-8 p-0 text-indigo-500 hover:text-indigo-600 hover:bg-indigo-500/10 rounded-lg"
-                            title="View Evaluation Report"
-                          >
-                            <BarChart3 className="w-4 h-4" />
-                          </Button>
-                          {student.status === "restricted" ? (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleToggleStatus(student)}
-                              className="h-8 w-8 p-0 text-emerald-500 hover:text-emerald-600 hover:bg-emerald-500/10 rounded-lg"
-                              title="Reactivate Account"
-                            >
-                              <CheckCircle2 className="w-4 h-4" />
-                            </Button>
-                          ) : (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleToggleStatus(student)}
-                              className="h-8 w-8 p-0 text-amber-500 hover:text-amber-600 hover:bg-amber-500/10 rounded-lg"
-                              title="Restrict Account"
-                            >
-                              <Ban className="w-4 h-4" />
-                            </Button>
-                          )}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleOpenEdit(student)}
-                            className="h-8 w-8 p-0 text-sky-500 hover:text-sky-600 hover:bg-sky-500/10 rounded-lg"
-                            title="Edit Student Profile"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDeleteStudent(student)}
-                            className="h-8 w-8 p-0 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10 rounded-lg"
-                            title="Remove Student Profile"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
+        <div className="space-y-4">
+          {/* Mobile Stacked Card View (<640px) */}
+          <div className="block sm:hidden space-y-3">
+            {paginatedStudents.map((student) => (
+              <StudentCard
+                key={student.id}
+                student={student}
+                isSelected={selectedIds.includes(student.id)}
+                onToggleSelect={(id) => {
+                  setSelectedIds((prev) =>
+                    prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
                   );
-                })}
-              </tbody>
-            </table>
+                }}
+                onOpenEdit={handleOpenEdit}
+                onToggleStatus={handleToggleStatus}
+                onDeleteStudent={handleDeleteStudent}
+                resolveInstitution={resolveInstitution}
+                resolveBatch={resolveBatch}
+                pathname={pathname}
+              />
+            ))}
           </div>
+
+          {/* Desktop Responsive Table View (>=640px) */}
+          <div className="hidden sm:block rounded-2xl border border-border bg-card overflow-hidden shadow-sm">
+            <div className="overflow-x-auto pb-2">
+              <table className="w-full text-left border-collapse min-w-[850px]">
+                <thead>
+                  <tr className="border-b border-border bg-muted/50 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    <th className="py-3.5 px-4 w-10">
+                      <input
+                        type="checkbox"
+                        checked={filteredStudents.length > 0 && selectedIds.length === filteredStudents.length}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedIds(filteredStudents.map((s) => s.id));
+                          } else {
+                            setSelectedIds([]);
+                          }
+                        }}
+                        className="rounded border-border text-brand focus:ring-brand/50 cursor-pointer w-4 h-4"
+                      />
+                    </th>
+                    <th className="py-3.5 px-4">Student Name</th>
+                    <th className="py-3.5 px-4">Email Address</th>
+                    <th className="py-3.5 px-4">College</th>
+                    <th className="py-3.5 px-4">Department & Year</th>
+                    <th className="py-3.5 px-4">Section / Batch</th>
+                    <th className="py-3.5 px-4">Status</th>
+                    <th className="py-3.5 px-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border text-sm">
+                  {paginatedStudents.map((student) => (
+                    <StudentRow
+                      key={student.id}
+                      student={student}
+                      isSelected={selectedIds.includes(student.id)}
+                      onToggleSelect={(id) => {
+                        setSelectedIds((prev) =>
+                          prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
+                        );
+                      }}
+                      onOpenEdit={handleOpenEdit}
+                      onToggleStatus={handleToggleStatus}
+                      onDeleteStudent={handleDeleteStudent}
+                      resolveInstitution={resolveInstitution}
+                      resolveBatch={resolveBatch}
+                      pathname={pathname}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-muted/20">
+              <span className="text-xs text-muted-foreground font-medium">
+                Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredStudents.length)} of {filteredStudents.length} entries
+              </span>
+              <div className="flex gap-1">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="h-8 text-xs font-semibold"
+                >
+                  Previous
+                </Button>
+                <div className="flex items-center justify-center px-3 text-xs font-bold text-foreground">
+                  Page {currentPage} of {totalPages}
+                </div>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="h-8 text-xs font-semibold"
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -873,36 +839,26 @@ function StudentsContent() {
                 <div className="space-y-5">
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
                     <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
-                      <span className="text-xs text-muted-foreground">Created</span>
+                      <span className="text-xs text-muted-foreground font-medium">Created</span>
                       <p className="text-2xl font-bold text-emerald-500">{importSummary.createdCount}</p>
                     </div>
                     <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
-                      <span className="text-xs text-muted-foreground">Duplicates</span>
+                      <span className="text-xs text-muted-foreground font-medium">Duplicates</span>
                       <p className="text-2xl font-bold text-amber-500">{importSummary.duplicateCount}</p>
                     </div>
                     <div className="p-3 rounded-xl bg-slate-500/10 border border-slate-500/20">
-                      <span className="text-xs text-muted-foreground">Skipped</span>
+                      <span className="text-xs text-muted-foreground font-medium">Skipped</span>
                       <p className="text-2xl font-bold text-slate-400">{importSummary.skippedCount}</p>
                     </div>
                     <div className="p-3 rounded-xl bg-destructive/10 border border-destructive/20">
-                      <span className="text-xs text-muted-foreground">Failed</span>
+                      <span className="text-xs text-muted-foreground font-medium">Failed</span>
                       <p className="text-2xl font-bold text-destructive">{importSummary.failedCount}</p>
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between pt-2">
-                    <Button onClick={handleDownloadCredentials} className="bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-2">
-                      <Download className="w-4 h-4" />
-                      <span>Download Credentials CSV ({importSummary.createdCount} Accounts)</span>
-                    </Button>
-                    <Button onClick={() => setShowImportModal(false)} variant="outline">
-                      Done
-                    </Button>
-                  </div>
-
-                  <div className="max-h-60 overflow-y-auto rounded-xl border border-border text-xs">
+                  <div className="max-h-56 overflow-y-auto rounded-xl border border-border text-xs">
                     <table className="w-full text-left">
-                      <thead className="bg-muted text-muted-foreground font-semibold sticky top-0">
+                      <thead className="bg-muted text-muted-foreground font-semibold sticky top-0 z-10">
                         <tr>
                           <th className="p-2.5">Name</th>
                           <th className="p-2.5">Email</th>
@@ -926,6 +882,22 @@ function StudentsContent() {
                         ))}
                       </tbody>
                     </table>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-3 border-t border-border mt-4">
+                    {importSummary.createdCount > 0 ? (
+                      <Button onClick={handleDownloadCredentials} className="bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center gap-2 h-11 px-5 rounded-xl font-bold shadow-sm">
+                        <Download className="w-4 h-4 shrink-0" />
+                        <span>Download Credentials CSV ({importSummary.createdCount} Accounts)</span>
+                      </Button>
+                    ) : (
+                      <div className="text-xs text-muted-foreground flex items-center gap-1.5 py-1">
+                        <span>No new accounts created in this batch.</span>
+                      </div>
+                    )}
+                    <Button onClick={() => setShowImportModal(false)} variant="outline" className="h-11 px-6 rounded-xl font-semibold">
+                      Done
+                    </Button>
                   </div>
                 </div>
               )}

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, use } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { ArrowLeft, Building2, FolderTree, Users, Plus, Trash2, Search, CheckCircle2, Pencil, Ban } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
@@ -35,6 +36,7 @@ function getCreatedTime(date: MaybeTimestamp) {
 export default function CollegeDetailPage({ params }: PageProps) {
   const resolvedParams = use(params);
   const collegeId = resolvedParams.id;
+  const router = useRouter();
 
   const [college, setCollege] = useState<College | null>(null);
   const [students, setStudents] = useState<Student[]>([]);
@@ -883,8 +885,12 @@ function getYearBadgeStyle(year?: string) {
                 {filteredStudents.map((stud) => {
                   const isSelected = selectedStudentIds.includes(stud.id);
                   return (
-                    <tr key={stud.id} className={`hover:bg-muted/30 transition-colors ${isSelected ? "bg-brand/5" : ""}`}>
-                      <td className="py-3.5 px-4">
+                    <tr 
+                      key={stud.id} 
+                      onClick={() => router.push(`/students/${stud.id}`)}
+                      className={`cursor-pointer hover:bg-muted/30 transition-colors ${isSelected ? "bg-brand/5" : ""}`}
+                    >
+                      <td className="py-3.5 px-4" onClick={(e) => e.stopPropagation()}>
                         <input
                           type="checkbox"
                           checked={isSelected}
@@ -917,7 +923,7 @@ function getYearBadgeStyle(year?: string) {
                             Sec {stud.section || "N/A"}
                           </span>
                           <span className="px-2 py-0.5 rounded-md bg-brand/10 border border-brand/20 font-mono text-[11px] font-semibold text-brand whitespace-nowrap">
-                            {stud.batchIds?.[0] || "General"}
+                            {stud.batchIds?.[0] ? (batches.find(b => b.id === stud.batchIds![0])?.name || "Unknown Batch") : "Unassigned"}
                           </span>
                         </div>
                       </td>
@@ -934,7 +940,7 @@ function getYearBadgeStyle(year?: string) {
                           </span>
                         )}
                       </td>
-                      <td className="py-3.5 px-4 text-right">
+                      <td className="py-3.5 px-4 text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1">
                           {stud.status === "restricted" ? (
                             <Button
@@ -1217,7 +1223,7 @@ function getYearBadgeStyle(year?: string) {
                     >
                       {sectionsList.map((sec) => (
                         <option key={sec} value={sec}>
-                          {["A", "B", "C", "D"].includes(sec) ? `Section ${sec}` : sec}
+                          {sec}
                         </option>
                       ))}
                       <option value="CUSTOM">+ Custom Section...</option>
@@ -1349,7 +1355,7 @@ function getYearBadgeStyle(year?: string) {
                     >
                       {sectionsList.map((sec) => (
                         <option key={sec} value={sec}>
-                          {["A", "B", "C", "D"].includes(sec) ? `Section ${sec}` : sec}
+                          {sec}
                         </option>
                       ))}
                       <option value="CUSTOM">+ Custom Section...</option>

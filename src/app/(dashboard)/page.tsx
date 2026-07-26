@@ -28,6 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useMemo } from "react";
+import { useMounted } from "@/hooks/use-mounted";
 import { staggerContainer, staggerItem } from "@/lib/animations";
 import { getAllExamsIncludingDeleted, getAllStudents, getAllColleges, getAllResources, getEffectiveExamStatus, getStudentAttempts, filterResourcesForStudent, filterExamsForStudent, getAllBatches } from "@/lib/services";
 import { toDate } from "@/lib/utils/date";
@@ -45,14 +46,8 @@ function StudentPortalDashboard({
   attempts: ExamAttempt[];
   loading: boolean;
 }) {
-  const [studentProfile, setStudentProfile] = useState<any>(() => {
-    try {
-      if (typeof window !== "undefined") {
-        const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-        if (uStr) return JSON.parse(uStr);
-      }
-    } catch (_) {}
-    return { id: "", name: "", email: "", department: "", rollNumber: "", batchIds: [] };
+  const [studentProfile, setStudentProfile] = useState<any>({ 
+    id: "", name: "", email: "", department: "", rollNumber: "", batchIds: [] 
   });
 
   useEffect(() => {
@@ -304,27 +299,38 @@ export default function DashboardPage() {
     loading,
   } = useLMSData();
 
-  const activeStudents = useMemo(() => students.filter((s) => !s.isDeleted), [students]);
+  const activeStudents = useMemo(() => (students as Student[]).filter((s: Student) => !s.isDeleted), [students]);
 
-  const [userRole, setUserRole] = useState<string>("admin");
-  const [userName, setUserName] = useState<string>("Trainer");
+  const mounted = useMounted();
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [userName, setUserName] = useState<string>("User");
 
   useEffect(() => {
     try {
-      const role = localStorage.getItem("lms_role") || "admin";
-      setUserRole(role.toLowerCase());
+      const role = localStorage.getItem("lms_role");
       const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
       if (uStr) {
         const parsed = JSON.parse(uStr);
+        if (parsed.role) {
+          setUserRole(parsed.role.toLowerCase());
+        } else if (role) {
+          setUserRole(role.toLowerCase());
+        }
         if (parsed.name || parsed.displayName) {
           setUserName((parsed.name || parsed.displayName).split(" ")[0]);
         }
+      } else if (role) {
+        setUserRole(role.toLowerCase());
+      } else {
+        setUserRole("student");
       }
-    } catch (e) {}
+    } catch (e) {
+      setUserRole("student");
+    }
   }, []);
 
   const activeOrScheduledExams = useMemo(() => {
-    return exams.filter((e) => {
+    return (exams as Exam[]).filter((e: Exam) => {
       if (e.deletedAt) return false;
       const s = getEffectiveExamStatus(e);
       return s === "active" || s === "scheduled";
@@ -333,7 +339,7 @@ export default function DashboardPage() {
 
   const liveActivity = useMemo(() => {
     return [
-      ...activeOrScheduledExams.slice(0, 5).map((ex) => ({
+      ...activeOrScheduledExams.slice(0, 5).map((ex: Exam) => ({
         id: `ex-${ex.id}`,
         action: getEffectiveExamStatus(ex) === "active" ? "Live Assessment Active" : "Assessment Scheduled",
         detail: `${ex.title} (${ex.duration} mins, ${ex.totalMarks} marks)`,
@@ -341,7 +347,7 @@ export default function DashboardPage() {
         icon: ClipboardList,
         color: getEffectiveExamStatus(ex) === "active" ? "stat-icon-emerald" : "stat-icon-amber",
       })),
-      ...(userRole === "college_admin" ? [] : colleges.slice(0, 3).map((c) => ({
+      ...(userRole === "college_admin" ? [] : (colleges as College[]).slice(0, 3).map((c: College) => ({
         id: `col-${c.id}`,
         action: "Partner College Active",
         detail: `${c.name} (${c.code || "Registered"}) linked to portal`,
@@ -363,13 +369,13 @@ export default function DashboardPage() {
       return dept;
     };
 
-    activeStudents.forEach((s) => {
+    activeStudents.forEach((s: Student) => {
       const dept = abbreviateDept((s as any).department || "General Engineering");
       map.set(dept, (map.get(dept) || 0) + 1);
     });
     if (map.size === 0 && colleges.length > 0) {
-      colleges.forEach((c) => {
-        c.departments?.forEach((d) => {
+      (colleges as College[]).forEach((c: College) => {
+        c.departments?.forEach((d: string) => {
           const dept = abbreviateDept(d);
           map.set(dept, (map.get(dept) || 0) + 1);
         });
@@ -381,8 +387,8 @@ export default function DashboardPage() {
   const dynamicAssessmentAverages = useMemo(() => {
     const titleMap = new Map<string, { totalScore: number; count: number }>();
 
-    attempts.forEach((a) => {
-      const ex = exams.find((e) => e.id === a.examId);
+    (attempts as ExamAttempt[]).forEach((a: ExamAttempt) => {
+      const ex = (exams as Exam[]).find((e: Exam) => e.id === a.examId);
       if (!ex) return;
       const title = ex.title;
       if (!titleMap.has(title)) {
@@ -395,8 +401,8 @@ export default function DashboardPage() {
 
     if (titleMap.size === 0) {
       // Fallback if no attempts, just show top 6 unique exams
-      const uniqueExams = Array.from(new Map(exams.map((e) => [e.title, e])).values());
-      return uniqueExams.slice(0, 6).map((ex) => ({
+      const uniqueExams = Array.from(new Map((exams as Exam[]).map((e: Exam) => [e.title, e])).values());
+      return uniqueExams.slice(0, 6).map((ex: Exam) => ({
         exam: ex.title.length > 15 ? ex.title.slice(0, 15) + "..." : ex.title,
         score: 0,
       }));
@@ -421,7 +427,7 @@ export default function DashboardPage() {
     }));
   }, [activeStudents]);
 
-  if (userRole === "student") {
+  if (!mounted || !userRole || userRole === "student") {
     return (
       <StudentPortalDashboard
         exams={exams}
@@ -454,21 +460,21 @@ export default function DashboardPage() {
             "The art of teaching is the art of assisting discovery." — Mark Van Doren
           </p>
         </div>
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto shrink-0">
           <Button
             variant="ghost"
-            onClick={() => router.push("/admin/students")}
-            className="h-11 px-5 rounded-xl border border-border bg-transparent text-foreground hover:bg-accent font-semibold transition-all flex items-center gap-2"
+            onClick={() => router.push("/students")}
+            className="h-11 px-5 rounded-xl border border-border bg-transparent text-foreground hover:bg-accent font-semibold transition-all flex items-center justify-center gap-2 w-full sm:w-auto"
           >
-            <GraduationCap className="w-4 h-4" />
-            <span>Students</span>
+            <GraduationCap className="w-4 h-4 shrink-0" />
+            <span className="whitespace-nowrap">Students</span>
           </Button>
           <Button
-            onClick={() => router.push("/admin/exams")}
-            className="h-11 px-5 rounded-xl bg-brand hover:bg-brand/90 text-primary-foreground font-bold transition-all flex items-center gap-2 shadow-sm border border-white/20 dark:border-black/10"
+            onClick={() => router.push("/exams")}
+            className="h-11 px-5 rounded-xl bg-brand hover:bg-brand/90 text-primary-foreground font-bold transition-all flex items-center justify-center gap-2 shadow-sm border border-white/20 dark:border-black/10 w-full sm:w-auto"
           >
-            <Plus className="w-4 h-4 stroke-[3]" />
-            <span>Create Assessment</span>
+            <Plus className="w-4 h-4 stroke-[3] shrink-0" />
+            <span className="whitespace-nowrap">Create Assessment</span>
           </Button>
         </div>
       </motion.div>
@@ -610,9 +616,9 @@ export default function DashboardPage() {
                 No batches found.
               </GlassCard>
             ) : (
-              batches.slice(0, 5).map(batch => {
-                const college = colleges.find(c => c.id === batch.collegeId);
-                const batchStudents = students.filter(s => s.batchIds?.includes(batch.id)).length;
+              (batches as Batch[]).slice(0, 5).map((batch: Batch) => {
+                const college = (colleges as College[]).find((c: College) => c.id === batch.collegeId);
+                const batchStudents = (students as Student[]).filter((s: Student) => s.batchIds?.includes(batch.id)).length;
                 return (
                   <GlassCard key={batch.id} className="p-4 hover:border-border transition-colors flex items-center justify-between">
                     <div>
