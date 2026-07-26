@@ -10,8 +10,9 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
-import { getAllColleges, createCollege, getAllStudents, deleteStudentProfile, updateCollege, updateStudentProfile, renameCollegeAndMigrate, PREDEFINED_DEPARTMENTS, ensureGeneralDepartment } from "@/lib/services";
+import { getAllColleges, createCollege, deleteCollege, getAllStudents, deleteStudentProfile, updateCollege, updateStudentProfile, renameCollegeAndMigrate, PREDEFINED_DEPARTMENTS, ensureGeneralDepartment } from "@/lib/services";
 import { useLMSDataSelector } from "@/lib/data/use-lms-data";
+import { optimisticDeleteCollege } from "@/lib/data/lms-store";
 import { getAuth } from "firebase/auth";
 import type { College, Student } from "@/types";
 
@@ -59,28 +60,24 @@ export default function CollegesPage() {
       message: `Are you sure you want to permanently delete "${col.name}"? This action will also delete all students, departments, and associated data. This cannot be undone.`,
       onConfirm: async () => {
         try {
-          const auth = getAuth();
-          const token = await auth.currentUser?.getIdToken();
-          if (!token) throw new Error("Not authenticated");
-
-          const res = await fetch("/api/admin/delete-college", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              id: col.id,
-              adminIdToken: token,
-            }),
-          });
-          
-          if (!res.ok) {
-            const data = await res.json();
-            throw new Error(data.error || "Failed to delete college");
-          }
-
+          // 1. Instant optimistic local deletion (0ms card removal)
+          optimisticDeleteCollege(col.id);
           setSelectedAdminIds((prev) => prev.filter((id) => id !== col.id));
           toast.success(`College "${col.name}" deleted successfully.`);
+
+          // 2. Instant client-side Firestore document deletion
+          await deleteCollege(col.id);
+
+          // 3. Background server API cleanup for student accounts & auth records
+          const auth = getAuth();
+          const token = await auth.currentUser?.getIdToken();
+          if (token) {
+            fetch("/api/admin/delete-college", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: col.id, adminIdToken: token }),
+            }).catch((err) => console.error("Background college delete cleanup error:", err));
+          }
         } catch (err: any) {
           console.error("Failed to delete college:", err);
           toast.error(err.message || "Failed to delete college");
@@ -117,23 +114,28 @@ export default function CollegesPage() {
       message: `Are you sure you want to delete ${selectedAdminIds.length} selected admin college(s)?`,
       onConfirm: async () => {
         try {
-          const auth = getAuth();
-          const token = await auth.currentUser?.getIdToken();
-          if (!token) throw new Error("Not authenticated");
-
-          await Promise.all(selectedAdminIds.map(async (id) => {
-            const res = await fetch("/api/admin/delete-college", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ id, adminIdToken: token }),
-            });
-            if (!res.ok) {
-              const data = await res.json();
-              throw new Error(data.error || "Failed to delete college");
-            }
-          }));
+          const idsToDelete = [...selectedAdminIds];
+          idsToDelete.forEach((id) => optimisticDeleteCollege(id));
           setSelectedAdminIds([]);
           toast.success("Selected colleges deleted successfully.");
+
+          // Instant Firestore document deletion for each college
+          await Promise.all(idsToDelete.map((id) => deleteCollege(id)));
+
+          // Background server API cleanup
+          const auth = getAuth();
+          const token = await auth.currentUser?.getIdToken();
+          if (token) {
+            Promise.all(
+              idsToDelete.map((id) =>
+                fetch("/api/admin/delete-college", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ id, adminIdToken: token }),
+                })
+              )
+            ).catch((err) => console.error("Background batch college delete cleanup error:", err));
+          }
         } catch (err: any) {
           console.error("Failed to delete selected colleges:", err);
           toast.error(err.message || "Failed to delete selected colleges");

@@ -79,9 +79,6 @@ export function subscribeToLMSStore(listener: () => void): () => void {
   };
 }
 
-/**
- * Optimistically delete a student from local store state
- */
 export function optimisticDeleteStudent(studentId: string): LMSStoreState {
   const prev = storeState;
   const nextStudents = prev.students.filter((s) => s.id !== studentId);
@@ -90,6 +87,26 @@ export function optimisticDeleteStudent(studentId: string): LMSStoreState {
     ...prev,
     students: nextStudents,
     filteredStudents: nextFiltered,
+  };
+  setLMSStoreState(nextState);
+  return prev;
+}
+
+/**
+ * Optimistically delete a college from local store state
+ */
+export function optimisticDeleteCollege(collegeId: string): LMSStoreState {
+  const prev = storeState;
+  const nextColleges = prev.colleges.filter((c) => c.id !== collegeId);
+  const nextFiltered = prev.filteredColleges.filter((c) => c.id !== collegeId);
+  const nextInstitutions = prev.institutions.filter((i) => i.id !== collegeId);
+  const nextExternal = prev.externalInstitutions.filter((i) => i.id !== collegeId && i.name !== collegeId);
+  const nextState: LMSStoreState = {
+    ...prev,
+    colleges: nextColleges,
+    filteredColleges: nextFiltered,
+    institutions: nextInstitutions,
+    externalInstitutions: nextExternal,
   };
   setLMSStoreState(nextState);
   return prev;

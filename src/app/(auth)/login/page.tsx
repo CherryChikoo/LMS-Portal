@@ -178,18 +178,24 @@ function LoginContent() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white transition-colors"
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white transition-colors cursor-pointer p-1"
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
             </div>
 
-            <div className="flex items-center gap-2 pt-2">
+            <div 
+              className="flex items-center gap-2 pt-2 cursor-pointer select-none"
+              onClick={() => setRememberMe(!rememberMe)}
+            >
               <button
                 type="button"
-                onClick={() => setRememberMe(!rememberMe)}
-                className={`w-4 h-4 rounded flex items-center justify-center border transition-all duration-200 ${
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setRememberMe(!rememberMe);
+                }}
+                className={`w-4 h-4 rounded flex items-center justify-center border transition-all duration-200 cursor-pointer ${
                   rememberMe
                     ? "bg-brand border-brand text-white"
                     : "border-white/20 bg-transparent hover:border-white/40"
@@ -197,10 +203,7 @@ function LoginContent() {
               >
                 {rememberMe && <Check className="w-3 h-3 stroke-[3]" />}
               </button>
-              <span
-                onClick={() => setRememberMe(!rememberMe)}
-                className="text-xs font-medium text-white/60 cursor-pointer select-none hover:text-white transition-colors"
-              >
+              <span className="text-xs font-medium text-white/60 cursor-pointer select-none hover:text-white transition-colors">
                 Remember session
               </span>
             </div>
@@ -209,7 +212,7 @@ function LoginContent() {
               <Button
                 type="submit"
                 disabled={loading}
-                className="w-full h-11 rounded-xl bg-brand text-brand-foreground font-semibold hover:bg-brand/90 transition-all flex items-center justify-center gap-2 group text-sm shadow-lg shadow-brand/20"
+                className="w-full h-11 rounded-xl bg-brand text-brand-foreground font-semibold hover:bg-brand/90 transition-all flex items-center justify-center gap-2 group text-sm shadow-lg shadow-brand/20 cursor-pointer"
               >
                 {loading ? (
                   <span className="flex items-center gap-2">
@@ -244,7 +247,7 @@ function LoginContent() {
               variant="outline"
               onClick={handleGoogleLogin}
               disabled={loading || googleLoading}
-              className="w-full h-11 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 font-semibold text-white flex items-center justify-center gap-3 transition-all"
+              className="w-full h-11 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 font-semibold text-white flex items-center justify-center gap-3 transition-all cursor-pointer"
             >
               {googleLoading ? (
                 <span className="flex items-center gap-2 text-sm text-white/70">
@@ -272,8 +275,8 @@ function LoginContent() {
           <div className="w-full mt-6 pt-5 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between text-[11px] text-white/40 gap-3">
             <span className="font-medium">&copy; {new Date().getFullYear()} {APP_NAME}.</span>
             <div className="flex items-center gap-4 font-medium">
-              <Link href="/privacy" className="hover:text-white transition-colors">Privacy</Link>
-              <Link href="/terms" className="hover:text-white transition-colors">Terms</Link>
+              <Link href="/privacy" className="hover:text-white transition-colors cursor-pointer">Privacy</Link>
+              <Link href="/terms" className="hover:text-white transition-colors cursor-pointer">Terms</Link>
             </div>
           </div>
 
