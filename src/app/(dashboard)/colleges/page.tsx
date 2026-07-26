@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "motion/react";
-import { GraduationCap, Plus, Building2, Layers, Users, FolderTree, ChevronRight, Trash2, Pencil } from "lucide-react";
+import { GraduationCap, Plus, Building2, Layers, Users, FolderTree, ChevronRight, Trash2, Pencil, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -24,6 +24,7 @@ export default function CollegesPage() {
 
   const [selectedAdminIds, setSelectedAdminIds] = useState<string[]>([]);
   const [selectedExternalIds, setSelectedExternalIds] = useState<string[]>([]);
+  const [deletingIds, setDeletingIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void } | null>(null);
@@ -60,13 +61,15 @@ export default function CollegesPage() {
       message: `Are you sure you want to permanently delete "${col.name}"? This action will also delete all students, departments, and associated data. This cannot be undone.`,
       onConfirm: async () => {
         try {
-          // 1. Instant optimistic local deletion (0ms card removal)
+          setDeletingIds((prev) => [...prev, col.id]);
+
+          // 1. Instant client-side Firestore document deletion
+          await deleteCollege(col.id);
+
+          // 2. Instant optimistic local deletion
           optimisticDeleteCollege(col.id);
           setSelectedAdminIds((prev) => prev.filter((id) => id !== col.id));
           toast.success(`College "${col.name}" deleted successfully.`);
-
-          // 2. Instant client-side Firestore document deletion
-          await deleteCollege(col.id);
 
           // 3. Background server API cleanup for student accounts & auth records
           const auth = getAuth();
@@ -81,6 +84,8 @@ export default function CollegesPage() {
         } catch (err: any) {
           console.error("Failed to delete college:", err);
           toast.error(err.message || "Failed to delete college");
+        } finally {
+          setDeletingIds((prev) => prev.filter((id) => id !== col.id));
         }
       }
     });
@@ -455,10 +460,15 @@ export default function CollegesPage() {
                           variant="ghost"
                           size="sm"
                           onClick={() => handleDeleteAdminCollege(col)}
-                          className="h-8 w-8 p-0 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10 rounded-lg"
+                          disabled={deletingIds.includes(col.id)}
+                          className="h-8 w-8 p-0 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10 rounded-lg cursor-pointer disabled:opacity-50"
                           title="Delete College"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          {deletingIds.includes(col.id) ? (
+                            <Loader2 className="w-4 h-4 animate-spin text-rose-500" />
+                          ) : (
+                            <Trash2 className="w-4 h-4" />
+                          )}
                         </Button>
                       </div>
                     </div>

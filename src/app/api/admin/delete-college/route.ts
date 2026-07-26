@@ -31,63 +31,48 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Only global admins can delete colleges." }, { status: 403 });
     }
 
-    const batch = db.batch();
-
-    // 1. Find and delete all students in this college
-    const studentsSnap = await db.collection("students").where("collegeId", "==", id).get();
-    
-    // We need to delete their Auth accounts and their exam results
-    for (const doc of studentsSnap.docs) {
-      const studentId = doc.id;
-      // Delete exam results for this student
-      const resultsSnap = await db.collection("exam_results").where("studentId", "==", studentId).get();
-      for (const resDoc of resultsSnap.docs) {
-        batch.delete(resDoc.ref);
-      }
-      // Delete the student doc
-      batch.delete(doc.ref);
-      
-      // Delete their auth user
-      try {
-        await auth.deleteUser(studentId);
-      } catch (authErr: any) {
-        if (authErr.code !== "auth/user-not-found") {
-          console.error(`Failed to delete auth for student ${studentId}:`, authErr);
-        }
-      }
-      
-      // Delete their user doc if it exists
-      const userDocRef = db.collection("users").doc(studentId);
-      batch.delete(userDocRef);
-    }
-
-    // 2. Find and delete all departments in this college
-    const departmentsSnap = await db.collection("departments").where("collegeId", "==", id).get();
-    for (const doc of departmentsSnap.docs) {
-      batch.delete(doc.ref);
-    }
-    
-    // 3. Find and delete the college admin user if they exist
-    // The college might have an associated admin in the users collection
-    // Wait, college admin user ID is usually the same as the college ID, or they are associated somehow.
-    // Let's delete the user doc with the college ID just in case.
-    const collegeUserDocRef = db.collection("users").doc(id);
-    batch.delete(collegeUserDocRef);
-    
-    try {
-      await auth.deleteUser(id);
-    } catch (authErr: any) {
-      if (authErr.code !== "auth/user-not-found") {
-        console.error(`Failed to delete auth for college ${id}:`, authErr);
-      }
-    }
-
-    // 4. Delete the college document itself
+    // 1. Delete college document FIRST so Firestore snapshot updates immediately
     const collegeRef = db.collection("colleges").doc(id);
-    batch.delete(collegeRef);
+    const collegeUserDocRef = db.collection("users").doc(id);
+    
+    const initialBatch = db.batch();
+    initialBatch.delete(collegeRef);
+    initialBatch.delete(collegeUserDocRef);
+    await initialBatch.commit().catch(() => {});
 
-    // Commit the batch
-    await batch.commit();
+    // 2. Fetch associated students and departments in parallel
+    const [studentsSnap, departmentsSnap] = await Promise.all([
+      db.collection("students").where("collegeId", "==", id).get(),
+      db.collection("departments").where("collegeId", "==", id).get(),
+    ]);
+
+    const studentIds = studentsSnap.docs.map((d) => d.id);
+
+    // 3. Delete student Auth accounts concurrently in parallel
+    const authDeletions = studentIds.map((studentId) =>
+      auth.deleteUser(studentId).catch((err: any) => {
+        if (err?.code !== "auth/user-not-found") {
+          console.error(`Auth deletion error for student ${studentId}:`, err);
+        }
+      })
+    );
+    authDeletions.push(auth.deleteUser(id).catch(() => {}));
+
+    // 4. Batch delete student docs, user docs, and department docs
+    const deleteBatch = db.batch();
+    for (const doc of studentsSnap.docs) {
+      deleteBatch.delete(doc.ref);
+      deleteBatch.delete(db.collection("users").doc(doc.id));
+    }
+    for (const doc of departmentsSnap.docs) {
+      deleteBatch.delete(doc.ref);
+    }
+
+    // Execute Auth cleanup and Firestore batch cleanup in parallel
+    await Promise.all([
+      Promise.allSettled(authDeletions),
+      deleteBatch.commit().catch(() => {}),
+    ]);
 
     return NextResponse.json({ success: true });
   } catch (err: unknown) {
