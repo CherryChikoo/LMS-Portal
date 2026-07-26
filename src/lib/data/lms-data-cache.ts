@@ -57,6 +57,51 @@ export interface LMSDataCacheState {
   _exportedState: any;
 }
 
+const CACHE_STORAGE_KEY = "lms_data_cache_v3";
+
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+function persistCacheToStorage() {
+  if (typeof window === "undefined") return;
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    try {
+      const payload = {
+        colleges: cache.colleges?.data || [],
+        batches: cache.batches?.data || [],
+        students: cache.students?.data || [],
+        exams: cache.exams?.data || [],
+        resources: cache.resources?.data || [],
+        attempts: cache.attempts?.data || [],
+      };
+      const serialized = JSON.stringify(payload);
+      localStorage.setItem(CACHE_STORAGE_KEY, serialized);
+    } catch (_) {}
+  }, 300);
+}
+
+function hydrateCacheFromStorage() {
+  if (typeof window === "undefined") return;
+  try {
+    const raw = localStorage.getItem(CACHE_STORAGE_KEY) || sessionStorage.getItem(CACHE_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      const now = Date.now();
+      if (Array.isArray(parsed.colleges) && parsed.colleges.length > 0) cache.colleges = { data: parsed.colleges, updatedAt: now };
+      if (Array.isArray(parsed.batches) && parsed.batches.length > 0) cache.batches = { data: parsed.batches, updatedAt: now };
+      if (Array.isArray(parsed.students) && parsed.students.length > 0) cache.students = { data: parsed.students, updatedAt: now };
+      if (Array.isArray(parsed.exams) && parsed.exams.length > 0) cache.exams = { data: parsed.exams, updatedAt: now };
+      if (Array.isArray(parsed.resources) && parsed.resources.length > 0) cache.resources = { data: parsed.resources, updatedAt: now };
+      if (Array.isArray(parsed.attempts) && parsed.attempts.length > 0) cache.attempts = { data: parsed.attempts, updatedAt: now };
+
+      if (cache.colleges || cache.students || cache.batches || cache.exams || cache.resources || cache.attempts) {
+        cache.loading = false;
+        recomputeScopedData();
+      }
+    }
+  } catch (_) {}
+}
+
 const cache: LMSDataCacheState = {
   colleges: null,
   batches: null,
@@ -80,6 +125,10 @@ const cache: LMSDataCacheState = {
   loading: false,
   _exportedState: null,
 };
+
+if (typeof window !== "undefined") {
+  hydrateCacheFromStorage();
+}
 
 function recomputeScopedData() {
   const collegesData = cache.colleges?.data || [];
@@ -176,6 +225,7 @@ function recomputeScopedData() {
   if (cache.colleges || cache.students || cache.exams || cache.resources || cache.batches || cache.attempts) {
     cache.loading = false;
   }
+  persistCacheToStorage();
 }
 
 function notifyListeners() {
@@ -218,7 +268,9 @@ export function subscribeToLMSCache(callback: () => void): () => void {
 }
 
 function startSubscriptions() {
-  cache.loading = true;
+  if (!cache.colleges && !cache.students && !cache.exams && !cache.batches) {
+    cache.loading = true;
+  }
   cache.error = null;
 
   let uStr: string | null = null;
