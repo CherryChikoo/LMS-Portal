@@ -79,73 +79,31 @@ export function subscribeToLMSStore(listener: () => void): () => void {
   };
 }
 
+import {
+  optimisticDeleteCollegeFromCache,
+  optimisticDeleteStudentFromCache,
+  optimisticUpdateStudentInCache,
+} from "./lms-data-cache";
+
 export function optimisticDeleteStudent(studentId: string): LMSStoreState {
-  const prev = storeState;
-  const nextStudents = prev.students.filter((s) => s.id !== studentId);
-  const nextFiltered = prev.filteredStudents.filter((s) => s.id !== studentId);
-  const nextState: LMSStoreState = {
-    ...prev,
-    students: nextStudents,
-    filteredStudents: nextFiltered,
-  };
-  setLMSStoreState(nextState);
-  return prev;
+  optimisticDeleteStudentFromCache(studentId);
+  return storeState;
 }
 
 /**
  * Optimistically delete a college from local store state
  */
 export function optimisticDeleteCollege(collegeId: string): LMSStoreState {
-  markCollegeAsDeleted(collegeId);
-  const prev = storeState;
-  const colObj = prev.colleges.find(
-    (c) => c.id === collegeId || c.name.toLowerCase() === collegeId.toLowerCase()
-  );
-  const targetId = colObj?.id || collegeId;
-  const targetName = (colObj?.name || collegeId).toLowerCase();
-
-  markCollegeAsDeleted(targetId);
-  markCollegeAsDeleted(targetName);
-
-  const isMatch = (id?: string, name?: string) => {
-    if (id && (id === targetId || id.toLowerCase() === targetName)) return true;
-    if (name && name.toLowerCase() === targetName) return true;
-    return false;
-  };
-
-  const nextColleges = prev.colleges.filter((c) => !isMatch(c.id, c.name));
-  const nextFilteredColleges = prev.filteredColleges.filter((c) => !isMatch(c.id, c.name));
-  const nextStudents = prev.students.filter((s) => !isMatch(s.collegeId, s.collegeName));
-  const nextFilteredStudents = prev.filteredStudents.filter((s) => !isMatch(s.collegeId, s.collegeName));
-  const nextInstitutions = prev.institutions.filter((i) => !isMatch(i.id, i.name));
-  const nextExternal = prev.externalInstitutions.filter((i) => !isMatch(i.id, i.name));
-
-  const nextState: LMSStoreState = {
-    ...prev,
-    colleges: nextColleges,
-    filteredColleges: nextFilteredColleges,
-    students: nextStudents,
-    filteredStudents: nextFilteredStudents,
-    institutions: nextInstitutions,
-    externalInstitutions: nextExternal,
-  };
-  setLMSStoreState(nextState);
-  return prev;
+  optimisticDeleteCollegeFromCache(collegeId);
+  return storeState;
 }
 
 /**
  * Optimistically update a student in local store state
  */
 export function optimisticUpdateStudent(studentId: string, updates: Partial<Student>): LMSStoreState {
-  const prev = storeState;
-  const updateItem = (s: Student) => (s.id === studentId ? { ...s, ...updates } : s);
-  const nextState: LMSStoreState = {
-    ...prev,
-    students: prev.students.map(updateItem),
-    filteredStudents: prev.filteredStudents.map(updateItem),
-  };
-  setLMSStoreState(nextState);
-  return prev;
+  optimisticUpdateStudentInCache(studentId, updates);
+  return storeState;
 }
 
 /**

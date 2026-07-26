@@ -21,6 +21,7 @@ import {
   getExternalInstitutions,
   getInstitutionName as resolveInstitutionName,
   safeDisplayName,
+  markCollegeAsDeleted,
   type Hierarchy,
   type Institution,
 } from "@/lib/hierarchy/hierarchy-data";
@@ -228,20 +229,14 @@ function recomputeScopedData() {
   persistCacheToStorage();
 }
 
-let notifyScheduled = false;
 function notifyListeners() {
-  if (notifyScheduled) return;
-  notifyScheduled = true;
-  queueMicrotask(() => {
-    notifyScheduled = false;
-    computeExportedState();
-    callbacks.forEach((cb) => {
-      try {
-        cb();
-      } catch (err) {
-        console.error("LMS cache listener error:", err);
-      }
-    });
+  computeExportedState();
+  callbacks.forEach((cb) => {
+    try {
+      cb();
+    } catch (err) {
+      console.error("LMS cache listener error:", err);
+    }
   });
 }
 
@@ -416,6 +411,55 @@ export function getLMSCache() {
     computeExportedState();
   }
   return cache._exportedState;
+}
+
+export function optimisticDeleteCollegeFromCache(collegeId: string): void {
+  markCollegeAsDeleted(collegeId);
+  if (cache.colleges?.data) {
+    const colObj = cache.colleges.data.find(
+      (c) => c.id === collegeId || c.name.toLowerCase() === collegeId.toLowerCase()
+    );
+    const targetId = colObj?.id || collegeId;
+    const targetName = (colObj?.name || collegeId).toLowerCase();
+    markCollegeAsDeleted(targetId);
+    markCollegeAsDeleted(targetName);
+
+    const isMatch = (id?: string, name?: string) => {
+      if (id && (id === targetId || id.toLowerCase() === targetName)) return true;
+      if (name && name.toLowerCase() === targetName) return true;
+      return false;
+    };
+
+    cache.colleges.data = cache.colleges.data.filter((c) => !isMatch(c.id, c.name));
+  }
+  if (cache.students?.data) {
+    const targetId = collegeId;
+    const targetName = collegeId.toLowerCase();
+    const isMatch = (id?: string, name?: string) => {
+      if (id && (id === targetId || id.toLowerCase() === targetName)) return true;
+      if (name && name.toLowerCase() === targetName) return true;
+      return false;
+    };
+    cache.students.data = cache.students.data.filter((s) => !isMatch(s.collegeId, s.collegeName));
+  }
+  recomputeScopedData();
+  notifyListeners();
+}
+
+export function optimisticDeleteStudentFromCache(studentId: string): void {
+  if (cache.students?.data) {
+    cache.students.data = cache.students.data.filter((s) => s.id !== studentId);
+    recomputeScopedData();
+    notifyListeners();
+  }
+}
+
+export function optimisticUpdateStudentInCache(studentId: string, updates: Partial<Student>): void {
+  if (cache.students?.data) {
+    cache.students.data = cache.students.data.map((s) => (s.id === studentId ? { ...s, ...updates } : s));
+    recomputeScopedData();
+    notifyListeners();
+  }
 }
 
 export function invalidateLMSCache(): void {
