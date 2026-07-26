@@ -21,6 +21,7 @@ export default function DashboardLayout({
 
   const pathname = usePathname();
 
+  // Auth verification effect - runs when pathname changes
   useEffect(() => {
     const verifyAuth = () => {
       const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
@@ -42,20 +43,23 @@ export default function DashboardLayout({
     };
     verifyAuth();
     window.addEventListener("pageshow", verifyAuth);
+    return () => window.removeEventListener("pageshow", verifyAuth);
+  }, [pathname]);
 
-    // Live bidirectional synchronization with Firestore
+  // Firebase real-time sync effect - runs once on mount
+  useEffect(() => {
     const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-    if (!uStr) return () => window.removeEventListener("pageshow", verifyAuth);
+    if (!uStr) return;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- parsedUser shape comes from a JSON.parse() of the locally stored session blob
     let parsedUser: any = null;
     try {
       parsedUser = JSON.parse(uStr);
     } catch {
-      return () => window.removeEventListener("pageshow", verifyAuth);
+      return;
     }
 
-    if (!parsedUser || !parsedUser.id) return () => window.removeEventListener("pageshow", verifyAuth);
+    if (!parsedUser || !parsedUser.id) return;
 
     const unsubs: (() => void)[] = [];
 
@@ -158,10 +162,9 @@ export default function DashboardLayout({
     unsubs.push(unsubLMS);
 
     return () => {
-      window.removeEventListener("pageshow", verifyAuth);
       unsubs.forEach((u) => u());
     };
-  }, []);
+  }, []); // Run once on mount only
 
   return (
     <div className="min-h-[100dvh] flex relative bg-transparent overflow-x-hidden">
@@ -177,9 +180,13 @@ export default function DashboardLayout({
       {/* Main content area */}
       <div
         className={cn(
-          "flex-1 flex flex-col min-h-[100dvh] relative z-10 min-w-0 w-full transition-[margin-left] duration-300 ease-out will-change-[margin-left]",
+          "flex-1 flex flex-col min-h-[100dvh] relative z-10 min-w-0 w-full",
           isExpanded ? "lg:ml-[260px]" : "lg:ml-[80px]"
         )}
+        style={{
+          transition: 'margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+          willChange: 'margin-left'
+        }}
       >
         <Topbar />
         <main className="flex-1 p-4 sm:p-7 lg:p-9 lg:pb-16 pb-20 max-w-[100vw] lg:max-w-[1600px] w-full mx-auto min-w-0">

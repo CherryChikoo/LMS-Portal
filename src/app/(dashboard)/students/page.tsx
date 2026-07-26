@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useRef, Suspense } from "react";
+import { useEffect, useMemo, useState, useRef, Suspense, useDeferredValue } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
@@ -57,7 +57,8 @@ function StudentsContent() {
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm?: () => void; isAlert?: boolean; variant?: "destructive" | "warning" | "info" | "success" } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchRaw, setSearchRaw] = useState("");
-  const debouncedSearch = useDebounce(searchRaw, 300);
+  const deferredSearch = useDeferredValue(searchRaw);
+  const debouncedSearch = useDebounce(deferredSearch, 200);
   
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;

@@ -175,4 +175,17 @@ export const StudentRow = memo(function StudentRow({
       </td>
     </tr>
   );
+}, (prev, next) => {
+  return (
+    prev.student.id === next.student.id &&
+    prev.student.status === next.student.status &&
+    prev.student.name === next.student.name &&
+    prev.student.email === next.student.email &&
+    prev.student.collegeId === next.student.collegeId &&
+    prev.student.department === next.student.department &&
+    prev.student.academicYear === next.student.academicYear &&
+    prev.student.section === next.student.section &&
+    prev.isSelected === next.isSelected &&
+    prev.pathname === next.pathname
+  );
 });

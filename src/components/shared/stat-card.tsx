@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, memo } from "react";
 import { motion, useSpring, useMotionValue } from "motion/react";
 import { type LucideIcon, TrendingUp, TrendingDown } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -21,7 +21,7 @@ interface StatCardProps {
   className?: string;
 }
 
-function AnimatedNumber({
+const AnimatedNumber = memo(function AnimatedNumber({
   value,
   format = "number",
   prefix = "",
@@ -69,9 +69,9 @@ function AnimatedNumber({
       {suffix}
     </span>
   );
-}
+});
 
-export function StatCard({
+export const StatCard = memo(function StatCard({
   title,
   value,
   icon: Icon,
@@ -128,4 +128,12 @@ export function StatCard({
       </div>
     </GlassCard>
   );
-}
+}, (prevProps, nextProps) => {
+  // Custom comparison function for better performance
+  return (
+    prevProps.value === nextProps.value &&
+    prevProps.title === nextProps.title &&
+    prevProps.iconClassName === nextProps.iconClassName &&
+    prevProps.trend?.value === nextProps.trend?.value
+  );
+});

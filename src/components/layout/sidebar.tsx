@@ -108,10 +108,14 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "hidden lg:flex flex-col fixed left-0 top-0 bottom-0 z-30 bg-sidebar text-sidebar-foreground border-r border-border transition-[width] duration-300 ease-out will-change-[width]",
+        "hidden lg:flex flex-col fixed left-0 top-0 bottom-0 z-30 bg-sidebar text-sidebar-foreground border-r border-border overflow-hidden",
         isExpanded ? "w-[260px]" : "w-[80px]"
       )}
-      style={{ fontFamily: '"Montserrat", sans-serif' }}
+      style={{ 
+        fontFamily: '"Montserrat", sans-serif',
+        transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+        willChange: 'width'
+      }}
     >
       {/* Brand Header */}
       <div className="flex items-center h-20 px-4 shrink-0 relative group/brand overflow-hidden">
@@ -131,9 +135,13 @@ export function Sidebar() {
           </div>
           <div
             className={cn(
-              "flex flex-col min-w-0 pl-2 transition-all duration-300 ease-out transform-gpu",
-              isExpanded ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-3 pointer-events-none absolute"
+              "flex flex-col min-w-0 pl-2 transition-opacity duration-300 ease-out",
+              isExpanded ? "opacity-100" : "opacity-0 pointer-events-none absolute"
             )}
+            style={{
+              transform: isExpanded ? 'translateX(0)' : 'translateX(-12px)',
+              transition: 'opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+            }}
           >
             <span className="font-bold text-base text-brand tracking-tight truncate">
               {branding.companyName || APP_NAME}
@@ -180,21 +188,26 @@ export function Sidebar() {
                     <Link
                       href={item.href}
                       className={cn(
-                        "group flex items-center h-11 rounded-xl text-sm font-medium transition-colors transform-gpu overflow-hidden",
+                        "group flex items-center h-11 rounded-xl text-sm font-medium transition-colors overflow-hidden",
                         isActive
                           ? "bg-brand text-black shadow-sm font-bold"
                           : "text-muted-foreground hover:text-foreground hover:bg-secondary/80",
                         isExpanded ? "px-3 gap-3" : "justify-center px-0 w-11 mx-auto"
                       )}
+                      style={{ willChange: 'background-color, color' }}
                     >
                       <div className="w-5 h-5 flex items-center justify-center shrink-0">
                         <Icon className={cn("w-5 h-5 shrink-0", isActive ? "text-black" : "text-muted-foreground group-hover:text-foreground")} />
                       </div>
                       <span
                         className={cn(
-                          "truncate text-sm transition-all duration-300 ease-out transform-gpu min-w-0 flex-1",
-                          isExpanded ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-3 pointer-events-none absolute"
+                          "truncate text-sm min-w-0 flex-1",
+                          isExpanded ? "opacity-100" : "opacity-0 pointer-events-none absolute"
                         )}
+                        style={{
+                          transform: isExpanded ? 'translateX(0)' : 'translateX(-12px)',
+                          transition: 'opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+                        }}
                       >
                         {item.title}
                       </span>
@@ -224,7 +237,7 @@ export function Sidebar() {
               <Link
                 href={userRole === "student" ? "/student/settings" : "/admin/settings"}
                 className={cn(
-                  "group flex items-center h-11 rounded-xl text-sm font-medium transition-colors text-muted-foreground hover:text-foreground hover:bg-secondary/80 transform-gpu overflow-hidden",
+                  "group flex items-center h-11 rounded-xl text-sm font-medium transition-colors text-muted-foreground hover:text-foreground hover:bg-secondary/80 overflow-hidden",
                   isExpanded ? "px-3 gap-3" : "justify-center px-0 w-11 mx-auto"
                 )}
               >
@@ -233,9 +246,13 @@ export function Sidebar() {
                 </div>
                 <span
                   className={cn(
-                    "truncate text-sm transition-all duration-300 ease-out transform-gpu min-w-0 flex-1",
-                    isExpanded ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-3 pointer-events-none absolute"
+                    "truncate text-sm min-w-0 flex-1",
+                    isExpanded ? "opacity-100" : "opacity-0 pointer-events-none absolute"
                   )}
+                  style={{
+                    transform: isExpanded ? 'translateX(0)' : 'translateX(-12px)',
+                    transition: 'opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+                  }}
                 >
                   Settings
                 </span>
@@ -253,7 +270,7 @@ export function Sidebar() {
               <button
                 onClick={handleLogout}
                 className={cn(
-                  "w-full group flex items-center h-11 rounded-xl text-sm font-medium transition-colors text-rose-500 hover:bg-rose-500/10 transform-gpu overflow-hidden",
+                  "w-full group flex items-center h-11 rounded-xl text-sm font-medium transition-colors text-rose-500 hover:bg-rose-500/10 overflow-hidden",
                   isExpanded ? "px-3 gap-3" : "justify-center px-0 w-11 mx-auto"
                 )}
               >
@@ -262,9 +279,13 @@ export function Sidebar() {
                 </div>
                 <span
                   className={cn(
-                    "truncate text-sm font-semibold transition-all duration-300 ease-out transform-gpu min-w-0 flex-1 text-left",
-                    isExpanded ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-3 pointer-events-none absolute"
+                    "truncate text-sm font-semibold min-w-0 flex-1 text-left",
+                    isExpanded ? "opacity-100" : "opacity-0 pointer-events-none absolute"
                   )}
+                  style={{
+                    transform: isExpanded ? 'translateX(0)' : 'translateX(-12px)',
+                    transition: 'opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+                  }}
                 >
                   Logout
                 </span>

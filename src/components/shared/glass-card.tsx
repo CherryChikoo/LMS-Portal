@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, type HTMLAttributes } from "react";
+import { forwardRef, memo, type HTMLAttributes } from "react";
 import { motion, type HTMLMotionProps } from "motion/react";
 import { cn } from "@/lib/utils";
 
@@ -10,7 +10,7 @@ interface GlassCardProps extends HTMLAttributes<HTMLDivElement> {
   gradient?: boolean;
 }
 
-const GlassCard = forwardRef<HTMLDivElement, GlassCardProps>(
+const GlassCard = memo(forwardRef<HTMLDivElement, GlassCardProps>(
   (
     {
       className,
@@ -43,13 +43,14 @@ const GlassCard = forwardRef<HTMLDivElement, GlassCardProps>(
             "border-transparent bg-clip-padding relative before:absolute before:inset-0 before:rounded-xl before:p-[1px] before:bg-gradient-to-br before:from-brand/20 before:to-transparent before:-z-10",
           className
         )}
+        style={{ willChange: hover ? 'transform, box-shadow' : undefined }}
         {...props}
       >
         {children}
       </div>
     );
   }
-);
+));
 GlassCard.displayName = "GlassCard";
 
 interface AnimatedGlassCardProps extends HTMLMotionProps<"div"> {
@@ -58,7 +59,7 @@ interface AnimatedGlassCardProps extends HTMLMotionProps<"div"> {
   gradient?: boolean;
 }
 
-function AnimatedGlassCard({
+const AnimatedGlassCard = memo(function AnimatedGlassCard({
   className,
   children,
   hover = true,
@@ -85,6 +86,6 @@ function AnimatedGlassCard({
       {children}
     </motion.div>
   );
-}
+});
 
 export { GlassCard, AnimatedGlassCard };

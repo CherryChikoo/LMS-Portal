@@ -53,6 +53,17 @@ const listeners = new Set<() => void>();
 
 export function setLMSStoreState(nextState: Partial<LMSStoreState> | ((prev: LMSStoreState) => LMSStoreState)) {
   const updated = typeof nextState === "function" ? nextState(storeState) : { ...storeState, ...nextState };
+  
+  let changed = false;
+  const keys = Object.keys(updated) as (keyof LMSStoreState)[];
+  for (const k of keys) {
+    if (!Object.is(storeState[k], updated[k])) {
+      changed = true;
+      break;
+    }
+  }
+  if (!changed) return;
+
   storeState = updated;
   listeners.forEach((listener) => listener());
 }
