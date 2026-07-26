@@ -27,7 +27,7 @@ import { StudentRow } from "@/components/students/student-row";
 import { StudentCard } from "@/components/students/student-card";
 import { useEntityResolution } from "@/lib/data/use-entity-resolution";
 import { toast } from "sonner";
-import type { Student, CSVImportSummary, College, Batch } from "@/types";
+import type { Student, CSVImportSummary, CSVStudentRow, College, Batch } from "@/types";
 
 type TimestampLike = Date | { toMillis(): number } | { seconds: number } | string | number | null | undefined;
 
@@ -196,9 +196,16 @@ function StudentsContent() {
     }
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleFileUpload = async (filesOrEvent: React.ChangeEvent<HTMLInputElement> | File[]) => {
+    let files: File[] = [];
+    if (Array.isArray(filesOrEvent)) {
+      files = filesOrEvent;
+    } else if (filesOrEvent.target.files) {
+      files = Array.from(filesOrEvent.target.files);
+      filesOrEvent.target.value = "";
+    }
+
+    if (files.length === 0) return;
 
     cancelImportRef.current = false;
     setCancelling(false);
@@ -206,12 +213,24 @@ function StudentsContent() {
     setImportSummary(null);
     setImportProgress(null);
 
-    const text = await file.text();
-    const rows = parseStudentsCSV(text);
+    const allRows: CSVStudentRow[] = [];
+    for (const file of files) {
+      if (file.name.toLowerCase().endsWith(".csv")) {
+        const text = await file.text();
+        const rows = parseStudentsCSV(text);
+        allRows.push(...rows);
+      }
+    }
+
+    if (allRows.length === 0) {
+      toast.error("No valid student rows with email addresses found in the selected file(s)/folder.");
+      setImporting(false);
+      return;
+    }
 
     try {
       const summary = await importStudentsCSV(
-        rows,
+        allRows,
         (processed, total) => {
           setImportProgress({ processed, total });
         },
@@ -820,16 +839,54 @@ function StudentsContent() {
                       </div>
                     </div>
                   ) : (
-                    <div className="border-2 border-dashed border-border rounded-2xl p-8 text-center space-y-4 hover:border-brand transition-colors bg-background/50">
-                      <FileSpreadsheet className="w-10 h-10 text-muted-foreground mx-auto" />
+                    <div
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={async (e) => {
+                        e.preventDefault();
+                        const droppedFiles: File[] = [];
+                        const items = e.dataTransfer.items;
+                        if (items) {
+                          const readEntry = async (entry: any) => {
+                            if (entry.isFile) {
+                              return new Promise<void>((resolve) => {
+                                entry.file((f: File) => {
+                                  if (f.name.toLowerCase().endsWith(".csv")) droppedFiles.push(f);
+                                  resolve();
+                                });
+                              });
+                            } else if (entry.isDirectory) {
+                              const dirReader = entry.createReader();
+                              const entries: any[] = await new Promise((res) => dirReader.readEntries((r: any) => res(r)));
+                              for (const sub of entries) {
+                                await readEntry(sub);
+                              }
+                            }
+                          };
+                          for (let i = 0; i < items.length; i++) {
+                            const entry = items[i].webkitGetAsEntry?.();
+                            if (entry) await readEntry(entry);
+                          }
+                        }
+                        if (droppedFiles.length > 0) {
+                          handleFileUpload(droppedFiles);
+                        } else if (e.dataTransfer.files.length > 0) {
+                          handleFileUpload(Array.from(e.dataTransfer.files));
+                        }
+                      }}
+                      className="border-2 border-dashed border-border hover:border-brand/70 rounded-2xl p-8 text-center space-y-4 transition-colors bg-background/50"
+                    >
+                      <FileSpreadsheet className="w-10 h-10 text-brand mx-auto" />
                       <div className="space-y-1">
-                        <p className="text-sm font-semibold text-foreground">Select or Drop CSV File</p>
-                        <p className="text-xs text-muted-foreground">Supported file type: .csv (UTF-8 format)</p>
+                        <p className="text-sm font-semibold text-foreground">Select or Drag & Drop CSV File(s) / Folder</p>
+                        <p className="text-xs text-muted-foreground">Upload single .csv files, multiple CSVs, or entire folders</p>
                       </div>
-                      <label className="inline-block px-4 py-2 rounded-xl bg-brand text-brand-foreground text-xs font-semibold cursor-pointer hover:bg-brand/90 transition-all">
-                        Browse CSV File
-                        <input type="file" accept=".csv" onChange={handleFileUpload} disabled={importing} className="hidden" />
-                      </label>
+                      <div className="flex items-center justify-center gap-3 pt-2">
+                        <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-brand text-brand-foreground text-xs font-bold cursor-pointer hover:bg-brand/90 transition-all shadow-sm">
+                          <FileSpreadsheet className="w-4 h-4 shrink-0" />
+                          <span>Select CSV File(s)</span>
+                          <input type="file" accept=".csv" multiple onChange={handleFileUpload} disabled={importing} className="hidden" />
+                        </label>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -857,28 +914,28 @@ function StudentsContent() {
                     </div>
                   </div>
 
-                  <div className="max-h-56 overflow-y-auto rounded-xl border border-border text-xs">
-                    <table className="w-full text-left">
-                      <thead className="bg-muted text-muted-foreground font-semibold sticky top-0 z-10">
+                  <div className="max-h-56 overflow-y-auto rounded-xl border border-border text-xs bg-background">
+                    <table className="w-full text-left border-collapse">
+                      <thead className="bg-card dark:bg-slate-900 text-foreground font-bold border-b border-border sticky top-0 z-20 shadow-sm">
                         <tr>
-                          <th className="p-2.5">Name</th>
-                          <th className="p-2.5">Email</th>
-                          <th className="p-2.5">Status</th>
-                          <th className="p-2.5">Details</th>
+                          <th className="px-4 py-3 bg-card dark:bg-slate-900">Name</th>
+                          <th className="px-4 py-3 bg-card dark:bg-slate-900">Email</th>
+                          <th className="px-4 py-3 bg-card dark:bg-slate-900">Status</th>
+                          <th className="px-4 py-3 bg-card dark:bg-slate-900">Details</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border">
                         {importSummary.results.map((res, i) => (
                           <tr key={i} className="hover:bg-muted/40">
-                            <td className="p-2.5 font-medium text-foreground">{res.name}</td>
-                            <td className="p-2.5 font-mono">{res.email}</td>
-                            <td className="p-2.5">
+                            <td className="px-4 py-3 font-medium text-foreground">{res.name}</td>
+                            <td className="px-4 py-3 font-mono text-muted-foreground">{res.email}</td>
+                            <td className="px-4 py-3">
                               {res.status === "created" && <span className="text-emerald-500 font-bold">Created</span>}
                               {res.status === "duplicate" && <span className="text-amber-500 font-bold">Duplicate</span>}
-                              {res.status === "skipped" && <span className="text-slate-400">Skipped</span>}
+                              {res.status === "skipped" && <span className="text-slate-400 font-semibold">Skipped</span>}
                               {res.status === "failed" && <span className="text-destructive font-bold">Failed</span>}
                             </td>
-                            <td className="p-2.5 text-muted-foreground">{res.reason || `Pass: ${res.password}`}</td>
+                            <td className="px-4 py-3 text-muted-foreground">{res.reason || `Pass: ${res.password}`}</td>
                           </tr>
                         ))}
                       </tbody>

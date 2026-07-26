@@ -114,6 +114,13 @@ export function parseStudentsCSV(csvText: string): CSVStudentRow[] {
       rowName = cols.find((c, idx) => idx !== emailIdx && c.trim() !== "" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(c.trim())) || "Unknown Student";
     }
 
+    const isDocId = /^(stu|att|exam|col|res|batch|user|usr)-[a-zA-Z0-9]+$/i.test(rowName.trim()) || /^(stu|att|exam|col|res|batch|user|usr)-[a-zA-Z0-9]+$/i.test(rowEmail.trim());
+    
+    // Only import valid student rows with email addresses
+    if (!rowEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rowEmail) || isDocId) {
+      continue;
+    }
+
     rows.push({
       studentName: rowName.trim(),
       collegeEmail: rowEmail.trim(),
