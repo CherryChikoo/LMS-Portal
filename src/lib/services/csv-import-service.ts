@@ -121,11 +121,16 @@ export function parseStudentsCSV(csvText: string): CSVStudentRow[] {
       continue;
     }
 
+    const rawCollegeVal = collegeIdx >= 0 && cols[collegeIdx] ? cols[collegeIdx].trim() : "";
+    const normColLower = rawCollegeVal.toLowerCase();
+    const isReservedCol = !rawCollegeVal || 
+      ["all", "all colleges", "all institutions", "select college", "global", "default college", "unassigned", "none", "n/a", "null"].includes(normColLower);
+
     rows.push({
       studentName: rowName.trim(),
       collegeEmail: rowEmail.trim(),
-      college: collegeIdx >= 0 && cols[collegeIdx] ? cols[collegeIdx].trim() : cols[2] ? cols[2].trim() : "Default College",
-      department: deptIdx >= 0 && cols[deptIdx] ? cols[deptIdx].trim() : cols[3] ? cols[3].trim() : "General",
+      college: isReservedCol ? "UNASSIGNED" : rawCollegeVal,
+      department: deptIdx >= 0 && cols[deptIdx] ? cols[deptIdx].trim() : "General",
       academicYear: yearIdx >= 0 && cols[yearIdx] ? cols[yearIdx].trim() : "Year 1",
       section: secIdx >= 0 && cols[secIdx] ? cols[secIdx].trim() : "A",
       batch: batchIdx >= 0 && cols[batchIdx] ? cols[batchIdx].trim() : "2026",

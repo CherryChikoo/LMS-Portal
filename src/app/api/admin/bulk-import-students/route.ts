@@ -84,10 +84,31 @@ export async function POST(request: NextRequest) {
     // Extract unique colleges from the import rows
     const newCollegesToCreate = new Map<string, { id: string; name: string; departments: Set<string> }>();
 
+    const RESERVED_COLLEGE_NAMES = new Set([
+      "all",
+      "all colleges",
+      "all institutions",
+      "select college",
+      "select institution",
+      "global",
+      "default college",
+      "unassigned",
+      "none",
+      "n/a",
+      "na",
+      "null",
+      "undefined",
+      "unknown",
+    ]);
+
     for (const r of rows as ImportRowInput[]) {
-      const rawCol = (r.college || "Default College").trim();
+      const rawCol = (r.college || "UNASSIGNED").trim();
       const normCol = rawCol.toLowerCase();
       const dept = (r.department || "General").trim();
+
+      if (RESERVED_COLLEGE_NAMES.has(normCol)) {
+        continue;
+      }
 
       let matchedCol = collegeMap.get(normCol);
       if (!matchedCol) {
