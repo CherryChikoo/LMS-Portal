@@ -168,7 +168,7 @@ export async function importStudentsCSV(
   if (currentUser) {
     try {
       const adminIdToken = await currentUser.getIdToken();
-      const CHUNK_SIZE = 15;
+      const CHUNK_SIZE = 100;
       const combinedSummary: CSVImportSummary = {
         total: rows.length,
         createdCount: 0,

@@ -177,16 +177,36 @@ export async function POST(request: NextRequest) {
       results: [] as any[],
     };
 
-    // Pre-fetch all student emails to detect duplicates rapidly
-    const existingStudsSnap = await db.collection("students").get();
-    const existingEmailSet = new Set<string>();
-    existingStudsSnap.docs.forEach((d) => {
-      const email = d.data()?.email;
-      if (email) existingEmailSet.add(email.toLowerCase().trim());
-    });
-
-    const CONCURRENCY_LIMIT = 10;
     const items = rows as ImportRowInput[];
+
+    // Extract emails from current request batch for targeted duplicate checking
+    const chunkEmails = items
+      .map((r) => (r.collegeEmail || "").toLowerCase().trim())
+      .filter(Boolean);
+
+    // Targeted email duplicate lookup (query only emails in this chunk)
+    const existingEmailSet = new Set<string>();
+    if (chunkEmails.length > 0) {
+      // Divide emails into sub-batches of 30 for Firestore 'in' query limit
+      const EMAIL_BATCH_SIZE = 30;
+      const emailLookups: Promise<any>[] = [];
+      for (let i = 0; i < chunkEmails.length; i += EMAIL_BATCH_SIZE) {
+        const subList = chunkEmails.slice(i, i + EMAIL_BATCH_SIZE);
+        emailLookups.push(db.collection("students").where("email", "in", subList).get());
+      }
+      const snaps = await Promise.all(emailLookups);
+      snaps.forEach((snap) => {
+        snap.docs.forEach((d: any) => {
+          const email = d.data()?.email;
+          if (email) existingEmailSet.add(email.toLowerCase().trim());
+        });
+      });
+    }
+
+    const CONCURRENCY_LIMIT = 25;
+    const now = FieldValue.serverTimestamp();
+    const batchWrite = db.batch();
+    let hasWrites = false;
 
     for (let i = 0; i < items.length; i += CONCURRENCY_LIMIT) {
       const chunk = items.slice(i, i + CONCURRENCY_LIMIT);
@@ -219,7 +239,6 @@ export async function POST(request: NextRequest) {
 
           let uid: string;
           try {
-            // High speed Auth account creation via Firebase Admin SDK
             const createdAuth = await auth.createUser({
               email,
               password: tempPassword,
@@ -229,7 +248,6 @@ export async function POST(request: NextRequest) {
           } catch (authErr: any) {
             if (authErr?.code === "auth/email-already-exists") {
               try {
-                // If Auth user exists but no active Firestore student doc exists (orphan/deleted student), re-use Auth UID
                 const existingAuth = await auth.getUserByEmail(email);
                 const studentDocSnap = await db.collection("students").doc(existingAuth.uid).get();
                 if (!studentDocSnap.exists) {
@@ -251,9 +269,6 @@ export async function POST(request: NextRequest) {
               return;
             }
           }
-
-          // Write student & user documents to Firestore
-          const now = FieldValue.serverTimestamp();
 
           const userDoc = {
             id: uid,
@@ -291,42 +306,19 @@ export async function POST(request: NextRequest) {
             updatedAt: now,
           };
 
-          try {
-            const batchWrite = db.batch();
-            batchWrite.set(db.collection("users").doc(uid), userDoc, { merge: true });
-            batchWrite.set(db.collection("students").doc(uid), studentDoc, { merge: true });
-            await batchWrite.commit();
-
-            existingEmailSet.add(email);
-            summary.createdCount++;
-            summary.results.push({ name, email, password: tempPassword, status: "created" });
-          } catch (dbErr: any) {
-            summary.failedCount++;
-            summary.results.push({ name, email, password: "", status: "failed", reason: dbErr?.message || "Firestore write error" });
-          }
+          batchWrite.set(db.collection("users").doc(uid), userDoc, { merge: true });
+          batchWrite.set(db.collection("students").doc(uid), studentDoc, { merge: true });
+          existingEmailSet.add(email);
+          hasWrites = true;
+          summary.createdCount++;
+          summary.results.push({ name, email, password: tempPassword, status: "created" });
         })
       );
     }
 
-    // 3. Update studentCount on all colleges
-    const finalCollegesSnap = await db.collection("colleges").get();
-    const finalStudsSnap = await db.collection("students").get();
-
-    const collegeCounts = new Map<string, number>();
-    finalStudsSnap.docs.forEach((d) => {
-      const data = d.data();
-      if (!data.isDeleted && data.status !== "deleted" && data.collegeId) {
-        const cid = data.collegeId;
-        collegeCounts.set(cid, (collegeCounts.get(cid) || 0) + 1);
-      }
-    });
-
-    const countBatch = db.batch();
-    finalCollegesSnap.docs.forEach((cdoc) => {
-      const count = collegeCounts.get(cdoc.id) || 0;
-      countBatch.update(cdoc.ref, { studentCount: count, updatedAt: FieldValue.serverTimestamp() });
-    });
-    await countBatch.commit();
+    if (hasWrites) {
+      await batchWrite.commit();
+    }
 
     return NextResponse.json({ success: true, summary });
   } catch (err: any) {
