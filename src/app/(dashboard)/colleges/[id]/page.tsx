@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, use } from "react";
 import Link from "next/link";
+import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { ArrowLeft, Building2, FolderTree, Users, Plus, Trash2, Search, CheckCircle2, Pencil, Ban } from "lucide-react";
@@ -157,7 +158,6 @@ function getYearBadgeStyle(year?: string) {
   }, [collegeId]);
 
   const refreshData = async () => {
-    setLoading(true);
     try {
       const decodedId = decodeURIComponent(collegeId);
       const [colDataRaw, allStuds, allBatches] = await Promise.all([
@@ -204,8 +204,6 @@ function getYearBadgeStyle(year?: string) {
       }
     } catch (err) {
       console.error("Failed to refresh college details", err);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -547,15 +545,15 @@ function getYearBadgeStyle(year?: string) {
       title: "Delete Enrolled Students",
       message: `Are you sure you want to delete ${selectedStudentIds.length} selected student(s) from ${college.name}?`,
       onConfirm: async () => {
-        setLoading(true);
         try {
-          await Promise.all(selectedStudentIds.map((id) => deleteStudentProfile(id)));
+          const currentSelected = [...selectedStudentIds];
+          setStudents((prev) => prev.filter((s) => !currentSelected.includes(s.id)));
           setSelectedStudentIds([]);
-          await refreshData();
+          await Promise.all(currentSelected.map((id) => deleteStudentProfile(id)));
+          toast.success(`Deleted ${currentSelected.length} student profile(s).`);
         } catch (err) {
           console.error("Failed to delete selected students:", err);
-        } finally {
-          setLoading(false);
+          toast.error("Failed to delete selected students.");
         }
       }
     });
@@ -571,16 +569,15 @@ function getYearBadgeStyle(year?: string) {
         title: "Restrict Student Account",
         message: `Are you sure you want to restrict "${stud.name}"'s account? The student will not be able to log in until the account is reactivated.`,
         onConfirm: async () => {
-          setLoading(true);
           try {
-            await updateStudentProfile(stud.id, { status: newStatus });
             setStudents((prev) =>
               prev.map((s) => (s.id === stud.id ? { ...s, status: newStatus } : s))
             );
+            await updateStudentProfile(stud.id, { status: newStatus });
+            toast.success(`Restricted "${stud.name}".`);
           } catch (err) {
             console.error("Failed to restrict account:", err);
-          } finally {
-            setLoading(false);
+            toast.error("Failed to restrict account.");
           }
         }
       });
@@ -590,16 +587,15 @@ function getYearBadgeStyle(year?: string) {
         title: "Reactivate Student Account",
         message: `Are you sure you want to reactivate "${stud.name}"'s account? They will immediately regain access to the LMS.`,
         onConfirm: async () => {
-          setLoading(true);
           try {
-            await updateStudentProfile(stud.id, { status: newStatus });
             setStudents((prev) =>
               prev.map((s) => (s.id === stud.id ? { ...s, status: newStatus } : s))
             );
+            await updateStudentProfile(stud.id, { status: newStatus });
+            toast.success(`Reactivated "${stud.name}".`);
           } catch (err) {
             console.error("Failed to reactivate account:", err);
-          } finally {
-            setLoading(false);
+            toast.error("Failed to reactivate account.");
           }
         }
       });
@@ -612,15 +608,14 @@ function getYearBadgeStyle(year?: string) {
       title: "Delete Student Profile",
       message: `Are you sure you want to delete student ${stud.name}?`,
       onConfirm: async () => {
-        setLoading(true);
         try {
-          await deleteStudentProfile(stud.id);
+          setStudents((prev) => prev.filter((s) => s.id !== stud.id));
           setSelectedStudentIds((prev) => prev.filter((id) => id !== stud.id));
-          await refreshData();
+          await deleteStudentProfile(stud.id);
+          toast.success(`Deleted ${stud.name}.`);
         } catch (err) {
           console.error("Failed to delete student:", err);
-        } finally {
-          setLoading(false);
+          toast.error("Failed to delete student.");
         }
       }
     });

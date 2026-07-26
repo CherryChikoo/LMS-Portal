@@ -426,16 +426,15 @@ function StudentsContent() {
       message: `This will permanently delete ${selectedIds.length} selected student account(s) from Firebase Auth and the database. The student will lose all access and must create a new account. Exam results will remain and be marked as "Student Deleted Data". This action cannot be undone.`,
       variant: "destructive",
       onConfirm: async () => {
-        setLoading(true);
         try {
-          await Promise.all(selectedIds.map((id) => deleteStudentProfile(id)));
+          selectedIds.forEach((id) => optimisticDeleteStudent(id));
+          const currentSelected = [...selectedIds];
           setSelectedIds([]);
-          await fetchStudents();
+          await Promise.all(currentSelected.map((id) => deleteStudentProfile(id)));
+          toast.success(`Deleted ${currentSelected.length} student account(s).`);
         } catch (err) {
           console.error("Failed to delete selected students:", err);
           toast.error(formatAuthError(err, "Failed to delete selected students."));
-        } finally {
-          setLoading(false);
         }
       }
     });
@@ -453,14 +452,12 @@ function StudentsContent() {
         message: `Are you sure you want to restrict "${student.name}"'s account? The student will not be able to log in until the account is reactivated.`,
         variant: "warning",
         onConfirm: async () => {
-          setLoading(true);
           try {
             await updateStudentProfile(student.id, { status: newStatus });
+            toast.success(`Account for "${student.name}" restricted.`);
           } catch (err) {
             console.error("Failed to restrict account:", err);
             toast.error(formatAuthError(err, "Failed to restrict account."));
-          } finally {
-            setLoading(false);
           }
         }
       });
@@ -472,14 +469,12 @@ function StudentsContent() {
         message: `Are you sure you want to reactivate "${student.name}"'s account? They will immediately regain access to the LMS.`,
         variant: "info",
         onConfirm: async () => {
-          setLoading(true);
           try {
             await updateStudentProfile(student.id, { status: newStatus });
+            toast.success(`Account for "${student.name}" reactivated.`);
           } catch (err) {
             console.error("Failed to reactivate account:", err);
             toast.error(formatAuthError(err, "Failed to reactivate account."));
-          } finally {
-            setLoading(false);
           }
         }
       });
@@ -621,7 +616,7 @@ function StudentsContent() {
         </motion.div>
       )}
 
-      {loading ? (
+      {lmsLoading && students.length === 0 ? (
         <div className="p-12 text-center text-sm text-muted-foreground flex flex-col items-center justify-center gap-3">
           <div className="w-8 h-8 rounded-full border-2 border-brand border-t-transparent animate-spin" />
           <span>Loading student records...</span>

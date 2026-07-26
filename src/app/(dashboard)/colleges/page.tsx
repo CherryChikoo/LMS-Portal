@@ -58,7 +58,6 @@ export default function CollegesPage() {
       title: "Delete Partner Institution",
       message: `Are you sure you want to permanently delete "${col.name}"? This action will also delete all students, departments, and associated data. This cannot be undone.`,
       onConfirm: async () => {
-        setLoading(true);
         try {
           const auth = getAuth();
           const token = await auth.currentUser?.getIdToken();
@@ -81,12 +80,10 @@ export default function CollegesPage() {
           }
 
           setSelectedAdminIds((prev) => prev.filter((id) => id !== col.id));
-          await fetchColleges();
+          toast.success(`College "${col.name}" deleted successfully.`);
         } catch (err: any) {
           console.error("Failed to delete college:", err);
-          alert(err.message || "Failed to delete college");
-        } finally {
-          setLoading(false);
+          toast.error(err.message || "Failed to delete college");
         }
       }
     });
@@ -100,15 +97,13 @@ export default function CollegesPage() {
         ? `Are you sure you want to restore access to "${col.name}"? Their College Admin will be able to log in again.`
         : `Are you sure you want to restrict "${col.name}"? Their College Admin will immediately lose access to the portal.`,
       onConfirm: async () => {
-        setLoading(true);
         try {
           const newStatus = col.status === "restricted" ? "active" : "restricted";
           await updateCollege(col.id, { status: newStatus });
-          await fetchColleges();
+          toast.success(`Updated status for "${col.name}".`);
         } catch (err) {
           console.error("Failed to toggle college status:", err);
-        } finally {
-          setLoading(false);
+          toast.error("Failed to toggle college status.");
         }
       }
     });
@@ -121,7 +116,6 @@ export default function CollegesPage() {
       title: "Delete Selected Colleges",
       message: `Are you sure you want to delete ${selectedAdminIds.length} selected admin college(s)?`,
       onConfirm: async () => {
-        setLoading(true);
         try {
           const auth = getAuth();
           const token = await auth.currentUser?.getIdToken();
@@ -139,12 +133,10 @@ export default function CollegesPage() {
             }
           }));
           setSelectedAdminIds([]);
-          await fetchColleges();
+          toast.success("Selected colleges deleted successfully.");
         } catch (err: any) {
           console.error("Failed to delete selected colleges:", err);
-          alert(err.message || "Failed to delete selected colleges");
-        } finally {
-          setLoading(false);
+          toast.error(err.message || "Failed to delete selected colleges");
         }
       }
     });
@@ -157,16 +149,13 @@ export default function CollegesPage() {
       title: "Delete Outside Institution",
       message: `Are you sure you want to delete outside institution "${extName}" along with its ${studentsToDelete.length} enrolled student profile(s)?`,
       onConfirm: async () => {
-        setLoading(true);
         try {
           await Promise.all(studentsToDelete.map((s) => deleteStudentProfile(s.id)));
           setSelectedExternalIds((prev) => prev.filter((id) => id !== extName));
-          await fetchColleges();
-          setSuccessPopup(`Outside institution "${extName}" was deleted successfully.`);
+          toast.success(`Outside institution "${extName}" deleted.`);
         } catch (err) {
           console.error("Failed to delete outside institution:", err);
-        } finally {
-          setLoading(false);
+          toast.error("Failed to delete outside institution.");
         }
       }
     });
@@ -180,16 +169,13 @@ export default function CollegesPage() {
       title: "Delete Selected Outside Institutions",
       message: `Are you sure you want to delete ${selectedExternalIds.length} selected outside institution(s) along with ${studentsToDelete.length} enrolled student profile(s)?`,
       onConfirm: async () => {
-        setLoading(true);
         try {
           await Promise.all(studentsToDelete.map((s) => deleteStudentProfile(s.id)));
           setSelectedExternalIds([]);
-          await fetchColleges();
-          setSuccessPopup(`${selectedExternalIds.length} outside institution(s) were deleted successfully.`);
+          toast.success("Selected outside institutions deleted.");
         } catch (err) {
           console.error("Failed to delete selected outside institutions:", err);
-        } finally {
-          setLoading(false);
+          toast.error("Failed to delete selected outside institutions.");
         }
       }
     });
@@ -204,16 +190,13 @@ export default function CollegesPage() {
       title: "Permanently Clear All Outside Institutions",
       message: `Are you sure you want to permanently delete ALL ${externalColleges.length} outside institutions along with their ${studentsToDelete.length} student profile(s)?`,
       onConfirm: async () => {
-        setLoading(true);
         try {
           await Promise.all(studentsToDelete.map((s) => deleteStudentProfile(s.id)));
           setSelectedExternalIds([]);
-          await fetchColleges();
-          setSuccessPopup("All outside institutions were deleted successfully.");
+          toast.success("All outside institutions deleted.");
         } catch (err) {
           console.error("Failed to delete all outside institutions:", err);
-        } finally {
-          setLoading(false);
+          toast.error("Failed to delete all outside institutions.");
         }
       }
     });
@@ -366,7 +349,7 @@ export default function CollegesPage() {
         }
       />
 
-      {loading ? (
+      {lmsLoading && colleges.length === 0 && externalColleges.length === 0 ? (
         <div className="p-12 text-center text-sm text-muted-foreground flex flex-col items-center justify-center gap-3">
           <div className="w-8 h-8 rounded-full border-2 border-brand border-t-transparent animate-spin" />
           <span>Loading academic hierarchy...</span>

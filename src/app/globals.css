@@ -247,6 +247,54 @@
     width: 0;
     height: 0;
   }
+
+  /* Interactive elements cursor rules - strict UI/UX audit */
+  button, 
+  a, 
+  input[type="button"], 
+  input[type="submit"], 
+  input[type="reset"], 
+  input[type="checkbox"], 
+  input[type="radio"], 
+  select, 
+  label, 
+  [role="button"], 
+  [role="tab"], 
+  [role="checkbox"], 
+  [role="radio"], 
+  [role="switch"], 
+  [role="menuitem"], 
+  [role="option"], 
+  [role="link"],
+  [role="treeitem"],
+  .cursor-pointer,
+  [data-clickable="true"],
+  tr[onclick],
+  div[onclick],
+  svg.cursor-pointer {
+    cursor: pointer !important;
+  }
+
+  button:disabled, 
+  input:disabled, 
+  select:disabled, 
+  textarea:disabled, 
+  .cursor-not-allowed,
+  [aria-disabled="true"],
+  [disabled] {
+    cursor: not-allowed !important;
+  }
+
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="number"],
+  input[type="search"],
+  input[type="tel"],
+  input[type="url"],
+  textarea {
+    cursor: text !important;
+  }
 }
 
 /* ============================================
