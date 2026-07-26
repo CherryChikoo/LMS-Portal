@@ -31,24 +31,35 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Only global admins can delete colleges." }, { status: 403 });
     }
 
-    // 1. Delete college document FIRST so Firestore snapshot updates immediately
+    // 1. Fetch college document details first before deletion
     const collegeRef = db.collection("colleges").doc(id);
     const collegeUserDocRef = db.collection("users").doc(id);
-    
+    const collegeDoc = await collegeRef.get();
+    const collegeName = collegeDoc.exists ? collegeDoc.data()?.name : "";
+
+    // 2. Delete college document FIRST so Firestore snapshot updates immediately
     const initialBatch = db.batch();
     initialBatch.delete(collegeRef);
     initialBatch.delete(collegeUserDocRef);
     await initialBatch.commit().catch(() => {});
 
-    // 2. Fetch associated students and departments in parallel
-    const [studentsSnap, departmentsSnap] = await Promise.all([
+    // 3. Fetch all associated students (by collegeId AND collegeName) and departments in parallel
+    const [studentsByIdSnap, studentsByNameSnap, departmentsSnap] = await Promise.all([
       db.collection("students").where("collegeId", "==", id).get(),
+      collegeName ? db.collection("students").where("collegeName", "==", collegeName).get() : Promise.resolve({ docs: [] }),
       db.collection("departments").where("collegeId", "==", id).get(),
     ]);
 
-    const studentIds = studentsSnap.docs.map((d) => d.id);
+    const studentDocsMap = new Map();
+    studentsByIdSnap.docs.forEach((d) => studentDocsMap.set(d.id, d));
+    if (studentsByNameSnap && "docs" in studentsByNameSnap) {
+      studentsByNameSnap.docs.forEach((d: any) => studentDocsMap.set(d.id, d));
+    }
 
-    // 3. Delete student Auth accounts concurrently in parallel
+    const studentDocs = Array.from(studentDocsMap.values());
+    const studentIds = studentDocs.map((d) => d.id);
+
+    // 4. Delete student Auth accounts concurrently in parallel
     const authDeletions = studentIds.map((studentId) =>
       auth.deleteUser(studentId).catch((err: any) => {
         if (err?.code !== "auth/user-not-found") {
@@ -58,9 +69,9 @@ export async function POST(request: NextRequest) {
     );
     authDeletions.push(auth.deleteUser(id).catch(() => {}));
 
-    // 4. Batch delete student docs, user docs, and department docs
+    // 5. Batch delete student docs, user docs, and department docs
     const deleteBatch = db.batch();
-    for (const doc of studentsSnap.docs) {
+    for (const doc of studentDocs) {
       deleteBatch.delete(doc.ref);
       deleteBatch.delete(db.collection("users").doc(doc.id));
     }

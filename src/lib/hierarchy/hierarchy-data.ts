@@ -487,9 +487,15 @@ export function getExternalInstitutions(
     );
   };
 
-  const officialIds = new Set(colleges.map((c) => c.id));
+  const activeColleges = colleges.filter((c) => (c.status as string) !== "deleted" && !c.isDeleted);
+  const deletedCollegeIds = new Set(colleges.filter((c) => (c.status as string) === "deleted" || c.isDeleted).map((c) => c.id));
+  const deletedCollegeNames = new Set(
+    colleges.filter((c) => (c.status as string) === "deleted" || c.isDeleted).map((c) => normalize(c.name).toLowerCase()).filter(Boolean)
+  );
+
+  const officialIds = new Set(activeColleges.map((c) => c.id));
   const officialNames = new Set(
-    colleges.map((c) => normalize(c.name).toLowerCase()).filter(Boolean)
+    activeColleges.map((c) => normalize(c.name).toLowerCase()).filter(Boolean)
   );
 
   const externalMap = new Map<string, { id: string; name: string; students: Student[] }>();
@@ -499,6 +505,14 @@ export function getExternalInstitutions(
     const cName = normalize(s.collegeName || "");
 
     if (isIgnored(cId) && isIgnored(cName)) return;
+
+    // Completely ignore student records associated with deleted colleges so they never jump to Outside Institutions
+    if (
+      (!isIgnored(cId) && deletedCollegeIds.has(cId)) ||
+      (!isIgnored(cName) && deletedCollegeNames.has(cName.toLowerCase()))
+    ) {
+      return;
+    }
 
     const isOfficial =
       (!isIgnored(cId) && officialIds.has(cId)) ||

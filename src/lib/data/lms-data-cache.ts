@@ -228,14 +228,20 @@ function recomputeScopedData() {
   persistCacheToStorage();
 }
 
+let notifyScheduled = false;
 function notifyListeners() {
-  computeExportedState();
-  callbacks.forEach((cb) => {
-    try {
-      cb();
-    } catch (err) {
-      console.error("LMS cache listener error:", err);
-    }
+  if (notifyScheduled) return;
+  notifyScheduled = true;
+  queueMicrotask(() => {
+    notifyScheduled = false;
+    computeExportedState();
+    callbacks.forEach((cb) => {
+      try {
+        cb();
+      } catch (err) {
+        console.error("LMS cache listener error:", err);
+      }
+    });
   });
 }
 
