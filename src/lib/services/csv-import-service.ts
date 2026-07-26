@@ -168,7 +168,7 @@ export async function importStudentsCSV(
   if (currentUser) {
     try {
       const adminIdToken = await currentUser.getIdToken();
-      const CHUNK_SIZE = 100;
+      const CHUNK_SIZE = 30; // 30 rows per HTTP request to ensure sub-2s response time and 0 Vercel 504 timeouts
       const combinedSummary: CSVImportSummary = {
         total: rows.length,
         createdCount: 0,
@@ -180,34 +180,77 @@ export async function importStudentsCSV(
 
       if (onProgress) onProgress(0, rows.length);
 
+      const chunks: CSVStudentRow[][] = [];
       for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+        chunks.push(rows.slice(i, i + CHUNK_SIZE));
+      }
+
+      let processedCount = 0;
+      const MAX_CONCURRENT_REQUESTS = 3;
+
+      const sendChunkWithRetry = async (chunk: CSVStudentRow[], retries = 3): Promise<any> => {
+        for (let attempt = 1; attempt <= retries; attempt++) {
+          if (shouldCancel && shouldCancel()) return null;
+          try {
+            const response = await fetch("/api/admin/bulk-import-students", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ adminIdToken, rows: chunk, enrollmentType }),
+            });
+            if (response.ok) {
+              const data = await response.json();
+              if (data.success && data.summary) {
+                return data.summary;
+              }
+            }
+          } catch (fetchErr) {
+            if (attempt === retries) console.warn("Chunk import fetch error after retries:", fetchErr);
+          }
+          if (attempt < retries) {
+            await new Promise((r) => setTimeout(r, attempt * 500));
+          }
+        }
+        return null;
+      };
+
+      for (let i = 0; i < chunks.length; i += MAX_CONCURRENT_REQUESTS) {
         if (shouldCancel && shouldCancel()) {
-          combinedSummary.skippedCount += rows.length - i;
+          const remainingRows = rows.length - processedCount;
+          combinedSummary.skippedCount += remainingRows;
           break;
         }
 
-        const chunk = rows.slice(i, i + CHUNK_SIZE);
-        const response = await fetch("/api/admin/bulk-import-students", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ adminIdToken, rows: chunk, enrollmentType }),
-        });
+        const batchChunks = chunks.slice(i, i + MAX_CONCURRENT_REQUESTS);
+        const summaries = await Promise.all(batchChunks.map((c) => sendChunkWithRetry(c)));
 
-        if (response.ok) {
-          const data = await response.json();
-          if (data.success && data.summary) {
-            combinedSummary.createdCount += data.summary.createdCount || 0;
-            combinedSummary.skippedCount += data.summary.skippedCount || 0;
-            combinedSummary.failedCount += data.summary.failedCount || 0;
-            combinedSummary.duplicateCount += data.summary.duplicateCount || 0;
-            if (Array.isArray(data.summary.results)) {
-              combinedSummary.results.push(...data.summary.results);
+        for (let sIdx = 0; sIdx < summaries.length; sIdx++) {
+          const resSummary = summaries[sIdx];
+          const chunkSize = batchChunks[sIdx].length;
+          processedCount += chunkSize;
+
+          if (resSummary) {
+            combinedSummary.createdCount += resSummary.createdCount || 0;
+            combinedSummary.skippedCount += resSummary.skippedCount || 0;
+            combinedSummary.failedCount += resSummary.failedCount || 0;
+            combinedSummary.duplicateCount += resSummary.duplicateCount || 0;
+            if (Array.isArray(resSummary.results)) {
+              combinedSummary.results.push(...resSummary.results);
             }
+          } else {
+            combinedSummary.failedCount += chunkSize;
+            batchChunks[sIdx].forEach((r) => {
+              combinedSummary.results.push({
+                name: r.studentName || "Unknown",
+                email: r.collegeEmail || "Unknown",
+                password: "",
+                status: "failed",
+                reason: "Server request failed after retries",
+              });
+            });
           }
         }
 
-        const currentProcessed = Math.min(i + CHUNK_SIZE, rows.length);
-        if (onProgress) onProgress(currentProcessed, rows.length);
+        if (onProgress) onProgress(processedCount, rows.length);
       }
 
       if (onProgress) onProgress(rows.length, rows.length);

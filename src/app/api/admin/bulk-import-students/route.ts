@@ -203,7 +203,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const CONCURRENCY_LIMIT = 25;
+    const CONCURRENCY_LIMIT = 10;
     const now = FieldValue.serverTimestamp();
     const batchWrite = db.batch();
     let hasWrites = false;
