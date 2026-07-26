@@ -29,11 +29,19 @@ export async function getCollegeById(id: string): Promise<College | null> {
 }
 
 export async function createCollege(data: Omit<College, "id">): Promise<string> {
-  return addDocument<College>(COLLEGE_COLLECTION, data);
+  const formatted = {
+    ...data,
+    name: (data.name || "").trim().toLowerCase(),
+  };
+  return addDocument<College>(COLLEGE_COLLECTION, formatted);
 }
 
 export async function updateCollege(id: string, data: Partial<College>): Promise<void> {
-  return updateDocument<College>(COLLEGE_COLLECTION, id, data);
+  const formatted = { ...data };
+  if (typeof formatted.name === "string") {
+    formatted.name = formatted.name.trim().toLowerCase();
+  }
+  return updateDocument<College>(COLLEGE_COLLECTION, id, formatted);
 }
 
 export async function deleteCollege(id: string): Promise<void> {
@@ -316,7 +324,7 @@ export async function renameDepartmentAndMigrate(college: College, oldName: stri
  */
 export async function renameCollegeAndMigrate(oldId: string, oldName: string, newName: string, isExternal: boolean = false): Promise<void> {
   const targetOldName = oldName.trim();
-  const targetNewName = newName.trim();
+  const targetNewName = newName.trim().toLowerCase();
   if (!targetOldName || !targetNewName || targetOldName === targetNewName) return;
 
   // 1. Update College Document (if official or if matching official college exists)

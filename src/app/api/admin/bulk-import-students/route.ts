@@ -23,14 +23,8 @@ function collegeNameToId(name: string): string {
 
 function formatCollegeTitle(rawName: string): string {
   const trimmed = rawName.trim();
-  if (!trimmed) return "Default College";
-  return trimmed
-    .split(/\s+/)
-    .map((word) => {
-      if (word.length <= 3 && /^[a-zA-Z]+$/.test(word)) return word.toUpperCase();
-      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
-    })
-    .join(" ");
+  if (!trimmed) return "default college";
+  return trimmed.toLowerCase();
 }
 
 export async function POST(request: NextRequest) {
