@@ -168,19 +168,50 @@ export async function importStudentsCSV(
   if (currentUser) {
     try {
       const adminIdToken = await currentUser.getIdToken();
-      if (onProgress) onProgress(Math.floor(rows.length * 0.2), rows.length);
-      const response = await fetch("/api/admin/bulk-import-students", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adminIdToken, rows, enrollmentType }),
-      });
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success && data.summary) {
-          if (onProgress) onProgress(rows.length, rows.length);
-          return data.summary;
+      const CHUNK_SIZE = 15;
+      const combinedSummary: CSVImportSummary = {
+        total: rows.length,
+        createdCount: 0,
+        skippedCount: 0,
+        failedCount: 0,
+        duplicateCount: 0,
+        results: [],
+      };
+
+      if (onProgress) onProgress(0, rows.length);
+
+      for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+        if (shouldCancel && shouldCancel()) {
+          combinedSummary.skippedCount += rows.length - i;
+          break;
         }
+
+        const chunk = rows.slice(i, i + CHUNK_SIZE);
+        const response = await fetch("/api/admin/bulk-import-students", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ adminIdToken, rows: chunk, enrollmentType }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.summary) {
+            combinedSummary.createdCount += data.summary.createdCount || 0;
+            combinedSummary.skippedCount += data.summary.skippedCount || 0;
+            combinedSummary.failedCount += data.summary.failedCount || 0;
+            combinedSummary.duplicateCount += data.summary.duplicateCount || 0;
+            if (Array.isArray(data.summary.results)) {
+              combinedSummary.results.push(...data.summary.results);
+            }
+          }
+        }
+
+        const currentProcessed = Math.min(i + CHUNK_SIZE, rows.length);
+        if (onProgress) onProgress(currentProcessed, rows.length);
       }
+
+      if (onProgress) onProgress(rows.length, rows.length);
+      return combinedSummary;
     } catch (apiErr) {
       console.warn("Server bulk import failed, falling back to resilient client import:", apiErr);
     }

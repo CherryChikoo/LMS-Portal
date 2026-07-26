@@ -230,6 +230,7 @@ function StudentsContent() {
     }
 
     try {
+      setImportProgress({ processed: 0, total: allRows.length });
       const summary = await importStudentsCSV(
         allRows,
         (processed, total) => {
