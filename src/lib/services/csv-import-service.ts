@@ -167,8 +167,7 @@ export async function importStudentsCSV(
   const currentUser = auth.currentUser;
   if (currentUser) {
     try {
-      const adminIdToken = await currentUser.getIdToken();
-      const CHUNK_SIZE = 50;
+      const CHUNK_SIZE = 25; // 25 rows per request guarantees sub-1.5s responses and 0 Vercel 504 timeouts
       const combinedSummary: CSVImportSummary = {
         total: rows.length,
         createdCount: 0,
@@ -186,25 +185,32 @@ export async function importStudentsCSV(
       }
 
       let processedCount = 0;
-      const MAX_CONCURRENT_REQUESTS = 5;
+      const MAX_CONCURRENT_REQUESTS = 3;
 
       const sendChunkWithRetry = async (chunk: CSVStudentRow[], retries = 3): Promise<any> => {
         for (let attempt = 1; attempt <= retries; attempt++) {
           if (shouldCancel && shouldCancel()) return null;
           try {
+            const adminIdToken = await currentUser.getIdToken(true).catch(() => currentUser.getIdToken());
             const response = await fetch("/api/admin/bulk-import-students", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ adminIdToken, rows: chunk, enrollmentType }),
             });
-            if (response.ok) {
-              const data = await response.json();
-              if (data.success && data.summary) {
-                return data.summary;
-              }
+            const data = await response.json().catch(() => ({}));
+            if (response.ok && data.success && data.summary) {
+              return data.summary;
             }
-          } catch (fetchErr) {
-            if (attempt === retries) console.warn("Chunk import fetch error after retries:", fetchErr);
+            const errReason = data.error || data.details || `HTTP ${response.status} ${response.statusText}`;
+            if (attempt === retries) {
+              console.error("Chunk import server error after retries:", errReason);
+              return { errorReason: errReason };
+            }
+          } catch (fetchErr: any) {
+            if (attempt === retries) {
+              console.warn("Chunk import fetch error after retries:", fetchErr);
+              return { errorReason: fetchErr?.message || "Network error" };
+            }
           }
           if (attempt < retries) {
             await new Promise((r) => setTimeout(r, attempt * 500));
@@ -228,7 +234,7 @@ export async function importStudentsCSV(
           const chunkSize = batchChunks[sIdx].length;
           processedCount += chunkSize;
 
-          if (resSummary) {
+          if (resSummary && !resSummary.errorReason) {
             combinedSummary.createdCount += resSummary.createdCount || 0;
             combinedSummary.skippedCount += resSummary.skippedCount || 0;
             combinedSummary.failedCount += resSummary.failedCount || 0;
@@ -237,6 +243,7 @@ export async function importStudentsCSV(
               combinedSummary.results.push(...resSummary.results);
             }
           } else {
+            const failReason = resSummary?.errorReason || "Server request failed after retries";
             combinedSummary.failedCount += chunkSize;
             batchChunks[sIdx].forEach((r) => {
               combinedSummary.results.push({
@@ -244,7 +251,7 @@ export async function importStudentsCSV(
                 email: r.collegeEmail || "Unknown",
                 password: "",
                 status: "failed",
-                reason: "Server request failed after retries",
+                reason: failReason,
               });
             });
           }

@@ -303,22 +303,25 @@ export async function POST(request: NextRequest) {
             updatedAt: now,
           };
 
-          batchWrite.set(db.collection("users").doc(uid), userDoc, { merge: true });
-          batchWrite.set(db.collection("students").doc(uid), studentDoc, { merge: true });
-          existingEmailSet.add(email);
-          hasWrites = true;
-          summary.createdCount++;
-          summary.results.push({ name, email, password: tempPassword, status: "created" });
+          try {
+            const studentBatch = db.batch();
+            studentBatch.set(db.collection("users").doc(uid), userDoc, { merge: true });
+            studentBatch.set(db.collection("students").doc(uid), studentDoc, { merge: true });
+            await studentBatch.commit();
+
+            existingEmailSet.add(email);
+            summary.createdCount++;
+            summary.results.push({ name, email, password: tempPassword, status: "created" });
+          } catch (dbErr: any) {
+            summary.failedCount++;
+            summary.results.push({ name, email, password: "", status: "failed", reason: dbErr?.message || "Firestore doc write error" });
+          }
         })
       );
 
-      if (hasWrites) {
-      await batchWrite.commit();
+      return NextResponse.json({ success: true, summary });
+    } catch (err: any) {
+      console.error("Bulk import students endpoint error:", err);
+      return NextResponse.json({ error: "Internal server error during bulk import.", details: err?.message || String(err) }, { status: 500 });
     }
-
-    return NextResponse.json({ success: true, summary });
-  } catch (err: any) {
-    console.error("Bulk import students endpoint error:", err);
-    return NextResponse.json({ error: "Internal server error during bulk import.", details: err?.message || String(err) }, { status: 500 });
   }
-}
