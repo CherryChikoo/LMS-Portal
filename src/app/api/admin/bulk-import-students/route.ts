@@ -96,9 +96,9 @@ export async function POST(request: NextRequest) {
     ]);
 
     for (const r of rows as ImportRowInput[]) {
-      const rawCol = (r.college || "UNASSIGNED").trim();
+      const rawCol = String(r.college ?? "UNASSIGNED").trim();
       const normCol = rawCol.toLowerCase();
-      const dept = (r.department || "General").trim();
+      const dept = String(r.department ?? "General").trim();
 
       if (RESERVED_COLLEGE_NAMES.has(normCol)) {
         continue;
@@ -127,12 +127,13 @@ export async function POST(request: NextRequest) {
       const batchCol = db.batch();
       newCollegesToCreate.forEach((col) => {
         const colRef = db.collection("colleges").doc(col.id);
+        const safeCodeName = String(col.name || "").replace(/[^a-zA-Z0-9]/g, "").slice(0, 6).toUpperCase();
         batchCol.set(
           colRef,
           {
             id: col.id,
             name: col.name,
-            code: col.name.replace(/[^a-zA-Z0-9]/g, "").slice(0, 6).toUpperCase() || "COLLEGE",
+            code: safeCodeName || "COLLEGE",
             departments: Array.from(col.departments),
             origin: "trainer",
             studentCount: 0,
@@ -150,7 +151,7 @@ export async function POST(request: NextRequest) {
     const updatedCollegeBatches = db.batch();
     let hasColUpdates = false;
     collegeMap.forEach((col) => {
-      if (!newCollegesToCreate.has(col.name.toLowerCase()) && col.departments.size > col.initialDepsCount) {
+      if (!newCollegesToCreate.has(String(col.name || "").toLowerCase()) && col.departments.size > col.initialDepsCount) {
         const colRef = db.collection("colleges").doc(col.id);
         updatedCollegeBatches.set(
           colRef,
@@ -181,7 +182,7 @@ export async function POST(request: NextRequest) {
 
     // Extract emails from current request batch for targeted duplicate checking
     const chunkEmails = items
-      .map((r) => (r.collegeEmail || "").toLowerCase().trim())
+      .map((r) => String(r.collegeEmail ?? "").toLowerCase().trim())
       .filter(Boolean);
 
     // Targeted email duplicate lookup (query only emails in this chunk)
@@ -197,29 +198,28 @@ export async function POST(request: NextRequest) {
       snaps.forEach((snap) => {
         snap.docs.forEach((d: any) => {
           const email = d.data()?.email;
-          if (email) existingEmailSet.add(email.toLowerCase().trim());
+          if (email) existingEmailSet.add(String(email).toLowerCase().trim());
         });
       });
     }
 
     const now = FieldValue.serverTimestamp();
-    const batchWrite = db.batch();
-    let hasWrites = false;
 
     // Process all items in this request batch in parallel
     await Promise.all(
       items.map(async (row) => {
-          const email = (row.collegeEmail || "").toLowerCase().trim();
-          const name = (row.studentName || "").trim();
-          const rawCol = (row.college || "Default College").trim().toLowerCase();
-          const matchedCol = collegeMap.get(rawCol);
+          const email = String(row.collegeEmail ?? "").toLowerCase().trim();
+          const name = String(row.studentName ?? "").trim();
+          const rawCol = String(row.college ?? "Default College").trim();
+          const normCol = rawCol.toLowerCase();
+          const matchedCol = collegeMap.get(normCol);
 
-          const finalCollegeId = matchedCol?.id || collegeNameToId(row.college || "Default College");
-          const finalCollegeName = matchedCol?.name || formatCollegeTitle(row.college || "Default College");
-          const finalDepartment = (row.department || "General").trim();
-          const finalAcademicYear = (row.academicYear || "1st Year").trim();
-          const finalSection = (row.section || "A").toString().trim();
-          const finalBatch = (row.batch || "General Cohort").trim();
+          const finalCollegeId = matchedCol?.id || collegeNameToId(rawCol);
+          const finalCollegeName = matchedCol?.name || formatCollegeTitle(rawCol);
+          const finalDepartment = String(row.department ?? "General").trim() || "General";
+          const finalAcademicYear = String(row.academicYear ?? "1st Year").trim() || "1st Year";
+          const finalSection = String(row.section ?? "A").trim() || "A";
+          const finalBatch = String(row.batch ?? "General Cohort").trim() || "General Cohort";
           const tempPassword = "Welcome@123";
 
           if (!email || !name) {
