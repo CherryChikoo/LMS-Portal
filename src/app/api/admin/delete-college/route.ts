@@ -70,19 +70,30 @@ export async function POST(request: NextRequest) {
     authDeletions.push(auth.deleteUser(id).catch(() => {}));
 
     // 5. Batch delete student docs, user docs, and department docs
-    const deleteBatch = db.batch();
+    const refsToDelete: any[] = [];
     for (const doc of studentDocs) {
-      deleteBatch.delete(doc.ref);
-      deleteBatch.delete(db.collection("users").doc(doc.id));
+      refsToDelete.push(doc.ref);
+      refsToDelete.push(db.collection("users").doc(doc.id));
     }
     for (const doc of departmentsSnap.docs) {
-      deleteBatch.delete(doc.ref);
+      refsToDelete.push(doc.ref);
+    }
+
+    const MAX_OPS = 500;
+    const batchPromises = [];
+    for (let i = 0; i < refsToDelete.length; i += MAX_OPS) {
+      const chunk = refsToDelete.slice(i, i + MAX_OPS);
+      const batch = db.batch();
+      for (const ref of chunk) {
+        batch.delete(ref);
+      }
+      batchPromises.push(batch.commit().catch((err) => console.error("Batch delete error:", err)));
     }
 
     // Execute Auth cleanup and Firestore batch cleanup in parallel
     await Promise.all([
       Promise.allSettled(authDeletions),
-      deleteBatch.commit().catch(() => {}),
+      ...batchPromises,
     ]);
 
     return NextResponse.json({ success: true });

@@ -653,10 +653,6 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
 
     // 1. Check Students
     let studentDocs = await getDocuments<Student & { initialPassword?: string }>("students", [where("email", "==", cleanEmail)]);
-    if (studentDocs.length === 0) {
-      const allStuds = await getDocuments<Student & { initialPassword?: string }>("students");
-      studentDocs = allStuds.filter((s) => (s.email || "").toLowerCase().trim() === cleanEmail);
-    }
 
     if (studentDocs.length > 0) {
       const student = studentDocs[0];
@@ -689,10 +685,6 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
     // 2. Check Colleges
     if (!createdUid) {
       let collegeDocs = await getDocuments<import("@/types").College>("colleges", [where("adminEmail", "==", cleanEmail)]);
-      if (collegeDocs.length === 0) {
-        const allColls = await getDocuments<import("@/types").College>("colleges");
-        collegeDocs = allColls.filter((c) => (c.adminEmail || "").toLowerCase().trim() === cleanEmail);
-      }
 
       if (collegeDocs.length > 0) {
         const college = collegeDocs[0];
@@ -799,10 +791,6 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
       let studentDoc = await getDocument<Student>("students", uid);
       if (!studentDoc) {
         let studsByEmail = await getDocuments<Student>("students", [where("email", "==", cleanEmail)]);
-        if (studsByEmail.length === 0) {
-          const allStuds = await getDocuments<Student>("students");
-          studsByEmail = allStuds.filter((s) => (s.email || "").toLowerCase().trim() === cleanEmail);
-        }
         if (studsByEmail.length > 0) {
           studentDoc = studsByEmail[0];
         }
@@ -834,10 +822,6 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
     let studentDoc = await getDocument<Student>("students", uid);
     if (!studentDoc) {
       let studsByEmail = await getDocuments<Student>("students", [where("email", "==", cleanEmail)]);
-      if (studsByEmail.length === 0) {
-        const allStuds = await getDocuments<Student>("students");
-        studsByEmail = allStuds.filter((s) => (s.email || "").toLowerCase().trim() === cleanEmail);
-      }
       if (studsByEmail.length > 0) {
         studentDoc = studsByEmail[0];
       }

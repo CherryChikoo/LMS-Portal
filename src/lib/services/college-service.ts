@@ -80,9 +80,8 @@ export async function deleteCollege(id: string): Promise<void> {
         const b = writeBatch(db);
         batchChunk.forEach((d) => {
           b.delete(d.ref);
-          b.delete(doc(db, "users", d.id));
         });
-        await b.commit().catch(() => {});
+        await b.commit().catch((err) => console.error("Client student batch delete failed", err));
       }
     }
   } catch (err) {
