@@ -888,10 +888,10 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
 /**
  * Unified Google Sign-In
  */
-export async function unifiedGoogleLogin(): Promise<{ success: true; role: UserRole | string; user: FirebaseUser; profile: User }> {
+export async function unifiedGoogleLogin(): Promise<{ success: true; role: UserRole | string; user: FirebaseUser; profile: User } | null> {
   const credential = await signInWithGoogle();
   if (!credential || !credential.user) {
-    throw new Error("Google sign-in initialized. If a popup did not open, you will be redirected automatically.");
+    return null;
   }
   const uid = credential.user.uid;
   const email = (credential.user.email || "").toLowerCase().trim();

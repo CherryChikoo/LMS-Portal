@@ -45,8 +45,8 @@ export async function signInWithGoogle() {
     return await signInWithPopup(auth, googleProvider);
   } catch (err: any) {
     const code = err?.code || "";
-    // If popup is blocked by mobile browser or popup window fails, use redirect fallback
-    if (code === "auth/popup-blocked" || code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
+    // Only use redirect fallback if popup is strictly blocked by browser policy
+    if (code === "auth/popup-blocked") {
       await signInWithRedirect(auth, googleProvider);
       return null as any;
     }

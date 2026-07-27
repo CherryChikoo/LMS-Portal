@@ -42,6 +42,10 @@ function LoginContent() {
     setError(null);
     try {
       const res = await unifiedGoogleLogin();
+      if (!res) {
+        setGoogleLoading(false);
+        return;
+      }
       
       const uObj = {
         id: res.user.uid,

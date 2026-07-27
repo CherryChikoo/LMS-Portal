@@ -22,6 +22,7 @@ import {
   getInstitutionName as resolveInstitutionName,
   safeDisplayName,
   markCollegeAsDeleted,
+  deletedCollegesSet,
   type Hierarchy,
   type Institution,
 } from "@/lib/hierarchy/hierarchy-data";
@@ -140,9 +141,20 @@ function recomputeScopedData() {
   const attemptsData = cache.attempts?.data || [];
 
   cache.rawColleges = collegesData;
-  let fColleges = collegesData.filter((c) => (c.status as string) !== "deleted" && (c.status as string) !== "inactive");
+
+  const isCollegeDeleted = (colId?: string, colName?: string) => {
+    if (colId && deletedCollegesSet.has(colId.toLowerCase().trim())) return true;
+    if (colName && deletedCollegesSet.has(colName.toLowerCase().trim())) return true;
+    return false;
+  };
+
+  let fColleges = collegesData.filter(
+    (c) => (c.status as string) !== "deleted" && (c.status as string) !== "inactive" && !isCollegeDeleted(c.id, c.name)
+  );
   let fBatches = batchesData.filter((b) => ((b as any).status as string) !== "deleted" && ((b as any).status as string) !== "inactive");
-  let fStudents = studentsData.filter((s) => (s.status as string) !== "deleted" && (s.status as string) !== "inactive");
+  let fStudents = studentsData.filter(
+    (s) => (s.status as string) !== "deleted" && (s.status as string) !== "inactive" && !isCollegeDeleted(s.collegeId, s.collegeName)
+  );
   let fExams = examsData.filter((e) => (e.status as string) !== "deleted" && (e.status as string) !== "inactive");
   let fResources = resourcesData.filter((r) => ((r as any).status as string) !== "deleted" && ((r as any).status as string) !== "inactive");
   let fAttempts = attemptsData;
