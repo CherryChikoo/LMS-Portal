@@ -60,26 +60,23 @@ export async function deleteCollege(id: string): Promise<void> {
 
   // 2. Client-side Firestore batch cleanup of associated student & user documents
   try {
-    const studentQueryById = query(collection(db, "students"), where("collegeId", "==", id));
-    const snapById = await getDocs(studentQueryById).catch(() => null);
-    
-    const studentDocsToDelete = new Map<string, any>();
-    if (snapById) {
-      snapById.docs.forEach((d) => studentDocsToDelete.set(d.id, d));
-    }
+    const studentsSnap = await getDocs(collection(db, "students")).catch(() => null);
+    if (studentsSnap && !studentsSnap.empty) {
+      const targetId = id.toLowerCase().trim();
+      const targetName = (colName || id).toLowerCase().trim();
+      
+      const docsToDelete: any[] = [];
+      studentsSnap.docs.forEach((d) => {
+        const data = d.data();
+        const sColId = (data.collegeId || "").toLowerCase().trim();
+        const sColName = (data.collegeName || "").toLowerCase().trim();
+        if (sColId === targetId || sColId === targetName || sColName === targetName || (colName && sColName === colName.toLowerCase().trim())) {
+          docsToDelete.push(d);
+        }
+      });
 
-    if (colName) {
-      const studentQueryByName = query(collection(db, "students"), where("collegeName", "==", colName));
-      const snapByName = await getDocs(studentQueryByName).catch(() => null);
-      if (snapByName) {
-        snapByName.docs.forEach((d) => studentDocsToDelete.set(d.id, d));
-      }
-    }
-
-    if (studentDocsToDelete.size > 0) {
-      const docsArray = Array.from(studentDocsToDelete.values());
-      for (let i = 0; i < docsArray.length; i += 200) {
-        const batchChunk = docsArray.slice(i, i + 200);
+      for (let i = 0; i < docsToDelete.length; i += 200) {
+        const batchChunk = docsToDelete.slice(i, i + 200);
         const b = writeBatch(db);
         batchChunk.forEach((d) => {
           b.delete(d.ref);
