@@ -232,9 +232,9 @@ export async function importStudentsCSV(
         for (let sIdx = 0; sIdx < summaries.length; sIdx++) {
           const resSummary = summaries[sIdx];
           const chunkSize = batchChunks[sIdx].length;
-          processedCount += chunkSize;
 
           if (resSummary && !resSummary.errorReason) {
+            processedCount += chunkSize;
             combinedSummary.createdCount += resSummary.createdCount || 0;
             combinedSummary.skippedCount += resSummary.skippedCount || 0;
             combinedSummary.failedCount += resSummary.failedCount || 0;
@@ -243,17 +243,8 @@ export async function importStudentsCSV(
               combinedSummary.results.push(...resSummary.results);
             }
           } else {
-            const failReason = resSummary?.errorReason || "Server request failed after retries";
-            combinedSummary.failedCount += chunkSize;
-            batchChunks[sIdx].forEach((r) => {
-              combinedSummary.results.push({
-                name: r.studentName || "Unknown",
-                email: r.collegeEmail || "Unknown",
-                password: "",
-                status: "failed",
-                reason: failReason,
-              });
-            });
+            const failReason = resSummary?.errorReason || "Server API unavailable";
+            throw new Error(`Server chunk failed: ${failReason}`);
           }
         }
 
@@ -263,7 +254,7 @@ export async function importStudentsCSV(
       if (onProgress) onProgress(rows.length, rows.length);
       return combinedSummary;
     } catch (apiErr) {
-      console.warn("Server bulk import failed, falling back to resilient client import:", apiErr);
+      console.warn("Server bulk import endpoint failed or returned error, executing resilient client import fallback:", apiErr);
     }
   }
 
@@ -293,8 +284,8 @@ export async function importStudentsCSV(
   const validRows: { row: CSVStudentRow; email: string; name: string }[] = [];
 
   for (const row of rows) {
-    const email = row.collegeEmail.trim().toLowerCase();
-    const name = row.studentName.trim();
+    const email = String(row.collegeEmail ?? "").trim().toLowerCase();
+    const name = String(row.studentName ?? "").trim();
 
     // Check required fields
     if (!email || !name) {
