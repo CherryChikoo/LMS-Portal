@@ -446,10 +446,27 @@ export function getCollegeName(hierarchy: Hierarchy | null, collegeId: string): 
 
 export const deletedCollegesSet = new Set<string>();
 
+if (typeof window !== "undefined") {
+  try {
+    const stored = localStorage.getItem("lms_deleted_colleges");
+    if (stored) {
+      const arr = JSON.parse(stored);
+      if (Array.isArray(arr)) {
+        arr.forEach((item) => deletedCollegesSet.add(String(item).toLowerCase().trim()));
+      }
+    }
+  } catch (_) {}
+}
+
 export function markCollegeAsDeleted(idOrName: string) {
   if (!idOrName) return;
   const normalized = idOrName.trim().toLowerCase();
   deletedCollegesSet.add(normalized);
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.setItem("lms_deleted_colleges", JSON.stringify(Array.from(deletedCollegesSet)));
+    } catch (_) {}
+  }
 }
 
 /**

@@ -13,6 +13,7 @@ import { fadeInUp } from "@/lib/animations";
 import { getAllColleges, createCollege, deleteCollege, getAllStudents, deleteStudentProfile, updateCollege, updateStudentProfile, renameCollegeAndMigrate, PREDEFINED_DEPARTMENTS, ensureGeneralDepartment } from "@/lib/services";
 import { useLMSDataSelector } from "@/lib/data/use-lms-data";
 import { optimisticDeleteCollege } from "@/lib/data/lms-store";
+import { markCollegeAsDeleted } from "@/lib/hierarchy/hierarchy-data";
 import { getAuth } from "firebase/auth";
 import type { College, Student } from "@/types";
 
@@ -159,6 +160,7 @@ export default function CollegesPage() {
       message: `Are you sure you want to delete outside institution "${extName}" along with its ${studentsToDelete.length} enrolled student profile(s)?`,
       onConfirm: async () => {
         try {
+          markCollegeAsDeleted(extName);
           setDeletingIds((prev) => [...prev, extName]);
           optimisticDeleteCollege(extName);
           setSelectedExternalIds((prev) => prev.filter((id) => id !== extName));
@@ -190,7 +192,10 @@ export default function CollegesPage() {
       onConfirm: async () => {
         try {
           const namesToDelete = [...selectedExternalIds];
-          namesToDelete.forEach((extName) => optimisticDeleteCollege(extName));
+          namesToDelete.forEach((extName) => {
+            markCollegeAsDeleted(extName);
+            optimisticDeleteCollege(extName);
+          });
           setSelectedExternalIds([]);
           toast.success("Selected outside institutions deleted.");
 
@@ -218,7 +223,10 @@ export default function CollegesPage() {
       message: `Are you sure you want to permanently delete ALL ${externalColleges.length} outside institutions along with their ${studentsToDelete.length} student profile(s)?`,
       onConfirm: async () => {
         try {
-          allExternalNames.forEach((extName) => optimisticDeleteCollege(extName));
+          allExternalNames.forEach((extName) => {
+            markCollegeAsDeleted(extName);
+            optimisticDeleteCollege(extName);
+          });
           setSelectedExternalIds([]);
           toast.success("All outside institutions deleted.");
 

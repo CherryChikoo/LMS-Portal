@@ -45,20 +45,64 @@ export async function updateCollege(id: string, data: Partial<College>): Promise
 }
 
 import { markCollegeAsDeleted } from "@/lib/hierarchy/hierarchy-data";
+import { getAuth } from "firebase/auth";
+import { db } from "@/lib/firebase/config";
+import { collection, query, getDocs, doc, writeBatch } from "firebase/firestore";
 
 export async function deleteCollege(id: string): Promise<void> {
   markCollegeAsDeleted(id);
   const col = await getDocument<College>(COLLEGE_COLLECTION, id).catch(() => null);
-  if (col?.name) markCollegeAsDeleted(col.name);
+  const colName = col?.name || "";
+  if (colName) markCollegeAsDeleted(colName);
 
-  await deleteDocument(COLLEGE_COLLECTION, id);
+  // 1. Delete college document
+  await deleteDocument(COLLEGE_COLLECTION, id).catch(() => {});
 
+  // 2. Client-side Firestore batch cleanup of associated student & user documents
   try {
-    fetch("/api/admin/delete-college", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ collegeId: id }),
-    }).catch(() => {});
+    const studentQueryById = query(collection(db, "students"), where("collegeId", "==", id));
+    const snapById = await getDocs(studentQueryById).catch(() => null);
+    
+    const studentDocsToDelete = new Map<string, any>();
+    if (snapById) {
+      snapById.docs.forEach((d) => studentDocsToDelete.set(d.id, d));
+    }
+
+    if (colName) {
+      const studentQueryByName = query(collection(db, "students"), where("collegeName", "==", colName));
+      const snapByName = await getDocs(studentQueryByName).catch(() => null);
+      if (snapByName) {
+        snapByName.docs.forEach((d) => studentDocsToDelete.set(d.id, d));
+      }
+    }
+
+    if (studentDocsToDelete.size > 0) {
+      const docsArray = Array.from(studentDocsToDelete.values());
+      for (let i = 0; i < docsArray.length; i += 200) {
+        const batchChunk = docsArray.slice(i, i + 200);
+        const b = writeBatch(db);
+        batchChunk.forEach((d) => {
+          b.delete(d.ref);
+          b.delete(doc(db, "users", d.id));
+        });
+        await b.commit().catch(() => {});
+      }
+    }
+  } catch (err) {
+    console.error("Error during client batch student cleanup for college:", err);
+  }
+
+  // 3. Background server API cleanup for Auth credentials
+  try {
+    const auth = getAuth();
+    const token = await auth.currentUser?.getIdToken().catch(() => "");
+    if (token) {
+      fetch("/api/admin/delete-college", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, adminIdToken: token }),
+      }).catch(() => {});
+    }
   } catch (_) {}
 }
 

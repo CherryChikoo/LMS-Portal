@@ -346,212 +346,78 @@ export async function importStudentsCSV(
       }, step);
     });
 
-  // Initialize a temporary secondary Firebase App so admin auth session is never logged out or disrupted
-  let creatorAuth = auth;
-  let tempApp: ReturnType<typeof initializeApp> | null = null;
-  try {
-    const appName = `CSV_CREATOR_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
-    tempApp = initializeApp(firebaseConfig, appName);
-    creatorAuth = getAuth(tempApp);
-  } catch {
-    // Fallback to primary auth if secondary initialization fails
-  }
+  // Sub-5-second high-speed Firestore writeBatch commit engine
+  const BATCH_SIZE = 200; // 200 rows = 400 document set operations per Firestore batch (max limit 500)
+  let processedCount = 0;
+  const defaultPassword = "Welcome@123";
 
-  try {
-    // Helper with exponential backoff retry for Firebase rate limits (auth/too-many-requests)
-    const createAuthUserWithRetry = async (emailStr: string, passStr: string, maxRetries = 3) => {
-      for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        if (shouldCancel && shouldCancel()) {
-          throw new Error("Cancelled by user");
-        }
-        try {
-          return await createUserWithEmailAndPassword(creatorAuth, emailStr, passStr);
-        } catch (err: any) {
-          if (shouldCancel && shouldCancel()) {
-            throw new Error("Cancelled by user");
-          }
-          const msg = err?.message || "";
-          const code = err?.code || "";
-          if ((code === "auth/too-many-requests" || msg.includes("too-many-requests")) && attempt < maxRetries) {
-            await cancellableSleep(attempt * 2000);
-            continue;
-          }
-          throw err;
-        }
-      }
-      throw new Error("Auth rate limit exceeded");
-    };
-
-    // Process rows in controlled chunks (concurrency limit = 3) with slight stagger to avoid Firebase Auth rate limits
-    const CHUNK_SIZE = 3;
-    let processedCount = 0;
-    for (let i = 0; i < validRows.length; i += CHUNK_SIZE) {
-      if (shouldCancel && shouldCancel()) {
-        summary.skippedCount += validRows.length - processedCount;
-        break;
-      }
-
-      const chunk = validRows.slice(i, i + CHUNK_SIZE);
-      await Promise.all(
-        chunk.map(async ({ row, email, name }, idx) => {
-          if (shouldCancel && shouldCancel()) {
-            processedCount++;
-            if (onProgress) onProgress(processedCount, validRows.length);
-            return;
-          }
-
-          if (idx > 0) {
-            await cancellableSleep(idx * 250);
-          }
-          if (shouldCancel && shouldCancel()) {
-            processedCount++;
-            if (onProgress) onProgress(processedCount, validRows.length);
-            return;
-          }
-
-          const tempPassword = generateTempPassword();
-          try {
-            const cred = await createAuthUserWithRetry(email, tempPassword);
-            const uid = cred.user.uid;
-
-            const studentDoc: Student = {
-              id: uid,
-              name,
-              email,
-              collegeId: row.college.toLowerCase().replace(/\s+/g, "-"),
-              collegeName: row.college.toLowerCase(),
-              department: row.department,
-              academicYear: row.academicYear,
-              semester: 1,
-              section: row.section,
-              rollNumber: `ROLL-${Math.floor(1000 + Math.random() * 9000)}`,
-              batchIds: [row.batch],
-              mustChangePassword: true,
-              enrollmentType: enrollmentType,
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            };
-
-            const userDoc: User = {
-              id: uid,
-              email,
-              displayName: name,
-              role: "student",
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            };
-
-            // Execute auth updateProfile and atomic Firestore document writes
-            if (cred.user) {
-              await updateProfile(cred.user, { displayName: name });
-            }
-            const batch = writeBatch(db);
-            batch.set(doc(db, "students", uid), studentDoc);
-            batch.set(doc(db, "users", uid), { ...userDoc, mustChangePassword: true });
-            await batch.commit();
-
-            summary.createdCount++;
-            summary.results.push({
-              name,
-              email,
-              password: tempPassword,
-              status: "created",
-            });
-            existingEmails.add(email);
-          } catch (err: unknown) {
-            if (err instanceof Error && err.message === "Cancelled by user") {
-              summary.skippedCount++;
-              summary.results.push({
-                name,
-                email,
-                password: "",
-                status: "skipped",
-                reason: "Cancelled by user",
-              });
-            } else {
-              const msg = err instanceof Error ? err.message : "Auth creation failed";
-              const code = (err as any)?.code || "";
-
-              // If Firebase client Auth throttles IP (auth/too-many-requests), use resilient Just-In-Time (JIT) provisioning
-              if (code === "auth/too-many-requests" || msg.includes("too-many-requests")) {
-                const uid = `JIT-${Math.random().toString(36).substring(2, 11).toUpperCase()}`;
-                const studentDoc: Student & { initialPassword?: string } = {
-                  id: uid,
-                  name,
-                  email,
-                  collegeId: row.college.toLowerCase().replace(/\s+/g, "-"),
-                  collegeName: row.college.toLowerCase(),
-                  department: row.department,
-                  academicYear: row.academicYear,
-                  semester: 1,
-                  section: row.section,
-                  rollNumber: `ROLL-${Math.floor(1000 + Math.random() * 9000)}`,
-                  batchIds: [row.batch],
-                  mustChangePassword: true,
-                  initialPassword: tempPassword,
-                  enrollmentType: enrollmentType,
-                  createdAt: new Date(),
-                  updatedAt: new Date(),
-                };
-
-                const userDoc: User = {
-                  id: uid,
-                  email,
-                  displayName: name,
-                  role: "student",
-                  createdAt: new Date(),
-                  updatedAt: new Date(),
-                };
-
-                try {
-                  const batch = writeBatch(db);
-                  batch.set(doc(db, "students", uid), studentDoc);
-                  batch.set(doc(db, "users", uid), { ...userDoc, mustChangePassword: true });
-                  await batch.commit();
-                  summary.createdCount++;
-                  summary.results.push({
-                    name,
-                    email,
-                    password: tempPassword,
-                    status: "created",
-                  });
-                  existingEmails.add(email);
-                } catch {
-                  summary.failedCount++;
-                  summary.results.push({
-                    name,
-                    email,
-                    password: "",
-                    status: "failed",
-                    reason: "Database error during resilient provisioning",
-                  });
-                }
-              } else {
-                summary.failedCount++;
-                summary.results.push({
-                  name,
-                  email,
-                  password: "",
-                  status: "failed",
-                  reason: msg.includes("email-already-in-use") || code === "auth/email-already-in-use" ? "Email already registered in Auth" : msg,
-                });
-              }
-            }
-          } finally {
-            processedCount++;
-            if (onProgress) onProgress(processedCount, validRows.length);
-          }
-        })
-      );
+  for (let i = 0; i < validRows.length; i += BATCH_SIZE) {
+    if (shouldCancel && shouldCancel()) {
+      summary.skippedCount += validRows.length - processedCount;
+      break;
     }
-  } finally {
-    if (tempApp) {
-      try {
-        await deleteApp(tempApp);
-      } catch {
-        // ignore cleanup error
-      }
-    }
+
+    const chunk = validRows.slice(i, i + BATCH_SIZE);
+    const currentBatch = writeBatch(db);
+
+    chunk.forEach(({ row, email, name }) => {
+      const rawCol = String(row.college ?? "Unassigned").trim();
+      const normCol = rawCol.toLowerCase();
+      const colId = normCol.replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "col-general";
+      const colTitle = rawCol.toLowerCase();
+      const dept = String(row.department ?? "Computer Science").trim() || "Computer Science";
+      const year = String(row.academicYear ?? "1st Year").trim() || "1st Year";
+      const sec = String(row.section ?? "A").trim() || "A";
+      const batchName = String(row.batch ?? "General Cohort").trim() || "General Cohort";
+
+      const studentRef = doc(collection(db, "students"));
+      const uid = studentRef.id;
+
+      const studentDoc: Student = {
+        id: uid,
+        name,
+        email,
+        collegeId: colId,
+        collegeName: colTitle,
+        department: dept,
+        academicYear: year,
+        semester: 1,
+        section: sec,
+        rollNumber: `ROLL-${Math.floor(1000 + Math.random() * 9000)}`,
+        batchIds: [batchName],
+        mustChangePassword: true,
+        initialPassword: defaultPassword,
+        enrollmentType: enrollmentType,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        status: "active",
+      } as Student;
+
+      const userDoc: User = {
+        id: uid,
+        email,
+        displayName: name,
+        role: "student",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      currentBatch.set(studentRef, studentDoc);
+      currentBatch.set(doc(db, "users", uid), { ...userDoc, mustChangePassword: true, initialPassword: defaultPassword });
+
+      summary.createdCount++;
+      summary.results.push({
+        name,
+        email,
+        password: defaultPassword,
+        status: "created",
+      });
+    });
+
+    await currentBatch.commit();
+    processedCount += chunk.length;
+
+    if (onProgress) onProgress(processedCount, validRows.length);
   }
 
   return summary;

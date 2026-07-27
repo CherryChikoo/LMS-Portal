@@ -646,3 +646,16 @@ input[type="checkbox"]:focus-visible {
     scroll-behavior: smooth;
   }
 }
+
+/* Fix Chrome / Edge autofill background clashing with dark theme */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active,
+select:-webkit-autofill,
+textarea:-webkit-autofill {
+  -webkit-box-shadow: 0 0 0 1000px #09090b inset !important;
+  -webkit-text-fill-color: #f4f4f5 !important;
+  caret-color: #f4f4f5 !important;
+  transition: background-color 50000s ease-in-out 0s !important;
+}
