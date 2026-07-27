@@ -51,9 +51,17 @@ export default function CollegesPage() {
 
 
 
-  const fetchColleges = async () => {
-    // Reactive updates are handled automatically via useLMSDataSelector
-  };
+  useEffect(() => {
+    try {
+      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      if (uStr) {
+        const parsed = JSON.parse(uStr);
+        if (parsed.role === "college_admin" && parsed.collegeId) {
+          window.location.replace(`/colleges/${parsed.collegeId}`);
+        }
+      }
+    } catch (_) {}
+  }, []);
 
   const handleDeleteAdminCollege = (col: College) => {
     setConfirmConfig({
@@ -303,7 +311,6 @@ export default function CollegesPage() {
       setAdminEmail("");
       setInitialPassword("");
       setLoginEnabled(false);
-      fetchColleges();
     } catch (err) {
       console.error("Failed to create college", err);
     } finally {
@@ -336,7 +343,6 @@ export default function CollegesPage() {
       setEditAdminEmail("");
       setEditInitialPassword("");
       setEditLoginEnabled(false);
-      await fetchColleges();
     } catch (err) {
       console.error("Failed to update college", err);
     } finally {
@@ -362,7 +368,6 @@ export default function CollegesPage() {
       setEditingExternal(null);
       setEditExternalName("");
       setSelectedExternalIds((prev) => prev.map((id) => (id === oldName ? newName : id)));
-      await fetchColleges();
     } catch (err) {
       console.error("Failed to update outside institution", err);
     } finally {

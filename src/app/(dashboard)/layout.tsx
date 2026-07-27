@@ -33,7 +33,7 @@ export default function DashboardLayout({
         try {
           const parsed = JSON.parse(uStr);
           if (parsed.role === "college_admin") {
-            const forbiddenPaths = ["/colleges", "/audit", "/admin/colleges", "/admin/audit"];
+            const forbiddenPaths = ["/audit", "/admin/audit"];
             if (forbiddenPaths.includes(pathname)) {
               window.location.replace("/");
             }
