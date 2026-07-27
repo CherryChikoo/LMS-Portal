@@ -5,6 +5,8 @@ import {
   sendPasswordResetEmail,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   updateProfile,
   onAuthStateChanged,
   type User,
@@ -12,6 +14,7 @@ import {
 import { auth } from "./config";
 
 export const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: "select_account" });
 
 export async function signIn(email: string, password: string) {
   return signInWithEmailAndPassword(auth, email, password);
@@ -35,10 +38,20 @@ export async function resetPassword(email: string) {
   return sendPasswordResetEmail(auth, email);
 }
 
-export { signInWithPopup };
+export { signInWithPopup, signInWithRedirect, getRedirectResult };
 
 export async function signInWithGoogle() {
-  return signInWithPopup(auth, googleProvider);
+  try {
+    return await signInWithPopup(auth, googleProvider);
+  } catch (err: any) {
+    const code = err?.code || "";
+    // If popup is blocked by mobile browser or popup window fails, use redirect fallback
+    if (code === "auth/popup-blocked" || code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
+      await signInWithRedirect(auth, googleProvider);
+      return null as any;
+    }
+    throw err;
+  }
 }
 
 export function onAuthChange(callback: (user: User | null) => void) {

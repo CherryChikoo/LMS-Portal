@@ -889,7 +889,10 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
  * Unified Google Sign-In
  */
 export async function unifiedGoogleLogin(): Promise<{ success: true; role: UserRole | string; user: FirebaseUser; profile: User }> {
-  const credential = await signInWithPopup(auth, googleProvider);
+  const credential = await signInWithGoogle();
+  if (!credential || !credential.user) {
+    throw new Error("Google sign-in initialized. If a popup did not open, you will be redirected automatically.");
+  }
   const uid = credential.user.uid;
   const email = (credential.user.email || "").toLowerCase().trim();
   const name = credential.user.displayName || email.split("@")[0] || "User";
@@ -1053,6 +1056,9 @@ export function formatAuthError(err: unknown, defaultMessage?: string): string {
   }
   if (msg.includes("auth/account-exists-with-different-credential") || msg.includes("account-exists-with-different-credential")) {
     return "An account already exists with the same email address but different sign-in credentials. Please sign in using your original method.";
+  }
+  if (msg.includes("auth/unauthorized-domain") || msg.includes("unauthorized-domain")) {
+    return "This domain is not authorized for Google Sign-In. Please add this deployment URL to Firebase Console -> Authentication -> Settings -> Authorized domains.";
   }
   if (msg.includes("Google Sign-In")) {
     return msg.replace("Firebase: Error", "").replace(/\(auth\/.*?\)\.?/ig, "").trim();
