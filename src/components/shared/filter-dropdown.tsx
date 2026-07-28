@@ -58,14 +58,13 @@ export function FilterDropdown({
   } else if (internalValue !== "ALL") {
     if (resolveLabel) {
       triggerContent = resolveLabel(internalValue);
-      console.log(`[FilterDropdown ${label}] resolveLabel called for`, internalValue, "Result:", triggerContent);
     } else {
       const targetStr = String(internalValue).trim().toLowerCase();
       const found = options.find(o => 
         String(o.value).trim().toLowerCase() === targetStr || 
         String(o.label).trim().toLowerCase() === targetStr
       );
-      triggerContent = found ? found.label : `Unknown ${label}`;
+      triggerContent = found ? found.label : String(internalValue);
     }
   }
 

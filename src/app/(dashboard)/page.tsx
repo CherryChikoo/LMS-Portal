@@ -39,11 +39,13 @@ function StudentPortalDashboard({
   exams,
   resources,
   attempts,
+  students,
   loading,
 }: {
   exams: Exam[];
   resources: Resource[];
   attempts: ExamAttempt[];
+  students: Student[];
   loading: boolean;
 }) {
   const [studentProfile, setStudentProfile] = useState<any>({ 
@@ -56,7 +58,15 @@ function StudentPortalDashboard({
         const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
         if (uStr) {
           const parsed = JSON.parse(uStr);
-          setStudentProfile(parsed);
+          const sId = parsed.id || parsed.uid;
+          const sEmail = parsed.email;
+          const canonical = students.find((s) => s.id === sId || (sEmail && s.email === sEmail));
+          
+          if (canonical) {
+            setStudentProfile(canonical);
+          } else {
+            setStudentProfile(parsed);
+          }
         }
       } catch (_) {}
     };
@@ -67,8 +77,7 @@ function StudentPortalDashboard({
       window.removeEventListener("storage", updateProfile);
       window.removeEventListener("pageshow", updateProfile);
     };
-  }, []);
-
+  }, [students]);
 
 
   const myAttempts = useMemo(() => {
@@ -430,9 +439,10 @@ export default function DashboardPage() {
   if (!mounted || !userRole || userRole === "student") {
     return (
       <StudentPortalDashboard
-        exams={exams}
-        resources={resources}
-        attempts={attempts}
+        exams={exams as Exam[]}
+        resources={resources as Resource[]}
+        attempts={attempts as ExamAttempt[]}
+        students={students as Student[]}
         loading={loading}
       />
     );

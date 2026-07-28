@@ -17,6 +17,7 @@ import {
   getYearsForDepartment,
   getSectionsForYear,
   getBatchesForSection,
+  filterStudentByAcademicFilters,
 } from "@/lib/hierarchy/hierarchy-data";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
@@ -69,7 +70,9 @@ function StudentsContent() {
   const {
     hierarchy,
     filters: academicFilters,
+    filterValidation,
     setFilters: setAcademicFilters,
+    reset: resetAcademicFilters,
     institutionOptions,
     collegeOptions,
     departmentOptions,
@@ -321,18 +324,6 @@ function StudentsContent() {
     return () => clearTimeout(t);
   }, [searchRaw]);
 
-  const matchesYearFilter = (studentYear: string = "", filter: string): boolean => {
-    if (!filter) return true;
-    const s = studentYear.trim().toLowerCase();
-    const f = filter.trim().toLowerCase();
-    if (s === f) return true;
-    if (f.startsWith("1") || f.includes("1st")) return s.startsWith("1") || s.includes("1st") || s.includes("first");
-    if (f.startsWith("2") || f.includes("2nd")) return s.startsWith("2") || s.includes("2nd") || s.includes("second");
-    if (f.startsWith("3") || f.includes("3rd")) return s.startsWith("3") || s.includes("3rd") || s.includes("third");
-    if (f.startsWith("4") || f.includes("4th")) return s.startsWith("4") || s.includes("4th") || s.includes("fourth");
-    return s.includes(f) || f.includes(s);
-  };
-
   const filteredStudents = useMemo(
     () =>
       students
@@ -343,11 +334,8 @@ function StudentsContent() {
             s.name.toLowerCase().includes(searchVal) ||
             s.email.toLowerCase().includes(searchVal) ||
             s.department.toLowerCase().includes(searchVal);
-          const matchesCollege = !academicFilters.collegeId || s.collegeId === academicFilters.collegeId;
-          const matchesDepartment = !academicFilters.department || s.department === academicFilters.department;
-          const matchesYear = matchesYearFilter(s.academicYear, academicFilters.academicYear);
-          const matchesSection = !academicFilters.section || s.section === academicFilters.section;
-          const matchesBatch = !academicFilters.batchId || (s.batchIds && s.batchIds.includes(academicFilters.batchId));
+            
+          const matchesHierarchy = filterStudentByAcademicFilters(s, academicFilters);
 
           const now = new Date().getTime();
           const createdTime = getCreatedTime(s.createdAt);
@@ -359,7 +347,7 @@ function StudentsContent() {
           else if (timeFilter === "MANUAL") matchesTime = s.enrollmentType === "manual" || !s.enrollmentType;
           else if (timeFilter === "SELF") matchesTime = s.enrollmentType === "self";
 
-          return matchesSearch && matchesCollege && matchesYear && matchesSection && matchesDepartment && matchesBatch && matchesTime;
+          return matchesSearch && matchesHierarchy && matchesTime;
         })
         .sort((a, b) => {
           if (timeFilter === "RECENT_24H" || timeFilter === "RECENT_7D") {
@@ -551,25 +539,22 @@ function StudentsContent() {
         </div>
 
         <div className="pt-3 border-t border-border/60">
-          <div className="grid grid-cols-1 md:flex md:flex-wrap items-end gap-3">
-            <div className="flex-1 min-w-[280px]">
-              <AcademicHierarchyFilters
-                levels={["institution", "department", "academicYear", "section", "batch"]}
-                filters={academicFilters}
-                onChange={setAcademicFilters}
-                collegeOptions={collegeOptions}
-                departmentOptions={departmentOptions}
-                academicYearOptions={academicYearOptions}
-                sectionOptions={sectionOptions}
-                batchOptions={batchOptions}
-                studentOptions={[]}
-                loading={hierarchyLoading}
-                showInstitution
-                institutionOptions={institutionOptions}
-              />
-            </div>
-
-            <div className="w-full md:w-64 xl:w-48">
+          <AcademicHierarchyFilters
+            levels={["institution", "department", "academicYear", "section", "batch"]}
+            filters={academicFilters}
+            filterValidation={filterValidation}
+            onChange={setAcademicFilters}
+            onReset={resetAcademicFilters}
+            collegeOptions={collegeOptions}
+            departmentOptions={departmentOptions}
+            academicYearOptions={academicYearOptions}
+            sectionOptions={sectionOptions}
+            batchOptions={batchOptions}
+            studentOptions={[]}
+            loading={hierarchyLoading}
+            showInstitution
+            institutionOptions={institutionOptions}
+            appendContent={
               <FilterDropdown
                 label="Added Time"
                 value={timeFilter === "ALL" ? "" : timeFilter}
@@ -581,8 +566,8 @@ function StudentsContent() {
                   { value: "MANUAL", label: "Manual Entry" },
                 ]}
               />
-            </div>
-          </div>
+            }
+          />
         </div>
       </div>
 

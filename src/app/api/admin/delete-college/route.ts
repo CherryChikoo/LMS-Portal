@@ -4,7 +4,7 @@ import { getFirestore } from "firebase-admin/firestore";
 
 export async function POST(request: NextRequest) {
   try {
-    const { id, adminIdToken } = await request.json();
+    const { id, collegeName: clientCollegeName, adminIdToken } = await request.json();
 
     if (!id || typeof id !== "string") {
       return NextResponse.json({ error: "College ID is required." }, { status: 400 });
@@ -27,15 +27,16 @@ export async function POST(request: NextRequest) {
     const db = getFirestore(getAdminApp());
 
     const requesterDoc = await db.collection("users").doc(requesterUid).get();
-    if (!requesterDoc.exists || requesterDoc.data()?.role !== "admin") {
-      return NextResponse.json({ error: "Only global admins can delete colleges." }, { status: 403 });
+    const requesterRole = requesterDoc.exists ? requesterDoc.data()?.role : undefined;
+    if (requesterRole !== "admin" && requesterRole !== "trainer") {
+      return NextResponse.json({ error: "Only admin or trainer roles can delete colleges." }, { status: 403 });
     }
 
     // 1. Fetch college document details first before deletion
     const collegeRef = db.collection("colleges").doc(id);
     const collegeUserDocRef = db.collection("users").doc(id);
     const collegeDoc = await collegeRef.get();
-    const collegeName = collegeDoc.exists ? collegeDoc.data()?.name : "";
+    const collegeName = collegeDoc.exists ? collegeDoc.data()?.name : (clientCollegeName || "");
 
     // 2. Delete college document FIRST so Firestore snapshot updates immediately
     const initialBatch = db.batch();
@@ -59,6 +60,12 @@ export async function POST(request: NextRequest) {
     const studentDocs = Array.from(studentDocsMap.values());
     const studentIds = studentDocs.map((d) => d.id);
 
+    // 3b. Also find college admin user docs to clean up
+    const collegeAdminSnap = await db.collection("users")
+      .where("role", "==", "college_admin")
+      .where("collegeId", "==", id)
+      .get().catch(() => ({ docs: [] }));
+
     // 4. Delete student Auth accounts concurrently in parallel
     const authDeletions = studentIds.map((studentId) =>
       auth.deleteUser(studentId).catch((err: any) => {
@@ -67,15 +74,23 @@ export async function POST(request: NextRequest) {
         }
       })
     );
+    // Delete the college doc ID as an auth user (legacy)
     authDeletions.push(auth.deleteUser(id).catch(() => {}));
+    // Delete college admin auth accounts
+    for (const adminDoc of collegeAdminSnap.docs) {
+      authDeletions.push(auth.deleteUser(adminDoc.id).catch(() => {}));
+    }
 
-    // 5. Batch delete student docs, user docs, and department docs
+    // 5. Batch delete student docs, user docs, department docs, and college admin user docs
     const refsToDelete: any[] = [];
     for (const doc of studentDocs) {
       refsToDelete.push(doc.ref);
       refsToDelete.push(db.collection("users").doc(doc.id));
     }
     for (const doc of departmentsSnap.docs) {
+      refsToDelete.push(doc.ref);
+    }
+    for (const doc of collegeAdminSnap.docs) {
       refsToDelete.push(doc.ref);
     }
 

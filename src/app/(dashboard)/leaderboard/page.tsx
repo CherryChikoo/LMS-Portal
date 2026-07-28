@@ -29,12 +29,14 @@ function LeaderboardContent() {
   const { resolveInstitution } = useEntityResolution();
   const [userRole, setUserRole] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
 
   // Filters
   const [search, setSearch] = useState("");
   const [filterCollege, setFilterCollege] = useState("all");
 
   useEffect(() => {
+    setMounted(true);
     try {
       const role = localStorage.getItem("lms_role");
       const user = JSON.parse(localStorage.getItem("lms_user") || "{}");
@@ -44,7 +46,7 @@ function LeaderboardContent() {
   }, []);
 
   const rankedStudents = useMemo(() => {
-    if (!students.length || !attempts.length) return [];
+    if (!mounted || !students.length || !attempts.length) return [];
 
     const statsMap = new Map<string, { score: number; max: number; count: number }>();
     

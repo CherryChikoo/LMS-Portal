@@ -97,7 +97,10 @@ export async function POST(request: NextRequest) {
             const studentDoc = await db.collection("students").doc(uid).get();
             const studentData = studentDoc.data() || {};
             const fallbackEmail = targetEmail || studentData.email;
-            const fallbackPassword = password || studentData.initialPassword || "Welcome@123";
+            let fallbackPassword = password || studentData.initialPassword || "Welcome@123";
+            if (typeof fallbackPassword !== "string" || fallbackPassword.length < 6) {
+              fallbackPassword = "Welcome@123";
+            }
             const fallbackName = studentData.name || "Student";
 
             if (!fallbackEmail) {
@@ -119,8 +122,8 @@ export async function POST(request: NextRequest) {
               { status: 409 }
             );
           }
-        } catch (fallbackErr: unknown) {
-          if ((fallbackErr as { code?: string })?.code === "auth/email-already-exists") {
+        } catch (fallbackErr: any) {
+          if (fallbackErr?.code === "auth/email-already-exists") {
             return NextResponse.json(
               { error: "This email address is already in use by another account." },
               { status: 409 }
@@ -128,14 +131,14 @@ export async function POST(request: NextRequest) {
           }
           console.error("Admin updateUser/createUser fallback error:", fallbackErr);
           return NextResponse.json(
-            { error: "Failed to update Firebase Auth account.", details: (fallbackErr as Error)?.message || String(fallbackErr) },
+            { error: fallbackErr?.message || "Failed to update Firebase Auth account." },
             { status: 500 }
           );
         }
       } else {
         console.error("Admin updateUser error:", authErr);
         return NextResponse.json(
-          { error: "Failed to update Firebase Auth account.", details: (authErr as Error)?.message || String(authErr) },
+          { error: (authErr as any)?.message || "Failed to update Firebase Auth account." },
           { status: 500 }
         );
       }

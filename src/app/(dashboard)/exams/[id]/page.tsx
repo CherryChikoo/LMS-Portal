@@ -43,6 +43,8 @@ import {
   getExamById,
   getResultsByExam,
   getStudentAttemptsForCurrentUser,
+  getStudentById,
+  getStudentByEmail,
 } from "@/lib/services";
 import { isAssignedToStudent } from "@/lib/services/assignment-engine";
 import { getCurrentUser } from "@/lib/utils/auth-session";
@@ -115,24 +117,7 @@ function formatDateOnly(value: unknown): string {
   return formatted ?? "—";
 }
 
-function buildStudentProfileFromMe(me: { uid: string; email: string; profile: Record<string, unknown> }): Student {
-  const profile = me.profile || {};
-  return {
-    id: me.uid,
-    name: (profile.name as string) || (profile.displayName as string) || "",
-    email: me.email,
-    collegeId: (profile.collegeId as string) || "",
-    collegeName: (profile.collegeName as string) || "",
-    department: (profile.department as string) || "",
-    academicYear: (profile.academicYear as string) || "",
-    section: (profile.section as string) || "",
-    rollNumber: (profile.rollNumber as string) || "",
-    batchIds: (profile.batchIds as string[]) || [],
-    semester: (profile.semester as number) || 1,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
-}
+
 
 interface AssignedStat {
   totalAssigned: number;
@@ -355,8 +340,22 @@ export default function ExamDetailsPage({ params }: PageProps) {
         if (role === "student") {
           const me = await getCurrentUser();
           if (me) {
-            const studProfile = buildStudentProfileFromMe(me);
-            setStudentUser(studProfile);
+            let studProfile = me.uid ? await getStudentById(me.uid) : null;
+            if (!studProfile && me.email) {
+              studProfile = await getStudentByEmail(me.email);
+            }
+            if (studProfile) {
+              setStudentUser(studProfile);
+            } else {
+              // Fallback to minimal profile if Firestore fetch fails but auth exists
+              setStudentUser({
+                id: me.uid,
+                name: me.profile?.name as string || me.profile?.displayName as string || "",
+                email: me.email,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+              } as Student);
+            }
             if (examData) {
               try {
                 const studentAttempts = await getStudentAttemptsForCurrentUser(me.uid, me.email);

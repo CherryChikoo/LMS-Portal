@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { Clock, AlertTriangle, CheckCircle2, Bookmark, ArrowLeft, ArrowRight, Send, ShieldCheck, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/shared/theme-toggle";
-import { getExamById, submitExamAttempt, getStudentAttemptsForCurrentUser, getEffectiveExamStatus, filterExamsForStudent } from "@/lib/services";
+import { getExamById, submitExamAttempt, getStudentAttemptsForCurrentUser, getEffectiveExamStatus, filterExamsForStudent, getStudentById, getStudentByEmail } from "@/lib/services";
 import { getCurrentUser } from "@/lib/utils/auth-session";
 import type { Exam, QuestionPaletteState, Student, ExamAttempt } from "@/types";
 
@@ -86,22 +86,24 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
             }
 
             // Verify this exam is actually assigned to the current student.
-            const studentProfile: Student = {
-              id: sId,
-              name: (me?.profile?.name as string) || (me?.profile?.displayName as string) || "",
-              email: sEmail,
-              collegeId: (me?.profile?.collegeId as string) || "",
-              collegeName: (me?.profile?.collegeName as string) || "",
-              department: (me?.profile?.department as string) || "",
-              academicYear: (me?.profile?.academicYear as string) || "",
-              section: (me?.profile?.section as string) || "",
-              rollNumber: (me?.profile?.rollNumber as string) || "",
-              batchIds: (me?.profile?.batchIds as string[]) || [],
-              semester: (me?.profile?.semester as number) || 1,
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            };
-            if (filterExamsForStudent([data], studentProfile).length === 0) {
+            let studentProfile = sId ? await getStudentById(sId) : null;
+            if (!studentProfile && sEmail) {
+              studentProfile = await getStudentByEmail(sEmail);
+            }
+            if (!studentProfile) {
+              setAccessDeniedReason("Student Account Not Found. Please contact your administrator.");
+              setLoading(false);
+              return;
+            }
+
+            // Sync latest candidate name if the Firestore profile differs
+            if (studentProfile.name && studentProfile.name !== candidateName) {
+              setCandidateName(studentProfile.name);
+            }
+
+            const isEligible = filterExamsForStudent([data], studentProfile).length > 0;
+
+            if (!isEligible) {
               setAccessDeniedReason("Assessment Not Assigned. This evaluation is not assigned to your batch or academic hierarchy.");
               setLoading(false);
               return;

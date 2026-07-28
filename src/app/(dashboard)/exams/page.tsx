@@ -4,7 +4,7 @@ import { useEffect, useState, Suspense, useMemo, Fragment } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
-import { ClipboardList, Plus, FileCode, Play, Eye, Edit3, Trash2, Target, Clock, CheckCircle2, ArrowLeft, ArrowRight, Sparkles, Send, Search, Calendar, Building2, Ban } from "lucide-react";
+import { ClipboardList, Plus, FileCode, Play, Eye, Edit3, Trash2, Target, Clock, CheckCircle2, ArrowLeft, ArrowRight, Sparkles, Send, Search, Calendar, Building2, Ban, Zap } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
@@ -40,7 +40,7 @@ function ActionHandler({ onAction }: { onAction: (action: string) => void }) {
 
 export default function ExamsPage() {
   const router = useRouter();
-  const { filteredExams: allExams, filteredAttempts: attempts, loading } = useLMSData();
+  const { filteredExams: allExams, filteredAttempts: attempts, filteredStudents: students, loading } = useLMSData();
   const { resolveInstitution, resolveStudent, resolveBatch } = useEntityResolution();
   const exams = useMemo(() => (allExams as Exam[]).filter((e: Exam) => !e.deletedAt), [allExams]);
   
@@ -116,14 +116,18 @@ export default function ExamsPage() {
       }
       const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
       if (uStr) {
-        setStudentUser(JSON.parse(uStr) as Student);
+        const parsed = JSON.parse(uStr);
+        const sId = parsed.id || parsed.uid;
+        const sEmail = parsed.email;
+        const canonical = students.find((s: Student) => s.id === sId || (sEmail && s.email === sEmail));
+        setStudentUser((canonical || parsed) as Student);
       } else {
         setStudentUser({ id: "", name: "", email: "", department: "", collegeId: "", collegeName: "", batchIds: [], semester: 0, section: "", rollNumber: "", createdAt: new Date(), updatedAt: new Date() } as Student);
       }
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (_err) {
     }
-  }, []);
+  }, [students]);
 
   // Compute the target details route for an exam card. Students always go
   // to the student pre-exam page; trainers/admins respect the /admin prefix
@@ -325,13 +329,15 @@ export default function ExamsPage() {
         const data = await res.json().catch(() => ({}));
 
         if (!res.ok || (data && data.failedCount && data.failedCount > 0)) {
-          // AI generation failed for some/all questions -> Rollback
-          const { deleteDocument } = await import("@/lib/firebase/firestore");
-          await deleteDocument("exams", newExamId);
-          throw new Error("Failed to generate complete AI explanations. Assessment creation was aborted.");
+          // AI generation failed for some/all questions -> DO NOT rollback. Keep the exam.
+          console.warn("AI generation failed for some questions:", data);
+          toast.success("Assessment created successfully.", { id: loadingToastId });
+          setTimeout(() => {
+            toast.error("Note: AI Explanations failed to generate. Please check your API key.", { duration: 5000 });
+          }, 1000);
+        } else {
+          toast.success("Assessment created and AI Explanations successfully generated!", { id: loadingToastId });
         }
-        
-        toast.success("AI Explanations successfully generated!", { id: loadingToastId });
       } else {
         toast.success("Assessment created successfully.");
       }
@@ -1132,56 +1138,147 @@ export default function ExamsPage() {
                 </div>
               </div>
 
-              {/* Scheduling Options */}
-              <div className="p-3.5 rounded-xl bg-muted/30 border border-border space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-foreground flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-brand" />
-                    <span>Assessment Activation & Timing Window</span>
-                  </label>
-                  <div className="flex items-center gap-2">
+              {/* Premium Scheduling UI */}
+              <div className="p-4 sm:p-5 rounded-2xl bg-card border border-border/60 shadow-sm relative overflow-hidden group/schedule transition-all duration-300 hover:border-brand/30">
+                
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
+                  <div>
+                    <label className="text-sm font-bold text-foreground flex items-center gap-2">
+                      <div className="p-1.5 rounded-lg bg-brand/10 text-brand">
+                        <Clock className="w-4 h-4" />
+                      </div>
+                      Assessment Timing Window
+                    </label>
+                    <p className="text-xs text-muted-foreground mt-1 ml-9">Choose when students can access and take this test.</p>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 bg-muted/50 p-1 rounded-xl border border-border/50 w-full sm:w-auto">
                     <button
                       type="button"
                       onClick={() => setScheduleMode("immediate")}
-                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
-                        scheduleMode === "immediate" ? "bg-brand text-white shadow" : "bg-card text-muted-foreground border border-border"
+                      className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all duration-200 ${
+                        scheduleMode === "immediate" 
+                          ? "bg-background text-foreground shadow-sm ring-1 ring-border" 
+                          : "text-muted-foreground hover:text-foreground hover:bg-background/50"
                       }`}
                     >
-                      Active Immediately
+                      <Zap className={`w-3.5 h-3.5 ${scheduleMode === "immediate" ? "text-amber-500 fill-amber-500" : ""}`} />
+                      Active Now
                     </button>
                     <button
                       type="button"
                       onClick={() => setScheduleMode("scheduled")}
-                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
-                        scheduleMode === "scheduled" ? "bg-brand text-white shadow" : "bg-card text-muted-foreground border border-border"
+                      className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all duration-200 ${
+                        scheduleMode === "scheduled" 
+                          ? "bg-brand text-white shadow-sm shadow-brand/20 ring-1 ring-brand" 
+                          : "text-muted-foreground hover:text-foreground hover:bg-background/50"
                       }`}
                     >
-                      Schedule Window
+                      <Calendar className="w-3.5 h-3.5" />
+                      Schedule Date
                     </button>
                   </div>
                 </div>
 
                 {scheduleMode === "scheduled" && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                    <div className="space-y-1">
-                      <span className="text-[11px] font-semibold text-muted-foreground">Start Date & Time (Becomes Active)</span>
-                      <input
-                        type="datetime-local"
-                        value={startTimeStr}
-                        min={new Date().toISOString().slice(0, 16)}
-                        onChange={(e) => setStartTimeStr(e.target.value)}
-                        className="w-full h-9 px-3 rounded-lg border border-border bg-background text-xs font-semibold text-foreground"
-                      />
+                  <div className="mt-4 p-4 rounded-xl bg-background border border-border/50 grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in slide-in-from-top-2 duration-200">
+                    <div className="space-y-3 group">
+                      <label className="text-[12px] font-bold text-foreground flex items-center gap-2">
+                        <div className="w-1.5 h-1.5 rounded-full bg-brand"></div>
+                        Start Time (Opens)
+                      </label>
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <div className="relative flex-1">
+                          <input
+                            type="date"
+                            value={startTimeStr ? startTimeStr.split('T')[0] : ''}
+                            min={new Date().toISOString().split('T')[0]}
+                            onChange={(e) => {
+                              const dateVal = e.target.value;
+                              if (!dateVal) return;
+                              // If no time is set yet, default to current time instead of midnight to avoid instant validation failures for "today"
+                              let timeVal = startTimeStr ? (startTimeStr.split('T')[1] || '') : '';
+                              if (!timeVal) {
+                                const now = new Date();
+                                timeVal = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+                              }
+                              const newVal = `${dateVal}T${timeVal}`;
+                              setStartTimeStr(newVal);
+                            }}
+                            className="w-full h-11 px-3.5 rounded-lg border border-border/60 bg-muted/20 text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand/50 focus:bg-background transition-all cursor-pointer"
+                            style={{ colorScheme: "dark" }}
+                          />
+                        </div>
+                        <div className="relative w-full sm:w-[140px]">
+                          <input
+                            type="time"
+                            value={startTimeStr ? startTimeStr.split('T')[1] : ''}
+                            onChange={(e) => {
+                              const timeVal = e.target.value;
+                              if (!timeVal) return;
+                              const dateVal = startTimeStr ? startTimeStr.split('T')[0] : new Date().toISOString().split('T')[0];
+                              const newVal = `${dateVal}T${timeVal}`;
+                              setStartTimeStr(newVal);
+                            }}
+                            className="w-full h-11 px-3.5 rounded-lg border border-border/60 bg-muted/20 text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand/50 focus:bg-background transition-all cursor-pointer"
+                            style={{ colorScheme: "dark" }}
+                          />
+                        </div>
+                      </div>
                     </div>
-                    <div className="space-y-1">
-                      <span className="text-[11px] font-semibold text-muted-foreground">End Date & Time (Closes)</span>
-                      <input
-                        type="datetime-local"
-                        value={endTimeStr}
-                        min={startTimeStr || new Date().toISOString().slice(0, 16)}
-                        onChange={(e) => setEndTimeStr(e.target.value)}
-                        className="w-full h-9 px-3 rounded-lg border border-border bg-background text-xs font-semibold text-foreground"
-                      />
+                    
+                    <div className="space-y-3 group">
+                      <label className="text-[12px] font-bold text-foreground flex items-center gap-2">
+                        <div className="w-1.5 h-1.5 rounded-full bg-destructive"></div>
+                        End Time (Closes)
+                      </label>
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <div className="relative flex-1">
+                          <input
+                            type="date"
+                            value={endTimeStr ? endTimeStr.split('T')[0] : ''}
+                            min={startTimeStr ? startTimeStr.split('T')[0] : new Date().toISOString().split('T')[0]}
+                            onChange={(e) => {
+                              const dateVal = e.target.value;
+                              if (!dateVal) return;
+                              // If no time is set, default to 1 hour after start time if available
+                              let timeVal = endTimeStr ? (endTimeStr.split('T')[1] || '') : '';
+                              if (!timeVal) {
+                                if (startTimeStr) {
+                                  const startD = new Date(startTimeStr);
+                                  startD.setHours(startD.getHours() + 1);
+                                  timeVal = `${startD.getHours().toString().padStart(2, '0')}:${startD.getMinutes().toString().padStart(2, '0')}`;
+                                } else {
+                                  const now = new Date();
+                                  now.setHours(now.getHours() + 1);
+                                  timeVal = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+                                }
+                              }
+                              const newVal = `${dateVal}T${timeVal}`;
+                              setEndTimeStr(newVal);
+                            }}
+                            disabled={!startTimeStr}
+                            className="w-full h-11 px-3.5 rounded-lg border border-border/60 bg-muted/20 text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand/50 focus:bg-background transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                            style={{ colorScheme: "dark" }}
+                          />
+                        </div>
+                        <div className="relative w-full sm:w-[140px]">
+                          <input
+                            type="time"
+                            value={endTimeStr ? endTimeStr.split('T')[1] : ''}
+                            onChange={(e) => {
+                              const timeVal = e.target.value;
+                              if (!timeVal) return;
+                              const dateVal = endTimeStr ? endTimeStr.split('T')[0] : (startTimeStr ? startTimeStr.split('T')[0] : new Date().toISOString().split('T')[0]);
+                              const newVal = `${dateVal}T${timeVal}`;
+                              setEndTimeStr(newVal);
+                            }}
+                            disabled={!startTimeStr}
+                            className="w-full h-11 px-3.5 rounded-lg border border-border/60 bg-muted/20 text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand/50 focus:bg-background transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                            style={{ colorScheme: "dark" }}
+                          />
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}

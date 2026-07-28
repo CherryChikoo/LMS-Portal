@@ -180,11 +180,11 @@ export function Topbar() {
               >
                 <Avatar className="h-7 w-7 ring-2 ring-brand/30">
                   <AvatarImage src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(userName)}`} />
-                  <AvatarFallback className="bg-brand text-brand-foreground dark:text-brand-foreground text-xs font-bold" suppressHydrationWarning>
+                  <AvatarFallback className="bg-brand text-brand-foreground dark:text-brand-foreground text-xs font-bold">
                     {initials}
                   </AvatarFallback>
                 </Avatar>
-                <span className="text-sm font-semibold text-foreground hidden sm:inline-block" suppressHydrationWarning>
+                <span className="text-sm font-semibold text-foreground hidden sm:inline-block">
                   {userName}
                 </span>
               </Button>
@@ -192,8 +192,8 @@ export function Topbar() {
           />
           <DropdownMenuContent align="end" className="w-56 bg-popover border-border rounded-xl p-2 shadow-2xl">
             <div className="px-3 py-2.5 border-b border-border mb-1">
-              <p className="text-sm font-bold text-foreground" suppressHydrationWarning>{userName}</p>
-              <p className="text-xs text-muted-foreground font-medium" suppressHydrationWarning>{userRole}</p>
+              <p className="text-sm font-bold text-foreground">{userName}</p>
+              <p className="text-xs text-muted-foreground font-medium">{userRole}</p>
             </div>
             <DropdownMenuItem render={<Link href={userRole.toLowerCase() === "student" ? "/student/settings" : "/admin/settings"}>Account Settings</Link>} className="rounded-md cursor-pointer" />
             {userRole.toLowerCase() !== "student" && (

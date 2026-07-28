@@ -62,7 +62,7 @@ function LoginContent() {
       
       await setAuthSession(uObj, res.role as "admin" | "trainer" | "college_admin" | "student");
       
-      const target = res.role === "student" ? "/student" : (res.role === "college_admin" ? "/colleges" : "/admin");
+      const target = res.role === "student" ? "/student" : (res.role === "college_admin" ? "/" : "/admin");
       window.location.assign(target);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -101,7 +101,7 @@ function LoginContent() {
       if (res.role === "student") {
         window.location.assign("/student");
       } else if (res.role === "college_admin") {
-        window.location.assign("/colleges");
+        window.location.assign("/");
       } else {
         window.location.assign("/admin");
       }

@@ -1,13 +1,14 @@
 "use client";
 
-import { useId, useState, useEffect } from "react";
+import { useId } from "react";
 import { cn } from "@/lib/utils";
 import { FilterDropdown } from "@/components/shared/filter-dropdown";
 import type { SelectOption } from "@/types";
-import type { AcademicFilters } from "@/lib/hierarchy/hierarchy-data";
+import type { AcademicFilters, FilterValidation } from "@/lib/hierarchy/hierarchy-data";
 import type { AcademicHierarchyLevel } from "@/lib/hierarchy/use-academic-hierarchy";
 import { useEntityResolution } from "@/lib/data/use-entity-resolution";
 import { useLMSData } from "@/lib/data/use-lms-data";
+import { RotateCcw } from "lucide-react";
 
 export interface LevelConfig {
   level: AcademicHierarchyLevel;
@@ -29,7 +30,9 @@ export interface AcademicHierarchyFiltersProps {
   batchOptions: SelectOption[];
   studentOptions: SelectOption[];
   filters: AcademicFilters;
+  filterValidation?: FilterValidation;
   onChange: (filters: Partial<AcademicFilters>) => void;
+  onReset?: () => void;
   loading?: boolean;
   className?: string;
   selectClassName?: string;
@@ -37,6 +40,7 @@ export interface AcademicHierarchyFiltersProps {
   disabled?: boolean;
   layout?: AcademicHierarchyLayout;
   showInstitution?: boolean;
+  appendContent?: React.ReactNode;
 }
 
 const DEFAULT_LEVELS: AcademicHierarchyLevel[] = [
@@ -132,40 +136,15 @@ function buildChangeForLevel(
   switch (level) {
     case "institution":
     case "college":
-      return {
-        collegeId: value,
-        department: "",
-        academicYear: "",
-        section: "",
-        batchId: "",
-        studentId: "",
-      };
+      return { collegeId: value };
     case "department":
-      return {
-        department: value,
-        academicYear: "",
-        section: "",
-        batchId: "",
-        studentId: "",
-      };
+      return { department: value };
     case "academicYear":
-      return {
-        academicYear: value,
-        section: "",
-        batchId: "",
-        studentId: "",
-      };
+      return { academicYear: value };
     case "section":
-      return {
-        section: value,
-        batchId: "",
-        studentId: "",
-      };
+      return { section: value };
     case "batch":
-      return {
-        batchId: value,
-        studentId: "",
-      };
+      return { batchId: value };
     case "student":
       return { studentId: value };
     default:
@@ -191,7 +170,9 @@ export function AcademicHierarchyFilters({
   batchOptions,
   studentOptions,
   filters,
+  filterValidation,
   onChange,
+  onReset,
   loading,
   className,
   selectClassName,
@@ -199,6 +180,7 @@ export function AcademicHierarchyFilters({
   disabled,
   layout = "responsive",
   showInstitution = false,
+  appendContent,
 }: AcademicHierarchyFiltersProps) {
   const baseId = useId();
   const resolvers = useEntityResolution();
@@ -221,61 +203,57 @@ export function AcademicHierarchyFilters({
   const isHorizontal = layout === "horizontal";
   const hasBatchLevel = effectiveLevels.some((l) => l.level === "batch");
 
-  const [disableRemaining, setDisableRemaining] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    try {
-      return localStorage.getItem("lms_disable_remaining_filters") === "true";
-    } catch {
-      return false;
-    }
-  });
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const stored = localStorage.getItem("lms_disable_remaining_filters") === "true";
-      if (stored !== disableRemaining) {
-        setDisableRemaining(stored);
-      }
-    } catch {}
-  }, []);
+  const batchOnlyMode = filters.batchOnlyMode ?? false;
 
   const handleToggleDisableRemaining = (checked: boolean) => {
-    setDisableRemaining(checked);
-    try {
-      localStorage.setItem("lms_disable_remaining_filters", checked ? "true" : "false");
-    } catch {}
-
-    if (checked) {
-      // Clear remaining parent filters when standalone batch mode is enabled
-      onChange({
-        collegeId: "",
-        department: "",
-        academicYear: "",
-        section: "",
-      });
-    }
+    onChange({ batchOnlyMode: checked });
   };
 
   return (
     <div className="space-y-4 w-full">
       {hasBatchLevel && (
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 rounded-2xl bg-secondary/50 border border-border/80 text-sm font-medium text-foreground shadow-sm">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 py-3 text-sm font-medium text-foreground">
+          <div className="flex items-center gap-2 shrink-0">
             <span className="w-2 h-2 rounded-full bg-brand animate-pulse" />
-            <span className="font-bold tracking-tight">Batch Filtering Mode</span>
+            <span className="font-bold tracking-tight text-base">Batch Filtering</span>
           </div>
-          <label className="flex items-center gap-2 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={disableRemaining}
-              onChange={(e) => handleToggleDisableRemaining(e.target.checked)}
-              className="rounded border-border text-brand focus:ring-brand/50 w-4 h-4 cursor-pointer"
-            />
-            <span className="text-muted-foreground hover:text-foreground transition-colors font-medium">
-              Disable remaining hierarchy filters (College, Dept, Year, Section)
-            </span>
-          </label>
+          
+          <div className="flex bg-muted/50 p-1 rounded-full border border-border/50">
+            <button
+              type="button"
+              onClick={() => handleToggleDisableRemaining(false)}
+              className={cn(
+                "px-4 py-1.5 rounded-full text-sm font-semibold transition-all duration-200 ease-in-out",
+                !batchOnlyMode 
+                  ? "bg-background text-foreground shadow-sm ring-1 ring-border" 
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Combined (Recommended)
+            </button>
+            <button
+              type="button"
+              onClick={() => handleToggleDisableRemaining(true)}
+              className={cn(
+                "px-4 py-1.5 rounded-full text-sm font-semibold transition-all duration-200 ease-in-out",
+                batchOnlyMode 
+                  ? "bg-background text-foreground shadow-sm ring-1 ring-border" 
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Batch Only
+            </button>
+          </div>
+          {onReset && (
+            <button
+              type="button"
+              onClick={onReset}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-all duration-200"
+            >
+              <RotateCcw className="w-3 h-3" />
+              Reset
+            </button>
+          )}
         </div>
       )}
       <div
@@ -306,9 +284,15 @@ export function AcademicHierarchyFilters({
           >);
           const value = getValueForLevel(level, filters);
           const isRemainingFilter = level !== "batch" && level !== "student";
-          const isDisabled = disabled || levelDisabled || loading || options.length <= 1 || (disableRemaining && isRemainingFilter);
+          const hasNoOptions = options.filter(o => o.value !== "").length === 0;
+          const isDisabled = disabled || levelDisabled || loading || hasNoOptions || (batchOnlyMode && isRemainingFilter);
           const id = `${baseId}-${level}`;
           const fieldLabel = label ?? DEFAULT_LABELS[level];
+
+          let resolveLabelFn = undefined;
+          if (level === "institution" || level === "college") resolveLabelFn = resolvers.resolveInstitution;
+          else if (level === "batch") resolveLabelFn = resolvers.resolveBatch;
+          else if (level === "student") resolveLabelFn = resolvers.resolveStudent;
 
           return (
             <FilterDropdown
@@ -316,25 +300,19 @@ export function AcademicHierarchyFilters({
               label={fieldLabel}
               value={value}
               disabled={isDisabled}
+              resolveLabel={resolveLabelFn}
               placeholder={allLabel ?? placeholder ?? DEFAULT_ALL_LABELS[level] ?? `All ${fieldLabel}s`}
               options={options}
               variant={level === "batch" ? "batch" : "default"}
               loading={isLoading}
               onChange={(val) => {
                 const change = buildChangeForLevel(level, val);
-                if (level === "batch" && disableRemaining && val !== "") {
-                  Object.assign(change, {
-                    collegeId: "",
-                    department: "",
-                    academicYear: "",
-                    section: "",
-                  });
-                }
                 onChange(change);
               }}
             />
           );
         })}
+        {appendContent}
       </div>
     </div>
   );

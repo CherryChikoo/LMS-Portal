@@ -79,21 +79,10 @@ export function getEffectiveExamStatus(exam: Exam): ExamStatus {
 
 /**
  * Filter exams assigned to a specific student based on hierarchy or direct student target.
- * Only shows exams that were created AFTER the student account was created.
  */
 export function filterExamsForStudent(exams: Exam[], student: Student): Exam[] {
   return exams.filter((exam) => {
-    if (!isAssignedToStudent(exam.targets, student)) return false;
-
-    const studentCreatedMillis = toMillis(student.createdAt) ?? 0;
-    const examCreatedMillis = toMillis(exam.createdAt) ?? 0;
-
-    // If the exam was created BEFORE the student's account was created, hide it
-    if (studentCreatedMillis > 0 && examCreatedMillis > 0 && examCreatedMillis < studentCreatedMillis) {
-      return false;
-    }
-
-    return true;
+    return isAssignedToStudent(exam.targets, student);
   });
 }
 

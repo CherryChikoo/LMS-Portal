@@ -15,6 +15,7 @@ import { fadeInUp } from "@/lib/animations";
 import { uniqueOptions } from "@/lib/utils/array";
 import { getCollegeById, updateCollege, createCollege, getAllStudents, createStudentProfile, createStudentAuthProfile, getAllBatches, deleteStudentProfile, getStudentByEmail, getStudentsByCollege, updateStudentProfile, deleteDepartmentAndMigrate, renameDepartmentAndMigrate, PREDEFINED_DEPARTMENTS, ensureGeneralDepartment } from "@/lib/services";
 import { getDocuments, where } from "@/lib/firebase/firestore";
+import { matchesYearFilter } from "@/lib/hierarchy/hierarchy-data";
 import type { College, Student, Batch } from "@/types";
 
 interface PageProps {
@@ -45,6 +46,19 @@ export default function CollegeDetailPage({ params }: PageProps) {
   const [loading, setLoading] = useState(true);
   const [isExternal, setIsExternal] = useState(false);
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void } | null>(null);
+  const [isCollegeAdmin, setIsCollegeAdmin] = useState(false);
+
+  useEffect(() => {
+    try {
+      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      if (uStr) {
+        const parsed = JSON.parse(uStr);
+        if (parsed.role === "college_admin") {
+          setIsCollegeAdmin(true);
+        }
+      }
+    } catch (_) {}
+  }, []);
 
 function getYearBadgeStyle(year?: string) {
   const y = year || "1st Year";
@@ -495,22 +509,10 @@ function getYearBadgeStyle(year?: string) {
 
   const departments = college.departments && college.departments.length > 0 ? college.departments : ["General Academy"];
 
-  const matchesYearFilter = (studentYear: string = "", filter: string): boolean => {
-    if (filter === "ALL") return true;
-    const s = studentYear.trim().toLowerCase();
-    const f = filter.trim().toLowerCase();
-    if (s === f) return true;
-    if (f.startsWith("1") || f.includes("1st")) return s.startsWith("1") || s.includes("1st") || s.includes("first");
-    if (f.startsWith("2") || f.includes("2nd")) return s.startsWith("2") || s.includes("2nd") || s.includes("second");
-    if (f.startsWith("3") || f.includes("3rd")) return s.startsWith("3") || s.includes("3rd") || s.includes("third");
-    if (f.startsWith("4") || f.includes("4th")) return s.startsWith("4") || s.includes("4th") || s.includes("fourth");
-    return s.includes(f) || f.includes(s);
-  };
-
   const filteredStudents = students
     .filter((s) => {
       const matchesDept = selectedDeptFilter === "ALL" || s.department === selectedDeptFilter;
-      const matchesYear = matchesYearFilter(s.academicYear, selectedYearFilter);
+      const matchesYear = matchesYearFilter(s.academicYear, selectedYearFilter === "ALL" ? "" : selectedYearFilter);
       const matchesSection = selectedSectionFilter === "ALL" || s.section === selectedSectionFilter;
       const matchesSearch =
         s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -625,9 +627,11 @@ function getYearBadgeStyle(year?: string) {
     <motion.div initial="hidden" animate="visible" variants={fadeInUp} className="space-y-8">
       {/* Top navigation bar */}
       <div className="flex items-center justify-between">
-        <Link href="/colleges" className="inline-flex items-center gap-1.5 text-xs font-bold text-muted-foreground hover:text-brand transition-colors">
-          <ArrowLeft className="w-4 h-4" /> Back to All Colleges
-        </Link>
+        {!isCollegeAdmin && (
+          <Link href="/colleges" className="inline-flex items-center gap-1.5 text-xs font-bold text-muted-foreground hover:text-brand transition-colors">
+            <ArrowLeft className="w-4 h-4" /> Back to All Colleges
+          </Link>
+        )}
       </div>
 
       <PageHeader

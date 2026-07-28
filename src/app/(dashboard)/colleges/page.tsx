@@ -80,15 +80,23 @@ export default function CollegesPage() {
           // 2. Instant client-side Firestore document deletion
           await deleteCollege(col.id);
 
-          // 3. Background server API cleanup for student accounts & auth records
+          // 3. Server API cleanup for student auth accounts (awaited so errors surface)
           const auth = getAuth();
           const token = await auth.currentUser?.getIdToken();
           if (token) {
-            fetch("/api/admin/delete-college", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ id: col.id, adminIdToken: token }),
-            }).catch((err) => console.error("Background college delete cleanup error:", err));
+            try {
+              const resp = await fetch("/api/admin/delete-college", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ id: col.id, collegeName: col.name, adminIdToken: token }),
+              });
+              if (!resp.ok) {
+                const data = await resp.json().catch(() => ({}));
+                console.error("Server delete-college error:", data.error || resp.statusText);
+              }
+            } catch (err) {
+              console.error("Background college delete cleanup error:", err);
+            }
           }
         } catch (err: any) {
           console.error("Failed to delete college:", err);
@@ -136,19 +144,20 @@ export default function CollegesPage() {
           // Instant Firestore document deletion for each college
           await Promise.all(idsToDelete.map((id) => deleteCollege(id)));
 
-          // Background server API cleanup
+          // Server API cleanup (awaited)
           const auth = getAuth();
           const token = await auth.currentUser?.getIdToken();
           if (token) {
-            Promise.all(
-              idsToDelete.map((id) =>
-                fetch("/api/admin/delete-college", {
+            await Promise.all(
+              idsToDelete.map((id) => {
+                const col = colleges.find((c) => c.id === id);
+                return fetch("/api/admin/delete-college", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ id, adminIdToken: token }),
-                })
-              )
-            ).catch((err) => console.error("Background batch college delete cleanup error:", err));
+                  body: JSON.stringify({ id, collegeName: col?.name || "", adminIdToken: token }),
+                }).catch((err) => console.error("College delete cleanup error:", err));
+              })
+            );
           }
         } catch (err: any) {
           console.error("Failed to delete selected colleges:", err);

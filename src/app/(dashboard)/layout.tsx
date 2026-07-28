@@ -103,6 +103,12 @@ export default function DashboardLayout({
       import("firebase/firestore").then(({ doc, onSnapshot }) => {
         import("@/lib/firebase/config").then(({ db }) => {
           const unsubId = onSnapshot(doc(db, "students", parsedUser.id), (docSnap) => {
+            if (!docSnap.exists() || docSnap.data()?.status === "deleted" || docSnap.data()?.isDeleted) {
+              import("@/lib/utils/auth-session").then(({ clearAuthSession }) => {
+                clearAuthSession("/login?error=account_deleted");
+              });
+              return;
+            }
             if (docSnap.exists()) {
               const s = docSnap.data();
               if (s.status === "restricted") {
@@ -141,6 +147,12 @@ export default function DashboardLayout({
       import("firebase/firestore").then(({ doc, onSnapshot }) => {
         import("@/lib/firebase/config").then(({ db }) => {
           const unsubUser = onSnapshot(doc(db, "users", parsedUser.id), (docSnap) => {
+            if (!docSnap.exists()) {
+              import("@/lib/utils/auth-session").then(({ clearAuthSession }) => {
+                clearAuthSession("/login?error=account_deleted");
+              });
+              return;
+            }
             if (docSnap.exists()) {
               const u = docSnap.data();
               const updated = {

@@ -7,6 +7,7 @@ export interface AcademicFilters {
   section: string;
   batchId: string;
   studentId: string;
+  batchOnlyMode?: boolean;
 }
 
 /**
@@ -63,6 +64,7 @@ export const EMPTY_FILTERS: AcademicFilters = {
   section: "",
   batchId: "",
   studentId: "",
+  batchOnlyMode: false,
 };
 
 export interface Hierarchy {
@@ -405,6 +407,43 @@ export function getAllSections(hierarchy: Hierarchy): string[] {
   return aggregateValues(collected);
 }
 
+export function getYearsForCollege(hierarchy: Hierarchy, collegeId: string): string[] {
+  if (!hierarchy || !collegeId) return [];
+  const collected: string[] = [];
+  hierarchy.students.forEach((s) => {
+    if (s.collegeId === collegeId) collected.push(s.academicYear || "");
+  });
+  hierarchy.batches.forEach((b) => {
+    if (b.collegeId === collegeId) collected.push(b.academicYear || "");
+  });
+  return aggregateValues(collected);
+}
+
+export function getSectionsForCollege(hierarchy: Hierarchy, collegeId: string): string[] {
+  if (!hierarchy || !collegeId) return [];
+  const collected: string[] = [];
+  hierarchy.students.forEach((s) => {
+    if (s.collegeId === collegeId) collected.push(cleanSectionName(s.section));
+  });
+  hierarchy.batches.forEach((b) => {
+    if (b.collegeId === collegeId) collected.push(cleanSectionName(b.section || ""));
+  });
+  return aggregateValues(collected);
+}
+
+export function getSectionsForCollegeAndDepartment(hierarchy: Hierarchy, collegeId: string, department: string): string[] {
+  if (!hierarchy || !collegeId || !department) return [];
+  const collected: string[] = [];
+  hierarchy.students.forEach((s) => {
+    if (s.collegeId === collegeId && s.department === department) collected.push(cleanSectionName(s.section));
+  });
+  hierarchy.batches.forEach((b) => {
+    if (b.collegeId === collegeId && b.department === department) collected.push(cleanSectionName(b.section || ""));
+  });
+  return aggregateValues(collected);
+}
+
+
 export function toSelectOptions(values: string[]): SelectOption[] {
   return values.map((v) => {
     const cleaned = cleanSectionName(v);
@@ -688,4 +727,144 @@ export function matchesAssignmentTarget(student: Student, target: AssignmentTarg
   }
 
   return true;
+}
+
+export function matchesYearFilter(studentYear: string | undefined | null, filterYear: string): boolean {
+  if (!filterYear) return true;
+  const s = (studentYear || "").trim().toLowerCase();
+  const f = filterYear.trim().toLowerCase();
+  if (s === f) return true;
+  if (f.startsWith("1") || f.includes("1st")) return s.startsWith("1") || s.includes("1st") || s.includes("first");
+  if (f.startsWith("2") || f.includes("2nd")) return s.startsWith("2") || s.includes("2nd") || s.includes("second");
+  if (f.startsWith("3") || f.includes("3rd")) return s.startsWith("3") || s.includes("3rd") || s.includes("third");
+  if (f.startsWith("4") || f.includes("4th")) return s.startsWith("4") || s.includes("4th") || s.includes("fourth");
+  return s.includes(f) || f.includes(s);
+}
+
+export function filterStudentByAcademicFilters(student: Student, filters: AcademicFilters): boolean {
+  if (!filters.batchOnlyMode) {
+    if (filters.collegeId && student.collegeId !== filters.collegeId) return false;
+    if (filters.department && student.department !== filters.department) return false;
+    if (filters.academicYear && !matchesYearFilter(student.academicYear, filters.academicYear)) return false;
+    if (filters.section && student.section !== filters.section) return false;
+  }
+  if (filters.batchId && (!student.batchIds || !student.batchIds.includes(filters.batchId))) return false;
+  if (filters.studentId && student.id !== filters.studentId) return false;
+  return true;
+}
+
+export interface FilterValidation {
+  collegeId: boolean;
+  department: boolean;
+  academicYear: boolean;
+  section: boolean;
+  batchId: boolean;
+  studentId: boolean;
+}
+
+/**
+ * Read-only validation: checks whether each filter value is valid in the
+ * current hierarchy context.  Returns `true` for each field whose value
+ * exists among the available options (or whose value is empty / "ALL").
+ *
+ * This function NEVER modifies filter state.  The UI uses the result to
+ * display visual indicators on invalid selections.
+ */
+export function validateFilters(
+  filters: AcademicFilters,
+  hierarchy: Hierarchy | null
+): FilterValidation {
+  const result: FilterValidation = {
+    collegeId: true,
+    department: true,
+    academicYear: true,
+    section: true,
+    batchId: true,
+    studentId: true,
+  };
+
+  if (!hierarchy) return result;
+
+  const isGlobal = filters.collegeId === GLOBAL_INSTITUTION_ID;
+
+  // --- College / Institution ---
+  if (filters.collegeId && !isGlobal) {
+    result.collegeId = hierarchy.collegeMap.has(filters.collegeId);
+  }
+
+  // --- Department ---
+  if (filters.department) {
+    let validDepts: string[];
+    if (!filters.collegeId || isGlobal) validDepts = getAllDepartments(hierarchy);
+    else validDepts = getDepartmentsForCollege(hierarchy, filters.collegeId);
+    result.department = validDepts.some(
+      (d) => d.toLowerCase() === filters.department.toLowerCase()
+    );
+  }
+
+  // --- Academic Year ---
+  if (filters.academicYear) {
+    let validYears: string[];
+    if (!filters.collegeId || isGlobal) validYears = getAllAcademicYears(hierarchy);
+    else if (!filters.department) validYears = getYearsForCollege(hierarchy, filters.collegeId);
+    else validYears = getYearsForDepartment(hierarchy, filters.collegeId, filters.department);
+    result.academicYear = validYears.some(
+      (y) => y.toLowerCase() === filters.academicYear.toLowerCase()
+    );
+  }
+
+  // --- Section ---
+  if (filters.section) {
+    let validSections: string[];
+    if (!filters.collegeId || isGlobal) validSections = getAllSections(hierarchy);
+    else if (!filters.department) validSections = getSectionsForCollege(hierarchy, filters.collegeId);
+    else if (!filters.academicYear)
+      validSections = getSectionsForCollegeAndDepartment(hierarchy, filters.collegeId, filters.department);
+    else
+      validSections = getSectionsForYear(hierarchy, filters.collegeId, filters.department, filters.academicYear);
+    result.section = validSections.some(
+      (s) => cleanSectionName(s).toLowerCase() === cleanSectionName(filters.section).toLowerCase()
+    );
+  }
+
+  // --- Batch ---
+  if (filters.batchId) {
+    if (filters.batchOnlyMode) {
+      // In Batch Only mode, any batch that exists in the platform is valid.
+      result.batchId = hierarchy.batches.some((b) => b.id === filters.batchId);
+    } else {
+      // In Combined mode, batch must exist under the current hierarchy branch.
+      const list = hierarchy.batches.filter((b) => {
+        if (filters.collegeId && !isGlobal && b.collegeId && b.collegeId !== filters.collegeId) return false;
+        if (filters.department && b.department && b.department.toLowerCase() !== filters.department.toLowerCase())
+          return false;
+        if (
+          filters.academicYear &&
+          b.academicYear &&
+          b.academicYear.toLowerCase() !== filters.academicYear.toLowerCase()
+        )
+          return false;
+        if (
+          filters.section &&
+          b.section &&
+          cleanSectionName(b.section).toLowerCase() !== cleanSectionName(filters.section).toLowerCase()
+        )
+          return false;
+        return true;
+      });
+      result.batchId = list.some((b) => b.id === filters.batchId);
+    }
+  }
+
+  // --- Student ---
+  if (filters.studentId) {
+    if (filters.batchId) {
+      const studentsInBatch = getStudentsForBatch(hierarchy, filters.batchId);
+      result.studentId = studentsInBatch.some((s) => s.id === filters.studentId);
+    } else {
+      result.studentId = hierarchy.students.some((s) => s.id === filters.studentId);
+    }
+  }
+
+  return result;
 }

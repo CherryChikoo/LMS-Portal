@@ -25,6 +25,7 @@ import { FilterDropdown } from "@/components/shared/filter-dropdown";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { AcademicHierarchyFilters } from "@/components/shared/academic-hierarchy-filters";
 import { useAcademicHierarchy } from "@/lib/hierarchy/use-academic-hierarchy";
+import { filterStudentByAcademicFilters } from "@/lib/hierarchy/hierarchy-data";
 import { fadeInUp } from "@/lib/animations";
 import {
   deleteResultById,
@@ -96,14 +97,8 @@ export default function ResultsPage() {
   const pathname = usePathname();
   const { filteredAttempts: attempts, filteredExams: exams, filteredStudents: students, loading: lmsLoading } = useLMSData();
   const { resolveStudent, resolveInstitution } = useEntityResolution();
-  const [actualRole, setActualRole] = useState<string>(() => {
-    if (typeof window === "undefined") return "student";
-    try {
-      const role = localStorage.getItem("lms_role");
-      if (role) return role.toLowerCase();
-    } catch {}
-    return "student";
-  });
+  const [actualRole, setActualRole] = useState<string>("student");
+  const [mounted, setMounted] = useState(false);
   const [currentStudentUser, setCurrentStudentUser] = useState<Student | null>(null);
 
   // Compute the route for an attempt's answer sheet. Trainers/admins see
@@ -127,7 +122,9 @@ export default function ResultsPage() {
 
   const {
     filters: academicFilters,
+    filterValidation,
     setFilters: setAcademicFilters,
+    reset: resetAcademicFilters,
     institutionOptions,
     collegeOptions,
     departmentOptions,
@@ -155,6 +152,7 @@ export default function ResultsPage() {
   }
 
   useEffect(() => {
+    setMounted(true);
     try {
       const role = localStorage.getItem("lms_role") || "admin";
       // eslint-disable-next-line react-hooks/set-state-in-effect -- loading persisted role/user snapshot from localStorage on mount
@@ -222,12 +220,7 @@ export default function ResultsPage() {
     return (attempts as ExamAttempt[]).filter((att: ExamAttempt) => {
       const student = getStudentForAttempt(att);
       if (!student) return false;
-      if (academicFilters.collegeId && student.collegeId !== academicFilters.collegeId) return false;
-      if (academicFilters.department && student.department !== academicFilters.department) return false;
-      if (academicFilters.academicYear && student.academicYear !== academicFilters.academicYear) return false;
-      if (academicFilters.section && student.section !== academicFilters.section) return false;
-      if (academicFilters.batchId && !student.batchIds?.includes(academicFilters.batchId)) return false;
-      return true;
+      return filterStudentByAcademicFilters(student, academicFilters);
     });
   }, [attempts, academicFilters, getStudentForAttempt]);
 
@@ -478,6 +471,10 @@ export default function ResultsPage() {
   const highestScore = totalSubmissions > 0 ? Math.max(...filteredAttempts.map((a) => a.percentage)) : 0;
   const avgScore = totalSubmissions > 0 ? Math.round(filteredAttempts.reduce((acc, curr) => acc + curr.percentage, 0) / totalSubmissions) : 0;
 
+  if (!mounted) {
+    return null;
+  }
+
   return (
     <motion.div initial="hidden" animate="visible" variants={fadeInUp} className="space-y-6 max-w-[1600px] mx-auto pb-12 font-sans">
       <PageHeader
@@ -603,7 +600,9 @@ export default function ResultsPage() {
             <AcademicHierarchyFilters
               levels={["institution", "department", "academicYear", "section", "batch"]}
               filters={academicFilters}
+              filterValidation={filterValidation}
               onChange={setAcademicFilters}
+              onReset={resetAcademicFilters}
               collegeOptions={collegeOptions}
               departmentOptions={departmentOptions}
               academicYearOptions={academicYearOptions}
