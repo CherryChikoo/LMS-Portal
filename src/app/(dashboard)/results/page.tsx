@@ -132,7 +132,7 @@ export default function ResultsPage() {
     sectionOptions,
     batchOptions,
   } = useAcademicHierarchy({
-    levels: ["institution", "department", "academicYear", "section", "batch"],
+    levels: actualRole === "college_admin" ? ["department", "academicYear", "section", "batch"] : ["institution", "department", "academicYear", "section", "batch"],
   });
 
   // Performance Details Modal state
@@ -598,7 +598,7 @@ export default function ResultsPage() {
         {actualRole !== "student" && (
           <div className="pt-2">
             <AcademicHierarchyFilters
-              levels={["institution", "department", "academicYear", "section", "batch"]}
+              levels={actualRole === "college_admin" ? ["department", "academicYear", "section", "batch"] : ["institution", "department", "academicYear", "section", "batch"]}
               filters={academicFilters}
               filterValidation={filterValidation}
               onChange={setAcademicFilters}
@@ -609,7 +609,7 @@ export default function ResultsPage() {
               sectionOptions={sectionOptions}
               batchOptions={batchOptions}
               studentOptions={[]}
-              showInstitution
+              showInstitution={actualRole !== "college_admin"}
               institutionOptions={institutionOptions}
             />
           </div>

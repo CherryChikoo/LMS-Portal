@@ -1,0 +1,150 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =========================================================================
+    // HELPER FUNCTIONS
+    // =========================================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // ⚠️ OPTIMIZATION NOTE: getUserData() incurs 1 Firestore read per rule evaluation
+    // For high-frequency operations, consider migrating to Firebase Auth Custom Claims
+    // Custom Claims are included in the JWT token and don't require Firestore reads
+    function getUserData() {
+      let doc = get(/databases/$(database)/documents/users/$(request.auth.uid));
+      return doc != null ? doc.data : null;
+    }
+
+    function isAdminOrTrainer() {
+      let data = getUserData();
+      return data != null && (data.role == 'admin' || data.role == 'trainer');
+    }
+
+    function isCollegeAdminAny() {
+      let data = getUserData();
+      return data != null && data.role == 'college_admin';
+    }
+
+    function isCollegeAdmin(collegeId) {
+      let data = getUserData();
+      return data != null && data.role == 'college_admin' && data.collegeId == collegeId;
+    }
+
+    function isStudent() {
+      let data = getUserData();
+      return data != null && data.role == 'student';
+    }
+
+    // =========================================================================
+    // COLLECTION RULES - OPTIMIZED FOR PERFORMANCE
+    // =========================================================================
+
+    // Users Collection (Shared Auth Profiles)
+    match /users/{userId} {
+      // ✅ OPTIMIZED: Self-read without getUserData() call
+      allow read: if isAuthenticated() && (
+        request.auth.uid == userId ||
+        (resource.data.email != null && request.auth.token.email != null && resource.data.email == request.auth.token.email) ||
+        isAdminOrTrainer()
+      );
+
+      // Students can create their own profile during registration
+      allow create: if isAuthenticated() && request.auth.uid == userId && request.resource.data.role == 'student';
+
+      // Users can update their own profile, but cannot change their role
+      allow update: if isAuthenticated() && (
+        isAdminOrTrainer() ||
+        (request.auth.uid == userId && request.resource.data.role == resource.data.role)
+      );
+
+      allow delete: if isAuthenticated() && isAdminOrTrainer();
+    }
+
+    // Students Collection (Extended Student Profiles)
+    match /students/{studentId} {
+      // ✅ OPTIMIZED: All authenticated users can read (needed for Leaderboard/Reporting)
+      allow read: if isAuthenticated();
+
+      // Students can create/update their own profile during registration and setup
+      allow create, update: if isAuthenticated() && (request.auth.uid == studentId || isAdminOrTrainer() || isCollegeAdminAny());
+
+      allow delete: if isAuthenticated() && (isAdminOrTrainer() || isCollegeAdminAny());
+    }
+
+    // Colleges Collection
+    match /colleges/{collegeId} {
+      // ✅ OPTIMIZED: Read-only for all authenticated users (dropdowns/hierarchy)
+      allow read: if isAuthenticated();
+
+      // Only admins can create/delete. College admin can update their own.
+      allow update: if isAuthenticated() && (isAdminOrTrainer() || isCollegeAdmin(collegeId));
+      allow create, delete: if isAuthenticated() && isAdminOrTrainer();
+    }
+
+    // Departments Collection
+    match /departments/{departmentId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (isAdminOrTrainer() || isCollegeAdmin(request.resource.data.collegeId));
+      allow update, delete: if isAuthenticated() && (isAdminOrTrainer() || isCollegeAdmin(resource.data.collegeId));
+    }
+
+    // Batches Collection
+    match /batches/{batchId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (isAdminOrTrainer() || isCollegeAdmin(request.resource.data.collegeId));
+      allow update, delete: if isAuthenticated() && (isAdminOrTrainer() || isCollegeAdmin(resource.data.collegeId));
+    }
+
+    // Exams Collection
+    match /exams/{examId} {
+      // ✅ OPTIMIZED: All authenticated users can read exams
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && (isAdminOrTrainer() || isCollegeAdminAny());
+    }
+
+    // Resources Collection
+    match /resources/{resourceId} {
+      // ✅ OPTIMIZED: All authenticated users can read resources
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && (isAdminOrTrainer() || isCollegeAdminAny());
+    }
+
+    // Exam Results Collection (Attempts)
+    match /exam_results/{resultId} {
+      // ✅ OPTIMIZED: Self-read without getUserData() for students
+      allow read: if isAuthenticated() && (
+        resource.data.studentId == request.auth.uid ||
+        isAdminOrTrainer() ||
+        isCollegeAdminAny()
+      );
+
+      // Students can create/update their own attempts
+      allow create: if isAuthenticated() && request.resource.data.studentId == request.auth.uid;
+      allow update: if isAuthenticated() && (resource.data.studentId == request.auth.uid || isAdminOrTrainer());
+      allow delete: if isAuthenticated() && isAdminOrTrainer();
+    }
+
+    // Settings Collection (Company Branding)
+    match /settings/{document=**} {
+      // ✅ CRITICAL: Unauthenticated users need this to load branding on login page
+      allow read: if true;
+      allow write: if isAuthenticated() && isAdminOrTrainer();
+    }
+
+    // Doubts Collection
+    match /doubts/{doubtId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated();
+      allow delete: if isAuthenticated() && isAdminOrTrainer();
+    }
+
+    // Announcements Collection
+    match /announcements/{announcementId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && (isAdminOrTrainer() || isCollegeAdminAny());
+    }
+  }
+}

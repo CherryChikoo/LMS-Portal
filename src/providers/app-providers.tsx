@@ -6,6 +6,7 @@ import { SidebarProvider } from "@/hooks/use-sidebar";
 import { BrandingProvider } from "./branding-provider";
 import { Toaster } from "@/components/ui/sonner";
 
+import { ErrorProvider } from "./error-provider";
 import { BrandingHeadUpdater } from "@/components/shared/branding-head-updater";
 
 interface AppProvidersProps {
@@ -15,10 +16,11 @@ interface AppProvidersProps {
 export function AppProviders({ children }: AppProvidersProps) {
   return (
     <ThemeProvider>
-      <BrandingProvider>
-        <BrandingHeadUpdater />
-        <SidebarProvider>
-          {children}
+      <ErrorProvider>
+        <BrandingProvider>
+          <BrandingHeadUpdater />
+          <SidebarProvider>
+            {children}
           <Toaster
             position="top-right"
             toastOptions={{
@@ -27,7 +29,8 @@ export function AppProviders({ children }: AppProvidersProps) {
             }}
           />
         </SidebarProvider>
-      </BrandingProvider>
+        </BrandingProvider>
+      </ErrorProvider>
     </ThemeProvider>
   );
 }

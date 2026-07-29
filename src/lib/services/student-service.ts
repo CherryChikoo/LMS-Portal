@@ -7,9 +7,11 @@ import {
   deleteDocument,
   subscribeToDocuments,
   where,
+  onSnapshot,
 } from "@/lib/firebase/firestore";
 import { auth, db } from "@/lib/firebase/config";
 import { doc, writeBatch } from "firebase/firestore";
+import { firestoreDiagnostics } from "@/lib/firebase/diagnostics";
 import type { Student, User } from "@/types";
 
 const COLLECTION_NAME = "students";
@@ -166,8 +168,21 @@ export function subscribeToStudentsByCollege(collegeId: string, callback: (stude
 }
 
 export function subscribeToStudentById(studentId: string, callback: (students: Student[]) => void): () => void {
-  // We return an array of 1 student to match the signature expected by the cache
-  return subscribeToDocuments<Student>(COLLECTION_NAME, callback, [where("id", "==", studentId)]);
+  if (process.env.NODE_ENV === "development") firestoreDiagnostics.incrementListener();
+  const unsubscribe = onSnapshot(doc(db, COLLECTION_NAME, studentId), (snap) => {
+    if (snap.exists()) {
+      const data = snap.data();
+      if (!data.isDeleted && !data.deletedAt) {
+        callback([{ id: snap.id, ...data } as Student]);
+        return;
+      }
+    }
+    callback([]);
+  });
+  return () => {
+    if (process.env.NODE_ENV === "development") firestoreDiagnostics.decrementListener();
+    unsubscribe();
+  };
 }
 
 export async function getStudentsByCollege(collegeId: string): Promise<Student[]> {

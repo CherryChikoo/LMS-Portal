@@ -12,10 +12,11 @@ import {
   getAllResources,
   subscribeToStudentsByCollege,
   subscribeToBatchesByCollege,
+  subscribeToStudentById,
   getStudentsByCollege,
   getBatchesByCollege,
 } from "@/lib/services";
-import { getStudentAttempts } from "@/lib/services";
+import { getStudentAttempts, subscribeToStudentAttempts } from "@/lib/services";
 import {
   buildHierarchy,
   getExternalInstitutions,
@@ -28,6 +29,7 @@ import {
 } from "@/lib/hierarchy/hierarchy-data";
 import type { College, Batch, Student, SelectOption, Exam, Resource, ExamAttempt } from "@/types";
 import { setLMSStoreState } from "./lms-store";
+import { logger } from "@/lib/utils/logger";
 
 interface CacheEntry<T> {
   data: T;
@@ -87,14 +89,15 @@ function hydrateCacheFromStorage() {
     const raw = localStorage.getItem(CACHE_STORAGE_KEY) || sessionStorage.getItem(CACHE_STORAGE_KEY);
     if (!raw) return;
     const parsed = JSON.parse(raw);
+    const isActive = (d: any) => !d.isDeleted && !d.deletedAt && d.status !== "deleted" && d.status !== "inactive";
     if (parsed && typeof parsed === "object") {
       const now = Date.now();
-      if (Array.isArray(parsed.colleges) && parsed.colleges.length > 0) cache.colleges = { data: parsed.colleges, updatedAt: now };
-      if (Array.isArray(parsed.batches) && parsed.batches.length > 0) cache.batches = { data: parsed.batches, updatedAt: now };
-      if (Array.isArray(parsed.students) && parsed.students.length > 0) cache.students = { data: parsed.students, updatedAt: now };
-      if (Array.isArray(parsed.exams) && parsed.exams.length > 0) cache.exams = { data: parsed.exams, updatedAt: now };
-      if (Array.isArray(parsed.resources) && parsed.resources.length > 0) cache.resources = { data: parsed.resources, updatedAt: now };
-      if (Array.isArray(parsed.attempts) && parsed.attempts.length > 0) cache.attempts = { data: parsed.attempts, updatedAt: now };
+      if (Array.isArray(parsed.colleges) && parsed.colleges.length > 0) cache.colleges = { data: parsed.colleges.filter(isActive), updatedAt: now };
+      if (Array.isArray(parsed.batches) && parsed.batches.length > 0) cache.batches = { data: parsed.batches.filter(isActive), updatedAt: now };
+      if (Array.isArray(parsed.students) && parsed.students.length > 0) cache.students = { data: parsed.students.filter(isActive), updatedAt: now };
+      if (Array.isArray(parsed.exams) && parsed.exams.length > 0) cache.exams = { data: parsed.exams.filter(isActive), updatedAt: now };
+      if (Array.isArray(parsed.resources) && parsed.resources.length > 0) cache.resources = { data: parsed.resources.filter(isActive), updatedAt: now };
+      if (Array.isArray(parsed.attempts) && parsed.attempts.length > 0) cache.attempts = { data: parsed.attempts.filter(isActive), updatedAt: now };
 
       if (cache.colleges || cache.students || cache.batches || cache.exams || cache.resources || cache.attempts) {
         cache.loading = false;
@@ -148,16 +151,14 @@ function recomputeScopedData() {
     return false;
   };
 
-  let fColleges = collegesData.filter(
-    (c) => (c.status as string) !== "deleted" && (c.status as string) !== "inactive" && !isCollegeDeleted(c.id, c.name)
-  );
-  let fBatches = batchesData.filter((b) => ((b as any).status as string) !== "deleted" && ((b as any).status as string) !== "inactive");
-  let fStudents = studentsData.filter(
-    (s) => (s.status as string) !== "deleted" && (s.status as string) !== "inactive" && !isCollegeDeleted(s.collegeId, s.collegeName)
-  );
-  let fExams = examsData.filter((e) => (e.status as string) !== "deleted" && (e.status as string) !== "inactive");
-  let fResources = resourcesData.filter((r) => ((r as any).status as string) !== "deleted" && ((r as any).status as string) !== "inactive");
-  let fAttempts = attemptsData;
+  const isActive = (d: any) => !d.isDeleted && !d.deletedAt && d.status !== "deleted" && d.status !== "inactive";
+
+  let fColleges = collegesData.filter((c) => isActive(c) && !isCollegeDeleted(c.id, c.name));
+  let fBatches = batchesData.filter(isActive);
+  let fStudents = studentsData.filter((s) => isActive(s) && !isCollegeDeleted(s.collegeId, s.collegeName));
+  let fExams = examsData.filter(isActive);
+  let fResources = resourcesData.filter(isActive);
+  let fAttempts = attemptsData.filter(isActive);
 
   try {
     const uStr = typeof window !== "undefined" ? localStorage.getItem("lms_user") || localStorage.getItem("user") : null;
@@ -247,7 +248,7 @@ function notifyListeners() {
     try {
       cb();
     } catch (err) {
-      console.error("LMS cache listener error:", err);
+      logger.error("CACHE", "LMS cache listener error:", err);
     }
   });
 }
@@ -286,77 +287,134 @@ function startSubscriptions() {
   }
   cache.error = null;
 
-  let uStr: string | null = null;
-  let role: string = "";
-  let parsed: any = null;
+  import("firebase/auth").then(({ getAuth, onAuthStateChanged }) => {
+    import("@/lib/firebase/config").then(({ app }) => {
+      const auth = getAuth(app);
+      
+      const authUnsub = onAuthStateChanged(auth, async (user) => {
+        // Clear old ones if auth state changes
+        cache.unsubscribers.forEach((u) => u());
+        cache.unsubscribers = [];
+        
+        if (!user) {
+          cache.loading = false;
+          notifyListeners();
+          return;
+        }
 
-  if (typeof window !== "undefined") {
-    uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-    if (uStr) {
-      try {
-        parsed = JSON.parse(uStr);
-        if (parsed.role) role = parsed.role.toLowerCase();
-      } catch (e) {}
-    }
-    if (!role) {
-      role = localStorage.getItem("lms_role")?.toLowerCase() || "admin";
-    }
-  }
+        let parsed: any = null;
+        let role: string = "";
 
-  const isCollegeAdmin = role === "college_admin" && parsed?.collegeId;
-  const isStudent = role === "student" && parsed?.id;
+        try {
+          const { getFirestore, doc, getDoc } = await import("firebase/firestore");
+          const db = getFirestore(app);
+          const userDoc = await getDoc(doc(db, "users", user.uid));
+          if (userDoc.exists()) {
+            parsed = { id: user.uid, ...userDoc.data() };
+            role = parsed.role?.toLowerCase() || "admin";
+          } else {
+            const studentDoc = await getDoc(doc(db, "students", user.uid));
+            if (studentDoc.exists()) {
+              parsed = { id: user.uid, ...studentDoc.data() };
+              role = "student";
+            }
+          }
 
-  const unsubColleges = subscribeToAllColleges((data) => {
-    cache.colleges = { data, updatedAt: Date.now() };
-    recomputeScopedData();
-    notifyListeners();
-  });
+          if (parsed) {
+            // Sync with localStorage
+            if (typeof window !== "undefined") {
+              localStorage.setItem("lms_user", JSON.stringify(parsed));
+              localStorage.setItem("user", JSON.stringify(parsed));
+              localStorage.setItem("lms_role", role);
+              
+              // Ensure cookie is synced for middleware
+              const isSecure = window.location.protocol === "https:";
+              const cookieOptions = `path=/; max-age=86400; SameSite=Lax${isSecure ? "; Secure" : ""}`;
+              document.cookie = `lms_role=${role}; ${cookieOptions}`;
+            }
+          }
+        } catch (e) {
+          logger.error("CACHE", "Failed to fetch user document for auth sync", e);
+        }
 
-  const unsubBatches = isCollegeAdmin 
-    ? subscribeToBatchesByCollege(parsed.collegeId, (data) => {
-        cache.batches = { data, updatedAt: Date.now() };
-        recomputeScopedData();
-        notifyListeners();
-      })
-    : subscribeToAllBatches((data) => {
-        cache.batches = { data, updatedAt: Date.now() };
-        recomputeScopedData();
-        notifyListeners();
+        if (!parsed && typeof window !== "undefined") {
+          const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+          if (uStr) {
+            try {
+              parsed = JSON.parse(uStr);
+              if (parsed.role) role = parsed.role.toLowerCase();
+            } catch (e) {}
+          }
+          if (!role) {
+            role = localStorage.getItem("lms_role")?.toLowerCase() || "admin";
+          }
+        }
+
+        const isCollegeAdmin = role === "college_admin" && parsed?.collegeId;
+        const isStudent = role === "student" && parsed?.id;
+
+        const unsubColleges = subscribeToAllColleges((data) => {
+          cache.colleges = { data, updatedAt: Date.now() };
+          recomputeScopedData();
+          notifyListeners();
+        });
+
+        const unsubBatches = subscribeToAllBatches((data) => {
+          cache.batches = { data, updatedAt: Date.now() };
+          recomputeScopedData();
+          notifyListeners();
+        });
+
+        const unsubStudents = isCollegeAdmin
+          ? subscribeToStudentsByCollege(parsed.collegeId, (data) => {
+              cache.students = { data, updatedAt: Date.now() };
+              recomputeScopedData();
+              notifyListeners();
+            })
+          : isStudent
+          ? subscribeToStudentById(parsed.id, (data) => {
+              cache.students = { data, updatedAt: Date.now() };
+              recomputeScopedData();
+              notifyListeners();
+            })
+          : subscribeToAllStudents((data) => {
+              cache.students = { data, updatedAt: Date.now() };
+              recomputeScopedData();
+              notifyListeners();
+            });
+
+        const unsubExams = subscribeToAllExams((data) => {
+          cache.exams = { data, updatedAt: Date.now() };
+          recomputeScopedData();
+          notifyListeners();
+        });
+
+        const unsubResources = subscribeToAllResources((data) => {
+          cache.resources = { data, updatedAt: Date.now() };
+          recomputeScopedData();
+          notifyListeners();
+        });
+
+        const unsubAttempts = isStudent
+          ? subscribeToStudentAttempts(parsed.id, (data) => {
+              cache.attempts = { data, updatedAt: Date.now() };
+              recomputeScopedData();
+              notifyListeners();
+            })
+          : subscribeToAllAttempts((data) => {
+              cache.attempts = { data, updatedAt: Date.now() };
+              recomputeScopedData();
+              notifyListeners();
+            });
+
+        cache.unsubscribers.push(
+          unsubColleges, unsubBatches, unsubStudents, unsubExams, unsubResources, unsubAttempts
+        );
       });
 
-  const unsubStudents = isCollegeAdmin
-    ? subscribeToStudentsByCollege(parsed.collegeId, (data) => {
-        cache.students = { data, updatedAt: Date.now() };
-        recomputeScopedData();
-        notifyListeners();
-      })
-    : subscribeToAllStudents((data) => {
-        cache.students = { data, updatedAt: Date.now() };
-        recomputeScopedData();
-        notifyListeners();
-      });
-
-  const unsubExams = subscribeToAllExams((data) => {
-    cache.exams = { data, updatedAt: Date.now() };
-    recomputeScopedData();
-    notifyListeners();
+      cache.unsubscribers.push(authUnsub);
+    });
   });
-
-  const unsubResources = subscribeToAllResources((data) => {
-    cache.resources = { data, updatedAt: Date.now() };
-    recomputeScopedData();
-    notifyListeners();
-  });
-
-  const unsubAttempts = subscribeToAllAttempts((data) => {
-    cache.attempts = { data, updatedAt: Date.now() };
-    recomputeScopedData();
-    notifyListeners();
-  });
-
-  cache.unsubscribers = [
-    unsubColleges, unsubBatches, unsubStudents, unsubExams, unsubResources, unsubAttempts
-  ];
 }
 
 function stopSubscriptions() {

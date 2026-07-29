@@ -25,8 +25,9 @@ function collegeNameToId(name: string): string {
 }
 
 export async function POST(request: NextRequest) {
+  let stage = "parseRequest";
   try {
-    const body = await request.json();
+    const body = await request.json().catch(() => ({}));
     const {
       adminIdToken,
       email,
@@ -41,7 +42,7 @@ export async function POST(request: NextRequest) {
 
     if (!adminIdToken || typeof adminIdToken !== "string") {
       return NextResponse.json(
-        { error: "Admin authorization token is required." },
+        { success: false, stage, errorCode: "auth/missing-token", message: "Admin authorization token is required." },
         { status: 401 }
       );
     }
@@ -49,35 +50,37 @@ export async function POST(request: NextRequest) {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!email || typeof email !== "string" || !emailRegex.test(email.trim())) {
       return NextResponse.json(
-        { error: "A valid student email address is required." },
+        { success: false, stage, errorCode: "auth/invalid-email", message: "A valid student email address is required." },
         { status: 400 }
       );
     }
 
     if (!name || typeof name !== "string" || name.trim().length < 2) {
       return NextResponse.json(
-        { error: "A valid student name is required." },
+        { success: false, stage, errorCode: "invalid-argument", message: "A valid student name is required." },
         { status: 400 }
       );
     }
 
+    stage = "verifyAdminToken";
     let decodedToken;
     try {
       const auth = getAdminAuth();
       decodedToken = await auth.verifyIdToken(adminIdToken);
-    } catch {
+    } catch (err) {
       return NextResponse.json(
-        { error: "Invalid or expired admin session." },
+        { success: false, stage, errorCode: getErrorCode(err), message: "Invalid or expired admin session.", details: getErrorMessage(err) },
         { status: 401 }
       );
     }
 
+    stage = "verifyAdminRole";
     const db = getFirestore();
     const requesterUid = decodedToken.uid;
     const requesterDoc = await db.collection("users").doc(requesterUid).get();
     if (!requesterDoc.exists) {
       return NextResponse.json(
-        { error: "Admin user not found in database." },
+        { success: false, stage, errorCode: "permission-denied", message: "Admin user not found in database." },
         { status: 403 }
       );
     }
@@ -86,11 +89,12 @@ export async function POST(request: NextRequest) {
     const requesterRole = requesterData?.role;
     if (requesterRole !== "admin" && requesterRole !== "trainer" && requesterRole !== "college_admin") {
       return NextResponse.json(
-        { error: "Only admin, trainer, or college roles can create student accounts." },
+        { success: false, stage, errorCode: "permission-denied", message: "Only admin, trainer, or college roles can create student accounts." },
         { status: 403 }
       );
     }
 
+    stage = "checkEmailUniqueness";
     const normalizedEmail = email.toLowerCase().trim();
     const studentName = name.trim();
     const finalCollegeName = (collegeName || "").trim().toLowerCase();
@@ -102,6 +106,7 @@ export async function POST(request: NextRequest) {
 
     const auth = getAdminAuth();
     let authUser = null;
+    let reusedExistingAccount = false;
 
     try {
       const existingUser = await auth.getUserByEmail(normalizedEmail);
@@ -114,7 +119,8 @@ export async function POST(request: NextRequest) {
       if (activeStudentExists) {
         return NextResponse.json(
           {
-            error: "An account with this email address already exists.",
+            success: false, stage, errorCode: "auth/email-already-exists",
+            message: "An active student account with this email address already exists.",
             uid: existingUser.uid,
           },
           { status: 409 }
@@ -122,17 +128,19 @@ export async function POST(request: NextRequest) {
       }
 
       // Re-use existing Auth account whose Firestore student profile was deleted
+      stage = "updateExistingAuthUser";
       await auth.updateUser(existingUser.uid, {
         password: DEFAULT_STUDENT_PASSWORD,
         displayName: studentName,
       });
       authUser = existingUser;
+      reusedExistingAccount = true;
     } catch (err) {
       const code = getErrorCode(err);
       if (code !== "auth/user-not-found") {
         console.error("Admin getUserByEmail error:", err);
         return NextResponse.json(
-          { error: "Could not verify email uniqueness." },
+          { success: false, stage, errorCode: code, message: "Could not verify email uniqueness.", details: getErrorMessage(err), retryable: true },
           { status: 500 }
         );
       }
@@ -140,6 +148,7 @@ export async function POST(request: NextRequest) {
 
     // Create the Firebase Auth user if it didn't exist
     if (!authUser) {
+      stage = "createAuthUser";
       try {
         authUser = await auth.createUser({
           email: normalizedEmail,
@@ -150,14 +159,15 @@ export async function POST(request: NextRequest) {
         console.error("Admin createUser error:", authErr);
         if (getErrorCode(authErr) === "auth/email-already-exists") {
           return NextResponse.json(
-            { error: "An account with this email address already exists." },
+            { success: false, stage, errorCode: "auth/email-already-exists", message: "An account with this email address already exists." },
             { status: 409 }
           );
         }
         return NextResponse.json(
           {
-            error: "Failed to create Firebase Auth account.",
-            details: getErrorMessage(authErr),
+            success: false, stage, errorCode: getErrorCode(authErr),
+            message: "Failed to create Firebase Auth account.",
+            details: getErrorMessage(authErr), retryable: true
           },
           { status: 500 }
         );
@@ -203,27 +213,45 @@ export async function POST(request: NextRequest) {
       updatedAt: now,
     };
 
+    stage = "createFirestoreDocuments";
     try {
       const batchWrite = db.batch();
       batchWrite.set(db.collection("users").doc(uid), userDoc);
       batchWrite.set(db.collection("students").doc(uid), studentDoc);
       await batchWrite.commit();
     } catch (dbErr) {
-      // Best-effort rollback of the Auth user if Firestore write fails
-      try {
-        const auth = getAdminAuth();
-        await auth.deleteUser(uid);
-      } catch {
-        // ignore rollback error
-      }
       console.error("Failed to write student Firestore documents:", dbErr);
-      return NextResponse.json(
-        {
-          error: "Failed to create student profile documents.",
-          details: getErrorMessage(dbErr),
-        },
-        { status: 500 }
-      );
+      stage = "rollbackAuthUser";
+      
+      // Rollback of the Auth user if Firestore write fails (only if we didn't re-use an existing one)
+      if (!reusedExistingAccount) {
+        try {
+          await auth.deleteUser(uid);
+        } catch (rollbackErr) {
+          console.error("CRITICAL: Failed to rollback auth student creation after Firestore error:", rollbackErr);
+          return NextResponse.json(
+            { success: false, stage, errorCode: getErrorCode(dbErr), message: "Failed to create student profile documents. Auth rollback also failed.", details: `DB Error: ${getErrorMessage(dbErr)} | Rollback Error: ${getErrorMessage(rollbackErr)}`, retryable: false },
+            { status: 500 }
+          );
+        }
+        return NextResponse.json(
+          {
+            success: false, stage, errorCode: getErrorCode(dbErr),
+            message: "Failed to create student profile documents. Account creation was rolled back safely.",
+            details: getErrorMessage(dbErr), retryable: true
+          },
+          { status: 500 }
+        );
+      } else {
+        return NextResponse.json(
+          {
+            success: false, stage, errorCode: getErrorCode(dbErr),
+            message: "Failed to create student profile documents.",
+            details: getErrorMessage(dbErr), retryable: true
+          },
+          { status: 500 }
+        );
+      }
     }
 
     return NextResponse.json({
@@ -236,8 +264,9 @@ export async function POST(request: NextRequest) {
     console.error("Create student auth endpoint error:", err);
     return NextResponse.json(
       {
-        error: "Internal server error.",
-        details: getErrorMessage(err),
+        success: false, stage: "unhandledException", errorCode: getErrorCode(err),
+        message: "Internal server error.",
+        details: getErrorMessage(err), retryable: true
       },
       { status: 500 }
     );

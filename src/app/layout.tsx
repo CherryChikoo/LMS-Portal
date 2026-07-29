@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Script from "next/script";
 import { AppProviders } from "@/providers/app-providers";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { DevDiagnostics } from "@/components/shared/dev-diagnostics";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -26,9 +27,8 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <head>
-        <Script
+        <script
           id="theme-loader"
-          strategy="beforeInteractive"
           dangerouslySetInnerHTML={{
             __html: `(function(){try{var t=localStorage.getItem("theme");if(t==="light"){document.documentElement.classList.remove("dark");}else{document.documentElement.classList.add("dark");}}catch(e){document.documentElement.classList.add("dark");}})()`,
           }}
@@ -44,6 +44,7 @@ export default function RootLayout({
           </TooltipProvider>
         </AppProviders>
         <div className="mesh-gradient" aria-hidden="true" />
+        <DevDiagnostics />
       </body>
     </html>
   );

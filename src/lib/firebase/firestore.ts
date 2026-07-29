@@ -35,13 +35,14 @@ export async function getDocument<T extends DocumentData>(
 
 export async function getDocuments<T extends DocumentData>(
   collectionName: string,
-  constraints: QueryConstraint[] = []
+  constraints: QueryConstraint[] = [],
+  includeDeleted: boolean = false
 ): Promise<T[]> {
   const q = query(collection(db, collectionName), ...constraints);
   const querySnapshot = await getDocs(q);
   return querySnapshot.docs
     .map((d) => ({ id: d.id, ...d.data() } as unknown as T))
-    .filter((d: any) => !d.isDeleted && !d.deletedAt);
+    .filter((d: any) => includeDeleted || (!d.isDeleted && !d.deletedAt && d.status !== "deleted"));
 }
 
 /**
@@ -122,7 +123,8 @@ export async function getPaginatedDocuments<T extends DocumentData>(
   collectionName: string,
   pageSize: number,
   lastDoc?: DocumentSnapshot,
-  constraints: QueryConstraint[] = []
+  constraints: QueryConstraint[] = [],
+  includeDeleted: boolean = false
 ): Promise<{ data: T[]; lastDoc: DocumentSnapshot | null }> {
   const baseConstraints = [...constraints, orderBy("createdAt", "desc"), limit(pageSize)];
   if (lastDoc) {
@@ -132,7 +134,7 @@ export async function getPaginatedDocuments<T extends DocumentData>(
   const querySnapshot = await getDocs(q);
   const data = querySnapshot.docs
     .map((d) => ({ id: d.id, ...d.data() } as unknown as T))
-    .filter((d: any) => !d.isDeleted && !d.deletedAt);
+    .filter((d: any) => includeDeleted || (!d.isDeleted && !d.deletedAt && d.status !== "deleted"));
   const last = querySnapshot.docs[querySnapshot.docs.length - 1] || null;
   return { data, lastDoc: last };
 }
@@ -140,13 +142,14 @@ export async function getPaginatedDocuments<T extends DocumentData>(
 export function subscribeToDocuments<T extends DocumentData>(
   collectionName: string,
   callback: (data: T[]) => void,
-  constraints: QueryConstraint[] = []
+  constraints: QueryConstraint[] = [],
+  includeDeleted: boolean = false
 ): () => void {
   const q = query(collection(db, collectionName), ...constraints);
   return onSnapshot(q, (snapshot) => {
     const data = snapshot.docs
       .map((d) => ({ id: d.id, ...d.data() } as unknown as T))
-      .filter((d: any) => !d.isDeleted && !d.deletedAt);
+      .filter((d: any) => includeDeleted || (!d.isDeleted && !d.deletedAt && d.status !== "deleted"));
     callback(data);
   });
 }

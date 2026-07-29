@@ -125,9 +125,9 @@ export default function RegisterPage() {
     setLoading(true);
     setError(null);
     try {
-      await completeStudentAcademicDetails(registeredUid, {
+      const { resolvedCollegeId, resolvedCollegeName } = await completeStudentAcademicDetails(registeredUid, {
         fullName: fullName.trim(),
-        collegeName: collegeName.trim().toLowerCase(),
+        collegeName: collegeName.trim(),
         department: department.trim(),
         section: section.trim(),
       });
@@ -137,7 +137,8 @@ export default function RegisterPage() {
         email: email.trim(),
         role: "student",
         department: department.trim(),
-        collegeName: collegeName.trim().toLowerCase(),
+        collegeName: resolvedCollegeName,
+        collegeId: resolvedCollegeId,
         section: section.trim() || "A"
       };
       localStorage.setItem("lms_role", "student");

@@ -313,8 +313,15 @@ export async function POST(request: NextRequest) {
             summary.createdCount++;
             summary.results.push({ name, email, password: tempPassword, status: "created" });
           } catch (dbErr: any) {
+            // ⚠️ CRITICAL FIX: Rollback Auth user if Firestore write fails
+            try {
+              await auth.deleteUser(uid);
+              console.log(`Rolled back Auth user ${uid} after Firestore failure`);
+            } catch (rollbackErr) {
+              console.error(`Failed to rollback Auth user ${uid}:`, rollbackErr);
+            }
             summary.failedCount++;
-            summary.results.push({ name, email, password: "", status: "failed", reason: dbErr?.message || "Firestore doc write error" });
+            summary.results.push({ name, email, password: "", status: "failed", reason: `Firestore write failed: ${dbErr?.message || "Unknown error"}. Auth account rolled back.` });
           }
         })
       );

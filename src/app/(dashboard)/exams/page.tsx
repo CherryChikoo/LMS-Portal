@@ -4,6 +4,7 @@ import { useEffect, useState, Suspense, useMemo, Fragment } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
+import { useErrorHandler } from "@/providers/error-provider";
 import { ClipboardList, Plus, FileCode, Play, Eye, Edit3, Trash2, Target, Clock, CheckCircle2, ArrowLeft, ArrowRight, Sparkles, Send, Search, Calendar, Building2, Ban, Zap } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -39,6 +40,8 @@ function ActionHandler({ onAction }: { onAction: (action: string) => void }) {
 }
 
 export default function ExamsPage() {
+  
+  const { showError } = useErrorHandler();
   const router = useRouter();
   const { filteredExams: allExams, filteredAttempts: attempts, filteredStudents: students, loading } = useLMSData();
   const { resolveInstitution, resolveStudent, resolveBatch } = useEntityResolution();
@@ -183,7 +186,7 @@ export default function ExamsPage() {
       setAiSelections(initialSelections);
     } catch (err) {
       console.error(err);
-      toast.error(formatAuthError(err, "Failed to review with AI. Please check the logs."));
+      showError(err);
     } finally {
       setAiReviewing(false);
     }
@@ -207,17 +210,17 @@ export default function ExamsPage() {
 
     if (scheduleMode === "scheduled") {
       if (!startTimeStr || !endTimeStr) {
-        toast.error("Please select both a start and end date/time for the scheduled exam.");
+        showError({ message: "Please select both a start and end date/time for the scheduled exam." });
         return;
       }
       const startDt = new Date(startTimeStr);
       const endDt = new Date(endTimeStr);
       if (Number.isNaN(startDt.getTime()) || Number.isNaN(endDt.getTime())) {
-        toast.error("Invalid date/time selected. Please choose valid values.");
+        showError({ message: "Invalid date/time selected. Please choose valid values." });
         return;
       }
       if (startDt.getTime() < Date.now() - 5 * 60 * 1000) {
-        toast.error("Cannot schedule tests on previous completed days or past times. Please select a future date and time.");
+        showError({ message: "Cannot schedule tests on previous completed days or past times. Please select a future date and time." });
         return;
       }
       if (endDt.getTime() <= startDt.getTime()) {
@@ -225,11 +228,11 @@ export default function ExamsPage() {
           startDt.getFullYear() === endDt.getFullYear() &&
           startDt.getMonth() === endDt.getMonth() &&
           startDt.getDate() === endDt.getDate();
-        toast.error(
-          isSameDay
+        showError({
+          message: isSameDay
             ? "End time must be after the start time."
             : "End date must be after the start date."
-        );
+        });
         return;
       }
     }
@@ -333,7 +336,7 @@ export default function ExamsPage() {
           console.warn("AI generation failed for some questions:", data);
           toast.success("Assessment created successfully.", { id: loadingToastId });
           setTimeout(() => {
-            toast.error("Note: AI Explanations failed to generate. Please check your API key.", { duration: 5000 });
+            showError({ message: "Note: AI Explanations failed to generate. Please check your API key." });
           }, 1000);
         } else {
           toast.success("Assessment created and AI Explanations successfully generated!", { id: loadingToastId });
@@ -356,7 +359,7 @@ export default function ExamsPage() {
     } catch (err) {
       console.error(err);
       if (loadingToastId) toast.dismiss(loadingToastId);
-      toast.error(formatAuthError(err, "Failed to create assessment."));
+      showError(err);
     } finally {
       setIsPublishing(false);
     }
@@ -374,7 +377,7 @@ export default function ExamsPage() {
           toast.success("Assessment expired successfully");
         } catch (err) {
           console.error("Failed to expire exam:", err);
-          toast.error(formatAuthError(err, "Failed to expire assessment."));
+          showError(err);
         }
       }
     });
@@ -392,7 +395,7 @@ export default function ExamsPage() {
           toast.success("Assessment deleted successfully");
         } catch (err) {
           console.error("Failed to delete exam:", err);
-          toast.error(formatAuthError(err, "Failed to delete assessment."));
+          showError(err);
         }
       }
     });

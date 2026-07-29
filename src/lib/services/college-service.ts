@@ -1,563 +1,326 @@
+import { db, auth } from "@/lib/firebase/config";
 import {
-  getDocuments,
-  getDocument,
-  addDocument,
-  updateDocument,
-  deleteDocument,
-  subscribeToDocuments,
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  query,
   where,
-} from "@/lib/firebase/firestore";
-import type { College, Batch, Student } from "@/types";
-import { getStudentsByCollege, updateStudentProfile, getAllStudents } from "./student-service";
-import { getAllResources, updateResource } from "./resource-service";
-import { getAllExams, updateExam } from "./exam-service";
-import { getAllDoubts, updateDoubt } from "./doubt-service";
+  orderBy,
+  limit,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  Timestamp,
+  writeBatch,
+} from "firebase/firestore";
+import { getDocuments, subscribeToDocuments } from "@/lib/firebase/firestore";
+import type { College } from "@/types";
 
-const COLLEGE_COLLECTION = "colleges";
-const BATCH_COLLECTION = "batches";
-
-export async function getAllColleges(): Promise<College[]> {
-  return getDocuments<College>(COLLEGE_COLLECTION);
-}
-
-export function subscribeToAllColleges(callback: (colleges: College[]) => void): () => void {
-  return subscribeToDocuments<College>(COLLEGE_COLLECTION, callback);
-}
-
-export async function getCollegeById(id: string): Promise<College | null> {
-  return getDocument<College>(COLLEGE_COLLECTION, id);
-}
-
-export async function createCollege(data: Omit<College, "id">): Promise<string> {
-  const formatted = {
-    ...data,
-    name: (data.name || "").trim().toLowerCase(),
-  };
-  return addDocument<College>(COLLEGE_COLLECTION, formatted);
-}
-
-export async function updateCollege(id: string, data: Partial<College>): Promise<void> {
-  const formatted = { ...data };
-  if (typeof formatted.name === "string") {
-    formatted.name = formatted.name.trim().toLowerCase();
-  }
-  return updateDocument<College>(COLLEGE_COLLECTION, id, formatted);
-}
-
-import { markCollegeAsDeleted } from "@/lib/hierarchy/hierarchy-data";
-import { getAuth } from "firebase/auth";
-import { db } from "@/lib/firebase/config";
-import { collection, query, getDocs, doc, writeBatch } from "firebase/firestore";
-
-export async function deleteCollege(id: string): Promise<void> {
-  markCollegeAsDeleted(id);
-  const col = await getDocument<College>(COLLEGE_COLLECTION, id).catch(() => null);
-  const colName = col?.name || "";
-  if (colName) markCollegeAsDeleted(colName);
-
-  // 1. Delete college document
-  await deleteDocument(COLLEGE_COLLECTION, id).catch(() => {});
-
-  // 2. Client-side Firestore batch cleanup of associated student & user documents
-  try {
-    const studentsSnap = await getDocs(collection(db, "students")).catch(() => null);
-    if (studentsSnap && !studentsSnap.empty) {
-      const targetId = id.toLowerCase().trim();
-      const targetName = (colName || id).toLowerCase().trim();
-      
-      const docsToDelete: any[] = [];
-      studentsSnap.docs.forEach((d) => {
-        const data = d.data();
-        const sColId = (data.collegeId || "").toLowerCase().trim();
-        const sColName = (data.collegeName || "").toLowerCase().trim();
-        if (sColId === targetId || sColId === targetName || sColName === targetName || (colName && sColName === colName.toLowerCase().trim())) {
-          docsToDelete.push(d);
-        }
-      });
-
-      for (let i = 0; i < docsToDelete.length; i += 200) {
-        const batchChunk = docsToDelete.slice(i, i + 200);
-        const b = writeBatch(db);
-        batchChunk.forEach((d) => {
-          b.delete(d.ref);
-        });
-        await b.commit().catch((err) => console.error("Client student batch delete failed", err));
-      }
-    }
-  } catch (err) {
-    console.error("Error during client batch student cleanup for college:", err);
-  }
-
-  // 3. Background server API cleanup for Auth credentials
-  try {
-    const auth = getAuth();
-    const token = await auth.currentUser?.getIdToken().catch(() => "");
-    if (token) {
-      fetch("/api/admin/delete-college", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, adminIdToken: token }),
-      }).catch(() => {});
-    }
-  } catch (_) {}
-}
-
-// Batches
-export async function getAllBatches(): Promise<Batch[]> {
-  return getDocuments<Batch>(BATCH_COLLECTION);
-}
-
-export function subscribeToAllBatches(callback: (batches: Batch[]) => void): () => void {
-  return subscribeToDocuments<Batch>(BATCH_COLLECTION, callback);
-}
-
-export function subscribeToBatchesByCollege(collegeId: string, callback: (batches: Batch[]) => void): () => void {
-  return subscribeToDocuments<Batch>(BATCH_COLLECTION, callback, [where("collegeId", "==", collegeId)]);
-}
-
-export async function getBatchById(id: string): Promise<Batch | null> {
-  return getDocument<Batch>(BATCH_COLLECTION, id);
-}
-
-export async function getBatchesByCollege(collegeId: string): Promise<Batch[]> {
-  return getDocuments<Batch>(BATCH_COLLECTION, [where("collegeId", "==", collegeId)]);
-}
-
-export async function createBatch(data: Omit<Batch, "id">): Promise<string> {
-  return addDocument<Batch>(BATCH_COLLECTION, data);
-}
-
-export async function updateBatch(id: string, data: Partial<Batch>): Promise<void> {
-  return updateDocument<Batch>(BATCH_COLLECTION, id, data);
-}
-
-export async function deleteBatch(id: string): Promise<void> {
-  return deleteDocument(BATCH_COLLECTION, id);
-}
-
-// Department helpers
+/**
+ * Predefined department options for colleges
+ */
 export const PREDEFINED_DEPARTMENTS = [
   "Computer Science & Engineering (CSE)",
-  "Information Technology (IT)",
   "Electronics & Communication Engineering (ECE)",
   "Electrical & Electronics Engineering (EEE)",
-  "Mechanical Engineering",
-  "Civil Engineering",
-  "Artificial Intelligence & Machine Learning (AI & ML)",
-  "Data Science",
-  "Business Administration",
+  "Mechanical Engineering (ME)",
+  "Civil Engineering (CE)",
+  "Information Technology (IT)",
+  "Artificial Intelligence & Data Science (AI&DS)",
+  "Computer Science & Business Systems (CSBS)",
+  "Biotechnology (BT)",
+  "Chemical Engineering (CHE)",
+  "Aerospace Engineering (AE)",
+  "Automobile Engineering (AUTO)",
   "General",
   "Custom Department",
-] as const;
+];
 
-export const CUSTOM_DEPARTMENT_SENTINEL = "Custom Department";
-
-export function normalizeDepartmentName(name: string): string {
-  return name.trim().replace(/\s+/g, " ");
-}
-
+/**
+ * Ensure General department is always included
+ */
 export function ensureGeneralDepartment(departments: string[]): string[] {
-  const hasGeneral = departments.some((d) => d.toLowerCase() === "general");
-  if (hasGeneral) {
-    return [...departments];
+  const depts = [...departments];
+  if (!depts.includes("General")) {
+    depts.push("General");
   }
-  return [...departments, "General"];
+  return depts;
 }
 
 /**
- * Safely delete a department from a college without deleting students or losing data.
- * Automatically migrates all students, batches, resources, exams, and doubts to "General".
+ * Fetch all colleges from Firestore
  */
-export async function deleteDepartmentAndMigrate(college: College, deptName: string): Promise<void> {
-  const targetDept = deptName.trim().toLowerCase();
-  if (!targetDept || targetDept === "general") return;
-
-  // 1. Update College departments list (ensure "General" remains)
-  const updatedDepts = ensureGeneralDepartment(
-    (college.departments || []).filter((d) => d.toLowerCase() !== targetDept)
-  );
-  await updateCollege(college.id, { departments: updatedDepts, updatedAt: new Date() });
-
-  // 2. Migrate Students in this college/department to "General"
-  const collegeStudents = await getStudentsByCollege(college.id);
-  const affectedStudents = collegeStudents.filter(
-    (s) => (s.department || "").toLowerCase() === targetDept
-  );
-  await Promise.all(
-    affectedStudents.map((s) =>
-      updateStudentProfile(s.id, { department: "General", updatedAt: new Date() })
-    )
-  );
-
-  // 3. Migrate Batches in this college/department to "General"
-  const collegeBatches = await getBatchesByCollege(college.id);
-  const affectedBatches = collegeBatches.filter(
-    (b) => (b.department || "").toLowerCase() === targetDept
-  );
-  await Promise.all(
-    affectedBatches.map((b) =>
-      updateBatch(b.id, { department: "General", updatedAt: new Date() })
-    )
-  );
-
-  // 4. Migrate Resources targeting this college & department
-  const allResources = await getAllResources();
-  const affectedResources = allResources.filter((res) =>
-    res.targets?.some((t) =>
-      (t.collegeId === college.id || t.collegeName === college.name || !t.collegeId) &&
-      ((t.department || "").toLowerCase() === targetDept ||
-        (t.type === "department" && (t.ids?.some((id) => id.toLowerCase() === targetDept) || t.names?.some((n) => n.toLowerCase() === targetDept))))
-    )
-  );
-  await Promise.all(
-    affectedResources.map((res) => {
-      const updatedTargets = (res.targets || []).map((t) => {
-        const matchesCollege = t.collegeId === college.id || t.collegeName === college.name || !t.collegeId;
-        if (!matchesCollege) return t;
-        const newTarget = { ...t };
-        if ((t.department || "").toLowerCase() === targetDept) {
-          newTarget.department = "General";
-        }
-        if (t.type === "department") {
-          if (t.ids) newTarget.ids = t.ids.map((id) => (id.toLowerCase() === targetDept ? "General" : id));
-          if (t.names) newTarget.names = t.names.map((n) => (n.toLowerCase() === targetDept ? "General" : n));
-        }
-        return newTarget;
-      });
-      return updateResource(res.id, { targets: updatedTargets, updatedAt: new Date() });
-    })
-  );
-
-  // 5. Migrate Exams targeting this college & department
-  const allExams = await getAllExams();
-  const affectedExams = allExams.filter((ex) =>
-    ex.targets?.some((t) =>
-      (t.collegeId === college.id || t.collegeName === college.name || !t.collegeId) &&
-      ((t.department || "").toLowerCase() === targetDept ||
-        (t.type === "department" && (t.ids?.some((id) => id.toLowerCase() === targetDept) || t.names?.some((n) => n.toLowerCase() === targetDept))))
-    )
-  );
-  await Promise.all(
-    affectedExams.map((ex) => {
-      const updatedTargets = (ex.targets || []).map((t) => {
-        const matchesCollege = t.collegeId === college.id || t.collegeName === college.name || !t.collegeId;
-        if (!matchesCollege) return t;
-        const newTarget = { ...t };
-        if ((t.department || "").toLowerCase() === targetDept) {
-          newTarget.department = "General";
-        }
-        if (t.type === "department") {
-          if (t.ids) newTarget.ids = t.ids.map((id) => (id.toLowerCase() === targetDept ? "General" : id));
-          if (t.names) newTarget.names = t.names.map((n) => (n.toLowerCase() === targetDept ? "General" : n));
-        }
-        return newTarget;
-      });
-      return updateExam(ex.id, { targets: updatedTargets, updatedAt: new Date() });
-    })
-  );
-
-  // 6. Migrate Doubts in this college/department
-  const allDoubts = await getAllDoubts();
-  const affectedDoubts = allDoubts.filter((d: any) =>
-    (d.collegeId === college.id || !d.collegeId) && (d.department || "").toLowerCase() === targetDept
-  );
-  await Promise.all(
-    affectedDoubts.map((d) =>
-      updateDoubt(d.id, { department: "General", updatedAt: new Date() } as any)
-    )
-  );
+export async function fetchColleges(): Promise<College[]> {
+  return getDocuments<College>("colleges", [orderBy("createdAt", "desc")]);
 }
 
 /**
- * Safely rename a department across a college and all referential entities (students, batches, resources, exams, doubts).
+ * Get all colleges (alias for consistency)
  */
-export async function renameDepartmentAndMigrate(college: College, oldName: string, newName: string): Promise<void> {
-  const targetOld = oldName.trim().toLowerCase();
-  const targetNew = newName.trim();
-  if (!targetOld || !targetNew || targetOld === targetNew.toLowerCase()) return;
+export const getAllColleges = fetchColleges;
 
-  // 1. Update College departments list
-  const updatedDepts = ensureGeneralDepartment(
-    (college.departments || []).map((d) => (d.toLowerCase() === targetOld ? targetNew : d))
-  );
-  await updateCollege(college.id, { departments: updatedDepts, updatedAt: new Date() });
-
-  // 2. Migrate Students
-  const collegeStudents = await getStudentsByCollege(college.id);
-  const affectedStudents = collegeStudents.filter(
-    (s) => (s.department || "").toLowerCase() === targetOld
-  );
-  await Promise.all(
-    affectedStudents.map((s) =>
-      updateStudentProfile(s.id, { department: targetNew, updatedAt: new Date() })
-    )
-  );
-
-  // 3. Migrate Batches
-  const collegeBatches = await getBatchesByCollege(college.id);
-  const affectedBatches = collegeBatches.filter(
-    (b) => (b.department || "").toLowerCase() === targetOld
-  );
-  await Promise.all(
-    affectedBatches.map((b) =>
-      updateBatch(b.id, { department: targetNew, updatedAt: new Date() })
-    )
-  );
-
-  // 4. Migrate Resources
-  const allResources = await getAllResources();
-  const affectedResources = allResources.filter((res) =>
-    res.targets?.some((t) =>
-      (t.collegeId === college.id || t.collegeName === college.name || !t.collegeId) &&
-      ((t.department || "").toLowerCase() === targetOld ||
-        (t.type === "department" && (t.ids?.some((id) => id.toLowerCase() === targetOld) || t.names?.some((n) => n.toLowerCase() === targetOld))))
-    )
-  );
-  await Promise.all(
-    affectedResources.map((res) => {
-      const updatedTargets = (res.targets || []).map((t) => {
-        const matchesCollege = t.collegeId === college.id || t.collegeName === college.name || !t.collegeId;
-        if (!matchesCollege) return t;
-        const newTarget = { ...t };
-        if ((t.department || "").toLowerCase() === targetOld) {
-          newTarget.department = targetNew;
-        }
-        if (t.type === "department") {
-          if (t.ids) newTarget.ids = t.ids.map((id) => (id.toLowerCase() === targetOld ? targetNew : id));
-          if (t.names) newTarget.names = t.names.map((n) => (n.toLowerCase() === targetOld ? targetNew : n));
-        }
-        return newTarget;
-      });
-      return updateResource(res.id, { targets: updatedTargets, updatedAt: new Date() });
-    })
-  );
-
-  // 5. Migrate Exams
-  const allExams = await getAllExams();
-  const affectedExams = allExams.filter((ex) =>
-    ex.targets?.some((t) =>
-      (t.collegeId === college.id || t.collegeName === college.name || !t.collegeId) &&
-      ((t.department || "").toLowerCase() === targetOld ||
-        (t.type === "department" && (t.ids?.some((id) => id.toLowerCase() === targetOld) || t.names?.some((n) => n.toLowerCase() === targetOld))))
-    )
-  );
-  await Promise.all(
-    affectedExams.map((ex) => {
-      const updatedTargets = (ex.targets || []).map((t) => {
-        const matchesCollege = t.collegeId === college.id || t.collegeName === college.name || !t.collegeId;
-        if (!matchesCollege) return t;
-        const newTarget = { ...t };
-        if ((t.department || "").toLowerCase() === targetOld) {
-          newTarget.department = targetNew;
-        }
-        if (t.type === "department") {
-          if (t.ids) newTarget.ids = t.ids.map((id) => (id.toLowerCase() === targetOld ? targetNew : id));
-          if (t.names) newTarget.names = t.names.map((n) => (n.toLowerCase() === targetOld ? targetNew : n));
-        }
-        return newTarget;
-      });
-      return updateExam(ex.id, { targets: updatedTargets, updatedAt: new Date() });
-    })
-  );
-
-  // 6. Migrate Doubts
-  const allDoubts = await getAllDoubts();
-  const affectedDoubts = allDoubts.filter((d: any) =>
-    (d.collegeId === college.id || !d.collegeId) && (d.department || "").toLowerCase() === targetOld
-  );
-  await Promise.all(
-    affectedDoubts.map((d) =>
-      updateDoubt(d.id, { department: targetNew, updatedAt: new Date() } as any)
-    )
-  );
+/**
+ * Subscribe to all colleges with real-time updates
+ */
+export function subscribeToAllColleges(callback: (colleges: College[]) => void): () => void {
+  return subscribeToDocuments<College>("colleges", callback, [orderBy("createdAt", "desc")]);
 }
 
 /**
- * Safely rename a college (or outside self-registered institution) across all referential entities:
- * colleges, students, batches, resources, exams, and doubts.
+ * Fetch a single college by ID
  */
-export async function renameCollegeAndMigrate(oldId: string, oldName: string, newName: string, isExternal: boolean = false): Promise<void> {
-  const targetOldName = oldName.trim();
-  const targetNewName = newName.trim().toLowerCase();
-  if (!targetOldName || !targetNewName || targetOldName === targetNewName) return;
+export async function fetchCollegeById(id: string): Promise<College | null> {
+  const docRef = doc(db, "colleges", id);
+  const docSnap = await getDoc(docRef);
 
-  // 1. Update College Document (if official or if matching official college exists)
-  if (!isExternal) {
-    await updateCollege(oldId, { name: targetNewName, updatedAt: new Date() });
-  } else {
-    const allColleges = await getAllColleges();
-    const matchingCollege = allColleges.find(
-      (c) => c.name.toLowerCase() === targetOldName.toLowerCase() || c.id.toLowerCase() === targetOldName.toLowerCase()
+  if (!docSnap.exists()) {
+    return null;
+  }
+
+  return {
+    id: docSnap.id,
+    ...docSnap.data(),
+  } as College;
+}
+
+/**
+ * Get college by ID (alias for consistency with other services)
+ */
+export const getCollegeById = fetchCollegeById;
+
+/**
+ * Create a new college
+ */
+export async function createCollege(data: Partial<College>): Promise<string> {
+  const now = Timestamp.now();
+
+  const collegeData = {
+    ...data,
+    studentCount: 0,
+    status: "active",
+    isDeleted: false,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const docRef = await addDoc(collection(db, "colleges"), collegeData);
+
+  return docRef.id;
+}
+
+/**
+ * Update an existing college
+ */
+export async function updateCollege(
+  id: string,
+  data: Partial<College>
+): Promise<void> {
+  const docRef = doc(db, "colleges", id);
+
+  await updateDoc(docRef, {
+    ...data,
+    updatedAt: Timestamp.now(),
+  });
+}
+
+/**
+ * ⚠️ CRITICAL FIX: Delete college with proper error handling
+ * NO SILENT FAILURES - All errors propagate to caller
+ */
+export async function deleteCollege(id: string): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    throw new Error("User must be authenticated to delete colleges");
+  }
+
+  const adminIdToken = await currentUser.getIdToken(true);
+
+  const response = await fetch("/api/admin/delete-college", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, adminIdToken }),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok || !data.success) {
+    throw new Error(
+      data.error ||
+      data.message ||
+      `Failed to delete college: ${response.status} ${response.statusText}`
     );
-    if (matchingCollege) {
-      await updateCollege(matchingCollege.id, { name: targetNewName, updatedAt: new Date() });
-    }
+  }
+}
+
+/**
+ * Fetch student count for a college
+ */
+export async function fetchCollegeStudentCount(collegeId: string): Promise<number> {
+  const q = query(
+    collection(db, "students"),
+    where("collegeId", "==", collegeId)
+  );
+
+  const snapshot = await getDocs(q);
+  return snapshot.size;
+}
+
+/**
+ * Update college student count
+ */
+export async function updateCollegeStudentCount(
+  collegeId: string,
+  count: number
+): Promise<void> {
+  const docRef = doc(db, "colleges", collegeId);
+
+  await updateDoc(docRef, {
+    studentCount: count,
+    updatedAt: Timestamp.now(),
+  });
+}
+
+/**
+ * Soft delete a college (mark as deleted)
+ */
+export async function softDeleteCollege(id: string): Promise<void> {
+  const docRef = doc(db, "colleges", id);
+
+  await updateDoc(docRef, {
+    isDeleted: true,
+    status: "deleted",
+    updatedAt: Timestamp.now(),
+  });
+}
+
+/**
+ * Restore a soft-deleted college
+ */
+export async function restoreCollege(id: string): Promise<void> {
+  const docRef = doc(db, "colleges", id);
+
+  await updateDoc(docRef, {
+    isDeleted: false,
+    status: "active",
+    updatedAt: Timestamp.now(),
+  });
+}
+
+/**
+ * Rename college and migrate all student references
+ */
+export async function renameCollegeAndMigrate(
+  collegeId: string,
+  oldName: string,
+  newName: string,
+  isExternal: boolean = false
+): Promise<void> {
+  const batch = writeBatch(db);
+
+  // Update college document
+  if (!isExternal) {
+    const collegeRef = doc(db, "colleges", collegeId);
+    batch.update(collegeRef, {
+      name: newName,
+      updatedAt: Timestamp.now(),
+    });
   }
 
-  // 2. Migrate Students
-  const allStudents = await getAllStudents();
-  const affectedStudents = allStudents.filter(
-    (s) =>
-      (!isExternal && s.collegeId === oldId) ||
-      (s.collegeName || "").toLowerCase() === targetOldName.toLowerCase() ||
-      (s.collegeId || "").toLowerCase() === targetOldName.toLowerCase()
-  );
-  await Promise.all(
-    affectedStudents.map((s) => {
-      const payload: Partial<Student> = {
-        collegeName: targetNewName,
-        updatedAt: new Date(),
-      };
-      if ((s.collegeId || "").toLowerCase() === targetOldName.toLowerCase() || (isExternal && s.collegeId === oldId)) {
-        payload.collegeId = targetNewName;
-      }
-      return updateStudentProfile(s.id, payload);
-    })
+  // Update all students
+  const studentsQuery = query(
+    collection(db, "students"),
+    where(isExternal ? "collegeName" : "collegeId", "==", isExternal ? oldName : collegeId)
   );
 
-  // 3. Migrate Batches
-  const allBatches = await getAllBatches();
-  const affectedBatches = allBatches.filter(
-    (b) =>
-      (!isExternal && b.collegeId === oldId) ||
-      (b.collegeId || "").toLowerCase() === targetOldName.toLowerCase()
-  );
-  await Promise.all(
-    affectedBatches.map((b) => {
-      const payload: Partial<Batch> = { updatedAt: new Date() };
-      if ((b.collegeId || "").toLowerCase() === targetOldName.toLowerCase() || (isExternal && b.collegeId === oldId)) {
-        payload.collegeId = targetNewName;
-      }
-      return updateBatch(b.id, payload);
-    })
+  const studentsSnap = await getDocs(studentsQuery);
+  studentsSnap.docs.forEach((studentDoc) => {
+    batch.update(studentDoc.ref, {
+      collegeName: newName,
+      updatedAt: Timestamp.now(),
+    });
+  });
+
+  await batch.commit();
+}
+
+/**
+ * Delete a department and migrate students to General
+ */
+export async function deleteDepartmentAndMigrate(
+  collegeId: string,
+  departmentName: string
+): Promise<void> {
+  const batch = writeBatch(db);
+
+  // Update college document - remove department
+  const collegeRef = doc(db, "colleges", collegeId);
+  const collegeSnap = await getDoc(collegeRef);
+  if (collegeSnap.exists()) {
+    const collegeData = collegeSnap.data();
+    const departments = (collegeData.departments || []).filter((d: string) => d !== departmentName);
+    batch.update(collegeRef, {
+      departments,
+      updatedAt: Timestamp.now(),
+    });
+  }
+
+  // Migrate students to General department
+  const studentsQuery = query(
+    collection(db, "students"),
+    where("collegeId", "==", collegeId),
+    where("department", "==", departmentName)
   );
 
-  // 4. Migrate Resources
-  const allResources = await getAllResources();
-  const affectedResources = allResources.filter((res) =>
-    res.targets?.some(
-      (t) =>
-        (!isExternal && t.collegeId === oldId) ||
-        (t.collegeId || "").toLowerCase() === targetOldName.toLowerCase() ||
-        (t.collegeName || "").toLowerCase() === targetOldName.toLowerCase() ||
-        (t.type === "college" &&
-          (t.ids?.some((id) => id.toLowerCase() === targetOldName.toLowerCase() || (!isExternal && id === oldId)) ||
-            t.names?.some((n) => n.toLowerCase() === targetOldName.toLowerCase())))
-    )
-  );
-  await Promise.all(
-    affectedResources.map((res) => {
-      const updatedTargets = (res.targets || []).map((t) => {
-        const matches =
-          (!isExternal && t.collegeId === oldId) ||
-          (t.collegeId || "").toLowerCase() === targetOldName.toLowerCase() ||
-          (t.collegeName || "").toLowerCase() === targetOldName.toLowerCase() ||
-          (t.type === "college" &&
-            (t.ids?.some((id) => id.toLowerCase() === targetOldName.toLowerCase() || (!isExternal && id === oldId)) ||
-              t.names?.some((n) => n.toLowerCase() === targetOldName.toLowerCase())));
-        if (!matches) return t;
-        const newTarget = { ...t };
-        if ((t.collegeName || "").toLowerCase() === targetOldName.toLowerCase()) newTarget.collegeName = targetNewName;
-        if ((t.collegeId || "").toLowerCase() === targetOldName.toLowerCase()) newTarget.collegeId = targetNewName;
-        if (t.type === "college") {
-          if (t.ids) {
-            newTarget.ids = t.ids.map((id) =>
-              id.toLowerCase() === targetOldName.toLowerCase() || (isExternal && id === oldId) ? targetNewName : id
-            );
-          }
-          if (t.names) {
-            newTarget.names = t.names.map((n) =>
-              n.toLowerCase() === targetOldName.toLowerCase() ? targetNewName : n
-            );
-          }
-        }
-        return newTarget;
-      });
-      return updateResource(res.id, { targets: updatedTargets, updatedAt: new Date() });
-    })
+  const studentsSnap = await getDocs(studentsQuery);
+  studentsSnap.docs.forEach((studentDoc) => {
+    batch.update(studentDoc.ref, {
+      department: "General",
+      updatedAt: Timestamp.now(),
+    });
+  });
+
+  await batch.commit();
+}
+
+/**
+ * Rename a department and migrate all student references
+ */
+export async function renameDepartmentAndMigrate(
+  collegeId: string,
+  oldName: string,
+  newName: string
+): Promise<void> {
+  const batch = writeBatch(db);
+
+  // Update college document
+  const collegeRef = doc(db, "colleges", collegeId);
+  const collegeSnap = await getDoc(collegeRef);
+  if (collegeSnap.exists()) {
+    const collegeData = collegeSnap.data();
+    const departments = (collegeData.departments || []).map((d: string) =>
+      d === oldName ? newName : d
+    );
+    batch.update(collegeRef, {
+      departments,
+      updatedAt: Timestamp.now(),
+    });
+  }
+
+  // Update all students
+  const studentsQuery = query(
+    collection(db, "students"),
+    where("collegeId", "==", collegeId),
+    where("department", "==", oldName)
   );
 
-  // 5. Migrate Exams
-  const allExams = await getAllExams();
-  const affectedExams = allExams.filter((ex) =>
-    ex.targets?.some(
-      (t) =>
-        (!isExternal && t.collegeId === oldId) ||
-        (t.collegeId || "").toLowerCase() === targetOldName.toLowerCase() ||
-        (t.collegeName || "").toLowerCase() === targetOldName.toLowerCase() ||
-        (t.type === "college" &&
-          (t.ids?.some((id) => id.toLowerCase() === targetOldName.toLowerCase() || (!isExternal && id === oldId)) ||
-            t.names?.some((n) => n.toLowerCase() === targetOldName.toLowerCase())))
-    )
-  );
-  await Promise.all(
-    affectedExams.map((ex) => {
-      const updatedTargets = (ex.targets || []).map((t) => {
-        const matches =
-          (!isExternal && t.collegeId === oldId) ||
-          (t.collegeId || "").toLowerCase() === targetOldName.toLowerCase() ||
-          (t.collegeName || "").toLowerCase() === targetOldName.toLowerCase() ||
-          (t.type === "college" &&
-            (t.ids?.some((id) => id.toLowerCase() === targetOldName.toLowerCase() || (!isExternal && id === oldId)) ||
-              t.names?.some((n) => n.toLowerCase() === targetOldName.toLowerCase())));
-        if (!matches) return t;
-        const newTarget = { ...t };
-        if ((t.collegeName || "").toLowerCase() === targetOldName.toLowerCase()) newTarget.collegeName = targetNewName;
-        if ((t.collegeId || "").toLowerCase() === targetOldName.toLowerCase()) newTarget.collegeId = targetNewName;
-        if (t.type === "college") {
-          if (t.ids) {
-            newTarget.ids = t.ids.map((id) =>
-              id.toLowerCase() === targetOldName.toLowerCase() || (isExternal && id === oldId) ? targetNewName : id
-            );
-          }
-          if (t.names) {
-            newTarget.names = t.names.map((n) =>
-              n.toLowerCase() === targetOldName.toLowerCase() ? targetNewName : n
-            );
-          }
-        }
-        return newTarget;
-      });
-      return updateExam(ex.id, { targets: updatedTargets, updatedAt: new Date() });
-    })
-  );
+  const studentsSnap = await getDocs(studentsQuery);
+  studentsSnap.docs.forEach((studentDoc) => {
+    batch.update(studentDoc.ref, {
+      department: newName,
+      updatedAt: Timestamp.now(),
+    });
+  });
 
-  // 6. Migrate Doubts
-  const allDoubts = await getAllDoubts();
-  const affectedDoubts = allDoubts.filter(
-    (d: any) =>
-      (!isExternal && d.collegeId === oldId) ||
-      (d.collegeId || "").toLowerCase() === targetOldName.toLowerCase() ||
-      (d.collegeName || "").toLowerCase() === targetOldName.toLowerCase()
-  );
-  await Promise.all(
-    affectedDoubts.map((d: any) => {
-      const payload: any = { updatedAt: new Date() };
-      if ((d.collegeName || "").toLowerCase() === targetOldName.toLowerCase()) payload.collegeName = targetNewName;
-      if ((d.collegeId || "").toLowerCase() === targetOldName.toLowerCase() || (isExternal && d.collegeId === oldId)) {
-        payload.collegeId = targetNewName;
-      }
-      return updateDoubt(d.id, payload);
-    })
-  );
-
-  // 7. Migrate College Admins
-  const allUsers = await getDocuments<any>("users");
-  const affectedUsers = allUsers.filter(
-    (u: any) =>
-      u.role === "college_admin" &&
-      ((!isExternal && u.collegeId === oldId) ||
-        (u.collegeId || "").toLowerCase() === targetOldName.toLowerCase() ||
-        (u.collegeName || "").toLowerCase() === targetOldName.toLowerCase())
-  );
-  await Promise.all(
-    affectedUsers.map((u: any) => {
-      const payload: any = { updatedAt: new Date() };
-      if ((u.collegeName || "").toLowerCase() === targetOldName.toLowerCase()) payload.collegeName = targetNewName;
-      if ((u.collegeId || "").toLowerCase() === targetOldName.toLowerCase() || (isExternal && u.collegeId === oldId)) {
-        payload.collegeId = targetNewName;
-      }
-      return updateDocument("users", u.id, payload);
-    })
-  );
+  await batch.commit();
 }

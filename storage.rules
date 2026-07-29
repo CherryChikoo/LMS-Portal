@@ -1,0 +1,29 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Default fallback: allow read if authenticated
+    match /{allPaths=**} {
+      allow read: if request.auth != null;
+    }
+    
+    // Students can upload avatars or specific attachments, but we restrict size and type
+    match /users/{userId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null 
+                   && request.auth.uid == userId 
+                   && request.resource.size < 5 * 1024 * 1024 // 5MB limit
+                   && request.resource.contentType.matches('image/.*');
+    }
+    
+    // Admins and trainers can upload exam resources or college logos
+    match /public/{allPaths=**} {
+      allow read: if request.auth != null;
+      // We assume role verification is complex in Storage without custom claims.
+      // In production, we'd use Custom Claims (request.auth.token.role == 'admin').
+      // For now, anyone authenticated can write to public if we are relying on client UI,
+      // but it's heavily recommended to lock this down with custom claims.
+      allow write: if request.auth != null; 
+    }
+  }
+}

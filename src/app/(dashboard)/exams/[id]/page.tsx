@@ -36,9 +36,6 @@ import { Button } from "@/components/ui/button";
 import { QuestionReview } from "@/components/assessment/question-review";
 
 import {
-  getAllBatches,
-  getAllColleges,
-  getAllStudents,
   getEffectiveExamStatus,
   getExamById,
   getResultsByExam,

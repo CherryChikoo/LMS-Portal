@@ -24,22 +24,22 @@ const BrandingContext = createContext<BrandingContextType>({
 export function BrandingProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [masterBranding, setMasterBranding] = useState<CompanyBranding>(defaultBranding);
-  const [collegeBranding, setCollegeBranding] = useState<CompanyBranding | null>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const cached = localStorage.getItem("lms_college_branding");
-        const storedUser = localStorage.getItem("lms_user") || localStorage.getItem("user");
-        if (cached && storedUser) {
-          const parsedCached = JSON.parse(cached);
-          const profile = JSON.parse(storedUser);
-          if (parsedCached.collegeId === profile.collegeId) {
-            return parsedCached.branding;
-          }
+  const [collegeBranding, setCollegeBranding] = useState<CompanyBranding | null>(null);
+
+  // Hydrate from localStorage safely after mount
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem("lms_college_branding");
+      const storedUser = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      if (cached && storedUser) {
+        const parsedCached = JSON.parse(cached);
+        const profile = JSON.parse(storedUser);
+        if (parsedCached.collegeId === profile.collegeId) {
+          setCollegeBranding(parsedCached.branding);
         }
-      } catch (e) {}
-    }
-    return null;
-  });
+      }
+    } catch (e) {}
+  }, []);
   const [loading, setLoading] = useState(true);
 
   // Subscribe to Master Branding

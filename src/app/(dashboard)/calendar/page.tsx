@@ -10,15 +10,14 @@ import { AcademicHierarchyFilters } from "@/components/shared/academic-hierarchy
 import { useAcademicHierarchy } from "@/lib/hierarchy/use-academic-hierarchy";
 import { Badge } from "@/components/ui/badge";
 import { fadeInUp, staggerContainer } from "@/lib/animations";
-import { getAllExams, getAllResources, filterExamsForStudent, filterResourcesForStudent } from "@/lib/services";
+import { filterExamsForStudent, filterResourcesForStudent } from "@/lib/services";
+import { useLMSData } from "@/lib/data/use-lms-data";
 import { toDate } from "@/lib/utils/date";
 import type { Exam, Resource, Student } from "@/types";
 import Link from "next/link";
 
 export default function CalendarPage() {
-  const [exams, setExams] = useState<Exam[]>([]);
-  const [resources, setResources] = useState<Resource[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { filteredExams: exams, filteredResources: resources, loading } = useLMSData();
   const [userRole, setUserRole] = useState<string>("admin");
   const [studentUser, setStudentUser] = useState<Student | null>({
     id: "",
@@ -47,34 +46,20 @@ export default function CalendarPage() {
     sectionOptions,
     batchOptions,
   } = useAcademicHierarchy({
-    levels: ["institution", "department", "academicYear", "section", "batch"],
+    levels: userRole === "college_admin" ? ["department", "academicYear", "section", "batch"] : ["institution", "department", "academicYear", "section", "batch"],
   });
 
   useEffect(() => {
-    async function fetchData() {
+    const role = localStorage.getItem("lms_role") || "admin";
+    setUserRole(role.toLowerCase());
+    
+    const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+    if (uStr) {
       try {
-        const role = localStorage.getItem("lms_role") || "admin";
-        setUserRole(role.toLowerCase());
-        
-        const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-        if (uStr) {
-          const parsed = JSON.parse(uStr) as Partial<Student>;
-          setStudentUser((prev) => (prev ? { ...prev, ...parsed } : (parsed as Student)));
-        }
-
-        const [exData, resData] = await Promise.all([
-          getAllExams(),
-          getAllResources(),
-        ]);
-        setExams(exData);
-        setResources(resData);
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
+        const parsed = JSON.parse(uStr) as Partial<Student>;
+        setStudentUser((prev) => (prev ? { ...prev, ...parsed } : (parsed as Student)));
+      } catch {}
     }
-    fetchData();
   }, []);
 
   const timelineEvents = useMemo(() => {
@@ -88,7 +73,7 @@ export default function CalendarPage() {
       // Non-student users (admin/trainer): narrow the timeline by the selected
       // hierarchy. Mirrors the logic in the Resources and Exams pages: match
       // against the first target's composite fields.
-      activeExams = activeExams.filter((ex) => {
+      activeExams = activeExams.filter((ex: Exam) => {
         const t = ex.targets?.[0];
         if (!t) return true;
         if (filters.collegeId && t.collegeId !== filters.collegeId) return false;
@@ -98,7 +83,7 @@ export default function CalendarPage() {
         if (filters.batchId && t.batchId !== filters.batchId) return false;
         return true;
       });
-      activeResources = activeResources.filter((res) => {
+      activeResources = activeResources.filter((res: Resource) => {
         const t = res.targets?.[0];
         if (!t) return true;
         if (filters.collegeId && t.collegeId !== filters.collegeId) return false;
@@ -112,7 +97,7 @@ export default function CalendarPage() {
 
     const events: { id: string; title: string; type: "exam" | "resource"; date: Date; extra: string }[] = [];
 
-    activeExams.forEach(ex => {
+    activeExams.forEach((ex: Exam) => {
       if (ex.startTime) {
         events.push({
           id: `ex-${ex.id}`,
@@ -132,7 +117,7 @@ export default function CalendarPage() {
       }
     });
 
-    activeResources.forEach(res => {
+    activeResources.forEach((res: Resource) => {
       events.push({
         id: `res-${res.id}`,
         title: res.title,
@@ -165,8 +150,8 @@ export default function CalendarPage() {
       {userRole !== "student" && !loading && (
         <div className="bg-card/60 backdrop-blur-md p-4 rounded-2xl border border-border/80 shadow-sm">
           <AcademicHierarchyFilters
-            showInstitution
-            levels={["institution", "department", "academicYear", "section", "batch"]}
+            showInstitution={userRole !== "college_admin"}
+            levels={userRole === "college_admin" ? ["department", "academicYear", "section", "batch"] : ["institution", "department", "academicYear", "section", "batch"]}
             filters={filters}
             onChange={setFilters}
             institutionOptions={institutionOptions}

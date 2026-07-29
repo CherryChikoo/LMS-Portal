@@ -9,9 +9,11 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { useErrorHandler } from "@/providers/error-provider";
 import { 
-  getStudentById, getAllExams, getStudentAttempts, getEffectiveExamStatus, filterExamsForStudent 
+  getStudentById, getStudentAttempts, getEffectiveExamStatus, filterExamsForStudent 
 } from "@/lib/services";
+import { useLMSDataSelector } from "@/lib/data/use-lms-data";
 import type { Student, Exam, ExamAttempt } from "@/types";
 import { toDate } from "@/lib/utils/date";
 import { useEntityResolution } from "@/lib/data/use-entity-resolution";
@@ -21,6 +23,7 @@ interface PageProps {
 }
 
 export default function StudentEvaluationPage({ params }: PageProps) {
+  const { showError } = useErrorHandler();
   const resolvedParams = use(params);
   const router = useRouter();
   const studentId = resolvedParams.id;
@@ -28,7 +31,11 @@ export default function StudentEvaluationPage({ params }: PageProps) {
 
   const [loading, setLoading] = useState(true);
   const [student, setStudent] = useState<Student | null>(null);
-  const [exams, setExams] = useState<Exam[]>([]);
+  const allExams = useLMSDataSelector((s) => s.exams);
+  const exams = useMemo(() => {
+    if (!student) return [];
+    return filterExamsForStudent(allExams, student);
+  }, [allExams, student]);
   const [attempts, setAttempts] = useState<ExamAttempt[]>([]);
 
   useEffect(() => {
@@ -41,27 +48,20 @@ export default function StudentEvaluationPage({ params }: PageProps) {
       try {
         const studentData = await getStudentById(studentId);
         if (!studentData) {
-          toast.error("Student not found.");
+          showError({ message: "Student not found." });
           router.push("/students");
           return;
         }
 
-        const [allExams, studAttempts] = await Promise.all([
-          getAllExams(),
-          getStudentAttempts(studentId),
-        ]);
+        const studAttempts = await getStudentAttempts(studentId);
 
         if (!isMounted) return;
 
-        // Filter assignments for this specific student
-        const assignedExams = filterExamsForStudent(allExams, studentData);
-
         setStudent(studentData);
-        setExams(assignedExams);
         setAttempts(studAttempts);
       } catch (err) {
         console.error("Failed to load student report data:", err);
-        toast.error("Failed to load report data.");
+        showError({ message: "Failed to load report data." });
       } finally {
         if (isMounted) setLoading(false);
       }

@@ -23,8 +23,8 @@ import { getDocument } from "@/lib/firebase/firestore";
 import {
   getExamById,
   getAllExamsIncludingDeleted,
-  getAllStudents,
 } from "@/lib/services";
+import { useLMSDataSelector } from "@/lib/data/use-lms-data";
 import { fadeInUp } from "@/lib/animations";
 import type { Exam, ExamResult, Student } from "@/types";
 
@@ -77,7 +77,7 @@ export default function AttemptAnswerSheetPage({
 
   const [attempt, setAttempt] = useState<ExamResult | null>(null);
   const [exam, setExam] = useState<Exam | null>(null);
-  const [students, setStudents] = useState<Student[]>([]);
+  const students = useLMSDataSelector((s) => s.students);
   const [loading, setLoading] = useState(true);
 
   const isAdminRoute = pathname?.startsWith("/admin") ?? false;
@@ -100,10 +100,7 @@ export default function AttemptAnswerSheetPage({
 
         setAttempt(fetched);
 
-        const [resolvedExam, allStudents] = await Promise.all([
-          getExamById(fetched.examId).catch(() => null),
-          getAllStudents().catch(() => [] as Student[]),
-        ]);
+        const resolvedExam = await getExamById(fetched.examId).catch(() => null);
 
         if (cancelled) return;
 
@@ -119,8 +116,6 @@ export default function AttemptAnswerSheetPage({
             if (!cancelled) setExam(null);
           }
         }
-
-        setStudents(allStudents);
       } catch (err) {
         console.error("Failed to load attempt answer sheet", err);
         if (!cancelled) setAttempt(null);

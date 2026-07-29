@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, use } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { useErrorHandler } from "@/providers/error-provider";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { ArrowLeft, Building2, FolderTree, Users, Plus, Trash2, Search, CheckCircle2, Pencil, Ban } from "lucide-react";
@@ -36,6 +37,7 @@ function getCreatedTime(date: MaybeTimestamp) {
 }
 
 export default function CollegeDetailPage({ params }: PageProps) {
+  const { showError } = useErrorHandler();
   const resolvedParams = use(params);
   const collegeId = resolvedParams.id;
   const router = useRouter();
@@ -314,7 +316,7 @@ function getYearBadgeStyle(year?: string) {
     setRenamingDept(true);
     setRenameDeptError(null);
     try {
-      await renameDepartmentAndMigrate(college, oldName, trimmedNewName);
+      await renameDepartmentAndMigrate(college.id, oldName, trimmedNewName);
       setEditingDept(null);
       setEditDeptName("");
       await refreshData();
@@ -334,7 +336,7 @@ function getYearBadgeStyle(year?: string) {
       onConfirm: async () => {
         setLoading(true);
         try {
-          await deleteDepartmentAndMigrate(college, deptName);
+          await deleteDepartmentAndMigrate(college.id, deptName);
           await refreshData();
         } catch (err) {
           console.error("Error deleting department:", err);
@@ -555,7 +557,7 @@ function getYearBadgeStyle(year?: string) {
           toast.success(`Deleted ${currentSelected.length} student profile(s).`);
         } catch (err) {
           console.error("Failed to delete selected students:", err);
-          toast.error("Failed to delete selected students.");
+          showError({ message: "Failed to delete selected students." });
         }
       }
     });
@@ -579,7 +581,7 @@ function getYearBadgeStyle(year?: string) {
             toast.success(`Restricted "${stud.name}".`);
           } catch (err) {
             console.error("Failed to restrict account:", err);
-            toast.error("Failed to restrict account.");
+            showError({ message: "Failed to restrict account." });
           }
         }
       });
@@ -597,7 +599,7 @@ function getYearBadgeStyle(year?: string) {
             toast.success(`Reactivated "${stud.name}".`);
           } catch (err) {
             console.error("Failed to reactivate account:", err);
-            toast.error("Failed to reactivate account.");
+            showError({ message: "Failed to reactivate account." });
           }
         }
       });
@@ -617,7 +619,7 @@ function getYearBadgeStyle(year?: string) {
           toast.success(`Deleted ${stud.name}.`);
         } catch (err) {
           console.error("Failed to delete student:", err);
-          toast.error("Failed to delete student.");
+          showError({ message: "Failed to delete student." });
         }
       }
     });

@@ -35,250 +35,7 @@ function collegeNameToId(name: string): string {
     .replace(/(^-|-$)/g, "");
 }
 
-/**
- * Sign in Trainer/Admin and verify role
- */
-export async function trainerLogin(email: string, pass: string): Promise<{ user: FirebaseUser; profile: User }> {
-  let credential;
-  try {
-    credential = await signInWithEmailAndPassword(auth, email, pass);
-  } catch (_err: unknown) {
-    // If account doesn't exist yet in Firebase Auth, only bootstrap if exact default master credentials match
-    if (
-      email.toLowerCase() === "trainer@gmail.com" && pass === "admin123456"
-    ) {
-      try {
-        credential = await createUserWithEmailAndPassword(auth, email, pass);
-      } catch {
-        throw new Error("Invalid trainer credentials or account already exists with a different password.");
-      }
-    } else {
-      try {
-        const methods = await fetchSignInMethodsForEmail(auth, email.toLowerCase().trim());
-        if (methods.includes("google.com") && !methods.includes("password")) {
-          throw new Error("This account was authenticated using Google Sign-In. To log in right now, please click 'Sign in with Google' above. (Admin tip: To allow simultaneous Email/Password and Google login without provider overwriting, enable 'Allow multiple accounts with the same email address' in Firebase Console -> Authentication -> Settings -> User account linking).");
-        }
-      } catch (methodErr: unknown) {
-        if (methodErr instanceof Error && methodErr.message.includes("Google Sign-In")) {
-          throw methodErr;
-        }
-      }
-      throw new Error("Invalid administrative credentials. Please check your email and password.");
-    }
-  }
-  const uid = credential.user.uid;
-  let profile = await getDocument<ExtendedUser>(USERS_COLLECTION, uid);
 
-  // If initial bootstrap admin (e.g. first login or trainer account creation)
-  if (!profile) {
-    if (email.toLowerCase() === "trainer@gmail.com") {
-      profile = {
-        id: uid,
-        email: email.toLowerCase(),
-        displayName: credential.user.displayName || "Super Administrator",
-        role: "admin",
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-      await setDoc(doc(db, USERS_COLLECTION, uid), profile);
-    } else {
-      await firebaseSignOut(auth);
-      throw new Error("Unauthorized: Access restricted to authorized faculty and trainer accounts.");
-    }
-  } else if (profile.role !== "trainer" && profile.role !== "admin") {
-    await firebaseSignOut(auth);
-    throw new Error("Unauthorized: You do not have trainer or administrator privileges.");
-  } else if (profile.isDeleted || profile.status === "deleted") {
-    await firebaseSignOut(auth);
-    throw new Error("ACCOUNT_DELETED: Your trainer account has been permanently deleted.");
-  }
-
-  return { user: credential.user, profile };
-}
-
-/**
- * Sign in College Admin and verify role/credentials
- */
-export async function collegeAdminLogin(email: string, pass: string): Promise<{ user: FirebaseUser; profile: ExtendedUser }> {
-  let credential;
-  const cleanEmail = email.toLowerCase().trim();
-  try {
-    credential = await signInWithEmailAndPassword(auth, email, pass);
-  } catch (_err: unknown) {
-    // Check if college admin exists in Firestore
-    const docs = await getDocuments<import("@/types").College>("colleges", [where("adminEmail", "==", cleanEmail)]);
-    if (docs.length > 0) {
-      const college = docs[0];
-      if (college.initialPassword === pass && college.loginEnabled !== false) {
-        try {
-          credential = await createUserWithEmailAndPassword(auth, email, pass);
-          await updateProfile(credential.user, { displayName: `${college.name} Admin` });
-        } catch {
-          // The Auth account may already exist; try signing in with the same password
-          credential = await signInWithEmailAndPassword(auth, email, pass);
-        }
-        const newUid = credential.user.uid;
-
-        // Ensure user doc is created
-        const newUserDoc: Record<string, unknown> = {
-          id: newUid,
-          email: cleanEmail,
-          displayName: `${college.name} Admin`,
-          role: "college_admin",
-          collegeId: college.id,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        };
-        await setDoc(doc(db, USERS_COLLECTION, newUid), newUserDoc);
-
-        return {
-          user: credential.user,
-          profile: newUserDoc as unknown as ExtendedUser,
-        };
-      }
-    }
-    throw new Error("Invalid college admin credentials or incorrect password.");
-  }
-
-  const uid = credential.user.uid;
-  let profile = await getDocument<ExtendedUser>(USERS_COLLECTION, uid);
-  
-  if (!profile || profile.role !== "college_admin") {
-    await firebaseSignOut(auth);
-    throw new Error("Unauthorized: You do not have college admin privileges.");
-  }
-
-  // Ensure their college hasn't been restricted/disabled
-  const collegeDoc = await getDocument<import("@/types").College>("colleges", (profile as any).collegeId || "");
-  if (!collegeDoc || collegeDoc.loginEnabled === false || collegeDoc.status === "restricted") {
-    await firebaseSignOut(auth);
-    throw new Error("RESTRICTED_ACCOUNT: Your college dashboard access has been disabled by the main administrator.");
-  }
-  
-  if (collegeDoc.isDeleted || collegeDoc.status === "deleted" || profile.isDeleted || profile.status === "deleted") {
-    await firebaseSignOut(auth);
-    throw new Error("ACCOUNT_DELETED: This partner institution account has been permanently deleted.");
-  }
-
-  return { user: credential.user, profile };
-}
-
-/**
- * Sign in Student and check if first login password change is required
- */
-export async function studentLogin(email: string, pass: string): Promise<{ user: FirebaseUser; profile: ExtendedUser | null; mustChangePassword: boolean }> {
-  let credential;
-  try {
-    credential = await signInWithEmailAndPassword(auth, email, pass);
-  } catch (_err: unknown) {
-    // Check if student profile exists in Firestore and matches initialPassword
-    const cleanEmail = email.toLowerCase().trim();
-    const docs = await getDocuments<Student & { initialPassword?: string }>("students", [where("email", "==", cleanEmail)]);
-    if (docs.length > 0) {
-      const student = docs[0];
-      if (student.initialPassword === pass) {
-          try {
-            credential = await createUserWithEmailAndPassword(auth, email, pass);
-            await updateProfile(credential.user, { displayName: student.name });
-          } catch {
-            // The Auth account may already exist; try signing in with the same password
-            credential = await signInWithEmailAndPassword(auth, email, pass);
-          }
-          const newUid = credential.user.uid;
-
-          // Ensure student doc and user doc are synced
-          const newUserDoc: Record<string, unknown> = {
-            id: newUid,
-            email: student.email,
-            displayName: student.name,
-            role: "student",
-            department: student.department || "Computer Science & Engineering",
-            collegeId: student.collegeId || "",
-            collegeName: student.collegeName || "",
-            academicYear: student.academicYear,
-            section: student.section,
-            batchIds: student.batchIds || [],
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          };
-
-          return {
-            user: credential.user,
-            profile: newUserDoc as unknown as ExtendedUser,
-            mustChangePassword: !!student.initialPassword,
-          };
-        }
-      }
-      try {
-        const methods = await fetchSignInMethodsForEmail(auth, cleanEmail);
-        if (methods.includes("google.com") && !methods.includes("password")) {
-          throw new Error("This account was authenticated using Google Sign-In. To log in right now, please click 'Sign in with Google' above. (Admin tip: To allow simultaneous Email/Password and Google login without provider overwriting, enable 'Allow multiple accounts with the same email address' in Firebase Console -> Authentication -> Settings -> User account linking).");
-        }
-      } catch (methodErr: unknown) {
-        if (methodErr instanceof Error && methodErr.message.includes("Google Sign-In")) {
-          throw methodErr;
-        }
-      }
-    throw new Error("Invalid student email or incorrect password.");
-  }
-
-  const uid = credential.user.uid;
-  let profile: ExtendedUser | null = await getDocument<ExtendedUser>(USERS_COLLECTION, uid);
-  const studentDoc = await getDocument<Student>("students", uid);
-
-  if (profile && profile.role === "trainer") {
-    await firebaseSignOut(auth);
-    throw new Error("Trainers must log in via the /admin/login portal.");
-  }
-
-  if (profile?.status === "restricted" || studentDoc?.status === "restricted") {
-    await firebaseSignOut(auth);
-    throw new Error("RESTRICTED_ACCOUNT: Your LMS account has been temporarily restricted by your Trainer/Admin. Please contact your Trainer for further assistance.");
-  }
-
-  if (profile?.isDeleted || profile?.status === "deleted" || studentDoc?.isDeleted || studentDoc?.status === "deleted") {
-    await firebaseSignOut(auth);
-    throw new Error("ACCOUNT_DELETED: Your student account has been permanently deleted.");
-  }
-
-  if (studentDoc) {
-    profile = {
-      ...(profile || {}),
-      id: studentDoc.id || uid,
-      email: studentDoc.email || credential.user.email || email,
-      displayName: studentDoc.name || profile?.displayName || "Student",
-      role: "student",
-      department: studentDoc.department || (profile as unknown as { department?: string })?.department || "Computer Science & Engineering",
-      collegeId: studentDoc.collegeId || "",
-      collegeName: studentDoc.collegeName || "",
-      academicYear: studentDoc.academicYear,
-      section: studentDoc.section,
-      batchIds: studentDoc.batchIds || [],
-    } as unknown as ExtendedUser;
-  }
-
-  // Auto-clear any lingering first-login flag now that the modal has been removed
-  const shouldClearFlag = profile && (profile as unknown as { mustChangePassword?: boolean }).mustChangePassword === true;
-  if (shouldClearFlag) {
-    await setDoc(
-      doc(db, USERS_COLLECTION, uid),
-      { mustChangePassword: false, updatedAt: new Date() },
-      { merge: true }
-    );
-    await setDoc(
-      doc(db, STUDENTS_COLLECTION, uid),
-      { mustChangePassword: false, updatedAt: new Date() },
-      { merge: true }
-    );
-    (profile as unknown as { mustChangePassword?: boolean }).mustChangePassword = false;
-  }
-
-  return {
-    user: credential.user,
-    profile,
-    mustChangePassword: false,
-  };
-}
 
 /**
  * Sign in Student via Google SSO popup.
@@ -523,17 +280,7 @@ export async function studentRegister(
   } catch (err: unknown) {
     const isEmailInUse = (err instanceof Error && err.message.includes("auth/email-already-in-use")) || (err as { code?: string })?.code === "auth/email-already-in-use";
     if (isEmailInUse) {
-      const cleanEmail = collegeEmail.toLowerCase().trim();
-      const existingStuds = await getDocuments<Student>(STUDENTS_COLLECTION, [where("email", "==", cleanEmail)]);
-      if (existingStuds.length === 0) {
-        try {
-          credential = await signInWithEmailAndPassword(auth, cleanEmail, password);
-        } catch (_) {
-          throw new Error("An account with this email address already exists. Please sign in with your existing password.");
-        }
-      } else {
-        throw new Error("An account with this College Email ID already exists. Please sign in instead.");
-      }
+      throw new Error("An account with this College Email ID already exists. Please sign in instead.");
     } else {
       throw err;
     }
@@ -590,7 +337,7 @@ export async function completeStudentAcademicDetails(
     department: string;
     section: string;
   }
-): Promise<void> {
+): Promise<{ resolvedCollegeId: string; resolvedCollegeName: string }> {
   const currentUser = auth.currentUser;
   if (currentUser) {
     await updateProfile(currentUser, { displayName: details.fullName });
@@ -599,13 +346,30 @@ export async function completeStudentAcademicDetails(
   const email = (currentUser?.email || "").toLowerCase().trim();
   const now = new Date();
 
+  // Try to resolve the official college ID from the typed name
+  let resolvedCollegeId = details.collegeName;
+  let resolvedCollegeName = details.collegeName;
+
+  try {
+    const allColleges = await getDocuments<{ id: string; name: string }>("colleges");
+    const match = allColleges.find(
+      (c) => c.name.toLowerCase().trim() === details.collegeName.toLowerCase().trim()
+    );
+    if (match) {
+      resolvedCollegeId = match.id;
+      resolvedCollegeName = match.name;
+    }
+  } catch (err) {
+    console.error("Failed to resolve college during registration:", err);
+  }
+
   const userDoc = {
     id: uid,
     email,
     displayName: details.fullName,
     role: "student",
-    collegeName: details.collegeName,
-    collegeId: details.collegeName,
+    collegeName: resolvedCollegeName,
+    collegeId: resolvedCollegeId,
     department: details.department,
     section: details.section || "A",
     createdAt: now,
@@ -616,8 +380,8 @@ export async function completeStudentAcademicDetails(
     id: uid,
     name: details.fullName,
     email,
-    collegeName: details.collegeName,
-    collegeId: details.collegeName,
+    collegeName: resolvedCollegeName,
+    collegeId: resolvedCollegeId,
     department: details.department,
     section: details.section || "A",
     academicYear: "1st Year",
@@ -633,6 +397,8 @@ export async function completeStudentAcademicDetails(
   batch.set(doc(db, USERS_COLLECTION, uid), userDoc, { merge: true });
   batch.set(doc(db, STUDENTS_COLLECTION, uid), studentDoc, { merge: true });
   await batch.commit();
+  
+  return { resolvedCollegeId, resolvedCollegeName };
 }
 
 /**
@@ -642,137 +408,53 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
   let credential;
   const cleanEmail = email.toLowerCase().trim();
 
+  console.log(`[AUTH] unifiedLogin: Attempting login for email: ${cleanEmail}`);
+
   // Try authenticating first
   try {
     credential = await signInWithEmailAndPassword(auth, cleanEmail, pass);
-  } catch (_err: unknown) {
-    // Auth failed. Check if it's a first-time login for a student or college.
-    let createdUid: string | null = null;
-    let foundProfile: Record<string, any> | null = null;
-    let foundRole = "";
+    console.log(`[AUTH] unifiedLogin: signInWithEmailAndPassword SUCCESS`);
+  } catch (err: unknown) {
+    console.log(`[AUTH] unifiedLogin: signInWithEmailAndPassword FAILED`, err);
 
-    // 1. Check Students
-    let studentDocs = await getDocuments<Student & { initialPassword?: string }>("students", [where("email", "==", cleanEmail)]);
-
-    if (studentDocs.length > 0) {
-      const student = studentDocs[0];
-      if (student.initialPassword === pass || pass === "Welcome@123") {
-        try {
-          credential = await createUserWithEmailAndPassword(auth, cleanEmail, pass);
-          await updateProfile(credential.user, { displayName: student.name });
-        } catch {
-          credential = await signInWithEmailAndPassword(auth, cleanEmail, pass);
-        }
-        createdUid = credential.user.uid;
-        foundRole = "student";
-        foundProfile = {
-          id: createdUid,
-          email: student.email,
-          displayName: student.name,
-          role: "student",
-          department: student.department || "Computer Science & Engineering",
-          collegeId: student.collegeId || "",
-          collegeName: student.collegeName || "",
-          academicYear: student.academicYear,
-          section: student.section,
-          batchIds: student.batchIds || [],
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        };
+    // Fallback ONLY for the absolute master admin bootstrap
+    if (cleanEmail === "trainer@gmail.com" && pass === "admin123456") {
+      try {
+        console.log(`[AUTH] unifiedLogin: Attempting master admin bootstrap creation...`);
+        credential = await createUserWithEmailAndPassword(auth, cleanEmail, pass);
+      } catch (createErr) {
+        console.error(`[AUTH] unifiedLogin: Master admin bootstrap failed.`, createErr);
+        throw new Error("Invalid trainer credentials.");
       }
-    }
-
-    // 2. Check Colleges
-    if (!createdUid) {
-      let collegeDocs = await getDocuments<import("@/types").College>("colleges", [where("adminEmail", "==", cleanEmail)]);
-
-      if (collegeDocs.length > 0) {
-        const college = collegeDocs[0];
-        const initP = (college.initialPassword || "").trim();
-        const isPassMatch =
-          college.loginEnabled !== false &&
-          (!initP || initP === pass || initP.toLowerCase() === pass.toLowerCase() || pass === "WELCOME" || pass === "Welcome@123");
-
-        if (isPassMatch) {
-          try {
-            credential = await createUserWithEmailAndPassword(auth, cleanEmail, pass);
-            await updateProfile(credential.user, { displayName: `${college.name} Admin` });
-          } catch {
-            credential = await signInWithEmailAndPassword(auth, cleanEmail, pass).catch(() => null);
-          }
-          if (credential?.user) {
-            createdUid = credential.user.uid;
-            foundRole = "college_admin";
-            foundProfile = {
-              id: createdUid,
-              email: cleanEmail,
-              displayName: `${college.name} Admin`,
-              role: "college_admin",
-              collegeId: college.id,
-              collegeName: college.name,
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            };
-            await setDoc(doc(db, USERS_COLLECTION, createdUid), foundProfile);
-          }
+    } else {
+      // For everyone else, failure is failure. 
+      // Do a quick check if they used Google SSO previously to give a better error message.
+      try {
+        const methods = await fetchSignInMethodsForEmail(auth, cleanEmail);
+        if (methods.includes("google.com") && !methods.includes("password")) {
+          throw new Error("This account was authenticated using Google Sign-In. To log in right now, please click 'Sign in with Google' above.");
+        }
+      } catch (methodErr: unknown) {
+        if (methodErr instanceof Error && methodErr.message.includes("Google Sign-In")) {
+          throw methodErr;
         }
       }
+      
+      throw new Error("Invalid credentials or incorrect password.");
     }
-
-    // 3. Check Master Admin fallback
-    if (!createdUid) {
-      if (cleanEmail === "trainer@gmail.com" && pass === "admin123456") {
-        try {
-          credential = await createUserWithEmailAndPassword(auth, cleanEmail, pass);
-        } catch {
-          throw new Error("Invalid trainer credentials.");
-        }
-        createdUid = credential.user.uid;
-        foundRole = "admin";
-        foundProfile = {
-          id: createdUid,
-          email: cleanEmail,
-          displayName: credential.user.displayName || "Super Administrator",
-          role: "admin",
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        };
-        await setDoc(doc(db, USERS_COLLECTION, createdUid), foundProfile);
-      }
-    }
-
-    if (createdUid && foundProfile) {
-      return {
-        user: credential!.user,
-        profile: foundProfile as unknown as ExtendedUser,
-        role: foundRole,
-        mustChangePassword: foundRole === "student" ? true : false,
-      };
-    }
-
-    // Check if google
-    try {
-      const methods = await fetchSignInMethodsForEmail(auth, cleanEmail);
-      if (methods.includes("google.com") && !methods.includes("password")) {
-        throw new Error("This account was authenticated using Google Sign-In. To log in right now, please click 'Sign in with Google' above.");
-      }
-    } catch (methodErr: unknown) {
-      if (methodErr instanceof Error && methodErr.message.includes("Google Sign-In")) {
-        throw methodErr;
-      }
-    }
-
-    throw new Error("Invalid credentials or incorrect password.");
   }
 
   // If we reach here, signInWithEmailAndPassword succeeded. We have a UID.
   const uid = credential.user.uid;
   let profile = await getDocument<ExtendedUser>(USERS_COLLECTION, uid);
 
+  // If no profile by UID, try looking up by email (Legacy sync)
   if (!profile) {
+    console.log(`[AUTH] unifiedLogin: No profile found by UID, searching by email...`);
     const existingUsersByEmail = await getDocuments<ExtendedUser>(USERS_COLLECTION, [where("email", "==", cleanEmail)]);
     if (existingUsersByEmail.length > 0) {
       profile = existingUsersByEmail[0];
+      console.log(`[AUTH] unifiedLogin: Profile found by email. Role: ${profile.role}`);
     }
   }
 
@@ -787,10 +469,12 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
         updatedAt: new Date(),
       };
       await setDoc(doc(db, USERS_COLLECTION, uid), profile);
+      console.log(`[AUTH] unifiedLogin: Master admin profile created.`);
     } else {
+      // Fallback for legacy students who might only have a students doc
       let studentDoc = await getDocument<Student>("students", uid);
       if (!studentDoc) {
-        let studsByEmail = await getDocuments<Student>("students", [where("email", "==", cleanEmail)]);
+        const studsByEmail = await getDocuments<Student>("students", [where("email", "==", cleanEmail)]);
         if (studsByEmail.length > 0) {
           studentDoc = studsByEmail[0];
         }
@@ -813,15 +497,17 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
         } as ExtendedUser;
         // Save user doc under Auth UID for fast future lookups
         await setDoc(doc(db, USERS_COLLECTION, uid), profile, { merge: true });
+        console.log(`[AUTH] unifiedLogin: Recovered legacy student profile.`);
       } else {
         await firebaseSignOut(auth);
+        console.error(`[AUTH] unifiedLogin: No Firestore profile found for authenticated user.`);
         throw new Error("Unauthorized: Account not found in directory.");
       }
     }
   } else if (profile.role === "student") {
     let studentDoc = await getDocument<Student>("students", uid);
     if (!studentDoc) {
-      let studsByEmail = await getDocuments<Student>("students", [where("email", "==", cleanEmail)]);
+      const studsByEmail = await getDocuments<Student>("students", [where("email", "==", cleanEmail)]);
       if (studsByEmail.length > 0) {
         studentDoc = studsByEmail[0];
       }
@@ -843,6 +529,7 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
   }
 
   const role = profile.role;
+  console.log(`[AUTH] unifiedLogin: Validation starting for role: ${role}`);
 
   // Validation
   if (role === "student") {
@@ -861,7 +548,12 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
     }
   } else if (role === "college_admin") {
     const collegeDoc = await getDocument<import("@/types").College>("colleges", (profile as any).collegeId || "");
-    if (!collegeDoc || collegeDoc.loginEnabled === false || collegeDoc.status === "restricted") {
+    if (!collegeDoc) {
+      console.error(`[AUTH] unifiedLogin: College doc not found for collegeId: ${(profile as any).collegeId}`);
+      await firebaseSignOut(auth);
+      throw new Error("RESTRICTED_ACCOUNT: Your assigned college could not be found.");
+    }
+    if (collegeDoc.loginEnabled === false || collegeDoc.status === "restricted") {
       await firebaseSignOut(auth);
       throw new Error("RESTRICTED_ACCOUNT: Your college dashboard access has been disabled by the main administrator.");
     }
@@ -879,6 +571,7 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
     throw new Error("Unauthorized: Role not recognized.");
   }
 
+  console.log(`[AUTH] unifiedLogin: SUCCESS.`);
   return { user: credential.user, profile, role, mustChangePassword: false };
 }
 

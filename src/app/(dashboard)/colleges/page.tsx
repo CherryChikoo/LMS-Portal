@@ -16,12 +16,14 @@ import { optimisticDeleteCollege } from "@/lib/data/lms-store";
 import { markCollegeAsDeleted } from "@/lib/hierarchy/hierarchy-data";
 import { getAuth } from "firebase/auth";
 import type { College, Student } from "@/types";
+import { useErrorHandler } from "@/providers/error-provider";
 
 export default function CollegesPage() {
   const colleges = useLMSDataSelector((s) => s.filteredColleges);
   const externalColleges = useLMSDataSelector((s) => s.externalInstitutions);
   const allStudents = useLMSDataSelector((s) => s.students);
   const lmsLoading = useLMSDataSelector((s) => s.loading);
+  const { showError } = useErrorHandler();
 
   const [selectedAdminIds, setSelectedAdminIds] = useState<string[]>([]);
   const [selectedExternalIds, setSelectedExternalIds] = useState<string[]>([]);
@@ -341,11 +343,48 @@ export default function CollegesPage() {
         );
       }
       
-      await updateCollege(editingCollege.id, {
+      const payload: Partial<College> = {
         adminEmail: editAdminEmail.trim().toLowerCase(),
         initialPassword: editInitialPassword,
         loginEnabled: editLoginEnabled,
-      });
+      };
+
+      await updateCollege(editingCollege.id, payload);
+
+      // Sync with Auth if login is enabled or email/password changed
+      try {
+        const auth = getAuth();
+        const token = await auth.currentUser?.getIdToken();
+        if (token) {
+          const authResp = await fetch("/api/admin/update-college-auth", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              adminIdToken: token,
+              collegeId: editingCollege.id,
+              collegeName: editCollegeName.trim(),
+              newEmail: editAdminEmail.trim().toLowerCase(),
+              newPassword: editInitialPassword,
+              loginEnabled: editLoginEnabled
+            }),
+          });
+          if (!authResp.ok) {
+            let data: any = {};
+            const textResponse = await authResp.text();
+            try {
+              data = JSON.parse(textResponse);
+            } catch {
+              // Failed to parse, use text as fallback
+              data = { message: "Failed to update college auth details." };
+            }
+            showError(data);
+          } else {
+            toast.success("College updated successfully.");
+          }
+        }
+      } catch (err) {
+        toast.success("College updated, but auth sync may have failed.");
+      }
 
       setEditingCollege(null);
       setEditCollegeName("");

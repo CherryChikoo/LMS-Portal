@@ -129,11 +129,14 @@ function StudentsContent() {
 
   // Sync loading state and handle initialCollegeId
   useEffect(() => {
-    if (initialCollegeId && colleges.find((c) => c.id === initialCollegeId)) {
+    if (userRole === "college_admin" && colleges.length > 0) {
+      // ⚠️ CRITICAL FIX: College Admins must default to their assigned college, otherwise created students get 'GLOBAL' ID and disappear
+      setNewCollegeId(colleges[0].id);
+    } else if (initialCollegeId && colleges.find((c) => c.id === initialCollegeId)) {
       setNewCollegeId(initialCollegeId);
     }
     setLoading(hierarchyLoading || lmsLoading);
-  }, [hierarchyLoading, lmsLoading, initialCollegeId, colleges]);
+  }, [hierarchyLoading, lmsLoading, initialCollegeId, colleges, userRole]);
 
   useEffect(() => {
     if (actionParam === "invite" || actionParam === "enroll") {

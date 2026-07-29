@@ -5,6 +5,7 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
 import { ArrowLeft, BookOpen, Users, Trash2, Search, Building2, UserPlus, Ban, CheckCircle2, Edit2, X, Check } from "lucide-react";
 import { toast } from "sonner";
+import { useErrorHandler } from "@/providers/error-provider";
 import { PageHeader } from "@/components/shared/page-header";
 import { FilterDropdown } from "@/components/shared/filter-dropdown";
 import { useAcademicHierarchy } from "@/lib/hierarchy/use-academic-hierarchy";
@@ -13,7 +14,8 @@ import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
 import { uniqueOptions } from "@/lib/utils/array";
-import { getBatchById, updateBatch, getAllStudents, updateStudentProfile, getAllColleges } from "@/lib/services";
+import { getBatchById, updateBatch, updateStudentProfile } from "@/lib/services";
+import { useLMSDataSelector } from "@/lib/data/use-lms-data";
 import type { Batch, Student, College } from "@/types";
 
 interface PageProps {
@@ -21,6 +23,7 @@ interface PageProps {
 }
 
 export default function BatchDetailPage({ params }: PageProps) {
+  const { showError } = useErrorHandler();
   const resolvedParams = use(params);
   const [batch, setBatch] = useState<Batch | null>(null);
   const [allStudents, setAllStudents] = useState<Student[]>([]);
@@ -46,19 +49,17 @@ export default function BatchDetailPage({ params }: PageProps) {
   const [bulkAdding, setBulkAdding] = useState(false);
   const [selectedForBulk, setSelectedForBulk] = useState<Set<string>>(new Set());
 
+  const cachedStudents = useLMSDataSelector((s) => s.students);
+  const cachedColleges = useLMSDataSelector((s) => s.colleges);
+
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const [batData, studentsData, colsData] = await Promise.all([
-          getBatchById(resolvedParams.id),
-          getAllStudents(),
-          getAllColleges(),
-        ]);
-
+        const batData = await getBatchById(resolvedParams.id);
         setBatch(batData);
-        setAllStudents(studentsData);
-        setColleges(colsData);
+        setAllStudents(cachedStudents);
+        setColleges(cachedColleges);
       } catch (err) {
         console.error("Error loading batch details:", err);
       } finally {
@@ -67,7 +68,7 @@ export default function BatchDetailPage({ params }: PageProps) {
     };
 
     fetchData();
-  }, [resolvedParams.id]);
+  }, [resolvedParams.id, cachedStudents, cachedColleges]);
 
   const handleRenameBatch = async () => {
     if (!batch || !newName.trim() || newName.trim() === batch.name) {
@@ -82,7 +83,7 @@ export default function BatchDetailPage({ params }: PageProps) {
       setIsRenaming(false);
     } catch (err) {
       console.error("Error renaming batch:", err);
-      toast.error("Failed to rename batch");
+      showError({ message: "Failed to rename batch" });
     } finally {
       setIsSavingName(false);
     }

@@ -23,13 +23,16 @@ export function subscribeToAllAttempts(callback: (attempts: ExamAttempt[]) => vo
   return subscribeToDocuments<ExamAttempt>(RESULTS_COLLECTION, callback);
 }
 
+export function subscribeToStudentAttempts(studentId: string, callback: (attempts: ExamAttempt[]) => void): () => void {
+  return subscribeToDocuments<ExamAttempt>(RESULTS_COLLECTION, callback, [where("studentId", "==", studentId)]);
+}
+
 export async function getAllExams(): Promise<Exam[]> {
-  const exams = await getDocuments<Exam>(EXAMS_COLLECTION);
-  return exams.filter((e) => !e.deletedAt);
+  return getDocuments<Exam>(EXAMS_COLLECTION);
 }
 
 export async function getAllExamsIncludingDeleted(): Promise<Exam[]> {
-  return getDocuments<Exam>(EXAMS_COLLECTION);
+  return getDocuments<Exam>(EXAMS_COLLECTION, [], true);
 }
 
 export async function getExamById(id: string): Promise<Exam | null> {

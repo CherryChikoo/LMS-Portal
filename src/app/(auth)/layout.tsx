@@ -2,7 +2,12 @@
 
 import { type ReactNode } from "react";
 
+import { usePathname } from "next/navigation";
+
 export default function AuthLayout({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  const isRegister = pathname === "/register";
+
   return (
     <div className="min-h-[100dvh] w-full flex items-center justify-center p-4 sm:p-6 lg:p-6 relative overflow-x-hidden overflow-y-auto bg-[#0a0a0c] text-white">
       {/* Animated Gradient Background */}
@@ -20,7 +25,7 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/20" />
       </div>
 
-      <div className="w-full max-w-[420px] z-10 relative">
+      <div className={`w-full z-10 relative ${isRegister ? "max-w-[1000px]" : "max-w-[420px]"}`}>
         {children}
       </div>
     </div>

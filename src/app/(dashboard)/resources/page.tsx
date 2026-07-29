@@ -57,7 +57,7 @@ export default function ResourcesPage() {
     batchOptions,
     buildAssignmentTarget,
   } = useAcademicHierarchy({
-    levels: ["institution", "department", "academicYear", "section", "batch"],
+    levels: userRole === "college_admin" ? ["department", "academicYear", "section", "batch"] : ["institution", "department", "academicYear", "section", "batch"],
   });
 
   useEffect(() => {
@@ -221,8 +221,8 @@ export default function ResourcesPage() {
           </div>
           {userRole !== "student" && (
             <AcademicHierarchyFilters
-              showInstitution
-              levels={["institution", "department", "academicYear", "section", "batch"]}
+              showInstitution={userRole !== "college_admin"}
+              levels={userRole === "college_admin" ? ["department", "academicYear", "section", "batch"] : ["institution", "department", "academicYear", "section", "batch"]}
               filters={resourceFilters}
               onChange={setResourceFilters}
               institutionOptions={institutionOptions}
@@ -494,8 +494,8 @@ export default function ResourcesPage() {
 
                   <AcademicHierarchyFilters
                     layout="grid-2"
-                    showInstitution
-                    levels={["institution", "department", "academicYear", "section", "batch"]}
+                    showInstitution={userRole !== "college_admin"}
+                    levels={userRole === "college_admin" ? ["department", "academicYear", "section", "batch"] : ["institution", "department", "academicYear", "section", "batch"]}
                     filters={resourceFilters}
                     onChange={setResourceFilters}
                     institutionOptions={institutionOptions}

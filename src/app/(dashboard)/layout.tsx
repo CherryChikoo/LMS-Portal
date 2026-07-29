@@ -99,79 +99,102 @@ export default function DashboardLayout({
       }
     };
 
-    if (parsedUser.role === "student") {
-      import("firebase/firestore").then(({ doc, onSnapshot }) => {
-        import("@/lib/firebase/config").then(({ db }) => {
-          const unsubId = onSnapshot(doc(db, "students", parsedUser.id), (docSnap) => {
-            if (!docSnap.exists() || docSnap.data()?.status === "deleted" || docSnap.data()?.isDeleted) {
-              import("@/lib/utils/auth-session").then(({ clearAuthSession }) => {
-                clearAuthSession("/login?error=account_deleted");
-              });
-              return;
-            }
-            if (docSnap.exists()) {
-              const s = docSnap.data();
-              if (s.status === "restricted") {
-                import("@/lib/utils/auth-session").then(({ clearAuthSession }) => {
-                  clearAuthSession("/login?error=restricted");
-                });
-                return;
-              }
-              const updated = {
-                ...parsedUser,
-                name: s.name || parsedUser.name,
-                email: s.email || parsedUser.email,
-                department: s.department || parsedUser.department,
-                collegeId: s.collegeId || parsedUser.collegeId,
-                collegeName: s.collegeName || parsedUser.collegeName,
-                academicYear: s.academicYear || parsedUser.academicYear,
-                section: s.section || parsedUser.section,
-                batchIds: s.batchIds || parsedUser.batchIds,
-              };
-              commitIfChanged(updated, [
-                "name",
-                "email",
-                "department",
-                "collegeId",
-                "collegeName",
-                "academicYear",
-                "section",
-                "batchIds",
-              ]);
-            }
-          });
-          unsubs.push(unsubId);
-        });
-      });
-    } else {
-      import("firebase/firestore").then(({ doc, onSnapshot }) => {
-        import("@/lib/firebase/config").then(({ db }) => {
-          const unsubUser = onSnapshot(doc(db, "users", parsedUser.id), (docSnap) => {
-            if (!docSnap.exists()) {
-              import("@/lib/utils/auth-session").then(({ clearAuthSession }) => {
-                clearAuthSession("/login?error=account_deleted");
-              });
-              return;
-            }
-            if (docSnap.exists()) {
-              const u = docSnap.data();
-              const updated = {
-                ...parsedUser,
-                name: u.displayName || parsedUser.name,
-                email: u.email || parsedUser.email,
-                collegeId: u.collegeId || parsedUser.collegeId,
-                collegeName: u.collegeName || parsedUser.collegeName,
-              };
-              commitIfChanged(updated, ["name", "email", "collegeId", "collegeName"]);
-            }
-          });
-          unsubs.push(unsubUser);
-        });
-      });
-    }
+    let authUnsub: (() => void) | null = null;
+    let syncUnsubs: (() => void)[] = [];
 
-    const unsubLMS = subscribeToLMSCache(() => {});
-    unsubs.push(unsubLMS);
+    import("firebase/auth").then(({ getAuth, onAuthStateChanged }) => {
+      import("@/lib/firebase/config").then(({ app }) => {
+        const auth = getAuth(app);
+        authUnsub = onAuthStateChanged(auth, (user) => {
+          // Clear any existing sync subscriptions if auth state changes
+          syncUnsubs.forEach((u) => u());
+          syncUnsubs = [];
+
+          // Only sync if Firebase Auth confirms we are logged in
+          if (!user) return;
+
+          if (parsedUser.role === "student") {
+            import("firebase/firestore").then(({ doc, onSnapshot }) => {
+              import("@/lib/firebase/config").then(({ db }) => {
+                const unsubId = onSnapshot(doc(db, "students", parsedUser.id), (docSnap) => {
+                  if (!docSnap.exists() || docSnap.data()?.status === "deleted" || docSnap.data()?.isDeleted) {
+                    import("@/lib/utils/auth-session").then(({ clearAuthSession }) => {
+                      clearAuthSession("/login?error=account_deleted");
+                    });
+                    return;
+                  }
+                  if (docSnap.exists()) {
+                    const s = docSnap.data();
+                    if (s.status === "restricted") {
+                      import("@/lib/utils/auth-session").then(({ clearAuthSession }) => {
+                        clearAuthSession("/login?error=restricted");
+                      });
+                      return;
+                    }
+                    const updated = {
+                      ...parsedUser,
+                      name: s.name || parsedUser.name,
+                      email: s.email || parsedUser.email,
+                      department: s.department || parsedUser.department,
+                      collegeId: s.collegeId || parsedUser.collegeId,
+                      collegeName: s.collegeName || parsedUser.collegeName,
+                      academicYear: s.academicYear || parsedUser.academicYear,
+                      section: s.section || parsedUser.section,
+                      batchIds: s.batchIds || parsedUser.batchIds,
+                    };
+                    commitIfChanged(updated, [
+                      "name",
+                      "email",
+                      "department",
+                      "collegeId",
+                      "collegeName",
+                      "academicYear",
+                      "section",
+                      "batchIds",
+                    ]);
+                  }
+                });
+                syncUnsubs.push(unsubId);
+                unsubs.push(unsubId);
+              });
+            });
+          } else {
+            import("firebase/firestore").then(({ doc, onSnapshot }) => {
+              import("@/lib/firebase/config").then(({ db }) => {
+                const unsubUser = onSnapshot(doc(db, "users", parsedUser.id), (docSnap) => {
+                  if (!docSnap.exists()) {
+                    import("@/lib/utils/auth-session").then(({ clearAuthSession }) => {
+                      clearAuthSession("/login?error=account_deleted");
+                    });
+                    return;
+                  }
+                  if (docSnap.exists()) {
+                    const u = docSnap.data();
+                    const updated = {
+                      ...parsedUser,
+                      name: u.displayName || parsedUser.name,
+                      email: u.email || parsedUser.email,
+                      collegeId: u.collegeId || parsedUser.collegeId,
+                      collegeName: u.collegeName || parsedUser.collegeName,
+                    };
+                    commitIfChanged(updated, ["name", "email", "collegeId", "collegeName"]);
+                  }
+                });
+                syncUnsubs.push(unsubUser);
+                unsubs.push(unsubUser);
+              });
+            });
+          }
+
+          const unsubLMS = subscribeToLMSCache(() => {});
+          syncUnsubs.push(unsubLMS);
+          unsubs.push(unsubLMS);
+        });
+        unsubs.push(() => {
+          if (authUnsub) authUnsub();
+        });
+      });
+    });
 
     return () => {
       unsubs.forEach((u) => u());

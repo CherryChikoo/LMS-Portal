@@ -8,9 +8,10 @@ import Link from "next/link";
 import { APP_NAME } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
-import { unifiedLogin, unifiedGoogleLogin, formatAuthError } from "@/lib/services/auth-service";
+import { unifiedLogin, unifiedGoogleLogin } from "@/lib/services/auth-service";
 import { setAuthSession } from "@/lib/utils/auth-session";
 import { useBranding } from "@/providers/branding-provider";
+import { useErrorHandler } from "@/providers/error-provider";
 
 function LoginContent() {
   const { branding } = useBranding();
@@ -21,8 +22,8 @@ function LoginContent() {
   const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [restrictedModalOpen, setRestrictedModalOpen] = useState(false);
+  const { showError } = useErrorHandler();
 
   useEffect(() => {
     if (searchParams.get("error") === "restricted") {
@@ -30,16 +31,9 @@ function LoginContent() {
     }
   }, [searchParams]);
 
-  useEffect(() => {
-    if (error) {
-      const timer = setTimeout(() => setError(null), 4000);
-      return () => clearTimeout(timer);
-    }
-  }, [error]);
 
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
-    setError(null);
     try {
       const res = await unifiedGoogleLogin();
       if (!res) {
@@ -69,7 +63,7 @@ function LoginContent() {
       if (msg.includes("RESTRICTED_ACCOUNT") || msg.toLowerCase().includes("restricted")) {
         setRestrictedModalOpen(true);
       } else {
-        setError(formatAuthError(err, "Failed to sign in with Google."));
+        showError(err, handleGoogleLogin);
       }
     } finally {
       setGoogleLoading(false);
@@ -79,7 +73,6 @@ function LoginContent() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setError(null);
     try {
       const res = await unifiedLogin(email, password);
       
@@ -110,7 +103,7 @@ function LoginContent() {
       if (msg.includes("RESTRICTED_ACCOUNT") || msg.toLowerCase().includes("restricted")) {
         setRestrictedModalOpen(true);
       } else {
-        setError(formatAuthError(err, "Invalid credentials."));
+        showError(err);
       }
     } finally {
       setLoading(false);
@@ -139,17 +132,6 @@ function LoginContent() {
             <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">Welcome Back</h2>
             <p className="text-sm text-white/60">Sign in to your account to continue</p>
           </div>
-
-          {error && (
-            <motion.div 
-              initial={{ opacity: 0, y: -10 }} 
-              animate={{ opacity: 1, y: 0 }}
-              className="w-full p-3 mb-6 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs sm:text-sm flex items-start gap-2.5"
-            >
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-              <span>{error}</span>
-            </motion.div>
-          )}
 
           <form onSubmit={handleSubmit} className="w-full space-y-4">
             <div className="space-y-1.5">
@@ -275,6 +257,13 @@ function LoginContent() {
             </Button>
             <p className="text-[10px] text-center text-white/40 mt-3 font-medium">Google Sign-In is for student accounts only</p>
           </form>
+          
+          <div className="mt-6 text-center">
+            <span className="text-xs font-medium text-white/60">Don&apos;t have an account? </span>
+            <Link href="/register" className="text-xs font-semibold text-brand hover:text-brand/80 hover:underline transition-all cursor-pointer">
+              Sign up here
+            </Link>
+          </div>
           
           <div className="w-full mt-6 pt-5 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between text-[11px] text-white/40 gap-3">
             <span className="font-medium">&copy; {new Date().getFullYear()} {APP_NAME}.</span>

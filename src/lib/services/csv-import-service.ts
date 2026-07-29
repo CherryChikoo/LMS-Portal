@@ -115,7 +115,7 @@ export function parseStudentsCSV(csvText: string): CSVStudentRow[] {
     }
 
     const isDocId = /^(stu|att|exam|col|res|batch|user|usr)-[a-zA-Z0-9]+$/i.test(rowName.trim()) || /^(stu|att|exam|col|res|batch|user|usr)-[a-zA-Z0-9]+$/i.test(rowEmail.trim());
-    
+
     // Only import valid student rows with email addresses
     if (!rowEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rowEmail) || isDocId) {
       continue;
@@ -123,7 +123,7 @@ export function parseStudentsCSV(csvText: string): CSVStudentRow[] {
 
     const rawCollegeVal = collegeIdx >= 0 && cols[collegeIdx] ? cols[collegeIdx].trim() : "";
     const normColLower = rawCollegeVal.toLowerCase();
-    const isReservedCol = !rawCollegeVal || 
+    const isReservedCol = !rawCollegeVal ||
       ["all", "all colleges", "all institutions", "select college", "global", "default college", "unassigned", "none", "n/a", "null"].includes(normColLower);
 
     rows.push({
@@ -197,7 +197,16 @@ export async function importStudentsCSV(
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ adminIdToken, rows: chunk, enrollmentType }),
             });
-            const data = await response.json().catch(() => ({}));
+
+            // ⚠️ CRITICAL FIX: Proper error handling - NO empty object returns
+            let data;
+            try {
+              data = await response.json();
+            } catch (jsonErr) {
+              console.error("Failed to parse server response:", jsonErr);
+              data = { error: "Invalid server response", success: false };
+            }
+
             if (response.ok && data.success && data.summary) {
               return data.summary;
             }

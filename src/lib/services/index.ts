@@ -1,6 +1,7 @@
 export * from "./auth-service";
 export * from "./student-service";
 export * from "./college-service";
+export * from "./batch-service";
 export * from "./resource-service";
 export * from "./exam-service";
 export * from "./doubt-service";

@@ -36,7 +36,7 @@ function BatchesContent() {
     academicYearOptions,
   } = useAcademicHierarchy({
     initial: { collegeId: initialCollegeId },
-    levels: ["institution", "department", "academicYear"],
+    levels: userRole === "college_admin" ? ["department", "academicYear"] : ["institution", "department", "academicYear"],
   });
   const [currentStudent, setCurrentStudent] = useState<{ uid: string; email: string; profile?: Record<string, unknown> } | null>(null);
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void } | null>(null);
@@ -160,10 +160,10 @@ function BatchesContent() {
       {/* Cascading Hierarchy Filter Bar */}
       {userRole !== "student" && (
         <AcademicHierarchyFilters
-          levels={["institution", "department", "academicYear"]}
+          levels={userRole === "college_admin" ? ["department", "academicYear"] : ["institution", "department", "academicYear"]}
           filters={batchFilters}
           onChange={setBatchFilters}
-          showInstitution
+          showInstitution={userRole !== "college_admin"}
           institutionOptions={institutionOptions}
           collegeOptions={collegeOptions}
           departmentOptions={departmentOptions}

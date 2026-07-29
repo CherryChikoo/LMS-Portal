@@ -115,7 +115,11 @@ export function BrandingModal({ isOpen, onClose }: BrandingModalProps) {
                 <div className="w-8 h-8 rounded-lg bg-brand/10 text-brand flex items-center justify-center">
                   <Building2 className="w-4 h-4" />
                 </div>
-                <h3 className="text-lg font-bold">Company Branding & Logo</h3>
+                <h3 className="text-lg font-bold">
+                  {typeof window !== "undefined" && localStorage.getItem("lms_role") === "college_admin" 
+                    ? "College Branding & Logo" 
+                    : "Company Branding & Logo"}
+                </h3>
               </div>
               <button
                 type="button"
@@ -128,7 +132,11 @@ export function BrandingModal({ isOpen, onClose }: BrandingModalProps) {
 
             <form onSubmit={handleSave} className="space-y-4">
               <div className="space-y-2">
-                <label className="text-xs font-semibold">Company Logo (Base64)</label>
+                <label className="text-xs font-semibold">
+                  {typeof window !== "undefined" && localStorage.getItem("lms_role") === "college_admin" 
+                    ? "College Logo (Base64)" 
+                    : "Company Logo (Base64)"}
+                </label>
                 <div className="flex items-center gap-4 p-3 rounded-xl border border-border/80 bg-background/50">
                   {editLogo ? (
                     <div className="relative w-14 h-14 shrink-0">
@@ -162,14 +170,20 @@ export function BrandingModal({ isOpen, onClose }: BrandingModalProps) {
                       />
                     </label>
                     <p className="text-[10px] text-muted-foreground leading-tight">
-                      PNG, JPG, or SVG. Automatically resized & stored in base64 format for global visibility.
+                      {typeof window !== "undefined" && localStorage.getItem("lms_role") === "college_admin"
+                        ? "PNG, JPG, or SVG. Automatically resized & stored in base64 format for college visibility."
+                        : "PNG, JPG, or SVG. Automatically resized & stored in base64 format for global visibility."}
                     </p>
                   </div>
                 </div>
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold">Company / Portal Name</label>
+                <label className="text-xs font-semibold">
+                  {typeof window !== "undefined" && localStorage.getItem("lms_role") === "college_admin" 
+                    ? "College / Portal Name" 
+                    : "Company / Portal Name"}
+                </label>
                 <input
                   type="text"
                   value={editName}
