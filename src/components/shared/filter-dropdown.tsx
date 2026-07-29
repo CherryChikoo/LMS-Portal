@@ -68,8 +68,9 @@ export function FilterDropdown({
     }
   }
 
-  // Force disable if no valid options exist
-  const isDisabled = disabled || !hasValidOptions;
+  // Force disable if no valid options exist AND the current value is empty ("ALL")
+  // If they have an invalid selection, keep it enabled so they can manually clear it!
+  const isDisabled = disabled || (!hasValidOptions && internalValue === "ALL");
 
   return (
     <div className={cn("flex flex-col gap-2 w-full", className)}>
