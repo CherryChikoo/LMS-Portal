@@ -76,64 +76,15 @@ export async function studentGoogleLogin(): Promise<
   const verifyResult = await verifyEmailRegistration(email);
 
   if (!verifyResult.exists) {
-    // Auto-provision Firestore documents for new Google Sign-In student accounts
-    const newStudentProfile: ExtendedUser = {
-      id: uid,
-      uid: uid,
-      email: email,
-      displayName: name,
-      role: "student",
-      department: "General",
-      collegeId: "col-unassigned",
-      collegeName: "Unassigned",
-      academicYear: null,
-      section: null,
-      batchIds: [],
-      status: "active",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-
-    const newStudentDoc: Student = {
-      id: uid,
-      name: name,
-      email: email,
-      department: "General",
-      collegeId: "col-unassigned",
-      collegeName: "Unassigned",
-      section: "A",
-      semester: 1,
-      rollNumber: "",
-      batchIds: [],
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    (newStudentDoc as any).uid = uid;
-
+    // Immediately delete the automatically created Firebase Auth user so invalid accounts are never left in Firebase Auth
     try {
-      await setDoc(doc(db, USERS_COLLECTION, uid), newStudentProfile, { merge: true });
-      await setDoc(doc(db, STUDENTS_COLLECTION, uid), newStudentDoc, { merge: true });
-    } catch (fsErr) {
-      console.warn("Firestore auto-provisioning handled:", fsErr);
+      await credential.user.delete();
+    } catch {
+      await firebaseSignOut(auth);
     }
-
-    const token = await getIdToken(credential.user, true);
-    const sessionUser = {
-      id: uid,
-      name,
-      email,
-      role: "student" as UserRole,
-      department: "General",
-      collegeId: "col-unassigned",
-      collegeName: "Unassigned",
-      academicYear: null,
-      section: null,
-      batchIds: [],
-    };
-
-    await setAuthSession(token, "student", sessionUser);
-
-    return { success: true, role: "student", user: credential.user, profile: newStudentProfile, isNewUser: true };
+    throw new Error(
+      `Access Denied: The email address (${email}) is not registered in the system. Please contact your college administrator to get your account created.`
+    );
   }
 
   const token = await getIdToken(credential.user, true);
@@ -223,7 +174,11 @@ export async function trainerGoogleLogin(): Promise<{ success: true; role: UserR
   const verifyResult = await verifyEmailRegistration(email);
 
   if (!verifyResult.exists) {
-    await firebaseSignOut(auth);
+    try {
+      await credential.user.delete();
+    } catch {
+      await firebaseSignOut(auth);
+    }
     throw new Error("Access Denied: This email is not registered as a Trainer/Admin. Please contact your administrator.");
   }
 
