@@ -64,7 +64,7 @@ export async function verifyEmailRegistration(email: string): Promise<{
  * accounts are rejected and signed out so no records are created.
  */
 export async function studentGoogleLogin(): Promise<
-  | { success: true; role: UserRole; user: FirebaseUser; profile: User; isNewUser: false }
+  | { success: true; role: UserRole; user: FirebaseUser; profile: User; isNewUser: boolean }
   | { success: true; role: "student"; user: FirebaseUser; profile: null; isNewUser: true }
 > {
   const credential = await signInWithPopup(auth, googleProvider);
@@ -76,9 +76,64 @@ export async function studentGoogleLogin(): Promise<
   const verifyResult = await verifyEmailRegistration(email);
 
   if (!verifyResult.exists) {
-    // PENDING ONBOARDING: Do NOT throw Access Denied or delete Auth user.
-    // Keep session active so student is routed to Academic Setup onboarding.
-    return { success: true, role: "student", user: credential.user, profile: null, isNewUser: true };
+    // Auto-provision Firestore documents for new Google Sign-In student accounts
+    const newStudentProfile: ExtendedUser = {
+      id: uid,
+      uid: uid,
+      email: email,
+      displayName: name,
+      role: "student",
+      department: "General",
+      collegeId: "col-unassigned",
+      collegeName: "Unassigned",
+      academicYear: null,
+      section: null,
+      batchIds: [],
+      status: "active",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const newStudentDoc: Student = {
+      id: uid,
+      name: name,
+      email: email,
+      department: "General",
+      collegeId: "col-unassigned",
+      collegeName: "Unassigned",
+      section: "A",
+      semester: 1,
+      rollNumber: "",
+      batchIds: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    (newStudentDoc as any).uid = uid;
+
+    try {
+      await setDoc(doc(db, USERS_COLLECTION, uid), newStudentProfile, { merge: true });
+      await setDoc(doc(db, STUDENTS_COLLECTION, uid), newStudentDoc, { merge: true });
+    } catch (fsErr) {
+      console.warn("Firestore auto-provisioning handled:", fsErr);
+    }
+
+    const token = await getIdToken(credential.user, true);
+    const sessionUser = {
+      id: uid,
+      name,
+      email,
+      role: "student" as UserRole,
+      department: "General",
+      collegeId: "col-unassigned",
+      collegeName: "Unassigned",
+      academicYear: null,
+      section: null,
+      batchIds: [],
+    };
+
+    await setAuthSession(token, "student", sessionUser);
+
+    return { success: true, role: "student", user: credential.user, profile: newStudentProfile, isNewUser: true };
   }
 
   const token = await getIdToken(credential.user, true);
