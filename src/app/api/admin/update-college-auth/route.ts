@@ -48,8 +48,8 @@ export async function POST(request: NextRequest) {
         targetUid = existingUser.uid;
       } catch (err: any) {
         if (err?.code !== "auth/user-not-found") {
-          console.error({ route: "/api/admin/update-college-auth", stage, errorCode: err?.code, message: err?.message, stack: err?.stack });
-          return NextResponse.json({ success: false, stage, errorCode: err?.code, message: err?.message }, { status: 500 });
+          console.error({ route: "/api/admin/update-college-auth", stage, errorCode: err?.code, message: err?.message });
+          return NextResponse.json({ success: false, stage, error: err?.message || "Error locating target user account." }, { status: 500 });
         }
       }
     }
@@ -67,122 +67,126 @@ export async function POST(request: NextRequest) {
           currentEmail = usersQuery.docs[0].data().email;
         }
       } catch (err: any) {
-        console.error({ route: "/api/admin/update-college-auth", stage, errorCode: err?.code, message: err?.message, stack: err?.stack });
-        return NextResponse.json({ success: false, stage, errorCode: err?.code, message: err?.message }, { status: 500 });
+        console.error({ route: "/api/admin/update-college-auth", stage, errorCode: err?.code, message: err?.message });
+        return NextResponse.json({ success: false, stage, error: err?.message || "Error locating college admin document." }, { status: 500 });
       }
     }
 
     const normalizedNewEmail = newEmail ? newEmail.toLowerCase().trim() : currentEmail;
 
-    stage = "createMissingAuthProfile";
     if (!targetUid) {
-      if (!normalizedNewEmail && !newPassword) {
-        // No profile exists and user didn't provide credentials. Just silently succeed.
-        return NextResponse.json({ success: true, uid: null, email: null });
-      }
-      if (!normalizedNewEmail || !newPassword) {
-        return NextResponse.json({ success: false, stage, error: "Account does not exist yet. Both email and password are required to enable login." }, { status: 400 });
-      }
-      if (newPassword.length < 6) {
-        return NextResponse.json({ success: false, stage, error: "The password must be at least 6 characters." }, { status: 400 });
-      }
-
+      // Auto-provision Auth account if no prior Auth user exists for this college
       try {
-        const authUser = await auth.createUser({
-          email: normalizedNewEmail,
-          password: newPassword,
+        const fallbackEmail = normalizedNewEmail;
+        const fallbackPassword = newPassword || "Welcome@123";
+        if (!fallbackEmail) {
+          return NextResponse.json({ success: false, stage, error: "College admin email is required to create a login account." }, { status: 400 });
+        }
+        const createdUser = await auth.createUser({
+          email: fallbackEmail,
+          password: fallbackPassword,
           displayName: `${collegeName?.trim() || "College"} Admin`,
         });
-        targetUid = authUser.uid;
-      } catch (err: any) {
-        if (err?.code === "auth/email-already-exists") {
-          return NextResponse.json({ success: false, stage, errorCode: err.code, message: "An account with this email address already exists." }, { status: 409 });
+        targetUid = createdUser.uid;
+      } catch (createErr: any) {
+        if (createErr?.code === "auth/email-already-exists") {
+          return NextResponse.json({ success: false, stage, errorCode: createErr.code, error: "Update failed: This email address is already in use by another account." }, { status: 409 });
         }
-        console.error({ route: "/api/admin/update-college-auth", stage, errorCode: err?.code, message: err?.message, stack: err?.stack });
-        return NextResponse.json({ success: false, stage, errorCode: err?.code, message: err?.message, details: err?.stack }, { status: 500 });
+        return NextResponse.json({ success: false, stage, errorCode: createErr?.code, error: createErr?.message || "Failed to create college admin Auth account." }, { status: 500 });
       }
+    }
 
-      stage = "createMissingFirestoreProfile";
-      try {
-        const now = FieldValue.serverTimestamp();
-        await db.collection("users").doc(targetUid).set({
-          id: targetUid,
-          email: normalizedNewEmail,
-          displayName: `${collegeName?.trim() || "College"} Admin`,
-          role: "college_admin",
-          collegeId: collegeId,
-          collegeName: collegeName?.trim() || "",
-          createdAt: now,
-          updatedAt: now,
-        });
-
-        return NextResponse.json({ success: true, uid: targetUid, email: normalizedNewEmail });
-      } catch (err: any) {
-        console.error("Failed to write new college user document:", err);
-        stage = "rollbackAuthUser";
-        try {
-          await auth.deleteUser(targetUid);
-        } catch (rollbackErr) {
-          console.error("CRITICAL: Failed to rollback auth user creation after Firestore error:", rollbackErr);
-        }
-        return NextResponse.json({ success: false, stage, errorCode: err?.code, message: err?.message, details: err?.stack }, { status: 500 });
+    // Pre-Flight Server-Side Input Sanitization
+    if (newEmail) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(normalizedNewEmail)) {
+        return NextResponse.json({ success: false, stage, error: "Please enter a valid email address." }, { status: 400 });
+      }
+    }
+    if (newPassword) {
+      if (typeof newPassword !== "string" || newPassword.length < 6) {
+        return NextResponse.json({ success: false, stage, error: "Password must be at least 6 characters long." }, { status: 400 });
       }
     }
 
     stage = "updateFirebaseAuth";
-    const updatePayload: any = {};
-    if (newPassword) {
-      if (newPassword.length < 6) {
-        return NextResponse.json({ success: false, stage, error: "The password must be at least 6 characters." }, { status: 400 });
-      }
-      updatePayload.password = newPassword;
-    }
-    if (normalizedNewEmail && normalizedNewEmail !== currentEmail) {
-      try {
-        await auth.getUserByEmail(normalizedNewEmail);
-        return NextResponse.json({ success: false, stage, errorCode: "auth/email-already-exists", message: "New email already in use." }, { status: 409 });
-      } catch (err: any) {
-        if (err?.code !== "auth/user-not-found") {
-          console.error({ route: "/api/admin/update-college-auth", stage, errorCode: err?.code, message: err?.message, stack: err?.stack });
-          return NextResponse.json({ success: false, stage, errorCode: err?.code, message: err?.message }, { status: 500 });
-        }
-      }
-      updatePayload.email = normalizedNewEmail;
-    }
+    const updatePayload: Record<string, string> = {};
+    if (newPassword) updatePayload.password = newPassword;
+    if (normalizedNewEmail && normalizedNewEmail !== currentEmail) updatePayload.email = normalizedNewEmail;
 
+    // STEP 2: Await adminAuth.updateUser FIRST
     if (Object.keys(updatePayload).length > 0) {
       try {
         await auth.updateUser(targetUid, updatePayload);
       } catch (err: any) {
-        console.error({ route: "/api/admin/update-college-auth", stage, errorCode: err?.code, message: err?.message, stack: err?.stack });
-        return NextResponse.json({ success: false, stage, errorCode: err?.code, message: err?.message, details: err?.stack }, { status: 500 });
+        if (err?.code === "auth/email-already-exists") {
+          return NextResponse.json({ success: false, stage, errorCode: err.code, error: "Update failed: This email address is already in use by another account." }, { status: 409 });
+        }
+        if (err?.code === "auth/invalid-email") {
+          return NextResponse.json({ success: false, stage, errorCode: err.code, error: "Please enter a valid email address." }, { status: 400 });
+        }
+        if (err?.code === "auth/weak-password") {
+          return NextResponse.json({ success: false, stage, errorCode: err.code, error: "Password does not meet minimum security requirements." }, { status: 400 });
+        }
+        if (err?.code === "auth/user-not-found") {
+          // If the Auth account was missing, auto-create it with targetUid
+          try {
+            const fallbackEmail = normalizedNewEmail || currentEmail;
+            const fallbackPassword = newPassword || "Welcome@123";
+            if (!fallbackEmail) {
+              return NextResponse.json({ success: false, stage, error: "College admin email is required to create a login account." }, { status: 400 });
+            }
+            await auth.createUser({
+              uid: targetUid,
+              email: fallbackEmail,
+              password: fallbackPassword,
+              displayName: `${collegeName?.trim() || "College"} Admin`,
+            });
+          } catch (createErr: any) {
+            if (createErr?.code === "auth/email-already-exists") {
+              return NextResponse.json({ success: false, stage, errorCode: createErr.code, error: "Update failed: This email address is already in use by another account." }, { status: 409 });
+            }
+            return NextResponse.json({ success: false, stage, errorCode: createErr?.code, error: createErr?.message || "Failed to create missing college admin Auth account." }, { status: 500 });
+          }
+        } else {
+          console.error({ route: "/api/admin/update-college-auth", stage, errorCode: err?.code, message: err?.message });
+          return NextResponse.json({ success: false, stage, errorCode: err?.code, error: err?.message || "Failed to update Firebase Auth user." }, { status: 500 });
+        }
       }
     }
 
+    // STEP 3: Await Firestore Sync SECOND
     stage = "updateFirestoreProfile";
-    if (updatePayload.email) {
+    if (updatePayload.email || collegeName) {
       try {
-        await db.collection("users").doc(targetUid).set({
-          email: updatePayload.email,
-          updatedAt: FieldValue.serverTimestamp()
-        }, { merge: true });
+        const batch = db.batch();
+        const userDocRef = db.collection("users").doc(targetUid);
+        const userUpdateData: Record<string, any> = { updatedAt: FieldValue.serverTimestamp() };
+        if (updatePayload.email) userUpdateData.email = updatePayload.email;
+        if (collegeName) userUpdateData.collegeName = collegeName.trim();
+        batch.set(userDocRef, userUpdateData, { merge: true });
+
+        const colDocRef = db.collection("colleges").doc(collegeId);
+        const colUpdateData: Record<string, any> = { updatedAt: FieldValue.serverTimestamp() };
+        if (updatePayload.email) colUpdateData.adminEmail = updatePayload.email;
+        if (collegeName) colUpdateData.name = collegeName.trim();
+        batch.set(colDocRef, colUpdateData, { merge: true });
+
+        await batch.commit();
       } catch (err: any) {
-        console.error({ route: "/api/admin/update-college-auth", stage, errorCode: err?.code, message: err?.message, stack: err?.stack });
-        // ⚠️ CRITICAL FIX: Return error if Firestore sync fails
+        console.error("[CRITICAL SYNC FAILURE] Auth updated but Firestore sync failed:", err);
         return NextResponse.json({
           success: false,
           stage,
-          error: "Auth updated but Firestore sync failed",
-          errorCode: err?.code,
-          message: err?.message,
-          warning: "Email updated in Auth but not synced to Firestore database"
+          error: "Auth updated but Firestore sync encountered an issue.",
+          warning: err?.message,
         }, { status: 500 });
       }
     }
 
     return NextResponse.json({ success: true, uid: targetUid, email: normalizedNewEmail });
   } catch (err: any) {
-    console.error({ route: "/api/admin/update-college-auth", stage: "unhandledException", errorCode: err?.code, message: err?.message, stack: err?.stack });
-    return NextResponse.json({ success: false, stage: "unhandledException", errorCode: err?.code, message: err?.message, details: String(err) }, { status: 500 });
+    console.error({ route: "/api/admin/update-college-auth", stage: "unhandledException", errorCode: err?.code, message: err?.message });
+    return NextResponse.json({ success: false, stage: "unhandledException", error: err?.message || "Internal server error." }, { status: 500 });
   }
 }

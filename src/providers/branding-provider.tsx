@@ -2,104 +2,165 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { usePathname } from "next/navigation";
+import { doc, onSnapshot, getDoc, getDocuments, where } from "@/lib/firebase/firestore";
+import { db } from "@/lib/firebase/config";
 import { CompanyBranding, subscribeToCompanyBranding } from "@/lib/services/branding-service";
-import { getCollegeById } from "@/lib/services/college-service";
 
 export interface BrandingContextType {
   branding: CompanyBranding;
   loading: boolean;
 }
 
-const defaultBranding: CompanyBranding = {
-  companyName: "LMS Portal",
-  companySubtitle: "Enterprise v2.4",
+const emptyBranding: CompanyBranding = {
+  companyName: "",
+  companySubtitle: "",
   logoBase64: "",
 };
 
 const BrandingContext = createContext<BrandingContextType>({
-  branding: defaultBranding,
+  branding: emptyBranding,
   loading: true,
 });
 
 export function BrandingProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const [masterBranding, setMasterBranding] = useState<CompanyBranding>(defaultBranding);
-  const [collegeBranding, setCollegeBranding] = useState<CompanyBranding | null>(null);
-
-  // Hydrate from localStorage safely after mount
-  useEffect(() => {
+  const [tenantBranding, setTenantBranding] = useState<CompanyBranding | null>(() => {
+    if (typeof window === "undefined") return null;
     try {
       const cached = localStorage.getItem("lms_college_branding");
-      const storedUser = localStorage.getItem("lms_user") || localStorage.getItem("user");
-      if (cached && storedUser) {
-        const parsedCached = JSON.parse(cached);
-        const profile = JSON.parse(storedUser);
-        if (parsedCached.collegeId === profile.collegeId) {
-          setCollegeBranding(parsedCached.branding);
-        }
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        return parsed.branding || null;
       }
-    } catch (e) {}
-  }, []);
-  const [loading, setLoading] = useState(true);
+    } catch {}
+    return null;
+  });
+  const [masterBranding, setMasterBranding] = useState<CompanyBranding | null>(null);
+  const [loading, setLoading] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    const cached = localStorage.getItem("lms_college_branding");
+    return !cached;
+  });
 
-  // Subscribe to Master Branding
   useEffect(() => {
-    const unsub = subscribeToCompanyBranding((data) => {
-      setMasterBranding(data);
-      setLoading(false);
-    });
-    return () => unsub();
-  }, []);
+    let unsubCollege: (() => void) | null = null;
+    let unsubMaster: (() => void) | null = null;
+    let isCancelled = false;
 
-  // Fetch College Branding based on Auth state
-  useEffect(() => {
-    const fetchCollegeBranding = async () => {
+    const initBranding = async () => {
       try {
-        const role = localStorage.getItem("lms_role");
-        if (role === "student" || role === "college_admin") {
-          const storedUser = localStorage.getItem("lms_user") || localStorage.getItem("user");
-          if (storedUser) {
-            const profile = JSON.parse(storedUser);
-            // Both students and college_admins use profile.collegeId
-            const collegeId = profile.collegeId;
-            
-            if (collegeId) {
-              const college = await getCollegeById(collegeId);
-              if (college && college.branding) {
-                // Construct a CompanyBranding object from the college branding
-                const cBrand = {
-                  companyName: college.branding.companyName || college.name,
-                  companySubtitle: college.branding.companySubtitle || "College Portal",
-                  logoBase64: college.branding.logoBase64 || "",
-                };
-                
-                // Only set if they actually overrode something
-                if (college.branding.logoBase64 || college.branding.companyName) {
-                  setCollegeBranding(cBrand);
-                  localStorage.setItem("lms_college_branding", JSON.stringify({ collegeId, branding: cBrand }));
-                  return;
+        const storedUser = localStorage.getItem("lms_user") || localStorage.getItem("user");
+        const userRole = localStorage.getItem("lms_role");
+
+        if (storedUser) {
+          const profile = JSON.parse(storedUser);
+          let collegeId = profile.collegeId;
+
+          // 1. Resolve missing collegeId via user document
+          if (!collegeId && profile.id) {
+            try {
+              const uCollection = (profile.role === "student" || userRole === "student") ? "students" : "users";
+              const userSnap = await getDoc(doc(db, uCollection, profile.id));
+              if (userSnap.exists()) {
+                const uData = userSnap.data();
+                collegeId = uData.collegeId;
+                if (collegeId) {
+                  profile.collegeId = collegeId;
+                  localStorage.setItem("lms_user", JSON.stringify(profile));
                 }
               }
+            } catch (e) {
+              console.error("Error resolving missing collegeId via user doc:", e);
             }
           }
+
+          // 2. Resolve missing collegeId via colleges collection lookup (adminEmail)
+          if (!collegeId && profile.email) {
+            try {
+              const cleanEmail = profile.email.toLowerCase().trim();
+              const colSnaps = await getDocuments("colleges", [where("adminEmail", "==", cleanEmail)]);
+              if (colSnaps.length > 0) {
+                collegeId = colSnaps[0].id;
+                profile.collegeId = collegeId;
+                localStorage.setItem("lms_user", JSON.stringify(profile));
+              }
+            } catch (e) {
+              console.error("Error resolving collegeId via adminEmail:", e);
+            }
+          }
+
+          // 3. Subscribe directly to colleges/{collegeId} for tenant users
+          if (collegeId && collegeId !== "global") {
+            const colRef = doc(db, "colleges", collegeId);
+            unsubCollege = onSnapshot(colRef, (snap) => {
+              if (isCancelled) return;
+              if (snap.exists()) {
+                const data = snap.data();
+                const cBrand: CompanyBranding = {
+                  companyName: data.branding?.companyName?.trim() || data.name?.trim() || profile.collegeName?.trim() || "College Admin Portal",
+                  companySubtitle: data.branding?.companySubtitle?.trim() || (data.name ? `${data.name} Portal` : "College Admin Portal"),
+                  logoBase64: data.branding?.logoBase64 || "",
+                };
+                setTenantBranding(cBrand);
+                localStorage.setItem("lms_college_branding", JSON.stringify({ collegeId, branding: cBrand }));
+              } else {
+                const fallbackName = profile.collegeName?.trim() || "College Admin Portal";
+                setTenantBranding({
+                  companyName: fallbackName,
+                  companySubtitle: `${fallbackName} Portal`,
+                  logoBase64: "",
+                });
+              }
+              setLoading(false);
+            }, (err) => {
+              console.error("College branding subscription error:", err);
+              if (!isCancelled) setLoading(false);
+            });
+
+            return;
+          }
+        }
+
+        // ONLY for Super Admin / Global user (no collegeId or collegeId === "global")
+        if (userRole === "admin" || userRole === "trainer") {
+          unsubMaster = subscribeToCompanyBranding((data) => {
+            if (!isCancelled) {
+              setMasterBranding({
+                companyName: data.companyName || "Enterprise LMS",
+                companySubtitle: data.companySubtitle || "Master Admin",
+                logoBase64: data.logoBase64 || "",
+              });
+              setLoading(false);
+            }
+          });
+        } else {
+          if (!isCancelled) setLoading(false);
         }
       } catch (err) {
+        console.error("BrandingProvider error:", err);
+        if (!isCancelled) setLoading(false);
       }
-      setCollegeBranding(null);
-      localStorage.removeItem("lms_college_branding");
     };
 
-    fetchCollegeBranding();
-    
-    // Listen for storage changes in case of login/logout
-    window.addEventListener("storage", fetchCollegeBranding);
-    return () => window.removeEventListener("storage", fetchCollegeBranding);
-  }, [pathname]);
+    initBranding();
 
-  const isPublicRoute = !pathname || pathname === "/" || pathname === "/login" || pathname === "/register";
+    const handleStorageChange = () => {
+      initBranding();
+    };
 
-  // College Branding takes precedence over Master Branding if it exists, UNLESS it's a public route.
-  const activeBranding = (isPublicRoute ? null : collegeBranding) || masterBranding;
+    window.addEventListener("storage", handleStorageChange);
+
+    return () => {
+      isCancelled = true;
+      if (unsubCollege) unsubCollege();
+      if (unsubMaster) unsubMaster();
+      window.removeEventListener("storage", handleStorageChange);
+    };
+  }, []);
+
+  const isPublicRoute = !pathname || pathname === "/login" || pathname === "/register";
+
+  const activeBranding = isPublicRoute ? emptyBranding : (tenantBranding || masterBranding || emptyBranding);
 
   return (
     <BrandingContext.Provider value={{ branding: activeBranding, loading }}>

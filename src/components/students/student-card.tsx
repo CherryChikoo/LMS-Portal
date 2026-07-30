@@ -77,11 +77,11 @@ export const StudentCard = memo(function StudentCard({
             className="rounded border-border text-brand focus:ring-brand/50 cursor-pointer w-4 h-4 shrink-0"
           />
           <div className="w-10 h-10 rounded-xl bg-brand/10 text-brand flex items-center justify-center font-bold text-sm shrink-0">
-            {student.name.slice(0, 2).toUpperCase()}
+            {(student.name || student.email || "ST").slice(0, 2).toUpperCase()}
           </div>
           <div className="min-w-0 flex-1">
-            <h4 className="font-bold text-foreground text-sm truncate leading-tight">{student.name}</h4>
-            <p className="text-xs font-mono text-muted-foreground truncate mt-0.5">{student.email}</p>
+            <h4 className="font-bold text-foreground text-sm truncate leading-tight">{student.name || student.email || "Unnamed Student"}</h4>
+            <p className="text-xs font-mono text-muted-foreground truncate mt-0.5">{student.email || "No email"}</p>
           </div>
         </div>
 

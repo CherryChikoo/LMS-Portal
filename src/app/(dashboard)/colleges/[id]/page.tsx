@@ -428,7 +428,7 @@ function getYearBadgeStyle(year?: string) {
     setSavingEditStudent(true);
     setEditStudentError(null);
     try {
-      await updateStudentProfile(editingStudent.id, {
+      const res = await updateStudentProfile(editingStudent.id, {
         name: editStudName.trim(),
         email: normalizedEmail,
         department: editStudDept.trim(),
@@ -437,10 +437,14 @@ function getYearBadgeStyle(year?: string) {
         batchIds: [editStudBatch],
         updatedAt: new Date(),
       });
+      if (!res.success) {
+        setEditStudentError(res.error || "Failed to update student profile.");
+        return;
+      }
+      toast.success("Student profile updated successfully.");
       setEditingStudent(null);
       await refreshData();
     } catch (err) {
-      console.error("Error updating student:", err);
       setEditStudentError("Failed to update student. Please try again.");
     } finally {
       setSavingEditStudent(false);

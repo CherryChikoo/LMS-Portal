@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "motion/react";
 import { Building2, Upload, X, Check } from "lucide-react";
+import { doc, setDoc, serverTimestamp } from "@/lib/firebase/firestore";
+import { db } from "@/lib/firebase/config";
 import { updateCompanyBranding } from "@/lib/services/branding-service";
 import { updateCollege } from "@/lib/services/college-service";
 import { useBranding } from "@/providers/branding-provider";
@@ -15,16 +17,24 @@ interface BrandingModalProps {
 }
 
 export function BrandingModal({ isOpen, onClose }: BrandingModalProps) {
-  const { branding } = useBranding();
-  const [editName, setEditName] = useState(branding.companyName || APP_NAME);
-  const [editSubtitle, setEditSubtitle] = useState(branding.companySubtitle || "Enterprise v2.4");
-  const [editLogo, setEditLogo] = useState(branding.logoBase64 || "");
+  const { branding, loading } = useBranding();
+  const [editName, setEditName] = useState("");
+  const [editSubtitle, setEditSubtitle] = useState("");
+  const [editLogo, setEditLogo] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // Sync form state when modal opens with fresh branding values
+  // Sync form state when modal opens or branding resolves
+  useEffect(() => {
+    if (isOpen) {
+      setEditName(branding.companyName || "");
+      setEditSubtitle(branding.companySubtitle || "");
+      setEditLogo(branding.logoBase64 || "");
+    }
+  }, [isOpen, branding]);
+
   const handleExited = () => {
-    setEditName(branding.companyName || APP_NAME);
-    setEditSubtitle(branding.companySubtitle || "Enterprise v2.4");
+    setEditName(branding.companyName || "");
+    setEditSubtitle(branding.companySubtitle || "");
     setEditLogo(branding.logoBase64 || "");
   };
 
@@ -32,24 +42,36 @@ export function BrandingModal({ isOpen, onClose }: BrandingModalProps) {
     e.preventDefault();
     setSaving(true);
     try {
-      const userRole = localStorage.getItem("lms_role");
-      if (userRole === "college_admin") {
-        const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-        const u = uStr ? JSON.parse(uStr) : null;
-        const cId = u?.collegeId;
-        if (cId) {
-          await updateCollege(cId, {
-            branding: {
-              companyName: editName.trim() || APP_NAME,
-              companySubtitle: editSubtitle.trim() || "College Portal",
-              logoBase64: editLogo,
-            }
-          });
-        }
+      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      const u = uStr ? JSON.parse(uStr) : null;
+      const cId = u?.collegeId;
+      const userRole = localStorage.getItem("lms_role") || u?.role;
+
+      if (userRole === "college_admin" || (cId && cId !== "global")) {
+        if (!cId) throw new Error("No college ID associated with this admin.");
+
+        const collegeRef = doc(db, "colleges", cId);
+        const cBrand = {
+          companyName: editName.trim(),
+          companySubtitle: editSubtitle.trim() || "College Portal",
+          logoBase64: editLogo,
+          updatedAt: serverTimestamp(),
+        };
+
+        await setDoc(
+          collegeRef,
+          {
+            branding: cBrand,
+          },
+          { merge: true }
+        );
+
+        localStorage.setItem("lms_college_branding", JSON.stringify({ collegeId: cId, branding: cBrand }));
+        window.dispatchEvent(new Event("storage"));
       } else {
         await updateCompanyBranding({
-          companyName: editName.trim() || APP_NAME,
-          companySubtitle: editSubtitle.trim() || "Enterprise v2.4",
+          companyName: editName.trim(),
+          companySubtitle: editSubtitle.trim(),
           logoBase64: editLogo,
         });
       }

@@ -32,6 +32,13 @@ export function middleware(request: NextRequest) {
   const isPublicRoute = pathname === "/login" || pathname === "/register";
 
   if (isPublicRoute) {
+    if (request.nextUrl.searchParams.has("logout") || request.nextUrl.searchParams.get("error") === "account_deleted") {
+      const response = NextResponse.next();
+      response.cookies.delete("lms_auth");
+      response.cookies.delete("lms_role");
+      response.cookies.delete("lms_status");
+      return applyNoCacheHeaders(response);
+    }
     if (isAuth && roleCookie) {
       if (statusCookie === "restricted") {
         return NextResponse.next();

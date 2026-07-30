@@ -99,19 +99,32 @@ export function getCurrentUser(): Promise<{ uid: string; email: string; profile:
 }
 
 export async function clearAuthSession(redirectPath?: string): Promise<void> {
-  // Capture the role before clearing any storage so we can route to the correct login page.
-  const role = getLogoutRole();
-  const targetPath = redirectPath || "/login";
+  if (typeof window !== "undefined") {
+    (window as any).__isLoggingOut = true;
+  }
+
+  const targetPath = redirectPath || "/login?logout=true";
 
   // Invalidate all storage
-  localStorage.clear();
-  sessionStorage.clear();
+  try {
+    localStorage.clear();
+    sessionStorage.clear();
+  } catch {}
 
-  // Expire cookies immediately with matching attributes so the next request is unauthenticated.
-  const isSecure = window.location.protocol === "https:";
-  const cookieOptions = `path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax${isSecure ? "; Secure" : ""}`;
-  document.cookie = `lms_auth=; ${cookieOptions}`;
-  document.cookie = `lms_role=; ${cookieOptions}`;
+  // Expire cookies immediately across all possible domain variations
+  if (typeof document !== "undefined") {
+    const isSecure = window.location.protocol === "https:";
+    const hostname = window.location.hostname;
+    const domainVariations = ["", hostname, `.${hostname}`];
+
+    domainVariations.forEach((dom) => {
+      const domSuffix = dom ? `; domain=${dom}` : "";
+      const cookieOptions = `path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax${isSecure ? "; Secure" : ""}${domSuffix}`;
+      document.cookie = `lms_auth=; ${cookieOptions}`;
+      document.cookie = `lms_role=; ${cookieOptions}`;
+      document.cookie = `lms_status=; ${cookieOptions}`;
+    });
+  }
 
   window.dispatchEvent(new Event("storage"));
 

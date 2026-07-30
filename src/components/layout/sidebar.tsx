@@ -26,7 +26,7 @@ import { BrandingModal } from "@/components/shared/branding-modal";
 export function Sidebar() {
   const pathname = usePathname();
   const { isExpanded } = useSidebar();
-  const { branding } = useBranding();
+  const { branding, loading } = useBranding();
   const mounted = useMounted();
   const [showBrandModal, setShowBrandModal] = useState(false);
   const [userRole, setUserRole] = useState<string | null>(null);
@@ -121,7 +121,9 @@ export function Sidebar() {
       <div className="flex items-center h-20 px-4 shrink-0 relative group/brand overflow-hidden">
         <Link href="/" className="flex items-center w-full min-w-0">
           <div className="w-11 h-11 flex items-center justify-center shrink-0">
-            {branding.logoBase64 ? (
+            {!mounted || loading ? (
+              <div className="w-9 h-9 rounded-xl bg-brand/10 animate-pulse border border-brand/20 shrink-0" />
+            ) : branding.logoBase64 ? (
               <img
                 src={branding.logoBase64}
                 alt="Logo"
@@ -129,7 +131,7 @@ export function Sidebar() {
               />
             ) : (
               <div className="w-9 h-9 rounded-xl bg-brand/10 text-brand flex items-center justify-center font-black text-base shrink-0 border border-brand/20">
-                {(branding.companyName || APP_NAME).charAt(0).toUpperCase()}
+                {(branding.companyName || "C").charAt(0).toUpperCase()}
               </div>
             )}
           </div>
@@ -143,12 +145,21 @@ export function Sidebar() {
               transition: 'opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
             }}
           >
-            <span className="font-bold text-base text-brand tracking-tight truncate">
-              {branding.companyName || APP_NAME}
-            </span>
-            <span className="text-[9px] font-bold text-brand/60 uppercase tracking-widest truncate">
-              {branding.companySubtitle || (userRole === "student" ? "Student Portal" : "Enterprise")}
-            </span>
+            {!mounted || loading ? (
+              <div className="space-y-1.5 py-1">
+                <div className="h-4 w-32 bg-brand/10 animate-pulse rounded-md" />
+                <div className="h-2.5 w-20 bg-brand/10 animate-pulse rounded-md" />
+              </div>
+            ) : (
+              <>
+                <span className="font-bold text-base text-brand tracking-tight truncate">
+                  {branding.companyName || (userRole === "admin" || userRole === "trainer" ? "Enterprise LMS" : "College Admin Portal")}
+                </span>
+                <span className="text-[9px] font-bold text-brand/60 uppercase tracking-widest truncate">
+                  {branding.companySubtitle || (userRole === "admin" || userRole === "trainer" ? "Master Admin" : userRole === "student" ? "Student Portal" : "College Admin Portal")}
+                </span>
+              </>
+            )}
           </div>
         </Link>
 

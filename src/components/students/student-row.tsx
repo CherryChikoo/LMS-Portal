@@ -58,9 +58,9 @@ export const StudentRow = memo(function StudentRow({
       <td className="py-3.5 px-4 font-medium text-foreground">
         <div className="flex items-center gap-2.5 group">
           <div className="w-8 h-8 rounded-full bg-brand/10 text-brand flex items-center justify-center font-bold text-xs shrink-0 group-hover:bg-brand/20 transition-colors">
-            {student.name.slice(0, 2).toUpperCase()}
+            {(student.name || student.email || "ST").slice(0, 2).toUpperCase()}
           </div>
-          <span className="font-semibold text-foreground truncate">{student.name}</span>
+          <span className="font-semibold text-foreground truncate">{student.name || student.email || "Unnamed Student"}</span>
         </div>
       </td>
       <td className="py-3.5 px-4 font-mono text-xs text-muted-foreground truncate">{student.email}</td>

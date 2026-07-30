@@ -27,7 +27,8 @@ import {
 import { getCurrentUser } from "@/lib/utils/auth-session";
 import { formatTimestamp } from "@/lib/utils/date";
 
-import type { Exam, ExamAttempt } from "@/types";
+import { getDocuments, where } from "@/lib/firebase/firestore";
+import type { Exam, ExamAttempt, ExamResult } from "@/types";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -119,32 +120,32 @@ export default function ReviewExamPage({ params }: PageProps) {
         // For students, resolve via Firebase auth so the attempt query is scoped correctly.
         let uid = "";
         let email = "";
-        if (role === "student" || isStudentPath) {
-          const me = await getCurrentUser();
-          if (!me) {
-            setAccessDeniedReason("Authentication Required. Please sign in to review your attempt.");
-            setLoading(false);
-            return;
-          }
+        let profileId = "";
+
+        const me = await getCurrentUser().catch(() => null);
+        if (me) {
           uid = me.uid;
           email = me.email || "";
-        } else if (isAdminPath) {
-          // Trainer/admin preview: pull the most recent attempt for this exam regardless of student.
+          profileId = (me.profile?.id as string) || (me.profile?.uid as string) || "";
+        }
+
+        if (!uid || !email) {
           try {
             const stored = localStorage.getItem("lms_user") || localStorage.getItem("user");
             if (stored) {
               const parsed = JSON.parse(stored);
-              uid = parsed?.id || parsed?.uid || "";
-              email = parsed?.email || "";
+              uid = uid || parsed?.id || parsed?.uid || "";
+              email = email || parsed?.email || "";
+              profileId = profileId || parsed?.id || parsed?.studentId || "";
             }
-          } catch {
-            // Ignore corrupt storage; fall back to querying by exam below.
-          }
+          } catch {}
         }
 
         const [examData, attempts] = await Promise.all([
-          getExamById(id),
-          uid ? getStudentAttemptsForCurrentUser(uid, email) : Promise.resolve([] as ExamAttempt[]),
+          getExamById(id).catch(() => null),
+          (uid || email || profileId)
+            ? getStudentAttemptsForCurrentUser(uid, email, profileId).catch(() => [] as ExamAttempt[])
+            : Promise.resolve([] as ExamAttempt[]),
         ]);
 
         if (!examData) {
@@ -153,13 +154,34 @@ export default function ReviewExamPage({ params }: PageProps) {
           return;
         }
 
-        const submitted = attempts.find(
+        let submitted = attempts.find(
           (a) => a.examId === id && (a.status === "submitted" || (a.answers && Object.keys(a.answers).length > 0)),
         );
 
+        // Fallback: If not found in user attempts, query results directly by examId
         if (!submitted) {
-          // No submitted attempt exists for this user/exam combination.
-          router.replace(resolveBackHref());
+          try {
+            const examResults = await getDocuments<ExamResult>("exam_results", [
+              where("examId", "==", id),
+            ]);
+            const matched = examResults.find((a: any) => {
+              const normEmail = email.toLowerCase().trim();
+              return (
+                (uid && a.studentId === uid) ||
+                (profileId && a.studentId === profileId) ||
+                (normEmail && a.studentId?.toLowerCase() === normEmail) ||
+                (normEmail && a.studentEmail?.toLowerCase() === normEmail)
+              );
+            });
+            if (matched) {
+              submitted = matched as ExamAttempt;
+            }
+          } catch {}
+        }
+
+        if (!submitted) {
+          setAccessDeniedReason("No submitted attempt found for this evaluation. You may need to complete the assessment first.");
+          setLoading(false);
           return;
         }
 

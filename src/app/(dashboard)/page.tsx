@@ -19,7 +19,8 @@ import {
   AlertCircle,
   Layers,
   Library,
-  FilePlus
+  FilePlus,
+  Building2
 } from "lucide-react";
 import Link from "next/link";
 import { StatCard } from "@/components/shared/stat-card";
@@ -30,12 +31,13 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, useMemo } from "react";
 import { useMounted } from "@/hooks/use-mounted";
 import { staggerContainer, staggerItem } from "@/lib/animations";
-import { getAllExamsIncludingDeleted, getAllStudents, getAllColleges, getAllResources, getEffectiveExamStatus, getStudentAttempts, filterResourcesForStudent, filterExamsForStudent, getAllBatches } from "@/lib/services";
+import { getAllExamsIncludingDeleted, getAllStudents, getAllColleges, getAllResources, getEffectiveExamStatus, getStudentAttempts, filterResourcesForStudent, filterExamsForStudent, getAllBatches, isAttemptOwnedByStudent } from "@/lib/services";
 import { toDate } from "@/lib/utils/date";
 import type { Exam, Student, College, Resource, ExamAttempt, Batch, AssignmentTarget } from "@/types";
 import { useLMSData } from "@/lib/data/use-lms-data";
+import { useBranding } from "@/providers/branding-provider";
 
-function StudentPortalDashboard({
+export function StudentPortalDashboard({
   exams,
   resources,
   attempts,
@@ -48,11 +50,13 @@ function StudentPortalDashboard({
   students: Student[];
   loading: boolean;
 }) {
+  const [mounted, setMounted] = useState(false);
   const [studentProfile, setStudentProfile] = useState<any>({ 
     id: "", name: "", email: "", department: "", rollNumber: "", batchIds: [] 
   });
 
   useEffect(() => {
+    setMounted(true);
     const updateProfile = () => {
       try {
         const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
@@ -79,17 +83,9 @@ function StudentPortalDashboard({
     };
   }, [students]);
 
-
   const myAttempts = useMemo(() => {
-    return attempts.filter((a) => {
-      const sId = studentProfile?.id;
-      const sEmail = (studentProfile?.email || "").toLowerCase().trim();
-
-      if (sId && (a.studentId === sId || a.studentId?.toLowerCase() === sEmail)) return true;
-      if (sEmail && (a.studentId?.toLowerCase() === sEmail || (a as any).studentEmail?.toLowerCase() === sEmail)) return true;
-
-      return false;
-    });
+    if (!studentProfile || (!studentProfile.id && !studentProfile.email && !studentProfile.name)) return attempts;
+    return attempts.filter((a) => isAttemptOwnedByStudent(a, studentProfile));
   }, [attempts, studentProfile]);
 
   const avgScore = useMemo(() => {
@@ -201,7 +197,12 @@ function StudentPortalDashboard({
             </div>
 
             <div className="space-y-3">
-              {activeOrScheduledExams.length === 0 ? (
+              {loading || !mounted ? (
+                <div className="space-y-3 py-2">
+                  <div className="h-16 rounded-xl bg-card/60 border border-border/60 animate-pulse" />
+                  <div className="h-16 rounded-xl bg-card/60 border border-border/60 animate-pulse" />
+                </div>
+              ) : activeOrScheduledExams.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground text-sm">No active assessments scheduled right now.</div>
               ) : (
                 activeOrScheduledExams.map((ex) => {
@@ -310,6 +311,7 @@ export default function DashboardPage() {
 
   const activeStudents = useMemo(() => (students as Student[]).filter((s: Student) => !s.isDeleted), [students]);
 
+  const { branding } = useBranding();
   const mounted = useMounted();
   const [userRole, setUserRole] = useState<string | null>(null);
   const [userName, setUserName] = useState<string>("User");
@@ -325,8 +327,11 @@ export default function DashboardPage() {
         } else if (role) {
           setUserRole(role.toLowerCase());
         }
-        if (parsed.name || parsed.displayName) {
-          setUserName((parsed.name || parsed.displayName).split(" ")[0]);
+        const n = parsed.name || parsed.displayName || "";
+        if (parsed.role === "college_admin" || (parsed.collegeId && parsed.collegeId !== "global")) {
+          setUserName(n && !n.toLowerCase().includes("admin") ? n : (branding.companyName || parsed.collegeName || "Admin"));
+        } else if (n) {
+          setUserName(n);
         }
       } else if (role) {
         setUserRole(role.toLowerCase());
@@ -336,7 +341,7 @@ export default function DashboardPage() {
     } catch (e) {
       setUserRole("student");
     }
-  }, []);
+  }, [branding]);
 
   const activeOrScheduledExams = useMemo(() => {
     return (exams as Exam[]).filter((e: Exam) => {

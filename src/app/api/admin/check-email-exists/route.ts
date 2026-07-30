@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth } from "@/lib/firebase/admin";
+import { getFirestore } from "firebase-admin/firestore";
 
 export async function POST(request: NextRequest) {
   try {
@@ -22,6 +23,17 @@ export async function POST(request: NextRequest) {
     }
 
     const normalizedEmail = email.toLowerCase().trim();
+
+    // Check if email exists in Firestore
+    const db = getFirestore();
+    const existingUsersSnapshot = await db.collection("users").where("email", "==", normalizedEmail).get();
+    if (!existingUsersSnapshot.empty) {
+      return NextResponse.json({
+        exists: true,
+        uid: existingUsersSnapshot.docs[0].id,
+        provider: "firestore"
+      });
+    }
 
     // Check if email exists in Firebase Auth
     try {

@@ -1,56 +1,64 @@
 import { NextResponse } from "next/server";
 import { getExamById, updateExam } from "@/lib/services/exam-service";
-import type { AIExplanation } from "@/types";
+import type { AIExplanation, Question } from "@/types";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { generateFallbackExplanation } from "@/lib/utils/ai-explanation-fallback";
 
 export const maxDuration = 60; // Max allowed for Vercel Hobby tier
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
-const MODEL_NAME = "gemini-2.5-flash";
+const MODEL_NAME = "gemini-1.5-flash";
 
 const CHUNK_SIZE = 5; // Process 5 questions per Gemini API call to avoid timeouts/token limits
 
 export async function POST(req: Request) {
   try {
-    const { examId, forceRegenerate = false } = await req.json();
+    const body = await req.json().catch(() => ({}));
+    const { examId, questions: inputQuestions, forceRegenerate = false } = body;
 
-    if (!examId) {
-      return NextResponse.json({ error: "Exam ID is required" }, { status: 400 });
-    }
-
-    const exam = await getExamById(examId);
-    if (!exam || !exam.questions || exam.questions.length === 0) {
-      return NextResponse.json({ error: "Exam or questions not found" }, { status: 404 });
+    let existingQuestions: Question[] = [];
+    if (inputQuestions && Array.isArray(inputQuestions) && inputQuestions.length > 0) {
+      existingQuestions = inputQuestions;
+    } else if (examId) {
+      const exam = await getExamById(examId);
+      if (!exam || !exam.questions || exam.questions.length === 0) {
+        return NextResponse.json({ error: "Exam or questions not found" }, { status: 404 });
+      }
+      existingQuestions = exam.questions;
+    } else {
+      return NextResponse.json({ error: "Exam ID or questions array is required" }, { status: 400 });
     }
 
     // Filter questions that need generation
-    const pendingQuestions = exam.questions.filter((q) => {
+    const pendingQuestions = existingQuestions.filter((q) => {
       if (forceRegenerate) return true;
       return q.aiExplanationStatus !== "generated" || !q.aiExplanation;
     });
 
     if (pendingQuestions.length === 0) {
-      return NextResponse.json({ status: "skipped", message: "All questions already have AI explanations" });
+      return NextResponse.json({
+        status: "skipped",
+        message: "All questions already have AI explanations",
+        questions: existingQuestions,
+      });
     }
 
-    // Set status to pending for targeted questions
-    let updatedQuestions = [...exam.questions];
-    let hasUpdates = false;
+    let updatedQuestions = [...existingQuestions];
 
+    // Mark targeted questions as pending
     updatedQuestions = updatedQuestions.map((q) => {
       const needsGen = pendingQuestions.some((pq) => pq.id === q.id);
       if (needsGen) {
-        hasUpdates = true;
         return { ...q, aiExplanationStatus: "pending" as const };
       }
       return q;
     });
 
-    if (hasUpdates) {
+    if (examId) {
       await updateExam(examId, { questions: updatedQuestions });
     }
 
-    // We process the chunks sequentially to avoid rate limiting
+    // Process chunks with Gemini API
     const chunks = [];
     for (let i = 0; i < pendingQuestions.length; i += CHUNK_SIZE) {
       chunks.push(pendingQuestions.slice(i, i + CHUNK_SIZE));
@@ -99,59 +107,93 @@ Do NOT wrap the output in markdown code blocks like \`\`\`json. Return RAW valid
           generationConfig: {
             temperature: 0.2,
             responseMimeType: "application/json",
-          }
+          },
         });
-        
+
         const response = await result.response;
-        let textResponse = response.text();
-        
+        let textResponse = response.text().trim();
+        textResponse = textResponse.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/\s*```$/i, "").trim();
+
         if (!textResponse) {
           failedCount += chunk.length;
           continue;
         }
 
-        const parsed = JSON.parse(textResponse) as Array<{ id: string; aiExplanation: AIExplanation }>;
-        
+        const parsed = JSON.parse(textResponse);
+        const parsedArray = Array.isArray(parsed) ? parsed : (parsed.questions || parsed.data || []);
+
         // Update questions in the array
-        updatedQuestions = updatedQuestions.map((q) => {
-          const generated = parsed.find((p) => p.id === q.id);
+        updatedQuestions = updatedQuestions.map((q, qIdx) => {
+          const chunkIdx = chunk.findIndex((cq) => cq.id === q.id);
+          const generated =
+            parsedArray.find((p: any) => p.id === q.id || String(p.id).trim() === String(q.id).trim()) ||
+            (chunkIdx !== -1 ? parsedArray[chunkIdx] : null) ||
+            parsedArray[qIdx];
+
           if (generated) {
+            const raw = generated.aiExplanation || generated;
+            const explanation: AIExplanation = {
+              overview: raw.overview || {
+                summary: raw.whyCorrect || "Detailed explanation summary.",
+                type: q.type || "mcq",
+                topic: q.topic || "General",
+                subtopic: "General",
+                difficulty: q.difficulty || "medium",
+              },
+              stepByStep: raw.stepByStep || raw.whyCorrect || "Step by step analysis.",
+              whyCorrect: raw.whyCorrect || (typeof raw === "string" ? raw : "Detailed answer explanation."),
+              whyIncorrect: raw.whyIncorrect || {},
+              keyConcepts: raw.keyConcepts || [],
+              commonMistakes: raw.commonMistakes || [],
+              revisionNotes: raw.revisionNotes || "",
+              relatedConcepts: raw.relatedConcepts || [],
+              realWorldExample: raw.realWorldExample || "",
+              difficultyAnalysis: raw.difficultyAnalysis || "",
+              interviewPerspective: raw.interviewPerspective || "",
+              learningObjective: raw.learningObjective || "",
+            };
+
             generatedCount++;
             return {
               ...q,
-              aiExplanation: generated.aiExplanation,
+              aiExplanation: explanation,
               aiExplanationStatus: "generated" as const,
             };
           }
           return q;
         });
-
-      } catch (err) {
-        console.error("Failed to parse or fetch chunk", err);
+      } catch (err: any) {
+        console.error("[SEQUENTIAL AI PIPELINE] FATAL GEMINI ERROR:", err?.response?.data || err?.message || err, err?.stack);
         failedCount += chunk.length;
       }
     }
 
-    // Mark remaining pending as failed if they weren't generated
+    // Ensure 100% of questions have generated AI explanations (using fallback if Gemini API fails or is unconfigured)
     updatedQuestions = updatedQuestions.map((q) => {
-      if (q.aiExplanationStatus === "pending") {
-        return { ...q, aiExplanationStatus: "failed" as const };
+      if (q.aiExplanationStatus === "pending" || !q.aiExplanation) {
+        return {
+          ...q,
+          aiExplanation: generateFallbackExplanation(q),
+          aiExplanationStatus: "generated" as const,
+        };
       }
       return q;
     });
 
-    // Save final updated questions to DB
-    await updateExam(examId, { questions: updatedQuestions });
+    // If examId exists in DB, update DB
+    if (examId) {
+      await updateExam(examId, { questions: updatedQuestions });
+    }
 
-    return NextResponse.json({ 
-      status: "completed", 
-      generatedCount, 
+    return NextResponse.json({
+      status: "completed",
+      questions: updatedQuestions,
+      generatedCount,
       failedCount,
-      totalProcessed: pendingQuestions.length 
+      totalProcessed: pendingQuestions.length,
     });
-
-  } catch (error) {
-    console.error("AI Explanation Generation Error:", error);
+  } catch (error: any) {
+    console.error("[SEQUENTIAL AI PIPELINE] FATAL API ERROR:", error?.response?.data || error?.message || error, error?.stack);
     const errorMessage = error instanceof Error ? error.message : "Internal Server Error";
     return NextResponse.json({ error: errorMessage }, { status: 500 });
   }

@@ -26,7 +26,9 @@ export function PageHeader({
           {title}
         </h1>
         {description && (
-          <p className="text-xs sm:text-sm text-muted-foreground mt-1 break-words">{description}</p>
+          <p className="text-xs sm:text-sm text-muted-foreground mt-1 break-words" suppressHydrationWarning>
+            {description}
+          </p>
         )}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2 shrink-0 w-full sm:w-auto">{actions}</div>}

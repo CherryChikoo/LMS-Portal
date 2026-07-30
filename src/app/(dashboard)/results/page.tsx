@@ -217,12 +217,35 @@ export default function ResultsPage() {
   // Attempts narrowed by the cascading hierarchy filters. Used to derive the
   // cascading Exam and Student dropdown options and the final filtered list.
   const filteredAttemptsByHierarchy = useMemo(() => {
-    return (attempts as ExamAttempt[]).filter((att: ExamAttempt) => {
+    console.log("🔥 [RAW RESULTS DIAGNOSTIC] Total raw attempts passed to results page:", attempts?.length);
+    console.log("🔥 [RAW RESULTS DIAGNOSTIC] actualRole:", actualRole, "| currentStudentUser:", currentStudentUser);
+    const res = (attempts as ExamAttempt[]).filter((att: ExamAttempt) => {
+      // For student role, check direct ownership via studentId, uid, or email
+      if (actualRole === "student") {
+        if (!currentStudentUser) return true; // Show attempts while profile snapshot hydrates
+
+        const studEmail = (currentStudentUser.email || "").toLowerCase().trim();
+        const myId = (currentStudentUser.id || "").toLowerCase().trim();
+        const myUid = (((currentStudentUser as any).uid || "") as string).toLowerCase().trim();
+
+        const attEmail = (((att as any).studentEmail || "") as string).toLowerCase().trim();
+        const attStudId = (att.studentId || "").toLowerCase().trim();
+
+        const match = (
+          (myId && (attStudId === myId || attEmail === myId)) ||
+          (myUid && (attStudId === myUid || attEmail === myUid)) ||
+          (studEmail && (attStudId === studEmail || attEmail === studEmail))
+        );
+        return match;
+      }
+
       const student = getStudentForAttempt(att);
       if (!student) return false;
       return filterStudentByAcademicFilters(student, academicFilters);
     });
-  }, [attempts, academicFilters, getStudentForAttempt]);
+    console.log("🔥 [RAW RESULTS DIAGNOSTIC] Filtered attempts result count:", res.length);
+    return res;
+  }, [attempts, academicFilters, getStudentForAttempt, actualRole, currentStudentUser]);
 
   // Unique exam IDs / titles derived from the hierarchy-filtered attempts.
   const examSubjectsList = useMemo(() => {
@@ -296,17 +319,20 @@ export default function ResultsPage() {
 
         if (actualRole === "student") {
           if (isAdminAttempt) return false;
-          const sId = currentStudentUser?.id;
+          const sId = (currentStudentUser?.id || "").toLowerCase().trim();
+          const sUid = (((currentStudentUser as any)?.uid || "") as string).toLowerCase().trim();
           const sEmail = (currentStudentUser?.email || "").toLowerCase().trim();
 
+          const attStudId = (att.studentId || "").toLowerCase().trim();
+          const attEmail = (((att as any).studentEmail || "") as string).toLowerCase().trim();
+
           let belongsToMe = false;
-          if (sId && (att.studentId === sId || att.studentId?.toLowerCase() === sEmail)) belongsToMe = true;
-          else if (
-            sEmail &&
-            (att.studentId?.toLowerCase() === sEmail ||
-              (att as unknown as { studentEmail?: string }).studentEmail?.toLowerCase() === sEmail)
-          )
-            belongsToMe = true;
+          if (sId && attStudId === sId) belongsToMe = true;
+          else if (sUid && attStudId === sUid) belongsToMe = true;
+          else if (sEmail && (attStudId === sEmail || attEmail === sEmail)) belongsToMe = true;
+          // Fallback: If currentStudentUser state is not set yet, retain attempts pre-filtered by data layer
+          else if (!sId && !sUid && !sEmail) belongsToMe = true;
+
           if (!belongsToMe) return false;
         } else if (userRole === "admin") {
           if (!isAdminAttempt) return false;

@@ -319,6 +319,8 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
     let currentStudId = "";
     let currentStudEmail = "";
     let currentStudName = candidateName || "";
+    let currentCollegeId = "";
+    let currentCollegeName = "";
     try {
       const savedRole = localStorage.getItem("lms_role");
       const savedUser = localStorage.getItem("lms_user") || localStorage.getItem("user");
@@ -330,6 +332,8 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
         if (u.id || u.uid) currentStudId = u.id || u.uid;
         if (u.email) currentStudEmail = u.email;
         if (u.name) currentStudName = u.name;
+        if (u.collegeId) currentCollegeId = u.collegeId;
+        if (u.collegeName) currentCollegeName = u.collegeName;
       }
     } catch {}
 
@@ -363,6 +367,9 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
       examTitle: exam.title,
       studentId: currentStudId,
       studentName: currentStudName,
+      studentEmail: currentStudEmail || undefined,
+      collegeId: currentCollegeId || undefined,
+      collegeName: currentCollegeName || undefined,
       answers: ansObj,
       score,
       totalMarks: exam.totalMarks,

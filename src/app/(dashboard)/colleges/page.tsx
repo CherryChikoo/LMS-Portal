@@ -15,6 +15,7 @@ import { useLMSDataSelector } from "@/lib/data/use-lms-data";
 import { optimisticDeleteCollege } from "@/lib/data/lms-store";
 import { markCollegeAsDeleted } from "@/lib/hierarchy/hierarchy-data";
 import { getAuth } from "firebase/auth";
+import { getDocuments, where } from "@/lib/firebase/firestore";
 import type { College, Student } from "@/types";
 import { useErrorHandler } from "@/providers/error-provider";
 
@@ -274,6 +275,27 @@ export default function CollegesPage() {
 
     setCreating(true);
     try {
+      const normalizedEmail = adminEmail.trim().toLowerCase();
+      
+      // PRE-FLIGHT CHECK
+      if (normalizedEmail) {
+        const auth = getAuth();
+        const token = await auth.currentUser?.getIdToken();
+        if (token) {
+          const emailCheckResp = await fetch("/api/admin/check-email-exists", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: normalizedEmail, adminIdToken: token }),
+          });
+          const emailCheckData = await emailCheckResp.json();
+          if (emailCheckData.exists) {
+            toast.error("This email is already registered to an existing account/college.");
+            setCreating(false);
+            return;
+          }
+        }
+      }
+
       const deptsList: string[] = [];
       selectedDepts.forEach((d) => {
         if (d === "Custom Department") {
@@ -298,12 +320,12 @@ export default function CollegesPage() {
           .replace(/[^A-Z]/g, "")
           .substring(0, 6) || "COL";
 
-      await createCollege({
+      const collegeId = await createCollege({
         name,
         code: generatedCode,
         departments: depts,
         studentCount: 0,
-        adminEmail: adminEmail.trim().toLowerCase(),
+        adminEmail: normalizedEmail,
         initialPassword: initialPassword,
         loginEnabled: loginEnabled,
         status: "active",
@@ -315,6 +337,42 @@ export default function CollegesPage() {
           logoBase64: "",
         },
       });
+
+      // Attempt to create Auth User if loginEnabled
+      if (loginEnabled && normalizedEmail) {
+        const auth = getAuth();
+        const token = await auth.currentUser?.getIdToken();
+        if (token) {
+          const authResp = await fetch("/api/admin/create-college-auth", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              adminIdToken: token,
+              email: normalizedEmail,
+              password: initialPassword,
+              collegeId: collegeId,
+              collegeName: name,
+            }),
+          });
+          
+          if (!authResp.ok) {
+            // ROLLBACK College Document
+            await deleteCollege(collegeId);
+            
+            let data: any = {};
+            try {
+              data = await authResp.json();
+            } catch {
+              data = { message: "Failed to create college auth account." };
+            }
+            toast.error(data.message || "Failed to create college auth account. College creation was rolled back.");
+            setCreating(false);
+            return;
+          }
+        }
+      }
+
+      toast.success(`College "${name}" created successfully.`);
       setShowAddModal(false);
       setName("");
       setSelectedDepts(["Computer Science & Engineering (CSE)", "General"]);
@@ -343,49 +401,53 @@ export default function CollegesPage() {
         );
       }
       
+      // Tier 1: Auth Execution Lock (Run Auth Update FIRST)
+      const auth = getAuth();
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) {
+        showError({ message: "Session expired. Please sign in again." });
+        return;
+      }
+
+      const authResp = await fetch("/api/admin/update-college-auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          adminIdToken: token,
+          collegeId: editingCollege.id,
+          collegeName: editCollegeName.trim(),
+          newEmail: editAdminEmail.trim().toLowerCase(),
+          newPassword: editInitialPassword,
+          loginEnabled: editLoginEnabled
+        }),
+      });
+
+      if (!authResp.ok) {
+        let data: any = {};
+        const textResponse = await authResp.text();
+        try {
+          data = JSON.parse(textResponse);
+        } catch {
+          data = { message: "Failed to update college auth details." };
+        }
+        showError(data);
+        // HARD STOP GUARANTEE: Immediately terminate execution.
+        // Firestore update and modal cleanup are NEVER reached if Auth failed.
+        return;
+      }
+
+      // Tier 2: Firestore Database Update (Executed ONLY if Tier 1 succeeded)
       const payload: Partial<College> = {
+        name: editCollegeName.trim(),
         adminEmail: editAdminEmail.trim().toLowerCase(),
         initialPassword: editInitialPassword,
         loginEnabled: editLoginEnabled,
       };
 
       await updateCollege(editingCollege.id, payload);
+      toast.success("College updated successfully.");
 
-      // Sync with Auth if login is enabled or email/password changed
-      try {
-        const auth = getAuth();
-        const token = await auth.currentUser?.getIdToken();
-        if (token) {
-          const authResp = await fetch("/api/admin/update-college-auth", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              adminIdToken: token,
-              collegeId: editingCollege.id,
-              collegeName: editCollegeName.trim(),
-              newEmail: editAdminEmail.trim().toLowerCase(),
-              newPassword: editInitialPassword,
-              loginEnabled: editLoginEnabled
-            }),
-          });
-          if (!authResp.ok) {
-            let data: any = {};
-            const textResponse = await authResp.text();
-            try {
-              data = JSON.parse(textResponse);
-            } catch {
-              // Failed to parse, use text as fallback
-              data = { message: "Failed to update college auth details." };
-            }
-            showError(data);
-          } else {
-            toast.success("College updated successfully.");
-          }
-        }
-      } catch (err) {
-        toast.success("College updated, but auth sync may have failed.");
-      }
-
+      // Tier 3: State Cleanup (Executed ONLY after entire transaction succeeds)
       setEditingCollege(null);
       setEditCollegeName("");
       setEditAdminEmail("");
@@ -527,15 +589,28 @@ export default function CollegesPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => {
+                          onClick={async () => {
                             setEditingCollege(col);
                             setEditCollegeName(col.name);
                             setEditAdminEmail(col.adminEmail || "");
                             setEditInitialPassword(col.initialPassword || "");
                             setEditLoginEnabled(col.loginEnabled || false);
+
+                            // Live Sync Guard: Query users collection to reflect any credential changes made directly by the college admin
+                            try {
+                              const userDocs = await getDocuments<any>("users", [
+                                where("collegeId", "==", col.id),
+                                where("role", "==", "college_admin")
+                              ]);
+                              if (userDocs.length > 0) {
+                                const activeUser = userDocs[0];
+                                if (activeUser.email) setEditAdminEmail(activeUser.email);
+                                if (activeUser.initialPassword) setEditInitialPassword(activeUser.initialPassword);
+                              }
+                            } catch {}
                           }}
                           className="h-8 w-8 p-0 text-brand hover:text-brand/90 hover:bg-brand/10 rounded-lg"
-                          title="Edit College Name"
+                          title="Edit College Details"
                         >
                           <Pencil className="w-4 h-4" />
                         </Button>

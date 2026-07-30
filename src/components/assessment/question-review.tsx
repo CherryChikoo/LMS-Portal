@@ -1,4 +1,4 @@
-import { Check, HelpCircle, X, BrainCircuit, Target, Sparkles } from "lucide-react";
+import { Check, HelpCircle, X, BrainCircuit, Target, Sparkles, AlertCircle } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -57,6 +57,17 @@ export function QuestionReview({
   const isChoiceQuestion =
     question.type === "mcq" || question.type === "true-false";
 
+  const isUnattempted =
+    studentSet.size === 0 ||
+    (Array.isArray(studentAnswer)
+      ? studentAnswer.length === 0 || studentAnswer.every((a) => !a || !a.trim())
+      : !studentAnswer || !studentAnswer.trim());
+
+  const isCorrect =
+    !isUnattempted &&
+    [...studentSet].every((ans) => correctSet.has(ans)) &&
+    studentSet.size === correctSet.size;
+
   return (
     <div className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-5 text-foreground shadow-sm sm:p-6">
       {/* Header row */}
@@ -88,12 +99,43 @@ export function QuestionReview({
         >
           {question.type.replace("-", " ")}
         </Badge>
+
+        {isUnattempted ? (
+          <Badge
+            variant="outline"
+            className="border-amber-500/40 bg-amber-500/15 text-amber-600 dark:text-amber-400 font-extrabold uppercase tracking-wide text-[10px]"
+          >
+            Unattempted
+          </Badge>
+        ) : isCorrect ? (
+          <Badge
+            variant="outline"
+            className="border-emerald-500/40 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-extrabold uppercase tracking-wide text-[10px]"
+          >
+            Correct
+          </Badge>
+        ) : (
+          <Badge
+            variant="outline"
+            className="border-rose-500/40 bg-rose-500/15 text-rose-600 dark:text-rose-400 font-extrabold uppercase tracking-wide text-[10px]"
+          >
+            Incorrect
+          </Badge>
+        )}
       </div>
 
       {/* Question text */}
       <p className="text-base font-semibold leading-relaxed text-foreground">
         {question.text}
       </p>
+
+      {/* Unattempted Callout Banner */}
+      {isUnattempted && (
+        <div className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs font-semibold text-amber-600 dark:text-amber-400">
+          <AlertCircle className="w-4 h-4 shrink-0 text-amber-500" />
+          <span>You did not attempt this question.</span>
+        </div>
+      )}
 
       {/* Options / Inputs */}
       {isChoiceQuestion ? (
@@ -211,19 +253,16 @@ export function QuestionReview({
         </div>
       )}
 
-      {/* Legacy Explanation (Fallback) */}
-      {showCorrectAnswer && !question.aiExplanation && question.explanation && (
-        <div className="flex items-start gap-3 rounded-xl border border-border bg-muted/40 p-4">
-          <HelpCircle
-            className="mt-0.5 h-4 w-4 shrink-0 text-brand"
-            aria-hidden="true"
-          />
-          <div className="flex flex-col gap-1">
-            <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Explanation
+      {/* Legacy Explanation & Graceful AI Explanation Fallback */}
+      {showCorrectAnswer && !question.aiExplanation && (
+        <div className="mt-2 rounded-xl border border-border/60 bg-muted/20 p-4 flex items-center gap-3">
+          <Sparkles className="w-5 h-5 text-brand animate-pulse shrink-0" />
+          <div className="space-y-0.5">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground block">
+              AI Explanation
             </span>
-            <p className="text-sm leading-relaxed text-foreground">
-              {question.explanation}
+            <p className="text-xs text-muted-foreground leading-relaxed font-medium">
+              {question.explanation || "AI Explanation is currently being generated..."}
             </p>
           </div>
         </div>

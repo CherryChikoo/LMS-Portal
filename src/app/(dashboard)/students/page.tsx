@@ -191,11 +191,15 @@ function StudentsContent() {
         }
         payload.initialPassword = editPassword.trim();
       }
-      await updateStudentProfile(editingStudent.id, payload);
+      const res = await updateStudentProfile(editingStudent.id, payload);
+      if (!res.success) {
+        toast.error(res.error || "Failed to update student profile.");
+        return;
+      }
+      toast.success("Student profile updated successfully.");
       await fetchStudents();
       setEditingStudent(null);
     } catch (err) {
-      console.error("Failed to update student profile:", err);
       toast.error(formatAuthError(err, "Failed to update student profile."));
     } finally {
       setSavingEdit(false);
@@ -332,11 +336,11 @@ function StudentsContent() {
       students
         .filter((s) => {
           if (s.isDeleted) return false;
-          const searchVal = debouncedSearch.toLowerCase();
+          const searchVal = (debouncedSearch || "").toLowerCase();
           const matchesSearch =
-            s.name.toLowerCase().includes(searchVal) ||
-            s.email.toLowerCase().includes(searchVal) ||
-            s.department.toLowerCase().includes(searchVal);
+            (s.name || "").toLowerCase().includes(searchVal) ||
+            (s.email || "").toLowerCase().includes(searchVal) ||
+            (s.department || "").toLowerCase().includes(searchVal);
             
           const matchesHierarchy = filterStudentByAcademicFilters(s, academicFilters);
 

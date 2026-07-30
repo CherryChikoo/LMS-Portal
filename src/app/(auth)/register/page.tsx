@@ -1,13 +1,15 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { GraduationCap, ArrowRight, Eye, EyeOff, Sparkles, CheckCircle2, AlertCircle, Building2, Mail, Lock, User, Check, X } from "lucide-react";
 import Link from "next/link";
 import { APP_NAME } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
-import { studentRegister, studentGoogleSignUp, completeStudentAcademicDetails, formatAuthError } from "@/lib/services/auth-service";
+import { studentRegister, studentGoogleSignUp, completeStudentAcademicDetails, formatAuthError, verifyEmailRegistration } from "@/lib/services/auth-service";
+import { auth } from "@/lib/firebase/config";
+import { signOut as firebaseSignOut } from "firebase/auth";
 import { useBranding } from "@/providers/branding-provider";
 
 export default function RegisterPage() {
@@ -15,6 +17,7 @@ export default function RegisterPage() {
   const router = useRouter();
   const [step, setStep] = useState<"auth" | "details">("auth");
   const [registeredUid, setRegisteredUid] = useState<string>("");
+  const isSubmittedRef = useRef(false);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -31,6 +34,70 @@ export default function RegisterPage() {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [registered, setRegistered] = useState(false);
+
+  // Safe helper to purge ghost accounts and sign out even if auth token is expired
+  const purgeGhostUser = async (u: any) => {
+    try {
+      await u.delete();
+    } catch (e: any) {
+      console.warn("[GHOST PURGE] Client delete warning (token expired):", e?.message || e);
+    } finally {
+      await firebaseSignOut(auth).catch(() => {});
+      setRegisteredUid("");
+      setStep("auth");
+    }
+  };
+
+  // TIER 3: FAIL-SAFE GHOST PURGE ON MOUNT
+  // Checks if currentUser exists on mount. If currentUser has NO Firestore document, purge it!
+  useEffect(() => {
+    const purgeGhostOnMount = async () => {
+      const u = auth.currentUser;
+      if (!u || !u.email) return;
+
+      try {
+        const verifyResult = await verifyEmailRegistration(u.email);
+        if (!verifyResult.exists) {
+          console.log("[FAIL-SAFE GHOST PURGE] Found unresolved ghost account on mount. Purging...", u.email);
+          await purgeGhostUser(u);
+        } else {
+          // If valid account exists, pre-fill for onboarding
+          if (u.displayName && u.displayName !== "Student") setFullName(u.displayName);
+          setEmail(u.email);
+          setRegisteredUid(u.uid);
+          setStep("details");
+        }
+      } catch (e) {
+        console.error("[FAIL-SAFE GHOST PURGE] Error checking ghost account", e);
+      }
+    };
+    purgeGhostOnMount();
+  }, []);
+
+  // TIER 2: SWIPE-BACK TRAP & UNMOUNT CLEANUP FOR STEP 2
+  // Traps trackpad swipe-back / browser back navigation during Step 2
+  useEffect(() => {
+    if (step !== "details") return;
+
+    const handlePopState = async () => {
+      if (!isSubmittedRef.current && auth.currentUser) {
+        console.log("[SWIPE-BACK TRAP] Purging incomplete Google Auth user on browser back swipe...");
+        await purgeGhostUser(auth.currentUser);
+      } else {
+        setRegisteredUid("");
+        setStep("auth");
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+      if (!isSubmittedRef.current && auth.currentUser) {
+        console.log("[UNMOUNT TRAP] Purging incomplete Google Auth user on unmount...");
+        purgeGhostUser(auth.currentUser).catch(() => {});
+      }
+    };
+  }, [step]);
 
   // Auto-dismiss red error warning after 4 seconds
   useEffect(() => {
@@ -75,7 +142,8 @@ export default function RegisterPage() {
     }
   };
 
-  const handleSubmitAuth = async (e: React.FormEvent) => {
+  // 1. DEFERRED AUTH CREATION: Step 1 is purely client-side state machine
+  const handleSubmitAuth = (e: React.FormEvent) => {
     e.preventDefault();
     setTouched({ email: true, password: true, confirm: true });
 
@@ -92,19 +160,27 @@ export default function RegisterPage() {
       return;
     }
 
-    setLoading(true);
     setError(null);
+    setStep("details");
+  };
+
+  // 2. CANCEL & ROLLBACK: Delete Firebase Auth user if user backs out of onboarding
+  const handleCancelRegistration = async () => {
+    setLoading(true);
     try {
-      const res = await studentRegister("Student Account", email.trim(), password, "Pending College");
-      setRegisteredUid(res.user.uid);
-      setStep("details");
-    } catch (err: unknown) {
-      setError(formatAuthError(err, "Failed to create student account."));
+      if (auth.currentUser) {
+        await purgeGhostUser(auth.currentUser);
+      }
+    } catch (e) {
+      console.error("[ROLLBACK] Error deleting incomplete user on cancel", e);
     } finally {
       setLoading(false);
+      setRegisteredUid("");
+      setStep("auth");
     }
   };
 
+  // 3. ATOMIC FINALIZATION: Auth + Firestore document creation in final step
   const handleSubmitDetails = async (e: React.FormEvent) => {
     e.preventDefault();
     setTouched({ name: true, college: true, department: true, section: true });
@@ -124,30 +200,56 @@ export default function RegisterPage() {
 
     setLoading(true);
     setError(null);
+    let currentUid = registeredUid || auth.currentUser?.uid;
+
     try {
-      const { resolvedCollegeId, resolvedCollegeName } = await completeStudentAcademicDetails(registeredUid, {
-        fullName: fullName.trim(),
-        collegeName: collegeName.trim(),
-        department: department.trim(),
-        section: section.trim(),
-      });
+      if (!currentUid) {
+        // Email/Password Signup: Execute Auth + Firestore atomically
+        const res = await studentRegister(
+          fullName.trim(),
+          email.trim(),
+          password,
+          collegeName.trim(),
+          department.trim(),
+          section.trim() || "A"
+        );
+        currentUid = res.user.uid;
+      } else {
+        // Google SSO / Pre-authenticated Flow: Complete Academic Profile
+        await completeStudentAcademicDetails(currentUid, {
+          fullName: fullName.trim(),
+          collegeName: collegeName.trim(),
+          department: department.trim(),
+          section: section.trim(),
+        });
+      }
+
       const uObj = {
-        id: registeredUid,
+        id: currentUid,
         name: fullName.trim(),
-        email: email.trim(),
+        email: email.trim() || auth.currentUser?.email || "",
         role: "student",
         department: department.trim(),
-        collegeName: resolvedCollegeName,
-        collegeId: resolvedCollegeId,
+        collegeName: collegeName.trim(),
         section: section.trim() || "A"
       };
+      isSubmittedRef.current = true;
       localStorage.setItem("lms_role", "student");
       localStorage.setItem("lms_user", JSON.stringify(uObj));
       localStorage.setItem("user", JSON.stringify(uObj));
       window.dispatchEvent(new Event("storage"));
       setRegistered(true);
     } catch (err: unknown) {
-      setError(formatAuthError(err, "Failed to save academic details."));
+      // ATOMIC ROLLBACK: If creation or Firestore write fails, delete Auth user immediately
+      if (auth.currentUser) {
+        try {
+          await auth.currentUser.delete();
+          await firebaseSignOut(auth);
+        } catch (delErr) {
+          console.error("[ATOMIC ROLLBACK] Failed to delete Auth user", delErr);
+        }
+      }
+      setError(formatAuthError(err, "Failed to complete enrollment. Please try again."));
     } finally {
       setLoading(false);
     }
@@ -534,11 +636,20 @@ export default function RegisterPage() {
                   />
                 </div>
 
-                <div className="pt-2">
+                <div className="pt-2 flex items-center gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleCancelRegistration}
+                    disabled={loading}
+                    className="h-11 rounded-xl border border-border hover:bg-muted text-xs font-semibold px-4"
+                  >
+                    Cancel & Reset
+                  </Button>
                   <Button
                     type="submit"
                     disabled={loading}
-                    className="w-full h-11 rounded-xl bg-brand text-brand-foreground font-semibold hover:bg-brand/90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-brand/20"
+                    className="flex-1 h-11 rounded-xl bg-brand text-brand-foreground font-semibold hover:bg-brand/90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-brand/20"
                   >
                     {loading ? (
                       <span className="flex items-center gap-2">

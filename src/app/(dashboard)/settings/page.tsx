@@ -26,7 +26,8 @@ import {
   Bell,
   BookOpen,
   Clock,
-  Camera
+  Camera,
+  Shield
 } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { GlassCard } from "@/components/shared/glass-card";
@@ -46,7 +47,7 @@ import {
   reauthenticateWithCredential,
   getIdToken,
 } from "firebase/auth";
-import { setDoc, doc, getDoc, onSnapshot, getDocuments, where, deleteDocument } from "@/lib/firebase/firestore";
+import { setDoc, doc, getDoc, onSnapshot, getDocuments, where, deleteDocument, serverTimestamp } from "@/lib/firebase/firestore";
 import { deleteField } from "firebase/firestore";
 import { subscribeToCompanyBranding, updateCompanyBranding, type CompanyBranding } from "@/lib/services/branding-service";
 import { getCollegeById, updateCollege } from "@/lib/services/college-service";
@@ -270,22 +271,9 @@ function StudentAccountSettings() {
             throw new Error(result.error || "Failed to update login email.");
           }
 
-          // Update Firestore records and replace old records.
+          // Update Firestore records safely with merge.
           await setDoc(doc(db, "students", primaryId), { email: cleanEmail }, { merge: true });
           await setDoc(doc(db, "users", primaryId), { email: cleanEmail }, { merge: true });
-
-          const oldStudents = await getDocuments("students", [where("email", "==", oldEmail)]);
-          for (const sDoc of oldStudents) {
-            if (sDoc.id !== primaryId) {
-              await deleteDocument("students", sDoc.id);
-            }
-          }
-          const oldUsers = await getDocuments("users", [where("email", "==", oldEmail)]);
-          for (const uDoc of oldUsers) {
-            if (uDoc.id !== primaryId) {
-              await deleteDocument("users", uDoc.id);
-            }
-          }
 
           const updated = { ...u, name, email: cleanEmail, department, rollNumber, college, phone };
           localStorage.setItem("lms_user", JSON.stringify(updated));
@@ -610,6 +598,12 @@ export default function SettingsPage() {
   const [pwdSaved, setPwdSaved] = useState(false);
   const [pwdError, setPwdError] = useState("");
 
+  const isMasterAccount = (
+    email?.toLowerCase() === "trainer@gmail.com" ||
+    loginEmail?.toLowerCase() === "trainer@gmail.com" ||
+    auth.currentUser?.email?.toLowerCase() === "trainer@gmail.com"
+  );
+
   // Branding fields
   const [branding, setBranding] = useState<CompanyBranding>({ companyName: "LMS Portal", companySubtitle: "Enterprise v2.4" });
   const [brandName, setBrandName] = useState("");
@@ -665,18 +659,23 @@ export default function SettingsPage() {
         const u = uStr ? JSON.parse(uStr) : null;
         const cId = u?.collegeId;
         if (cId) {
-          await updateCollege(cId, {
-            branding: {
-              companyName: brandName.trim(),
-              companySubtitle: brandSubtitle.trim(),
-              logoBase64: brandLogo,
-            }
-          });
+          const cBrand = {
+            companyName: brandName.trim(),
+            companySubtitle: brandSubtitle.trim() || "College Portal",
+            logoBase64: brandLogo,
+            updatedAt: serverTimestamp(),
+          };
+          const colRef = doc(db, "colleges", cId);
+          await setDoc(colRef, {
+            branding: cBrand,
+          }, { merge: true });
+          localStorage.setItem("lms_college_branding", JSON.stringify({ collegeId: cId, branding: cBrand }));
+          window.dispatchEvent(new Event("storage"));
         }
       } else {
         await updateCompanyBranding({
-          companyName: brandName.trim() || "LMS Portal",
-          companySubtitle: brandSubtitle.trim() || "Enterprise v2.4",
+          companyName: brandName.trim(),
+          companySubtitle: brandSubtitle.trim(),
           logoBase64: brandLogo,
         });
       }
@@ -863,12 +862,19 @@ export default function SettingsPage() {
 
         // Clear initialPassword and mustChangePassword flags from Firestore so
         // only the Firebase Auth password remains the valid credential.
-        const pwdCleanup = {
+        const pwdCleanup: Record<string, any> = {
           initialPassword: deleteField(),
           mustChangePassword: deleteField(),
           updatedAt: new Date()
         };
         await setDoc(doc(db, "users", auth.currentUser.uid), pwdCleanup, { merge: true });
+
+        // If college admin, also update colleges document with new password for admin overview sync
+        const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+        const u = uStr ? JSON.parse(uStr) : null;
+        if (u?.collegeId) {
+          await setDoc(doc(db, "colleges", u.collegeId), { initialPassword: newPassword, updatedAt: new Date() }, { merge: true });
+        }
       }
 
       // Update login email if changed (server-side via Admin SDK)
@@ -885,22 +891,7 @@ export default function SettingsPage() {
         }
         setEmail(newEmail);
 
-        // -- Cleanup: delete duplicate old records referencing the previous email --
-        // Query both users and students collections for docs where email == oldEmail
-        // and uid != currentUser.uid. Delete any matches.
-        const oldEmail = targetEmail;
-        const oldUsersDocs = await getDocuments("users", [where("email", "==", oldEmail)]);
-        for (const uDoc of oldUsersDocs) {
-          if (uDoc.id !== auth.currentUser!.uid) {
-            await deleteDocument("users", uDoc.id);
-          }
-        }
-        const oldStudentsDocs = await getDocuments("students", [where("email", "==", oldEmail)]);
-        for (const sDoc of oldStudentsDocs) {
-          if (sDoc.id !== auth.currentUser!.uid) {
-            await deleteDocument("students", sDoc.id);
-          }
-        }
+
       }
 
       // Sync updated details to Firestore and localStorage
@@ -1193,7 +1184,7 @@ export default function SettingsPage() {
                         type={showCurrentPwd ? "text" : "password"}
                         value={currentPassword}
                         onChange={(e) => setCurrentPassword(e.target.value)}
-                        placeholder="Enter current password (or default admin123456)"
+                        placeholder="Enter current password"
                         className="glass-input h-11 rounded-xl pr-10 font-mono"
                       />
                       <button
@@ -1262,7 +1253,9 @@ export default function SettingsPage() {
                     <span>Security credentials updated successfully!</span>
                   </div>
                 ) : (
-                  <span className="text-xs text-muted-foreground">Authorized for next portal login</span>
+                  <p className="text-xs text-muted-foreground">
+                    Authorized for next portal login
+                  </p>
                 )}
                 <Button
                   onClick={handleChangeSecurity}
@@ -1270,7 +1263,7 @@ export default function SettingsPage() {
                   className="h-11 w-full sm:w-auto px-6 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold flex items-center gap-2"
                 >
                   <Lock className="w-4 h-4" />
-                  <span>{savingPwd ? "Updating Security..." : "Update Security Credentials"}</span>
+                  Update Security Credentials
                 </Button>
               </div>
             </GlassCard>

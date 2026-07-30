@@ -146,12 +146,19 @@ export function subscribeToDocuments<T extends DocumentData>(
   includeDeleted: boolean = false
 ): () => void {
   const q = query(collection(db, collectionName), ...constraints);
-  return onSnapshot(q, (snapshot) => {
-    const data = snapshot.docs
-      .map((d) => ({ id: d.id, ...d.data() } as unknown as T))
-      .filter((d: any) => includeDeleted || (!d.isDeleted && !d.deletedAt && d.status !== "deleted"));
-    callback(data);
-  });
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const data = snapshot.docs
+        .map((d) => ({ id: d.id, ...d.data() } as unknown as T))
+        .filter((d: any) => includeDeleted || (!d.isDeleted && !d.deletedAt && d.status !== "deleted"));
+      callback(data);
+    },
+    (error) => {
+      console.warn(`[Firestore Listener ${collectionName}] Graceful fallback:`, error?.message);
+      callback([]);
+    }
+  );
 }
 
 export { where, orderBy, limit, collection, doc, query, setDoc, writeBatch, onSnapshot, getDoc, serverTimestamp };

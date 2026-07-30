@@ -14,6 +14,7 @@ export interface ParsedError {
   action: string;
   category: "authentication" | "permission" | "validation" | "network" | "server" | "unknown";
   isRetryable: boolean;
+  errorCode: string;
 }
 
 /**
@@ -66,33 +67,48 @@ export function parseLmsError(error: unknown): ParsedError {
   const message = extractErrorMessage(error);
   const strError = message.toLowerCase();
 
+  // ACCESS DENIED ERRORS
+  if (strError.includes("access denied") || strError.includes("not registered in the lms")) {
+    return {
+      title: "Access Denied",
+      message: message.replace(/^Error:\s*/i, "").trim(),
+      cause: "",
+      action: "",
+      category: "authentication",
+      isRetryable: false,
+      errorCode: "",
+    };
+  }
+
   // AUTHENTICATION ERRORS
-  if (code.startsWith("auth/") || strError.includes("credential") || strError.includes("sign-in")) {
+  if (code.startsWith("auth/") || strError.includes("credential") || strError.includes("sign-in") || strError.includes("user record") || strError.includes("user-not-found")) {
+    const activeCode = (strError.includes("user record") || strError.includes("user-not-found")) ? "auth/user-not-found" : code;
     const authMessages: Record<string, string> = {
-      "auth/invalid-email": "The email address is not valid.",
-      "auth/user-disabled": "This account has been disabled by an administrator.",
-      "auth/user-not-found": "No account found with this email.",
-      "auth/wrong-password": "The password is incorrect.",
+      "auth/invalid-email": "Email format is invalid.",
+      "auth/user-disabled": "Your account has been disabled.",
+      "auth/user-not-found": "No account exists with this email address or identifier.",
+      "auth/wrong-password": "Incorrect password.",
       "auth/email-already-in-use": "An account with this email already exists.",
       "auth/email-already-exists": "An account with this email already exists.",
-      "auth/weak-password": "Password must be at least 6 characters.",
+      "auth/weak-password": "Password does not meet requirements.",
       "auth/invalid-credential": "Invalid login credentials.",
-      "auth/too-many-requests": "Too many failed attempts. Please wait before trying again.",
+      "auth/too-many-requests": "Too many login attempts. Please try again later.",
       "auth/network-request-failed": "Network error. Check your internet connection.",
       "auth/popup-closed-by-user": "The sign-in popup was closed before completing.",
       "auth/popup-blocked": "Sign-in popup was blocked by the browser.",
-      "auth/requires-recent-login": "Please log in again to perform this action.",
+      "auth/requires-recent-login": "Your session has expired. Please log in again.",
       "auth/account-exists-with-different-credential": "An account already exists with the same email but different sign-in method.",
       "auth/internal-error": "An internal authentication error occurred.",
     };
 
     return {
-      title: "Authentication Error",
-      message: authMessages[code] || message,
-      cause: "Your login credentials could not be verified, or the account state prevents this action.",
-      action: "Double-check your email and password, then try again.",
+      title: "Authentication Notice",
+      message: authMessages[activeCode] || message,
+      cause: "Your credentials could not be found or verified in the system.",
+      action: "Double-check your email and password, or contact your administrator to ensure your account is set up.",
       category: "authentication",
-      isRetryable: code !== "auth/user-disabled" && code !== "auth/email-already-in-use" && code !== "auth/email-already-exists",
+      isRetryable: activeCode !== "auth/user-disabled" && activeCode !== "auth/email-already-in-use" && activeCode !== "auth/email-already-exists",
+      errorCode: activeCode,
     };
   }
 
@@ -100,23 +116,30 @@ export function parseLmsError(error: unknown): ParsedError {
   if (code === "unavailable" || code === "deadline-exceeded" || code === "network-error" || strError.includes("network") || strError.includes("offline") || strError.includes("timed out") || strError.includes("timeout")) {
     return {
       title: "Connection Error",
-      message: "Unable to reach the server. Please check your internet connection.",
-      cause: "Your device may be offline, or the server is temporarily unreachable.",
+      message: "Unable to reach the server.",
+      cause: "Internet connection lost, or Firebase service is unavailable.",
       action: "Check your Wi-Fi or mobile data, then try again.",
       category: "network",
       isRetryable: true,
+      errorCode: code,
     };
   }
 
   // PERMISSION ERRORS
   if (code === "permission-denied" || code === "unauthenticated" || strError.includes("permission") || strError.includes("unauthorized") || strError.includes("insufficient")) {
+    let explicitMessage = "You do not have permission to perform this action.";
+    if (strError.includes("create student")) explicitMessage = "You don't have permission to create students in this college.";
+    if (strError.includes("edit exam")) explicitMessage = "You don't have permission to edit this exam.";
+    if (strError.includes("belongs to another")) explicitMessage = "This resource belongs to another college.";
+    
     return {
       title: "Permission Denied",
-      message: "You do not have permission to perform this action.",
+      message: explicitMessage,
       cause: "Your role does not grant you access to this specific record or operation.",
       action: "Contact the system administrator if you believe this is incorrect.",
       category: "permission",
       isRetryable: false,
+      errorCode: code,
     };
   }
 
@@ -125,10 +148,37 @@ export function parseLmsError(error: unknown): ParsedError {
     return {
       title: "Validation Error",
       message: message,
-      cause: "One or more fields contain invalid or missing data.",
+      cause: "Required information is missing or incorrectly formatted.",
       action: "Review the form fields and correct any highlighted errors.",
       category: "validation",
       isRetryable: false,
+      errorCode: code,
+    };
+  }
+
+  // ALREADY EXISTS
+  if (code === "already-exists" || strError.includes("already exists")) {
+    return {
+      title: "Record Exists",
+      message: "This record already exists.",
+      cause: "A record with the exact same details is already present.",
+      action: "Try using different information or edit the existing record.",
+      category: "validation",
+      isRetryable: false,
+      errorCode: code,
+    };
+  }
+
+  // FAILED PRECONDITION
+  if (code === "failed-precondition") {
+    return {
+      title: "Operation Failed",
+      message: "The requested operation could not be completed in the current state.",
+      cause: "The state of the data prevents this action (e.g. attempting to operate on an incomplete record).",
+      action: "Refresh the page or verify the data before trying again.",
+      category: "server",
+      isRetryable: true,
+      errorCode: code,
     };
   }
 
@@ -136,11 +186,12 @@ export function parseLmsError(error: unknown): ParsedError {
   if (code === "not-found" || strError.includes("not found")) {
     return {
       title: "Record Not Found",
-      message: "The requested record could not be found.",
+      message: "The requested resource could not be found.",
       cause: "The item may have been deleted, or the ID is incorrect.",
       action: "Refresh the page to sync the latest data.",
       category: "server",
       isRetryable: false,
+      errorCode: code,
     };
   }
 
@@ -148,13 +199,32 @@ export function parseLmsError(error: unknown): ParsedError {
   if (typeof error === "object" && error !== null && ("success" in (error as any) || "error" in (error as any) || "message" in (error as any))) {
     const errObj = error as any;
     if (!code?.startsWith("auth/")) {
+      const serverMsg = errObj.message || errObj.error || message;
+      let finalMessage = serverMsg;
+      let finalTitle = "Notice";
+      let finalCause = errObj.errorCode ? `Server rejected request: ${errObj.errorCode}` : "The server rejected the operation due to invalid data or references.";
+      
+      if (serverMsg.toLowerCase().includes("email") && (serverMsg.toLowerCase().includes("already in use") || serverMsg.toLowerCase().includes("already associated") || serverMsg.toLowerCase().includes("already registered") || serverMsg.toLowerCase().includes("already exists"))) {
+        finalTitle = "Update Failed";
+        finalMessage = "Update failed: This email address is already in use by another account.";
+        finalCause = "An account with this email address already exists in the system.";
+      } else if (serverMsg.toLowerCase().includes("related records") || serverMsg.toLowerCase().includes("cannot delete")) {
+        finalMessage = "Unable to delete because related records still exist.";
+        finalCause = "The entity you are trying to delete is referenced by other active records.";
+      } else if (serverMsg.toLowerCase().includes("rolled back")) {
+        finalTitle = "Operation Rolled Back";
+        finalMessage = "Operation rolled back successfully.";
+        finalCause = "The operation encountered an error midway and was safely reversed.";
+      }
+      
       return {
-        title: "Operation Failed",
-        message: errObj.message || errObj.error || message,
-        cause: errObj.errorCode ? `Server rejected request: ${errObj.errorCode}` : "The server rejected the operation due to invalid data.",
+        title: finalTitle,
+        message: finalMessage,
+        cause: finalCause,
         action: "Please review the information and try again.",
         category: "server",
         isRetryable: true,
+        errorCode: errObj.errorCode || code,
       };
     }
   }
@@ -168,6 +238,7 @@ export function parseLmsError(error: unknown): ParsedError {
       action: "Contact your administrator for assistance.",
       category: "permission",
       isRetryable: false,
+      errorCode: code,
     };
   }
 
@@ -179,6 +250,7 @@ export function parseLmsError(error: unknown): ParsedError {
     action: "Please try again. If the problem persists, contact support.",
     category: "unknown",
     isRetryable: true,
+    errorCode: code,
   };
 }
 

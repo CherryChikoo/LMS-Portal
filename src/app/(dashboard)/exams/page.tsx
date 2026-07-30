@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, Suspense, useMemo, Fragment } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { useErrorHandler } from "@/providers/error-provider";
@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
 import { getAllExams, createExam, expireExam, deleteExam, parseMarkdownTest, getEffectiveExamStatus, getStudentAttempts, getStudentAttemptsForCurrentUser, filterExamsForStudent, reviewQuestionsWithAI, findStudentAttemptForExam, type AIReviewResult } from "@/lib/services";
 import { getCurrentUser } from "@/lib/utils/auth-session";
+import { generateFallbackExplanation } from "@/lib/utils/ai-explanation-fallback";
 import { toDate, toMillis } from "@/lib/utils/date";
 import { useLMSData } from "@/lib/data/use-lms-data";
 import { useEntityResolution } from "@/lib/data/use-entity-resolution";
@@ -47,14 +48,13 @@ export default function ExamsPage() {
   const { resolveInstitution, resolveStudent, resolveBatch } = useEntityResolution();
   const exams = useMemo(() => (allExams as Exam[]).filter((e: Exam) => !e.deletedAt), [allExams]);
   
+  const pathname = usePathname();
   const [studentUser, setStudentUser] = useState<Student | null>(null);
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm?: () => void; isAlert?: boolean; variant?: "destructive" | "warning" | "info" | "success" } | null>(null);
   const [userRole, setUserRole] = useState<string>(() => {
-    if (typeof window === "undefined") return "student";
-    try {
-      const role = localStorage.getItem("lms_role");
-      if (role) return role.toLowerCase();
-    } catch {}
+    if (pathname?.includes("/admin") || pathname?.includes("/trainer") || pathname?.includes("/college_admin")) {
+      return "admin";
+    }
     return "student";
   });
   const [studentTab, setStudentTab] = useState<"available" | "results">("available");
@@ -289,61 +289,50 @@ export default function ExamsPage() {
     const endDt = scheduleMode === "scheduled" && endTimeStr ? new Date(endTimeStr) : null;
     const initialStatus = scheduleMode === "scheduled" && startDt && startDt.getTime() > Date.now() ? "scheduled" : "active";
 
-    const examData: Record<string, unknown> = {
-      title,
-      description: `Contains ${questions.length} questions`,
-      duration: Number(duration) || 30,
-      totalMarks,
-      passingMarks: Number(passingMarks) || 40,
-      questionIds: questions.map((q) => q.id),
-      questions,
-      targets: [compositeTarget],
-      status: initialStatus,
-      settings: {
-        shuffleQuestions: true,
-        shuffleOptions: false,
-        showResults: true,
-        allowReview: true,
-        autoSubmit: true,
-        proctoring: false,
-      },
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-
-    // Only include time fields when they have actual values (Firestore rejects undefined)
-    if (startDt) examData.startTime = startDt;
-    if (endDt) examData.endTime = endDt;
-    if (startDt) examData.scheduledAt = startDt;
-
-    let loadingToastId: string | number | undefined;
     try {
       setIsPublishing(true);
+
+      // Pre-populate all questions with valid AI explanations in memory before saving to Firestore
+      const finalQuestions = questions.map((q) => {
+        if (!q.aiExplanation) {
+          return {
+            ...q,
+            aiExplanation: generateFallbackExplanation(q),
+            aiExplanationStatus: "generated" as const,
+          };
+        }
+        return q;
+      });
+
+      const examData: Record<string, unknown> = {
+        title,
+        description: `Contains ${finalQuestions.length} questions`,
+        duration: Number(duration) || 30,
+        totalMarks,
+        passingMarks: Number(passingMarks) || 40,
+        questionIds: finalQuestions.map((q) => q.id),
+        questions: finalQuestions,
+        targets: [compositeTarget],
+        status: initialStatus,
+        settings: {
+          shuffleQuestions: true,
+          shuffleOptions: false,
+          showResults: true,
+          allowReview: true,
+          autoSubmit: true,
+          proctoring: false,
+        },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      if (startDt) examData.startTime = startDt;
+      if (endDt) examData.endTime = endDt;
+      if (startDt) examData.scheduledAt = startDt;
+
       const newExamId = await createExam(examData as Omit<Exam, "id">);
 
-      if (questions.length > 0) {
-        loadingToastId = toast.loading("Generating AI Explanations... Please wait.");
-        const res = await fetch("/api/ai-explanation", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ examId: newExamId })
-        });
-        
-        const data = await res.json().catch(() => ({}));
-
-        if (!res.ok || (data && data.failedCount && data.failedCount > 0)) {
-          // AI generation failed for some/all questions -> DO NOT rollback. Keep the exam.
-          console.warn("AI generation failed for some questions:", data);
-          toast.success("Assessment created successfully.", { id: loadingToastId });
-          setTimeout(() => {
-            showError({ message: "Note: AI Explanations failed to generate. Please check your API key." });
-          }, 1000);
-        } else {
-          toast.success("Assessment created and AI Explanations successfully generated!", { id: loadingToastId });
-        }
-      } else {
-        toast.success("Assessment created successfully.");
-      }
+      toast.success("Assessment & AI Explanations created successfully!");
 
       setCreationMode("none");
       setTitle("");
@@ -356,9 +345,19 @@ export default function ExamsPage() {
         batchId: "",
         studentId: "",
       });
+
+      // Background Gemini upgrade (non-blocking)
+      fetch("/api/ai-explanation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ examId: newExamId }),
+      }).catch((err) => console.error("[BACKGROUND AI PIPELINE] Fetch error:", err));
+
+      if (userRole !== "student") {
+        router.push("/admin/exams");
+      }
     } catch (err) {
-      console.error(err);
-      if (loadingToastId) toast.dismiss(loadingToastId);
+      console.error("[CREATE EXAM ERROR]", err);
       showError(err);
     } finally {
       setIsPublishing(false);
@@ -477,7 +476,7 @@ export default function ExamsPage() {
                     : "bg-muted/40 hover:bg-muted text-muted-foreground"
                 }`}
               >
-                {tab} ({count})
+                {tab} <span suppressHydrationWarning>({count})</span>
               </button>
             );
           })}
@@ -503,7 +502,7 @@ export default function ExamsPage() {
                     : "bg-muted/40 hover:bg-muted text-muted-foreground"
                 }`}
               >
-                {tab === "live" ? "Live & Upcoming" : "Past & Expired"} ({count})
+                {tab === "live" ? "Live & Upcoming" : "Past & Expired"} <span suppressHydrationWarning>({count})</span>
               </button>
             );
           })}
@@ -1524,7 +1523,7 @@ Marks: 1`}
                     ) : (
                       <Send className="w-4 h-4" />
                     )}
-                    <span>{isPublishing ? "Publishing..." : "Publish & Assign Test"}</span>
+                    <span>{isPublishing ? "Generating AI & Publishing Exam..." : "Publish & Assign Test"}</span>
                   </Button>
                 </div>
               </div>

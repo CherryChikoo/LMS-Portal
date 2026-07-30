@@ -18,8 +18,8 @@ export async function getCompanyBranding(): Promise<CompanyBranding> {
     if (snap.exists()) {
       const data = snap.data() as CompanyBranding;
       return {
-        companyName: data.companyName || "LMS Portal",
-        companySubtitle: data.companySubtitle || "Enterprise v2.4",
+        companyName: data.companyName || "",
+        companySubtitle: data.companySubtitle || "",
         logoBase64: data.logoBase64 || "",
       };
     }
@@ -27,8 +27,8 @@ export async function getCompanyBranding(): Promise<CompanyBranding> {
     console.error("Error fetching company branding:", err);
   }
   return {
-    companyName: "LMS Portal",
-    companySubtitle: "Enterprise v2.4",
+    companyName: "",
+    companySubtitle: "",
     logoBase64: "",
   };
 }
@@ -44,22 +44,22 @@ export function subscribeToCompanyBranding(callback: (branding: CompanyBranding)
     if (snap.exists()) {
       const data = snap.data() as CompanyBranding;
       callback({
-        companyName: data.companyName || "LMS Portal",
-        companySubtitle: data.companySubtitle || "Enterprise v2.4",
+        companyName: data.companyName || "",
+        companySubtitle: data.companySubtitle || "",
         logoBase64: data.logoBase64 || "",
       });
     } else {
       callback({
-        companyName: "LMS Portal",
-        companySubtitle: "Enterprise v2.4",
+        companyName: "",
+        companySubtitle: "",
         logoBase64: "",
       });
     }
   }, (err) => {
     console.error("Error subscribing to company branding:", err);
     callback({
-      companyName: "LMS Portal",
-      companySubtitle: "Enterprise v2.4",
+      companyName: "",
+      companySubtitle: "",
       logoBase64: "",
     });
   });

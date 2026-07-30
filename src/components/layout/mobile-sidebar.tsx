@@ -20,10 +20,12 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useBranding } from "@/providers/branding-provider";
 import { logoutUser } from "@/lib/services/auth-service";
+import { useMounted } from "@/hooks/use-mounted";
 
 export function MobileSidebar() {
   const pathname = usePathname();
   const { isMobileOpen, closeMobile } = useSidebar();
+  const mounted = useMounted();
   const [userRole, setUserRole] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     try {
@@ -37,7 +39,7 @@ export function MobileSidebar() {
     } catch {}
     return "student";
   });
-  const { branding } = useBranding();
+  const { branding, loading } = useBranding();
 
   useEffect(() => {
     try {
@@ -124,7 +126,9 @@ export function MobileSidebar() {
         {/* Header */}
         <div className="flex items-center justify-between h-20 px-5 shrink-0 border-b border-border/40">
           <Link href="/" className="flex items-center gap-3 overflow-hidden" onClick={closeMobile}>
-            {branding.logoBase64 ? (
+            {!mounted || loading ? (
+              <div className="w-9 h-9 rounded-xl bg-brand/10 animate-pulse border border-brand/20 shrink-0" />
+            ) : branding.logoBase64 ? (
               <img
                 src={branding.logoBase64}
                 alt="Logo"
@@ -132,16 +136,25 @@ export function MobileSidebar() {
               />
             ) : (
               <div className="w-9 h-9 rounded-xl bg-brand/10 text-brand flex items-center justify-center font-black text-base shrink-0 border border-brand/20">
-                {(branding.companyName || APP_NAME).charAt(0).toUpperCase()}
+                {(branding.companyName || "C").charAt(0).toUpperCase()}
               </div>
             )}
             <div className="flex flex-col min-w-0">
-              <span className="font-bold text-base text-brand tracking-tight truncate">
-                {branding.companyName || APP_NAME}
-              </span>
-              <span className="text-[10px] font-bold text-brand/60 uppercase tracking-widest truncate">
-                {branding.companySubtitle || (userRole === "student" ? "Student Portal" : "Enterprise")}
-              </span>
+              {!mounted || loading ? (
+                <div className="space-y-1 py-1">
+                  <div className="h-4 w-28 bg-brand/10 animate-pulse rounded-md" />
+                  <div className="h-2.5 w-16 bg-brand/10 animate-pulse rounded-md" />
+                </div>
+              ) : (
+                <>
+                  <span className="font-bold text-base text-brand tracking-tight truncate">
+                    {branding.companyName || (userRole === "admin" || userRole === "trainer" ? "Enterprise LMS" : "College Admin Portal")}
+                  </span>
+                  <span className="text-[10px] font-bold text-brand/60 uppercase tracking-widest truncate">
+                    {branding.companySubtitle || (userRole === "admin" || userRole === "trainer" ? "Master Admin" : userRole === "student" ? "Student Portal" : "College Admin Portal")}
+                  </span>
+                </>
+              )}
             </div>
           </Link>
           <button

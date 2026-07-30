@@ -16,7 +16,7 @@ import {
   getStudentsByCollege,
   getBatchesByCollege,
 } from "@/lib/services";
-import { getStudentAttempts, subscribeToStudentAttempts } from "@/lib/services";
+import { getStudentAttempts, subscribeToStudentAttempts, subscribeToStudentAttemptsForUser, subscribeToStudentPeerDirectory, subscribeToLeaderboardAttempts } from "@/lib/services";
 import {
   buildHierarchy,
   getExternalInstitutions,
@@ -61,7 +61,7 @@ export interface LMSDataCacheState {
   _exportedState: any;
 }
 
-const CACHE_STORAGE_KEY = "lms_data_cache_v3";
+const CACHE_STORAGE_KEY = "lms_data_cache_v4";
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 function persistCacheToStorage() {
@@ -168,50 +168,8 @@ function recomputeScopedData() {
       const parsed = JSON.parse(uStr);
       const r = (role || parsed.role || "").toLowerCase();
 
-      if (r === "college_admin" && parsed.collegeId) {
+      if ((r === "college_admin" || r === "student") && parsed.collegeId) {
         fColleges = fColleges.filter((c) => c.id === parsed.collegeId);
-        fStudents = fStudents.filter((s) => s.collegeId === parsed.collegeId);
-
-        const validStudentIds = new Set(fStudents.map((s) => s.id));
-        const validStudentBatchIds = new Set(fStudents.flatMap((s) => s.batchIds || []));
-
-        fBatches = fBatches.filter((b) => b.collegeId === parsed.collegeId || validStudentBatchIds.has(b.id));
-
-        fExams = fExams.filter((e) => {
-          if (!e.targets) return false;
-          return e.targets.some((t) => {
-            if (t.type === "composite") {
-              return t.collegeId === parsed.collegeId || (t.batchId && validStudentBatchIds.has(t.batchId));
-            }
-            if (t.type === "college") return t.ids.includes(parsed.collegeId);
-            if (t.type === "batch") return t.ids.some((b) => validStudentBatchIds.has(b));
-            if (t.type === "students") return t.ids.some((s) => validStudentIds.has(s));
-            return false;
-          });
-        });
-
-        fResources = fResources.filter((res) => {
-          if (!res.targets) return false;
-          return res.targets.some((t) => {
-            if (t.type === "composite") {
-              return t.collegeId === parsed.collegeId || (t.batchId && validStudentBatchIds.has(t.batchId));
-            }
-            if (t.type === "college") return t.ids?.includes(parsed.collegeId);
-            if (t.type === "batch") return t.ids?.some((b: string) => validStudentBatchIds.has(b));
-            if (t.type === "students") return t.ids?.some((s: string) => validStudentIds.has(s));
-            return false;
-          });
-        });
-
-        fAttempts = fAttempts.filter((a) => validStudentIds.has(a.studentId));
-      } else if (r === "student" && parsed.id) {
-        if (parsed.collegeId) {
-          fColleges = fColleges.filter((c) => c.id === parsed.collegeId);
-          fStudents = fStudents.filter((s) => s.collegeId === parsed.collegeId);
-          const validStudentBatchIds = new Set(fStudents.flatMap((s) => s.batchIds || []));
-          fBatches = fBatches.filter((b) => b.collegeId === parsed.collegeId || validStudentBatchIds.has(b.id));
-        }
-        fAttempts = fAttempts.filter((a) => a.studentId === parsed.id || a.studentId === parsed.email);
       }
     }
   } catch (_) {}
@@ -365,23 +323,15 @@ function startSubscriptions() {
           notifyListeners();
         });
 
-        const unsubStudents = isCollegeAdmin
-          ? subscribeToStudentsByCollege(parsed.collegeId, (data) => {
-              cache.students = { data, updatedAt: Date.now() };
-              recomputeScopedData();
-              notifyListeners();
-            })
-          : isStudent
-          ? subscribeToStudentById(parsed.id, (data) => {
-              cache.students = { data, updatedAt: Date.now() };
-              recomputeScopedData();
-              notifyListeners();
-            })
-          : subscribeToAllStudents((data) => {
-              cache.students = { data, updatedAt: Date.now() };
-              recomputeScopedData();
-              notifyListeners();
-            });
+        const handleStudentsPayload = (data: Student[]) => {
+          cache.students = { data, updatedAt: Date.now() };
+          recomputeScopedData();
+          notifyListeners();
+        };
+
+        const unsubStudents = isStudent
+          ? subscribeToStudentPeerDirectory(parsed?.collegeId, handleStudentsPayload)
+          : subscribeToAllStudents(handleStudentsPayload);
 
         const unsubExams = subscribeToAllExams((data) => {
           cache.exams = { data, updatedAt: Date.now() };
@@ -395,17 +345,39 @@ function startSubscriptions() {
           notifyListeners();
         });
 
-        const unsubAttempts = isStudent
-          ? subscribeToStudentAttempts(parsed.id, (data) => {
-              cache.attempts = { data, updatedAt: Date.now() };
-              recomputeScopedData();
-              notifyListeners();
-            })
-          : subscribeToAllAttempts((data) => {
-              cache.attempts = { data, updatedAt: Date.now() };
-              recomputeScopedData();
-              notifyListeners();
-            });
+        let unsubAttempts: () => void;
+
+        if (isStudent) {
+          const attemptsCombinedMap = new Map<string, ExamAttempt>();
+
+          const updateAttemptsState = () => {
+            const data = Array.from(attemptsCombinedMap.values());
+            cache.attempts = { data, updatedAt: Date.now() };
+            recomputeScopedData();
+            notifyListeners();
+          };
+
+          const unsubPrivate = subscribeToStudentAttemptsForUser(user.uid, parsed?.id, user.email || parsed?.email, (data) => {
+            data.forEach((a) => attemptsCombinedMap.set(a.id, a));
+            updateAttemptsState();
+          });
+
+          const unsubLeaderboard = subscribeToLeaderboardAttempts(parsed?.collegeId, (data) => {
+            data.forEach((a) => attemptsCombinedMap.set(a.id, a));
+            updateAttemptsState();
+          });
+
+          unsubAttempts = () => {
+            unsubPrivate();
+            unsubLeaderboard();
+          };
+        } else {
+          unsubAttempts = subscribeToAllAttempts((data) => {
+            cache.attempts = { data, updatedAt: Date.now() };
+            recomputeScopedData();
+            notifyListeners();
+          });
+        }
 
         cache.unsubscribers.push(
           unsubColleges, unsubBatches, unsubStudents, unsubExams, unsubResources, unsubAttempts

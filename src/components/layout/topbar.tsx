@@ -50,16 +50,22 @@ export function Topbar() {
         setInitials(init);
         if (u.role === "student" || savedRole === "student") {
           setUserRole("Student");
+        } else if (u.role === "college_admin" || savedRole === "college_admin" || (u.collegeId && u.collegeId !== "global")) {
+          setUserRole("College Admin");
         } else if (u.role === "admin" || savedRole === "admin") {
-          setUserRole("Administrator");
+          setUserRole("Super Admin");
         } else {
           setUserRole("Trainer");
         }
       } catch (e) {}
+    } else if (savedRole === "college_admin") {
+      setUserName("College Admin");
+      setUserRole("College Admin");
+      setInitials("CA");
     } else if (savedRole === "admin") {
       setUserName("System Admin");
-      setUserRole("Administrator");
-      setInitials("AD");
+      setUserRole("Super Admin");
+      setInitials("SA");
     } else if (savedRole === "student") {
       setUserName("Student");
       setUserRole("Student");

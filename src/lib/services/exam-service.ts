@@ -27,6 +27,59 @@ export function subscribeToStudentAttempts(studentId: string, callback: (attempt
   return subscribeToDocuments<ExamAttempt>(RESULTS_COLLECTION, callback, [where("studentId", "==", studentId)]);
 }
 
+export function subscribeToStudentAttemptsForUser(
+  uid: string,
+  profileId: string | undefined,
+  email: string | undefined,
+  callback: (attempts: ExamAttempt[]) => void
+): () => void {
+  const attemptsMap = new Map<string, ExamAttempt>();
+  const unsubs: Array<() => void> = [];
+
+  const update = () => {
+    callback(Array.from(attemptsMap.values()));
+  };
+
+  if (uid) {
+    unsubs.push(
+      subscribeToDocuments<ExamAttempt>(RESULTS_COLLECTION, (data) => {
+        data.forEach((a) => attemptsMap.set(a.id, a));
+        update();
+      }, [where("studentId", "==", uid)])
+    );
+  }
+
+  if (profileId && profileId !== uid) {
+    unsubs.push(
+      subscribeToDocuments<ExamAttempt>(RESULTS_COLLECTION, (data) => {
+        data.forEach((a) => attemptsMap.set(a.id, a));
+        update();
+      }, [where("studentId", "==", profileId)])
+    );
+  }
+
+  const normEmail = (email || "").toLowerCase().trim();
+  if (normEmail) {
+    unsubs.push(
+      subscribeToDocuments<ExamAttempt>(RESULTS_COLLECTION, (data) => {
+        data.forEach((a) => attemptsMap.set(a.id, a));
+        update();
+      }, [where("studentEmail", "==", normEmail)])
+    );
+  }
+
+  return () => {
+    unsubs.forEach((unsub) => unsub());
+  };
+}
+
+export function subscribeToLeaderboardAttempts(
+  collegeId: string | undefined | null,
+  callback: (attempts: ExamAttempt[]) => void
+): () => void {
+  return subscribeToAllAttempts(callback);
+}
+
 export async function getAllExams(): Promise<Exam[]> {
   return getDocuments<Exam>(EXAMS_COLLECTION);
 }
@@ -112,26 +165,54 @@ export async function getStudentAttempts(studentId?: string): Promise<ExamResult
  */
 export async function getStudentAttemptsForCurrentUser(
   uid: string,
-  email?: string
+  email?: string,
+  profileId?: string
 ): Promise<ExamResult[]> {
   const attempts = new Map<string, ExamResult>();
 
-  const byId = await getDocuments<ExamResult>(RESULTS_COLLECTION, [
-    where("studentId", "==", uid),
-  ]);
-  byId.forEach((a) => attempts.set(a.id, a));
+  if (uid) {
+    try {
+      const byId = await getDocuments<ExamResult>(RESULTS_COLLECTION, [
+        where("studentId", "==", uid),
+      ]);
+      byId.forEach((a) => attempts.set(a.id, a));
+    } catch (err) {
+      console.error("[Firestore Index / Query Failure - Check Console Link]:", err);
+    }
+  }
+
+  if (profileId && profileId !== uid) {
+    try {
+      const byProfileId = await getDocuments<ExamResult>(RESULTS_COLLECTION, [
+        where("studentId", "==", profileId),
+      ]);
+      byProfileId.forEach((a) => attempts.set(a.id, a));
+    } catch (err) {
+      console.error("[Firestore Index / Query Failure - Check Console Link]:", err);
+    }
+  }
 
   const normalizedEmail = (email || "").toLowerCase().trim();
-  if (normalizedEmail && normalizedEmail !== uid.toLowerCase()) {
-    const byEmail = await getDocuments<ExamResult>(RESULTS_COLLECTION, [
-      where("studentId", "==", normalizedEmail),
-    ]);
-    byEmail.forEach((a) => attempts.set(a.id, a));
+  if (normalizedEmail) {
+    if (normalizedEmail !== uid.toLowerCase()) {
+      try {
+        const byEmail = await getDocuments<ExamResult>(RESULTS_COLLECTION, [
+          where("studentId", "==", normalizedEmail),
+        ]);
+        byEmail.forEach((a) => attempts.set(a.id, a));
+      } catch (err) {
+        console.error("[Firestore Index / Query Failure - Check Console Link]:", err);
+      }
+    }
 
-    const byStudentEmailField = await getDocuments<ExamResult>(RESULTS_COLLECTION, [
-      where("studentEmail", "==", normalizedEmail),
-    ]);
-    byStudentEmailField.forEach((a) => attempts.set(a.id, a));
+    try {
+      const byStudentEmailField = await getDocuments<ExamResult>(RESULTS_COLLECTION, [
+        where("studentEmail", "==", normalizedEmail),
+      ]);
+      byStudentEmailField.forEach((a) => attempts.set(a.id, a));
+    } catch (err) {
+      console.error("[Firestore Index / Query Failure - Check Console Link]:", err);
+    }
   }
 
   return Array.from(attempts.values());
@@ -159,21 +240,34 @@ export async function clearAllResults(): Promise<void> {
  * Matches by uid, email, or name (case-insensitive). This is a pure synchronous
  * filter — no Firebase calls.
  */
-export function findStudentAttemptForExam(
-  attempts: ExamResult[],
-  examId: string,
-  student: { id?: string; email?: string; name?: string } | null
-): ExamResult | undefined {
-  if (!student) return undefined;
-  const sId = student.id;
+export function isAttemptOwnedByStudent(
+  att: ExamResult | ExamAttempt,
+  student: { id?: string; email?: string; name?: string; uid?: string } | null
+): boolean {
+  if (!att || !student) return false;
+
+  const sId = (student.id || "").toLowerCase().trim();
+  const sUid = (((student as any).uid || "") as string).toLowerCase().trim();
   const sEmail = (student.email || "").toLowerCase().trim();
   const sName = (student.name || "").toLowerCase().trim();
 
-  return attempts.find((a) => {
-    if (a.examId !== examId) return false;
-    if (sId && (a.studentId === sId || a.studentId === sEmail)) return true;
-    if (sEmail && (a.studentId?.toLowerCase() === sEmail || (a as unknown as { studentEmail?: string }).studentEmail?.toLowerCase() === sEmail)) return true;
-    if (sEmail && sName && a.studentName?.toLowerCase() === sName) return true;
-    return false;
-  });
+  const attId = (att.studentId || "").toLowerCase().trim();
+  const attEmail = (((att as any).studentEmail || "") as string).toLowerCase().trim();
+  const attName = (att.studentName || "").toLowerCase().trim();
+
+  if (sId && (attId === sId || attEmail === sId)) return true;
+  if (sUid && (attId === sUid || attEmail === sUid)) return true;
+  if (sEmail && (attId === sEmail || attEmail === sEmail)) return true;
+  if (sName && attName && attName === sName && attName !== "student") return true;
+
+  return false;
+}
+
+export function findStudentAttemptForExam(
+  attempts: ExamResult[],
+  examId: string,
+  student: { id?: string; email?: string; name?: string; uid?: string } | null
+): ExamResult | undefined {
+  if (!student) return undefined;
+  return attempts.find((a) => a.examId === examId && isAttemptOwnedByStudent(a, student));
 }

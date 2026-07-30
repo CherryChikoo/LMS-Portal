@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSidebar } from "@/hooks/use-sidebar";
 import { Sidebar } from "@/components/layout/sidebar";
 import { MobileSidebar } from "@/components/layout/mobile-sidebar";
@@ -16,10 +16,23 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const { isExpanded } = useSidebar();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   // Used to throttle the storage event dispatch to at most once per 2 seconds.
   const lastDispatchRef = useRef<number>(0);
 
   const pathname = usePathname();
+
+  // Listen for logout freeze trigger
+  useEffect(() => {
+    const checkLogout = () => {
+      if (typeof window !== "undefined" && (window as any).__isLoggingOut) {
+        setIsLoggingOut(true);
+      }
+    };
+    checkLogout();
+    window.addEventListener("storage", checkLogout);
+    return () => window.removeEventListener("storage", checkLogout);
+  }, []);
 
   // Auth verification effect - runs when pathname changes
   useEffect(() => {
@@ -200,6 +213,15 @@ export default function DashboardLayout({
       unsubs.forEach((u) => u());
     };
   }, []); // Run once on mount only
+
+  if (isLoggingOut) {
+    return (
+      <div className="fixed inset-0 z-[99999] flex flex-col items-center justify-center bg-background text-foreground font-sans">
+        <div className="w-10 h-10 border-4 border-brand border-t-transparent rounded-full animate-spin mb-4" />
+        <p className="text-sm font-bold text-muted-foreground animate-pulse">Signing out securely...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-[100dvh] flex relative bg-transparent overflow-x-hidden">

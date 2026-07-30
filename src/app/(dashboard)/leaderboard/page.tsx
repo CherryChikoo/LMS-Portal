@@ -25,10 +25,12 @@ interface StudentRank {
 }
 
 function LeaderboardContent() {
-  const { filteredStudents: students, filteredAttempts: attempts, filteredColleges: colleges, loading } = useLMSData();
+  const { students, attempts, colleges, loading } = useLMSData();
   const { resolveInstitution } = useEntityResolution();
   const [userRole, setUserRole] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [userCollegeId, setUserCollegeId] = useState<string | null>(null);
+  const [userCollegeName, setUserCollegeName] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
 
   // Filters
@@ -41,50 +43,119 @@ function LeaderboardContent() {
       const role = localStorage.getItem("lms_role");
       const user = JSON.parse(localStorage.getItem("lms_user") || "{}");
       setUserRole(role);
-      setCurrentUserId(user?.id);
+      setCurrentUserId(user?.id || user?.uid);
+      setUserCollegeId(user?.collegeId);
+      setUserCollegeName(user?.collegeName);
     } catch {}
   }, []);
 
   const rankedStudents = useMemo(() => {
-    if (!mounted || !students.length || !attempts.length) return [];
+    interface StudentStats {
+      student: Student;
+      score: number;
+      max: number;
+      count: number;
+    }
 
-    const statsMap = new Map<string, { score: number; max: number; count: number }>();
-    
-    (attempts as ExamAttempt[]).forEach((att: ExamAttempt) => {
-      const current = statsMap.get(att.studentId) || { score: 0, max: 0, count: 0 };
-      statsMap.set(att.studentId, {
-        score: current.score + (att.score || 0),
-        max: current.max + (att.totalMarks || 0),
-        count: current.count + 1
-      });
+    const statsMap = new Map<string, StudentStats>();
+    const studentStatsList: StudentStats[] = [];
+
+    // 1. Seed all active students into stats list and map every identifier (id, uid, email) to the same reference
+    (students as Student[]).forEach((s) => {
+      if (!s || s.isDeleted) return;
+      const sName = (s.name || "").toLowerCase();
+      if (sName.includes("admin") || sName.includes("simulator") || sName.includes("trainer") || s.id === "admin-1") return;
+
+      const statObj: StudentStats = { student: s, score: 0, max: 0, count: 0 };
+      studentStatsList.push(statObj);
+
+      if (s.id) statsMap.set(s.id.toLowerCase().trim(), statObj);
+      if ((s as any).uid) statsMap.set(String((s as any).uid).toLowerCase().trim(), statObj);
+      if (s.email) statsMap.set(s.email.toLowerCase().trim(), statObj);
     });
 
-    let results: StudentRank[] = (students as Student[])
-      .filter((s: Student) => !s.isDeleted && statsMap.has(s.id))
-      .map((student: Student) => {
-        const stats = statsMap.get(student.id)!;
-        const avg = stats.max > 0 ? (stats.score / stats.max) * 100 : 0;
+    // 2. Aggregate attempts onto matching student references
+    (attempts as ExamAttempt[] || []).forEach((att: ExamAttempt) => {
+      const name = (att.studentName || "").toLowerCase();
+      if (
+        name.includes("admin") ||
+        name.includes("simulator") ||
+        name.includes("ranti") ||
+        name.includes("trainer") ||
+        att.studentId === "admin-1"
+      ) {
+        return;
+      }
+
+      const attId = (att.studentId || "").toLowerCase().trim();
+      const attEmail = (((att as any).studentEmail || "") as string).toLowerCase().trim();
+      const attName = (att.studentName || "").toLowerCase().trim();
+
+      let target = (attId ? statsMap.get(attId) : undefined) || (attEmail ? statsMap.get(attEmail) : undefined);
+
+      if (!target && attName) {
+        target = studentStatsList.find((item) => (item.student.name || "").toLowerCase().trim() === attName);
+      }
+
+      if (target) {
+        target.score += (att.score || 0);
+        target.max += (att.totalMarks || 0);
+        target.count += 1;
+      } else {
+        const virtualStud: Student = {
+          id: att.studentId || "unknown",
+          name: att.studentName || (att as any).studentEmail || "Student",
+          email: (att as any).studentEmail || "",
+          department: "",
+          collegeId: (att as any).collegeId || "",
+          semester: 1,
+          section: "A",
+          rollNumber: "",
+          batchIds: [],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        const newStat: StudentStats = {
+          student: virtualStud,
+          score: att.score || 0,
+          max: att.totalMarks || 0,
+          count: 1,
+        };
+        studentStatsList.push(newStat);
+        if (attId) statsMap.set(attId, newStat);
+        if (attEmail) statsMap.set(attEmail, newStat);
+      }
+    });
+
+    let results: StudentRank[] = studentStatsList
+      .filter((item) => !item.student.isDeleted)
+      .map((item) => {
+        const avg = item.max > 0 ? (item.score / item.max) * 100 : 0;
         return {
-          student,
-          totalAttempts: stats.count,
-          totalScore: stats.score,
-          totalMaxMarks: stats.max,
+          student: item.student,
+          totalAttempts: item.count,
+          totalScore: item.score,
+          totalMaxMarks: item.max,
           averagePercentage: Math.round(avg * 10) / 10,
           rank: 0,
         };
       });
 
     // Filter by college if admin selected one
-    if (filterCollege !== "all") {
-      results = results.filter(r => r.student.collegeId === filterCollege);
+    // Scope for student role: students only see their own college peers
+    if (userRole === "student" && userCollegeId && userCollegeId !== "col-unassigned" && userCollegeId !== "unassigned") {
+      results = results.filter((r) => r.student.collegeId === userCollegeId);
+    } else if (filterCollege !== "all") {
+      results = results.filter((r) => r.student.collegeId === filterCollege);
     }
-    
+
     // Filter by search
     if (search.trim()) {
-      const q = search.toLowerCase();
-      results = results.filter(r => 
-        r.student.name.toLowerCase().includes(q) || 
-        r.student.department.toLowerCase().includes(q)
+      const q = search.toLowerCase().trim();
+      results = results.filter(
+        (r) =>
+          (r.student.name || "").toLowerCase().includes(q) ||
+          (r.student.department || "").toLowerCase().includes(q)
       );
     }
 
@@ -100,18 +171,27 @@ function LeaderboardContent() {
     });
 
     return results;
-  }, [students, attempts, filterCollege, search]);
+  }, [students, attempts, filterCollege, search, userRole, userCollegeId]);
 
-  if (loading) {
+  if (!mounted || loading) {
     return <div className="p-12 text-center text-sm text-muted-foreground animate-pulse">Loading leaderboard rankings...</div>;
   }
+
+  const isCollegeScoped = userRole === "student" && userCollegeId && userCollegeId !== "col-unassigned" && userCollegeId !== "unassigned";
+  const displayCollegeName = userCollegeName || (colleges as College[]).find(c => c.id === userCollegeId)?.name || "College";
 
   return (
     <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="space-y-8 font-sans">
       <motion.div variants={staggerItem} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold tracking-tight font-heading text-foreground">Global Leaderboard</h1>
-          <p className="text-sm text-muted-foreground mt-1">Ranking students across the platform by total evaluation scores.</p>
+          <h1 className="text-3xl font-extrabold tracking-tight font-heading text-foreground">
+            {isCollegeScoped ? `${displayCollegeName} Leaderboard` : "Global Leaderboard"}
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            {isCollegeScoped
+              ? `Ranking students in ${displayCollegeName} by total evaluation scores.`
+              : "Ranking students across the platform by total evaluation scores."}
+          </p>
         </div>
       </motion.div>
 
@@ -212,8 +292,18 @@ function LeaderboardContent() {
 }
 
 export default function LeaderboardPage() {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    return <div className="p-12 text-center text-sm text-muted-foreground animate-pulse font-sans">Loading Leaderboard...</div>;
+  }
+
   return (
-    <Suspense fallback={<div className="p-12 text-center animate-pulse">Loading Leaderboard...</div>}>
+    <Suspense fallback={<div className="p-12 text-center text-sm text-muted-foreground animate-pulse font-sans">Loading Leaderboard...</div>}>
       <LeaderboardContent />
     </Suspense>
   );

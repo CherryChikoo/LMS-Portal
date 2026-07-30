@@ -1,20 +1,21 @@
 "use client";
 
 import { useState, useEffect, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
-import { motion } from "motion/react";
-import { ArrowRight, Eye, EyeOff, AlertCircle, Check } from "lucide-react";
+import { useSearchParams, useRouter } from "next/navigation";
+import { motion, AnimatePresence } from "motion/react";
+import { ArrowRight, Eye, EyeOff, AlertCircle, Check, ShieldAlert } from "lucide-react";
 import Link from "next/link";
 import { APP_NAME } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
-import { unifiedLogin, unifiedGoogleLogin } from "@/lib/services/auth-service";
+import { GlobalAlert } from "@/components/shared/global-alert";
+import { unifiedLogin, unifiedGoogleLogin, formatAuthError } from "@/lib/services/auth-service";
 import { setAuthSession } from "@/lib/utils/auth-session";
 import { useBranding } from "@/providers/branding-provider";
-import { useErrorHandler } from "@/providers/error-provider";
 
 function LoginContent() {
   const { branding } = useBranding();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -23,7 +24,17 @@ function LoginContent() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [restrictedModalOpen, setRestrictedModalOpen] = useState(false);
-  const { showError } = useErrorHandler();
+  const [alertConfig, setAlertConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    type: "error" | "warning" | "info";
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    type: "error",
+  });
 
   useEffect(() => {
     if (searchParams.get("error") === "restricted") {
@@ -40,7 +51,7 @@ function LoginContent() {
         setGoogleLoading(false);
         return;
       }
-      
+
       const uObj = {
         id: res.user.uid,
         name: res.profile?.displayName || res.user.displayName || res.user.email?.split("@")[0] || "User",
@@ -63,7 +74,14 @@ function LoginContent() {
       if (msg.includes("RESTRICTED_ACCOUNT") || msg.toLowerCase().includes("restricted")) {
         setRestrictedModalOpen(true);
       } else {
-        showError(err, handleGoogleLogin);
+        const title = msg.toLowerCase().includes("access denied") ? "Access Denied" : "Authentication Failed";
+        const message = formatAuthError(err, "Google Sign-In failed. Please try again.");
+        setAlertConfig({
+          isOpen: true,
+          title,
+          message,
+          type: "error",
+        });
       }
     } finally {
       setGoogleLoading(false);
@@ -103,7 +121,14 @@ function LoginContent() {
       if (msg.includes("RESTRICTED_ACCOUNT") || msg.toLowerCase().includes("restricted")) {
         setRestrictedModalOpen(true);
       } else {
-        showError(err);
+        const title = msg.toLowerCase().includes("access denied") ? "Access Denied" : "Authentication Failed";
+        const message = formatAuthError(err, "Invalid credentials or incorrect password.");
+        setAlertConfig({
+          isOpen: true,
+          title,
+          message,
+          type: "error",
+        });
       }
     } finally {
       setLoading(false);
@@ -284,6 +309,15 @@ function LoginContent() {
         message={"Your LMS account has been temporarily restricted by your Trainer/Admin.\n\nPlease contact your Trainer for further assistance."}
         confirmText="Understood"
         variant="warning"
+      />
+
+      <GlobalAlert
+        isOpen={alertConfig.isOpen}
+        onClose={() => setAlertConfig((prev) => ({ ...prev, isOpen: false }))}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        type={alertConfig.type}
+        variant="modal"
       />
     </>
   );

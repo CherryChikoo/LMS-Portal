@@ -59,6 +59,12 @@ export async function POST(request: NextRequest) {
     const normalizedEmail = email.toLowerCase().trim();
     const displayName = `${collegeName.trim()} Admin`;
 
+    // Pre-flight Firestore Check
+    const existingUsersSnapshot = await db.collection("users").where("email", "==", normalizedEmail).get();
+    if (!existingUsersSnapshot.empty) {
+      return NextResponse.json({ success: false, stage, errorCode: "firestore/email-already-exists", message: "This email is already registered to an existing account/college." }, { status: 409 });
+    }
+
     try {
       await auth.getUserByEmail(normalizedEmail);
       return NextResponse.json({ success: false, stage, errorCode: "auth/email-already-exists", message: "An account with this email already exists." }, { status: 409 });
