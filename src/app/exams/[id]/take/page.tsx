@@ -90,7 +90,17 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
             if (!studentProfile && sEmail) {
               studentProfile = await getStudentByEmail(sEmail);
             }
-            if (!studentProfile) {
+            if (!studentProfile && me?.profile) {
+              studentProfile = me.profile as unknown as Student;
+            }
+            if (studentProfile) {
+              studentProfile = {
+                ...(me?.profile || {}),
+                ...studentProfile,
+                collegeId: studentProfile.collegeId || (me?.profile as any)?.collegeId || (me?.profile as any)?.college || "",
+                collegeName: studentProfile.collegeName || (me?.profile as any)?.collegeName || (me?.profile as any)?.college || studentProfile.collegeId || "",
+              } as Student;
+            } else {
               setAccessDeniedReason("Student Account Not Found. Please contact your administrator.");
               setLoading(false);
               return;

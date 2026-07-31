@@ -153,7 +153,13 @@ export default function ExamsPage() {
         const sId = parsed.id || parsed.uid;
         const sEmail = parsed.email;
         const canonical = students.find((s: Student) => s.id === sId || (sEmail && s.email === sEmail));
-        setStudentUser((canonical || parsed) as Student);
+        const mergedStudent: Student = {
+          ...(parsed || {}),
+          ...(canonical || {}),
+          collegeId: canonical?.collegeId || parsed?.collegeId || parsed?.college || "",
+          collegeName: canonical?.collegeName || parsed?.collegeName || parsed?.college || canonical?.collegeId || parsed?.collegeId || "",
+        } as Student;
+        setStudentUser(mergedStudent);
       } else {
         setStudentUser({ id: "", name: "", email: "", department: "", collegeId: "", collegeName: "", batchIds: [], semester: 0, section: "", rollNumber: "", createdAt: new Date(), updatedAt: new Date() } as Student);
       }

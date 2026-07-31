@@ -57,13 +57,28 @@ function matchesCompositeTarget(target: AssignmentTarget, student: Student): boo
   const sSection = normalize(student.section);
   const sBatchIds = (student.batchIds || []).map((b) => normalize(b));
 
-  const collegeIds = new Set([tCollegeId, tCollegeName].filter(Boolean));
-  const batchIds = new Set([tBatchId, tBatchName].filter(Boolean));
+  const cleanSlug = (v?: unknown) => (v ? String(v).toLowerCase().trim().replace(/[^a-z0-9]+/g, "") : "");
+
+  const targetCollegeSlugs = new Set([
+    tCollegeId,
+    tCollegeName,
+    cleanSlug(target.collegeId),
+    cleanSlug(target.collegeName),
+  ].filter(Boolean));
+
+  const studentCollegeSlugs = [
+    sCollegeId,
+    sCollegeName,
+    cleanSlug(student.collegeId),
+    cleanSlug(student.collegeName),
+  ].filter(Boolean);
+
+  const batchIds = new Set([tBatchId, tBatchName, cleanSlug(target.batchId), cleanSlug(target.batchName)].filter(Boolean));
 
   const matchCollege = collegeSpecified && (
-    collegeIds.has("global") ||
-    collegeIds.has(sCollegeId) ||
-    collegeIds.has(sCollegeName)
+    targetCollegeSlugs.has("global") ||
+    targetCollegeSlugs.has("all") ||
+    studentCollegeSlugs.some((s) => targetCollegeSlugs.has(s))
   );
 
   const matchBatch = batchSpecified && sBatchIds.some((b) => batchIds.has(b));

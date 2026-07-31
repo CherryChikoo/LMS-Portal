@@ -664,22 +664,36 @@ export function matchesAssignmentTarget(student: Student, target: AssignmentTarg
   if (target.level === "global") return true;
 
   // Institution match: prefer collegeId when present, fall back to collegeName.
-  const studentCollegeId = normalize(student.collegeId).toLowerCase();
-    const studentCollegeName = normalize(student.collegeName || "").toLowerCase();
-    const targetCollegeId = normalize(target.collegeId || "").toLowerCase();
-    const targetCollegeName = normalize(target.collegeName || "").toLowerCase();
+  const cleanSlug = (v?: string) => (v ? v.toLowerCase().trim().replace(/[^a-z0-9]+/g, "") : "");
 
-    let institutionMatch = false;
-    if (targetCollegeId) {
-      institutionMatch =
-        studentCollegeId === targetCollegeId ||
-        (!studentCollegeId && studentCollegeName === targetCollegeName);
-    } else if (targetCollegeName) {
-      institutionMatch = studentCollegeName === targetCollegeName;
-    } else if (targetCollegeId === GLOBAL_INSTITUTION_ID.toLowerCase()) {
-      institutionMatch = true;
-    }
-    if (!institutionMatch) return false;
+  const studentCollegeId = normalize(student.collegeId).toLowerCase();
+  const studentCollegeName = normalize(student.collegeName || "").toLowerCase();
+  const targetCollegeId = normalize(target.collegeId || "").toLowerCase();
+  const targetCollegeName = normalize(target.collegeName || "").toLowerCase();
+
+  const targetCollegeSlugs = new Set([
+    targetCollegeId,
+    targetCollegeName,
+    cleanSlug(target.collegeId),
+    cleanSlug(target.collegeName),
+  ].filter(Boolean));
+
+  const studentCollegeSlugs = [
+    studentCollegeId,
+    studentCollegeName,
+    cleanSlug(student.collegeId),
+    cleanSlug(student.collegeName),
+  ].filter(Boolean);
+
+  let institutionMatch = false;
+  if (!targetCollegeId && !targetCollegeName) {
+    institutionMatch = true;
+  } else if (targetCollegeSlugs.has("global") || targetCollegeSlugs.has("all") || targetCollegeId === GLOBAL_INSTITUTION_ID.toLowerCase()) {
+    institutionMatch = true;
+  } else {
+    institutionMatch = studentCollegeSlugs.some((s) => targetCollegeSlugs.has(s));
+  }
+  if (!institutionMatch) return false;
 
   if (target.level === "institution") return true;
 
