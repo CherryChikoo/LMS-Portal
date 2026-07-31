@@ -30,7 +30,7 @@ export function subscribeToStudentAttempts(studentId: string, callback: (attempt
 export function subscribeToStudentAttemptsForUser(
   uid: string,
   profileId: string | undefined,
-  email: string | undefined,
+  _email: string | undefined,
   callback: (attempts: ExamAttempt[]) => void
 ): () => void {
   const attemptsMap = new Map<string, ExamAttempt>();
@@ -40,31 +40,15 @@ export function subscribeToStudentAttemptsForUser(
     callback(Array.from(attemptsMap.values()));
   };
 
-  if (uid) {
-    unsubs.push(
-      subscribeToDocuments<ExamAttempt>(RESULTS_COLLECTION, (data) => {
-        data.forEach((a) => attemptsMap.set(a.id, a));
-        update();
-      }, [where("studentId", "==", uid)])
-    );
-  }
+  const targetUid = uid || profileId;
 
-  if (profileId && profileId !== uid) {
+  if (targetUid) {
     unsubs.push(
       subscribeToDocuments<ExamAttempt>(RESULTS_COLLECTION, (data) => {
+        attemptsMap.clear();
         data.forEach((a) => attemptsMap.set(a.id, a));
         update();
-      }, [where("studentId", "==", profileId)])
-    );
-  }
-
-  const normEmail = (email || "").toLowerCase().trim();
-  if (normEmail) {
-    unsubs.push(
-      subscribeToDocuments<ExamAttempt>(RESULTS_COLLECTION, (data) => {
-        data.forEach((a) => attemptsMap.set(a.id, a));
-        update();
-      }, [where("studentEmail", "==", normEmail)])
+      }, [where("studentId", "==", targetUid)])
     );
   }
 
@@ -158,61 +142,20 @@ export async function getStudentAttempts(studentId?: string): Promise<ExamResult
   return getDocuments<ExamResult>(RESULTS_COLLECTION);
 }
 
-/**
- * Fetch attempts for the currently signed-in student by uid and email.
- * Firestore studentId may be stored as the Firebase uid or as the email,
- * so both queries are executed and de-duplicated by attempt id.
- */
 export async function getStudentAttemptsForCurrentUser(
   uid: string,
-  email?: string,
-  profileId?: string
+  _email?: string
 ): Promise<ExamResult[]> {
+  if (!uid) return [];
   const attempts = new Map<string, ExamResult>();
 
-  if (uid) {
-    try {
-      const byId = await getDocuments<ExamResult>(RESULTS_COLLECTION, [
-        where("studentId", "==", uid),
-      ]);
-      byId.forEach((a) => attempts.set(a.id, a));
-    } catch (err) {
-      console.error("[Firestore Index / Query Failure - Check Console Link]:", err);
-    }
-  }
-
-  if (profileId && profileId !== uid) {
-    try {
-      const byProfileId = await getDocuments<ExamResult>(RESULTS_COLLECTION, [
-        where("studentId", "==", profileId),
-      ]);
-      byProfileId.forEach((a) => attempts.set(a.id, a));
-    } catch (err) {
-      console.error("[Firestore Index / Query Failure - Check Console Link]:", err);
-    }
-  }
-
-  const normalizedEmail = (email || "").toLowerCase().trim();
-  if (normalizedEmail) {
-    if (normalizedEmail !== uid.toLowerCase()) {
-      try {
-        const byEmail = await getDocuments<ExamResult>(RESULTS_COLLECTION, [
-          where("studentId", "==", normalizedEmail),
-        ]);
-        byEmail.forEach((a) => attempts.set(a.id, a));
-      } catch (err) {
-        console.error("[Firestore Index / Query Failure - Check Console Link]:", err);
-      }
-    }
-
-    try {
-      const byStudentEmailField = await getDocuments<ExamResult>(RESULTS_COLLECTION, [
-        where("studentEmail", "==", normalizedEmail),
-      ]);
-      byStudentEmailField.forEach((a) => attempts.set(a.id, a));
-    } catch (err) {
-      console.error("[Firestore Index / Query Failure - Check Console Link]:", err);
-    }
+  try {
+    const byStudentId = await getDocuments<ExamResult>(RESULTS_COLLECTION, [
+      where("studentId", "==", uid),
+    ]);
+    byStudentId.forEach((a) => attempts.set(a.id, a));
+  } catch (err) {
+    console.error("[Firestore Index / Query Failure - Check Console Link]:", err);
   }
 
   return Array.from(attempts.values());

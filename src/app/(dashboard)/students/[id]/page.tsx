@@ -24,6 +24,7 @@ import { useLMSData } from "@/lib/data/use-lms-data";
 import { useEntityResolution } from "@/lib/data/use-entity-resolution";
 import { Student, ExamAttempt, Exam } from "@/types";
 import { getEffectiveExamStatus } from "@/lib/services/exam-service";
+import { toDate, toMillis } from "@/lib/utils/date";
 
 export default function StudentEvaluationPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
@@ -40,20 +41,19 @@ export default function StudentEvaluationPage({ params }: { params: Promise<{ id
 
   // Filter attempts for this student
   const attempts = useMemo(() => {
-    if (!student) return [];
+    if (!student) return [] as ExamAttempt[];
     const sId = (student.id || "").toLowerCase();
     const sUid = (((student as any).uid || "") as string).toLowerCase();
-    const sEmail = (student.email || "").toLowerCase();
 
-    return (allAttempts as ExamAttempt[]).filter((a) => {
+    const filtered = (allAttempts as ExamAttempt[]).filter((a) => {
       const aId = (a.studentId || "").toLowerCase();
-      const aEmail = (((a as any).studentEmail || "") as string).toLowerCase();
-      return (
-        (sId && aId === sId) ||
-        (sUid && aId === sUid) ||
-        (sEmail && aId === sEmail) ||
-        (sEmail && aEmail === sEmail)
-      );
+      return (sId && aId === sId) || (sUid && aId === sUid);
+    });
+
+    return filtered.sort((a, b) => {
+      const msA = toMillis((a as any).completedAt || a.submittedAt || a.createdAt) ?? 0;
+      const msB = toMillis((b as any).completedAt || b.submittedAt || b.createdAt) ?? 0;
+      return msB - msA;
     });
   }, [allAttempts, student]);
 
@@ -251,7 +251,10 @@ export default function StudentEvaluationPage({ params }: { params: Promise<{ id
                     <tr key={att.id} className="hover:bg-accent/40 transition-colors">
                       <td className="px-6 py-4 font-semibold text-foreground">{att.examTitle}</td>
                       <td className="px-6 py-4 text-muted-foreground text-xs">
-                        {(att as any).completedAt || att.submittedAt ? new Date((att as any).completedAt || att.submittedAt).toLocaleDateString() : "N/A"}
+                        {(() => {
+                          const dateObj = toDate((att as any).completedAt || att.submittedAt || att.createdAt);
+                          return dateObj ? dateObj.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) : "Date Unavailable";
+                        })()}
                       </td>
                       <td className="px-6 py-4 text-center font-bold text-foreground">
                         {att.score} / {att.totalMarks} ({att.percentage}%)
@@ -269,7 +272,10 @@ export default function StudentEvaluationPage({ params }: { params: Promise<{ id
                         </Badge>
                       </td>
                       <td className="px-6 py-4 text-right text-xs text-muted-foreground font-mono">
-                        {Math.floor(((att as any).timeSpent || (att as any).timeSpentSeconds || 0) / 60)}m {((att as any).timeSpent || (att as any).timeSpentSeconds || 0) % 60}s
+                        {(() => {
+                          const mins = (att as any).timeTakenMinutes ?? ((att as any).timeSpentSeconds ? Math.ceil((att as any).timeSpentSeconds / 60) : ((att as any).timeSpent ? Math.ceil((att as any).timeSpent / 60) : 0));
+                          return `${mins || 0}m 0s`;
+                        })()}
                       </td>
                     </tr>
                   ))

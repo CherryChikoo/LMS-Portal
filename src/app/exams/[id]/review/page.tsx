@@ -144,7 +144,7 @@ export default function ReviewExamPage({ params }: PageProps) {
         const [examData, attempts] = await Promise.all([
           getExamById(id).catch(() => null),
           (uid || email || profileId)
-            ? getStudentAttemptsForCurrentUser(uid, email, profileId).catch(() => [] as ExamAttempt[])
+            ? getStudentAttemptsForCurrentUser(uid || profileId || "", email).catch(() => [] as ExamAttempt[])
             : Promise.resolve([] as ExamAttempt[]),
         ]);
 
