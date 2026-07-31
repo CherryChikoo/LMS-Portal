@@ -288,18 +288,35 @@ export async function renameCollegeAndMigrate(
         collegeName: normalizedNewName,
         updatedAt: Timestamp.now(),
       });
+    }
+  });
 
-      // Also sync user document in users collection if present
-      const userRef = doc(db, "users", studentDoc.id);
-      batch.set(
-        userRef,
-        {
-          collegeId: isExternal ? normalizedNewName : (sColId || collegeId),
-          collegeName: normalizedNewName,
-          updatedAt: Timestamp.now(),
-        },
-        { merge: true }
-      );
+  // Fetch all users in users collection (including college_admin accounts)
+  const allUsersSnap = await getDocs(collection(db, "users"));
+  allUsersSnap.docs.forEach((uDoc) => {
+    const uData = uDoc.data();
+    const uColId = uData?.collegeId || "";
+    const uColName = uData?.collegeName || "";
+    const slugId = cleanSlug(uColId);
+    const slugName = cleanSlug(uColName);
+
+    const matches =
+      uColId === collegeId ||
+      uColName === oldName ||
+      uColId === oldName ||
+      uColName === collegeId ||
+      (targetOldSlugId && slugId === targetOldSlugId) ||
+      (targetOldSlugId && slugName === targetOldSlugId) ||
+      (targetOldSlugName && slugId === targetOldSlugName) ||
+      (targetOldSlugName && slugName === targetOldSlugName);
+
+    if (matches) {
+      batch.update(uDoc.ref, {
+        collegeId: isExternal ? normalizedNewName : (uColId || collegeId),
+        collegeName: normalizedNewName,
+        displayName: uData.role === "college_admin" ? `${normalizedNewName} admin` : (uData.displayName || "User"),
+        updatedAt: Timestamp.now(),
+      });
     }
   });
 

@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { useLMSData } from "@/lib/data/use-lms-data";
 
 import { useEntityResolution } from "@/lib/data/use-entity-resolution";
+import { isStudentInCollege } from "@/lib/hierarchy/hierarchy-data";
 
 interface StudentRank {
   student: Student;
@@ -143,10 +144,13 @@ function LeaderboardContent() {
 
     // Filter by college if admin selected one
     // Scope for student and college_admin roles: strictly see their own college peers
+    // Filter by college if admin selected one
+    // Scope for student and college_admin roles: strictly see their own college peers
     if ((userRole === "student" || userRole === "college_admin") && userCollegeId && userCollegeId !== "col-unassigned" && userCollegeId !== "unassigned") {
-      results = results.filter((r) => r.student.collegeId === userCollegeId);
+      results = results.filter((r) => r.student.collegeId === userCollegeId || isStudentInCollege(r.student, { id: userCollegeId, name: userCollegeId } as College));
     } else if (filterCollege !== "all") {
-      results = results.filter((r) => r.student.collegeId === filterCollege);
+      const targetCol = (colleges as College[]).find(c => c.id === filterCollege);
+      results = results.filter((r) => r.student.collegeId === filterCollege || (targetCol ? isStudentInCollege(r.student, targetCol) : isStudentInCollege(r.student, { id: filterCollege, name: filterCollege } as College)));
     }
 
     // Filter by search
@@ -171,7 +175,7 @@ function LeaderboardContent() {
     });
 
     return results;
-  }, [students, attempts, filterCollege, search, userRole, userCollegeId]);
+  }, [students, attempts, filterCollege, search, userRole, userCollegeId, colleges]);
 
   if (!mounted || loading) {
     return <div className="p-12 text-center text-sm text-muted-foreground animate-pulse">Loading leaderboard rankings...</div>;
@@ -195,7 +199,7 @@ function LeaderboardContent() {
         </div>
       </motion.div>
 
-      {/* Filters (Institution Filter ONLY for Super Admin / Master Trainer) */}
+      {/* Filters (Institution Filter ONLY for Super Admin / Master Trainer / Admin) */}
       <motion.div variants={staggerItem} className="flex flex-col sm:flex-row gap-4 p-4 rounded-xl bg-card border border-border shadow-sm">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -206,7 +210,7 @@ function LeaderboardContent() {
             className="pl-9 bg-background border-border h-10"
           />
         </div>
-        {(userRole === "super_admin" || userRole === "master_trainer") && (
+        {(!isCollegeScoped && (userRole === "admin" || userRole === "trainer" || userRole === "super_admin" || userRole === "master_trainer" || !userRole)) && (
           <div className="w-full sm:w-64 shrink-0">
             <Select value={filterCollege} onValueChange={(val) => setFilterCollege(val || "all")}>
               <SelectTrigger className="h-10 bg-background border-border">
