@@ -301,35 +301,37 @@ function getYearBadgeStyle(year?: string) {
     }
   };
 
-  // For external (self-registered) colleges there is no Firestore document.
-  // Create one on first managed operation so updateCollege has a document to target.
+  // For external (self-registered) colleges, ensure a document exists at colleges/college.id
   const ensureCollegeDocument = async (): Promise<string | null> => {
     if (!college) return null;
-    if (!isExternal) return college.id;
-    const existing = await getCollegeById(college.id);
-    if (existing) {
-      setIsExternal(false);
-      return college.id;
-    }
+    const targetId = college.id;
     try {
-      await createCollege({
-        name: college.name.toLowerCase(),
-        code: college.code,
-        departments: college.departments || ["General"],
-        studentCount: college.studentCount || students.length,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        branding: {
-          companyName: college.name,
-          companySubtitle: "College Portal",
-          logoBase64: "",
+      const { doc, setDoc, Timestamp } = await import("firebase/firestore");
+      const { db } = await import("@/lib/firebase/config");
+      await setDoc(
+        doc(db, "colleges", targetId),
+        {
+          id: targetId,
+          name: college.name,
+          code: college.code || targetId.toUpperCase(),
+          departments: college.departments || ["General"],
+          studentCount: college.studentCount || students.length,
+          status: "active",
+          isDeleted: false,
+          updatedAt: Timestamp.now(),
+          branding: {
+            companyName: college.name,
+            companySubtitle: "College Portal",
+            logoBase64: "",
+          },
         },
-      });
+        { merge: true }
+      );
       setIsExternal(false);
-      return college.id;
+      return targetId;
     } catch (err) {
-      console.error("Failed to create college document for external institution:", err);
-      return null;
+      console.error("Failed to ensure college document for external institution:", err);
+      return targetId;
     }
   };
 
@@ -440,6 +442,7 @@ function getYearBadgeStyle(year?: string) {
     }
     setEnrolling(true);
     try {
+      await ensureCollegeDocument();
       await createStudentAuthProfile({
         name: studName,
         email: normalizedEmail,

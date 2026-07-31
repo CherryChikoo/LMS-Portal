@@ -9,6 +9,7 @@ import {
   orderBy,
   limit,
   addDoc,
+  setDoc,
   updateDoc,
   deleteDoc,
   Timestamp,
@@ -116,12 +117,19 @@ export async function updateCollege(
   id: string,
   data: Partial<College>
 ): Promise<void> {
+  if (!id) return;
   const docRef = doc(db, "colleges", id);
 
-  await updateDoc(docRef, {
-    ...data,
-    updatedAt: Timestamp.now(),
-  });
+  await setDoc(
+    docRef,
+    {
+      id,
+      name: data.name || id,
+      ...data,
+      updatedAt: Timestamp.now(),
+    },
+    { merge: true }
+  );
 }
 
 /**
@@ -173,38 +181,56 @@ export async function updateCollegeStudentCount(
   collegeId: string,
   count: number
 ): Promise<void> {
+  if (!collegeId) return;
   const docRef = doc(db, "colleges", collegeId);
 
-  await updateDoc(docRef, {
-    studentCount: count,
-    updatedAt: Timestamp.now(),
-  });
+  await setDoc(
+    docRef,
+    {
+      id: collegeId,
+      studentCount: count,
+      updatedAt: Timestamp.now(),
+    },
+    { merge: true }
+  );
 }
 
 /**
  * Soft delete a college (mark as deleted)
  */
 export async function softDeleteCollege(id: string): Promise<void> {
+  if (!id) return;
   const docRef = doc(db, "colleges", id);
 
-  await updateDoc(docRef, {
-    isDeleted: true,
-    status: "deleted",
-    updatedAt: Timestamp.now(),
-  });
+  await setDoc(
+    docRef,
+    {
+      id,
+      isDeleted: true,
+      status: "deleted",
+      updatedAt: Timestamp.now(),
+    },
+    { merge: true }
+  );
 }
 
 /**
  * Restore a soft-deleted college
  */
 export async function restoreCollege(id: string): Promise<void> {
+  if (!id) return;
   const docRef = doc(db, "colleges", id);
 
-  await updateDoc(docRef, {
-    isDeleted: false,
-    status: "active",
-    updatedAt: Timestamp.now(),
-  });
+  await setDoc(
+    docRef,
+    {
+      id,
+      isDeleted: false,
+      status: "active",
+      updatedAt: Timestamp.now(),
+    },
+    { merge: true }
+  );
 }
 
 /**
