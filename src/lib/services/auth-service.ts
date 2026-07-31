@@ -526,37 +526,55 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
       await setDoc(doc(db, USERS_COLLECTION, uid), profile);
       console.log(`[AUTH] unifiedLogin: Master admin profile created.`);
     } else {
-      // Fallback for legacy students who might only have a students doc
-      let studentDoc = await getDocument<Student>("students", uid);
-      if (!studentDoc) {
-        const studsByEmail = await getDocuments<Student>("students", [where("email", "==", cleanEmail)]);
-        if (studsByEmail.length > 0) {
-          studentDoc = studsByEmail[0];
-        }
-      }
-
-      if (studentDoc) {
+      // Check if email matches a college admin email in colleges collection
+      const colsByAdminEmail = await getDocuments<import("@/types").College>("colleges", [where("adminEmail", "==", cleanEmail)]);
+      if (colsByAdminEmail.length > 0) {
+        const col = colsByAdminEmail[0];
         profile = {
-          id: studentDoc.id || uid,
-          email: studentDoc.email || credential.user.email || cleanEmail,
-          displayName: studentDoc.name || "Student",
-          role: "student",
-          department: studentDoc.department || "Computer Science & Engineering",
-          collegeId: studentDoc.collegeId || "",
-          collegeName: studentDoc.collegeName || "",
-          academicYear: studentDoc.academicYear || undefined,
-          section: studentDoc.section || undefined,
-          batchIds: studentDoc.batchIds || [],
-          createdAt: studentDoc.createdAt || new Date(),
-          updatedAt: studentDoc.updatedAt || new Date(),
+          id: uid,
+          email: cleanEmail,
+          displayName: col.name ? `${col.name.toLowerCase()} admin` : "College Administrator",
+          role: "college_admin",
+          collegeId: col.id,
+          collegeName: col.name ? col.name.toLowerCase() : "",
+          createdAt: new Date(),
+          updatedAt: new Date(),
         } as ExtendedUser;
-        // Save user doc under Auth UID for fast future lookups
         await setDoc(doc(db, USERS_COLLECTION, uid), profile, { merge: true });
-        console.log(`[AUTH] unifiedLogin: Recovered legacy student profile.`);
+        console.log(`[AUTH] unifiedLogin: Recovered college_admin profile from college document.`);
       } else {
-        await firebaseSignOut(auth);
-        console.error(`[AUTH] unifiedLogin: No Firestore profile found for authenticated user.`);
-        throw new Error("Unauthorized: Account not found in directory.");
+        // Fallback for legacy students who might only have a students doc
+        let studentDoc = await getDocument<Student>("students", uid);
+        if (!studentDoc) {
+          const studsByEmail = await getDocuments<Student>("students", [where("email", "==", cleanEmail)]);
+          if (studsByEmail.length > 0) {
+            studentDoc = studsByEmail[0];
+          }
+        }
+
+        if (studentDoc) {
+          profile = {
+            id: studentDoc.id || uid,
+            email: studentDoc.email || credential.user.email || cleanEmail,
+            displayName: studentDoc.name || "Student",
+            role: "student",
+            department: studentDoc.department || "Computer Science & Engineering",
+            collegeId: studentDoc.collegeId || "",
+            collegeName: studentDoc.collegeName || "",
+            academicYear: studentDoc.academicYear || undefined,
+            section: studentDoc.section || undefined,
+            batchIds: studentDoc.batchIds || [],
+            createdAt: studentDoc.createdAt || new Date(),
+            updatedAt: studentDoc.updatedAt || new Date(),
+          } as ExtendedUser;
+          // Save user doc under Auth UID for fast future lookups
+          await setDoc(doc(db, USERS_COLLECTION, uid), profile, { merge: true });
+          console.log(`[AUTH] unifiedLogin: Recovered legacy student profile.`);
+        } else {
+          await firebaseSignOut(auth);
+          console.error(`[AUTH] unifiedLogin: No Firestore profile found for authenticated user.`);
+          throw new Error("Unauthorized: Account not found in directory.");
+        }
       }
     }
   } else if (profile.role === "student") {
@@ -638,6 +656,15 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
       await firebaseSignOut(auth);
       throw new Error("RESTRICTED_ACCOUNT: Your assigned college document could not be located.");
     }
+
+    // Always bind and sync official collegeId and collegeName onto profile
+    profile.collegeId = collegeDoc.id;
+    profile.collegeName = collegeDoc.name ? collegeDoc.name.toLowerCase() : "";
+    await setDoc(
+      doc(db, USERS_COLLECTION, uid),
+      { collegeId: collegeDoc.id, collegeName: collegeDoc.name ? collegeDoc.name.toLowerCase() : "" },
+      { merge: true }
+    );
 
     if (collegeDoc.status === "restricted") {
       await firebaseSignOut(auth);
