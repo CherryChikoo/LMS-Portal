@@ -93,17 +93,29 @@ export async function studentGoogleLogin(): Promise<
 
   // Reject trainer/admin attempting to log in via the student portal.
   if (userDoc && (userDoc.role === "trainer" || userDoc.role === "admin")) {
-    await firebaseSignOut(auth);
+    try {
+      await credential.user.delete();
+    } catch {
+      await firebaseSignOut(auth).catch(() => {});
+    }
     throw new Error("Trainers must log in via the /admin/login portal.");
   }
 
   if (userDoc?.status === "restricted" || studentDoc?.status === "restricted") {
-    await firebaseSignOut(auth);
+    try {
+      await credential.user.delete();
+    } catch {
+      await firebaseSignOut(auth).catch(() => {});
+    }
     throw new Error("RESTRICTED_ACCOUNT: Your LMS account has been temporarily restricted by your Trainer/Admin. Please contact your Trainer for further assistance.");
   }
 
   if (userDoc?.isDeleted || userDoc?.status === "deleted" || studentDoc?.isDeleted || studentDoc?.status === "deleted") {
-    await firebaseSignOut(auth);
+    try {
+      await credential.user.delete();
+    } catch {
+      await firebaseSignOut(auth).catch(() => {});
+    }
     throw new Error("ACCOUNT_DELETED: Your student account has been permanently deleted.");
   }
 
