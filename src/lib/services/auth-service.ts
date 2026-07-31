@@ -602,15 +602,46 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
       throw new Error("ACCOUNT_DELETED: Your student account has been permanently deleted.");
     }
   } else if (role === "college_admin") {
-    const collegeDoc = await getDocument<import("@/types").College>("colleges", (profile as any).collegeId || "");
-    if (!collegeDoc) {
-      console.error(`[AUTH] unifiedLogin: College doc not found for collegeId: ${(profile as any).collegeId}`);
-      await firebaseSignOut(auth);
-      throw new Error("RESTRICTED_ACCOUNT: Your assigned college could not be found.");
+    let collegeDoc: import("@/types").College | null = null;
+    const targetColId = (profile as any).collegeId || "";
+    const targetColName = (profile as any).collegeName || "";
+
+    if (targetColId) {
+      collegeDoc = await getDocument<import("@/types").College>("colleges", targetColId);
     }
-    if (collegeDoc.loginEnabled === false || collegeDoc.status === "restricted") {
+
+    if (!collegeDoc && (targetColId || targetColName || profile.email)) {
+      try {
+        const allCols = await getDocuments<import("@/types").College>("colleges");
+        const cleanSlug = (v?: string) => (v ? String(v).trim().toLowerCase().replace(/[^a-z0-9]+/g, "") : "");
+        const searchSlugId = cleanSlug(targetColId);
+        const searchSlugName = cleanSlug(targetColName);
+        const searchEmail = (profile.email || "").toLowerCase().trim();
+
+        collegeDoc = allCols.find((c) => {
+          if ((c.status as string) === "deleted" || c.isDeleted) return false;
+          const cIdSlug = cleanSlug(c.id);
+          const cNameSlug = cleanSlug(c.name);
+          const cAdminEmail = (c.adminEmail || "").toLowerCase().trim();
+
+          return (
+            (searchSlugId && (cIdSlug === searchSlugId || cNameSlug === searchSlugId)) ||
+            (searchSlugName && (cIdSlug === searchSlugName || cNameSlug === searchSlugName)) ||
+            (searchEmail && cAdminEmail && searchEmail === cAdminEmail)
+          );
+        }) || null;
+      } catch (_) {}
+    }
+
+    if (!collegeDoc) {
+      console.error(`[AUTH] unifiedLogin: College doc not found for collegeId: ${targetColId}, collegeName: ${targetColName}`);
       await firebaseSignOut(auth);
-      throw new Error("RESTRICTED_ACCOUNT: Your college dashboard access has been disabled by the main administrator.");
+      throw new Error("RESTRICTED_ACCOUNT: Your assigned college document could not be located.");
+    }
+
+    if (collegeDoc.status === "restricted") {
+      await firebaseSignOut(auth);
+      throw new Error("RESTRICTED_ACCOUNT: Your college dashboard access has been temporarily restricted by the administrator.");
     }
     if (collegeDoc.isDeleted || collegeDoc.status === "deleted" || profile.isDeleted || profile.status === "deleted") {
       await firebaseSignOut(auth);
