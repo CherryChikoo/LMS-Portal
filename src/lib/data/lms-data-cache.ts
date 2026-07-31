@@ -157,8 +157,24 @@ function recomputeScopedData() {
   let fColleges = collegesData.filter((c) => isActive(c) && !isCollegeDeleted(c.id, c.name));
   let fBatches = batchesData.filter(isActive);
   let fStudents = studentsData.filter((s) => isActive(s) && !isCollegeDeleted(s.collegeId, s.collegeName));
-  let fExams = examsData.filter(isActive);
-  let fResources = resourcesData.filter(isActive);
+  let fExams = examsData.filter((e: any) => {
+    if (!isActive(e)) return false;
+    const eColId = e.collegeId || e.targets?.[0]?.collegeId;
+    const eColName = e.collegeName || e.targets?.[0]?.collegeName;
+    if (eColId || eColName) {
+      if (isCollegeDeleted(eColId, eColName)) return false;
+    }
+    return true;
+  });
+  let fResources = resourcesData.filter((r: any) => {
+    if (!isActive(r)) return false;
+    const rColId = r.collegeId || r.targets?.[0]?.collegeId;
+    const rColName = r.collegeName || r.targets?.[0]?.collegeName;
+    if (rColId || rColName) {
+      if (isCollegeDeleted(rColId, rColName)) return false;
+    }
+    return true;
+  });
   let fAttempts = attemptsData.filter(isActive);
 
   try {
@@ -499,6 +515,24 @@ export function optimisticDeleteCollegeFromCache(collegeId: string): void {
       return false;
     };
     cache.students.data = cache.students.data.filter((s) => !isMatch(s.collegeId, s.collegeName));
+  }
+  if (cache.exams?.data) {
+    cache.exams.data = cache.exams.data.filter((e: any) => {
+      const eColId = e.collegeId || e.targets?.[0]?.collegeId;
+      const eColName = e.collegeName || e.targets?.[0]?.collegeName;
+      if (eColId && (eColId === collegeId || eColId.toLowerCase() === collegeId.toLowerCase())) return false;
+      if (eColName && eColName.toLowerCase() === collegeId.toLowerCase()) return false;
+      return true;
+    });
+  }
+  if (cache.resources?.data) {
+    cache.resources.data = cache.resources.data.filter((r: any) => {
+      const rColId = r.collegeId || r.targets?.[0]?.collegeId;
+      const rColName = r.collegeName || r.targets?.[0]?.collegeName;
+      if (rColId && (rColId === collegeId || rColId.toLowerCase() === collegeId.toLowerCase())) return false;
+      if (rColName && rColName.toLowerCase() === collegeId.toLowerCase()) return false;
+      return true;
+    });
   }
   recomputeScopedData();
   notifyListeners();

@@ -150,14 +150,66 @@ export async function POST(request: NextRequest) {
       if (colId === targetSlugId || colId === targetSlugName) refsToDeleteMap.set(b.ref.path, b.ref);
     });
 
-    examsSnap.docs.forEach((e) => {
-      const colId = cleanSlug(e.data().collegeId);
-      if (colId === targetSlugId || colId === targetSlugName) refsToDeleteMap.set(e.ref.path, e.ref);
+    examsSnap.docs.forEach((eDoc) => {
+      const eData = eDoc.data();
+      const eColId = eData.collegeId || "";
+      const eColName = eData.collegeName || "";
+      const eTargets: any[] = Array.isArray(eData.targets) ? eData.targets : [];
+
+      const matchesCol =
+        eDoc.id === id ||
+        eColId === id ||
+        eColName === collegeName ||
+        (targetSlugId && cleanSlug(eColId) === targetSlugId) ||
+        (targetSlugId && cleanSlug(eColName) === targetSlugId) ||
+        (targetSlugName && cleanSlug(eColId) === targetSlugName) ||
+        (targetSlugName && cleanSlug(eColName) === targetSlugName) ||
+        eTargets.some((t) => {
+          const tColId = t.collegeId || "";
+          const tColName = t.collegeName || "";
+          return (
+            tColId === id ||
+            tColName === collegeName ||
+            (targetSlugId && cleanSlug(tColId) === targetSlugId) ||
+            (targetSlugName && cleanSlug(tColId) === targetSlugName) ||
+            (targetSlugName && cleanSlug(tColName) === targetSlugName)
+          );
+        });
+
+      if (matchesCol) {
+        refsToDeleteMap.set(eDoc.ref.path, eDoc.ref);
+      }
     });
 
-    resourcesSnap.docs.forEach((r) => {
-      const colId = cleanSlug(r.data().collegeId);
-      if (colId === targetSlugId || colId === targetSlugName) refsToDeleteMap.set(r.ref.path, r.ref);
+    resourcesSnap.docs.forEach((rDoc) => {
+      const rData = rDoc.data();
+      const rColId = rData.collegeId || "";
+      const rColName = rData.collegeName || "";
+      const rTargets: any[] = Array.isArray(rData.targets) ? rData.targets : [];
+
+      const matchesCol =
+        rDoc.id === id ||
+        rColId === id ||
+        rColName === collegeName ||
+        (targetSlugId && cleanSlug(rColId) === targetSlugId) ||
+        (targetSlugId && cleanSlug(rColName) === targetSlugId) ||
+        (targetSlugName && cleanSlug(rColId) === targetSlugName) ||
+        (targetSlugName && cleanSlug(rColName) === targetSlugName) ||
+        rTargets.some((t) => {
+          const tColId = t.collegeId || "";
+          const tColName = t.collegeName || "";
+          return (
+            tColId === id ||
+            tColName === collegeName ||
+            (targetSlugId && cleanSlug(tColId) === targetSlugId) ||
+            (targetSlugName && cleanSlug(tColId) === targetSlugName) ||
+            (targetSlugName && cleanSlug(tColName) === targetSlugName)
+          );
+        });
+
+      if (matchesCol) {
+        refsToDeleteMap.set(rDoc.ref.path, rDoc.ref);
+      }
     });
 
     // 4. Fetch exam results for deleted students
