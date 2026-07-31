@@ -347,11 +347,6 @@ function StudentsContent() {
         .filter((s) => {
           if (s.isDeleted) return false;
 
-          // ⚠️ Tenant-Scoped Data Hard-Lock: College Admins & Students can strictly only see students in their own college
-          if ((userRole === "college_admin" || userRole === "student") && userCollegeId && s.collegeId !== userCollegeId) {
-            return false;
-          }
-
           const searchVal = (debouncedSearch || "").toLowerCase();
           const matchesSearch =
             (s.name || "").toLowerCase().includes(searchVal) ||

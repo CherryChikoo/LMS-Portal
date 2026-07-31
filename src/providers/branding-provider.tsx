@@ -107,15 +107,16 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
               if (isCancelled) return;
               if (snap.exists()) {
                 const data = snap.data();
+                const officialColName = data.name?.trim() || profile.collegeName?.trim() || "College Portal";
                 const cBrand: CompanyBranding = {
-                  companyName: data.branding?.companyName?.trim() || data.name?.trim() || profile.collegeName?.trim() || "College Admin Portal",
-                  companySubtitle: data.branding?.companySubtitle?.trim() || (data.name ? `${data.name} Portal` : "College Admin Portal"),
+                  companyName: officialColName,
+                  companySubtitle: data.branding?.companySubtitle?.trim() || `${officialColName} Portal`,
                   logoBase64: data.branding?.logoBase64 || "",
                 };
                 setTenantBranding(cBrand);
                 localStorage.setItem("lms_college_branding", JSON.stringify({ collegeId: targetColId, branding: cBrand }));
               } else {
-                const fallbackName = profile.collegeName?.trim() || "College Admin Portal";
+                const fallbackName = profile.collegeName?.trim() || "College Portal";
                 setTenantBranding({
                   companyName: fallbackName,
                   companySubtitle: `${fallbackName} Portal`,
