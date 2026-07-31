@@ -20,7 +20,10 @@ export const resolveEntity = (entitiesArray: any[], targetId: string | number | 
   }
 
   if (!found) {
-    return { name: `Unknown ${entityType}`, isResolved: false, isDeleted: false };
+    const rawStr = String(targetId).trim();
+    const looksLikeHash = (rawStr.length === 20 || rawStr.length === 28) && !rawStr.includes(" ");
+    const displayName = (!looksLikeHash && rawStr) ? rawStr : (rawStr || `${entityType}`);
+    return { name: displayName, isResolved: !looksLikeHash, isDeleted: false };
   }
 
   const isDeleted = found.isDeleted === true || found.status === 'deleted';

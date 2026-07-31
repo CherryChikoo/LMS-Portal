@@ -477,10 +477,14 @@ export function toStudentOptions(students: Student[]): SelectOption[] {
  * Returns the resolved college name for a given college id, falling back to the id.
  */
 export function getCollegeName(hierarchy: Hierarchy | null, collegeId: string): string {
-  if (!hierarchy || !collegeId) return "Unknown Institution";
+  if (!hierarchy || !collegeId) return "Unassigned";
   const college = hierarchy.collegeMap.get(collegeId);
-  if (college) return safeDisplayName(college.name, collegeId, "Unknown Institution");
-  return "Unknown Institution";
+  if (college) return safeDisplayName(college.name, collegeId, collegeId);
+  const external = getExternalInstitutions(hierarchy).find((i) => i.id === collegeId || i.name === collegeId);
+  if (external) return safeDisplayName(external.name, collegeId, collegeId);
+  const isHash = (collegeId.length === 20 || collegeId.length === 28) && !collegeId.includes(" ");
+  if (!isHash && collegeId) return collegeId;
+  return collegeId || "Unassigned";
 }
 
 export const deletedCollegesSet = new Set<string>();
@@ -625,21 +629,28 @@ export function getInstitutionName(
   input: Institution[] | Hierarchy | null,
   id: string
 ): string {
-  if (!input || !id || id.toLowerCase() === "global" || id.toLowerCase() === "unassigned") {
+  if (!id || id.toLowerCase() === "global" || id.toLowerCase() === "unassigned") {
     return "Unassigned";
   }
 
   if (Array.isArray(input)) {
-    const found = input.find((i) => i.id === id);
-    return found ? safeDisplayName(found.name, id, "Unknown Institution") : "Unknown Institution";
+    const found = input.find((i) => i.id === id || i.name === id);
+    if (found) return safeDisplayName(found.name, id, id);
+    const isHash = (id.length === 20 || id.length === 28) && !id.includes(" ");
+    return (!isHash && id) ? id : id;
   }
 
   const hierarchy = input;
-  const official = hierarchy.collegeMap.get(id);
-  if (official) return safeDisplayName(official.name, id, "Unknown Institution");
-  const external = getExternalInstitutions(hierarchy).find((i) => i.id === id);
-  if (external) return safeDisplayName(external.name, id, "Unknown Institution");
-  return "Unknown Institution";
+  if (hierarchy) {
+    const official = hierarchy.collegeMap.get(id);
+    if (official) return safeDisplayName(official.name, id, id);
+    const external = getExternalInstitutions(hierarchy).find((i) => i.id === id || i.name === id);
+    if (external) return safeDisplayName(external.name, id, id);
+  }
+
+  const isHash = (id.length === 20 || id.length === 28) && !id.includes(" ");
+  if (!isHash && id) return id;
+  return id || "Unassigned";
 }
 
 /**

@@ -729,19 +729,21 @@ export default function ExamsPage() {
                     return `Student: ${resolveStudent(newShape.studentId || "") || newShape.studentName}`;
                   }
                   
-                  const institutionLabel = t.collegeId ? resolveInstitution(t.collegeId) : null;
+                  const rawInst = t.collegeName || (t.collegeId ? resolveInstitution(t.collegeId) : null);
+                  const institutionLabel = (!rawInst || rawInst.includes("Unknown")) && t.collegeId ? t.collegeId : rawInst;
                   const parts = [
                     institutionLabel,
                     t.department ? t.department : null,
                     t.academicYear ? `Year ${t.academicYear}` : null,
                     t.section ? `Sec ${t.section}` : null,
-                    t.batchId ? (!t.batchName || t.batchName === t.batchId ? "Unknown Batch" : t.batchName) : null,
+                    t.batchId ? (!t.batchName || t.batchName === t.batchId ? "Custom Cohort" : t.batchName) : null,
                   ].filter(Boolean);
                   return parts.length > 0 ? parts.join(" → ") : "All Students";
                 }
                 // Legacy composite shape (kept for older records).
                 if (t.type === "composite") {
-                  const institutionLabel = t.collegeId ? resolveInstitution(t.collegeId) : (t.collegeName || null);
+                  const rawInst = t.collegeName || (t.collegeId ? resolveInstitution(t.collegeId) : null);
+                  const institutionLabel = (!rawInst || rawInst.includes("Unknown")) && t.collegeId ? t.collegeId : rawInst;
                   const parts = [
                     institutionLabel,
                     t.department && t.department !== "ALL" ? t.department : null,
@@ -1046,7 +1048,9 @@ export default function ExamsPage() {
                         ) : exam.targets?.[0]?.collegeId && exam.targets[0].collegeId !== "GLOBAL" && (
                           <div className="pt-2">
                             {(() => {
-                              const instName = resolveInstitution(exam.targets[0].collegeId);
+                              const targetCol = exam.targets?.[0];
+                              const rawInst = targetCol?.collegeName || (targetCol?.collegeId ? resolveInstitution(targetCol.collegeId) : null);
+                              const instName = (!rawInst || rawInst.includes("Unknown")) && targetCol?.collegeId ? targetCol.collegeId : (rawInst || "Institution");
                               const isUnknown = instName.includes("Unknown");
                               return (
                                 <div className={`inline-flex flex-col gap-0.5 px-3 py-2 rounded-lg border ${
