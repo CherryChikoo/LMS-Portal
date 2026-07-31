@@ -3,6 +3,9 @@ import { getAdminAuth, getAdminApp } from "@/lib/firebase/admin";
 import { getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 
+const cleanSlug = (v?: string | null): string =>
+  v ? String(v).trim().toLowerCase().replace(/[^a-z0-9]+/g, "") : "";
+
 export async function POST(request: NextRequest) {
   let stage = "parseRequest";
   try {
@@ -10,10 +13,16 @@ export async function POST(request: NextRequest) {
     const { id, collegeName: clientCollegeName, adminIdToken } = body;
 
     if (!id || typeof id !== "string") {
-      return NextResponse.json({ success: false, stage, errorCode: "invalid-argument", message: "College ID is required." }, { status: 400 });
+      return NextResponse.json(
+        { success: false, stage, errorCode: "invalid-argument", message: "College ID is required." },
+        { status: 400 }
+      );
     }
     if (!adminIdToken || typeof adminIdToken !== "string") {
-      return NextResponse.json({ success: false, stage, errorCode: "auth/missing-token", message: "Admin authorization token is required." }, { status: 401 });
+      return NextResponse.json(
+        { success: false, stage, errorCode: "auth/missing-token", message: "Admin authorization token is required." },
+        { status: 401 }
+      );
     }
 
     stage = "verifyAdminToken";
@@ -22,7 +31,10 @@ export async function POST(request: NextRequest) {
     try {
       decodedToken = await auth.verifyIdToken(adminIdToken);
     } catch (err: any) {
-      return NextResponse.json({ success: false, stage, errorCode: err?.code, message: "Invalid or expired admin session.", details: String(err) }, { status: 401 });
+      return NextResponse.json(
+        { success: false, stage, errorCode: err?.code, message: "Invalid or expired admin session.", details: String(err) },
+        { status: 401 }
+      );
     }
 
     stage = "verifyAdminRole";
@@ -32,155 +44,171 @@ export async function POST(request: NextRequest) {
     const requesterDoc = await db.collection("users").doc(requesterUid).get();
     const requesterRole = requesterDoc.exists ? requesterDoc.data()?.role : undefined;
     if (requesterRole !== "admin" && requesterRole !== "trainer") {
-      return NextResponse.json({ success: false, stage, errorCode: "permission-denied", message: "Only admin or trainer roles can delete colleges." }, { status: 403 });
+      return NextResponse.json(
+        { success: false, stage, errorCode: "permission-denied", message: "Only admin or trainer roles can delete colleges." },
+        { status: 403 }
+      );
     }
 
     stage = "fetchCollegeData";
     const collegeRef = db.collection("colleges").doc(id);
     const collegeUserDocRef = db.collection("users").doc(id);
-    let collegeDoc;
-    try {
-      collegeDoc = await collegeRef.get();
-    } catch (err: any) {
-      console.error({ route: "/api/admin/delete-college", stage, errorCode: err?.code, message: err?.message, stack: err?.stack });
-      return NextResponse.json({ success: false, stage, errorCode: err?.code, message: err?.message, retryable: true }, { status: 500 });
-    }
-    const collegeName = collegeDoc.exists ? collegeDoc.data()?.name : (clientCollegeName || "");
+    let collegeDoc = await collegeRef.get();
+    let collegeName = collegeDoc.exists ? collegeDoc.data()?.name : (clientCollegeName || "");
+    let adminEmail = collegeDoc.exists ? collegeDoc.data()?.adminEmail : "";
 
-    stage = "fetchAssociatedData";
-    let studentsByIdSnap, studentsByNameSnap, departmentsSnap, collegeAdminSnap, batchesSnap, examsSnap, resourcesSnap;
-    try {
-      [
-        studentsByIdSnap,
-        studentsByNameSnap,
-        departmentsSnap,
-        collegeAdminSnap,
-        batchesSnap,
-        examsSnap,
-        resourcesSnap
-      ] = await Promise.all([
-        db.collection("students").where("collegeId", "==", id).get(),
-        collegeName ? db.collection("students").where("collegeName", "==", collegeName).get() : Promise.resolve({ docs: [] }),
-        db.collection("departments").where("collegeId", "==", id).get(),
-        db.collection("users").where("role", "==", "college_admin").where("collegeId", "==", id).get(),
-        db.collection("batches").where("collegeId", "==", id).get(),
-        db.collection("exams").where("collegeId", "==", id).get(),
-        db.collection("resources").where("collegeId", "==", id).get(),
-      ]);
-    } catch (err: any) {
-      console.error({ route: "/api/admin/delete-college", stage, errorCode: err?.code, message: err?.message, stack: err?.stack });
-      return NextResponse.json({ success: false, stage, errorCode: err?.code, message: err?.message, retryable: true }, { status: 500 });
-    }
+    const targetSlugId = cleanSlug(id);
+    const targetSlugName = cleanSlug(collegeName || clientCollegeName);
 
-    const studentDocsMap = new Map();
-    studentsByIdSnap.docs.forEach((d: any) => studentDocsMap.set(d.id, d));
-    if (studentsByNameSnap && "docs" in studentsByNameSnap) {
-      studentsByNameSnap.docs.forEach((d: any) => studentDocsMap.set(d.id, d));
-    }
-    const studentDocs = Array.from(studentDocsMap.values());
-    const studentIds = studentDocs.map((d: any) => d.id);
+    stage = "collectAuthAccountsToPurge";
+    const authUidsToDelete = new Set<string>();
+    const refsToDeleteMap = new Map<string, any>();
 
-    stage = "fetchExamResults";
-    let examResultsSnaps = [];
-    try {
-      if (studentIds.length > 0) {
-        // Firestore 'in' queries are limited to 10 items. So we chunk it.
-        const chunkedStudentIds = [];
-        for (let i = 0; i < studentIds.length; i += 10) {
-          chunkedStudentIds.push(studentIds.slice(i, i + 10));
-        }
-        for (const chunk of chunkedStudentIds) {
-          const results = await db.collection("exam_results").where("studentId", "in", chunk).get();
-          examResultsSnaps.push(...results.docs);
-        }
-      }
-    } catch (err: any) {
-      console.error({ route: "/api/admin/delete-college", stage, errorCode: err?.code, message: err?.message });
-      // We will continue even if fetching results partially fails, but log it.
-    }
+    // Add direct college references
+    authUidsToDelete.add(id);
+    refsToDeleteMap.set(collegeRef.path, collegeRef);
+    refsToDeleteMap.set(collegeUserDocRef.path, collegeUserDocRef);
 
-    stage = "deleteFirebaseAuthAccounts";
-    const authDeletionErrors: string[] = [];
-    const authIdsToDelete = [...studentIds, id, ...collegeAdminSnap.docs.map((d: any) => d.id)];
-
-    for (const targetAuthId of authIdsToDelete) {
+    // If college has an admin email in Firestore, lookup its Auth UID
+    if (adminEmail) {
       try {
-        await auth.deleteUser(targetAuthId);
-      } catch (err: any) {
-        if (err?.code !== "auth/user-not-found") {
-          const errorMsg = `Failed to delete Auth ${targetAuthId}: ${err?.message || String(err)}`;
-          console.error({ route: "/api/admin/delete-college", stage, target: targetAuthId, errorCode: err?.code, message: err?.message });
-          authDeletionErrors.push(errorMsg);
+        const u = await auth.getUserByEmail(adminEmail.toLowerCase().trim());
+        authUidsToDelete.add(u.uid);
+        refsToDeleteMap.set(db.collection("users").doc(u.uid).path, db.collection("users").doc(u.uid));
+      } catch (_) {}
+    }
+
+    // 1. Sweep college admin user profiles in Firestore
+    const collegeAdminUsersSnap = await db.collection("users").where("role", "==", "college_admin").get();
+    collegeAdminUsersSnap.docs.forEach((uDoc) => {
+      const uData = uDoc.data();
+      const uColId = cleanSlug(uData.collegeId);
+      const uColName = cleanSlug(uData.collegeName);
+      const uEmail = uData.email ? uData.email.toLowerCase().trim() : "";
+
+      if (
+        uDoc.id === id ||
+        (targetSlugId && uColId === targetSlugId) ||
+        (targetSlugName && uColName === targetSlugName) ||
+        (targetSlugName && uColId === targetSlugName) ||
+        (adminEmail && uEmail === adminEmail.toLowerCase().trim())
+      ) {
+        authUidsToDelete.add(uDoc.id);
+        refsToDeleteMap.set(uDoc.ref.path, uDoc.ref);
+        if (uEmail) {
+          auth.getUserByEmail(uEmail).then((u) => authUidsToDelete.add(u.uid)).catch(() => {});
         }
+      }
+    });
+
+    // 2. Sweep all students belonging to this college
+    const allStudentsSnap = await db.collection("students").get();
+    const studentIds: string[] = [];
+
+    allStudentsSnap.docs.forEach((sDoc) => {
+      const sData = sDoc.data();
+      const sColId = cleanSlug(sData.collegeId);
+      const sColName = cleanSlug(sData.collegeName);
+      const sEmail = sData.email ? sData.email.toLowerCase().trim() : "";
+
+      const matches =
+        sDoc.id === id ||
+        sData.collegeId === id ||
+        sData.collegeName === collegeName ||
+        (targetSlugId && sColId === targetSlugId) ||
+        (targetSlugId && sColName === targetSlugId) ||
+        (targetSlugName && sColId === targetSlugName) ||
+        (targetSlugName && sColName === targetSlugName);
+
+      if (matches) {
+        studentIds.push(sDoc.id);
+        authUidsToDelete.add(sDoc.id);
+        refsToDeleteMap.set(sDoc.ref.path, sDoc.ref);
+        refsToDeleteMap.set(db.collection("users").doc(sDoc.id).path, db.collection("users").doc(sDoc.id));
+
+        if (sEmail) {
+          auth.getUserByEmail(sEmail).then((u) => authUidsToDelete.add(u.uid)).catch(() => {});
+        }
+      }
+    });
+
+    // 3. Fetch departments, batches, exams, resources
+    const [departmentsSnap, batchesSnap, examsSnap, resourcesSnap] = await Promise.all([
+      db.collection("departments").get(),
+      db.collection("batches").get(),
+      db.collection("exams").get(),
+      db.collection("resources").get(),
+    ]);
+
+    departmentsSnap.docs.forEach((d) => {
+      const colId = cleanSlug(d.data().collegeId);
+      if (colId === targetSlugId || colId === targetSlugName) refsToDeleteMap.set(d.ref.path, d.ref);
+    });
+
+    batchesSnap.docs.forEach((b) => {
+      const colId = cleanSlug(b.data().collegeId);
+      if (colId === targetSlugId || colId === targetSlugName) refsToDeleteMap.set(b.ref.path, b.ref);
+    });
+
+    examsSnap.docs.forEach((e) => {
+      const colId = cleanSlug(e.data().collegeId);
+      if (colId === targetSlugId || colId === targetSlugName) refsToDeleteMap.set(e.ref.path, e.ref);
+    });
+
+    resourcesSnap.docs.forEach((r) => {
+      const colId = cleanSlug(r.data().collegeId);
+      if (colId === targetSlugId || colId === targetSlugName) refsToDeleteMap.set(r.ref.path, r.ref);
+    });
+
+    // 4. Fetch exam results for deleted students
+    if (studentIds.length > 0) {
+      for (let i = 0; i < studentIds.length; i += 10) {
+        const chunk = studentIds.slice(i, i + 10);
+        try {
+          const resultsSnap = await db.collection("exam_results").where("studentId", "in", chunk).get();
+          resultsSnap.docs.forEach((resDoc) => refsToDeleteMap.set(resDoc.ref.path, resDoc.ref));
+        } catch (_) {}
       }
     }
 
-    if (authDeletionErrors.length > 0) {
-      return NextResponse.json({
-        success: false,
-        stage,
-        errorCode: "auth/deletion-failed",
-        message: "Some Firebase Auth accounts could not be deleted",
-        details: authDeletionErrors.join(", "),
-        warning: "Some users may still be able to login. Manual Auth cleanup required.",
-        retryable: true
-      }, { status: 500 });
-    }
+    // 5. Purge Auth accounts from Firebase Auth
+    stage = "deleteFirebaseAuthAccounts";
+    const uidsList = Array.from(authUidsToDelete);
+    await Promise.all(
+      uidsList.map((uid) =>
+        auth.deleteUser(uid).catch((err: any) => {
+          if (err?.code !== "auth/user-not-found") {
+            console.warn(`Auth deletion note for UID ${uid}:`, err?.message);
+          }
+        })
+      )
+    );
 
+    // 6. Delete Storage files
     stage = "deleteStorageFiles";
     try {
       const bucket = getStorage(getAdminApp()).bucket();
       if (bucket) {
         await bucket.deleteFiles({ prefix: `colleges/${id}/` }).catch(() => {});
-        // Also delete any other common prefixes if they existed by college
       }
-    } catch (err) {
-      console.warn("Storage deletion error (ignored):", err);
-    }
+    } catch (_) {}
 
+    // 7. Delete all Firestore documents in batches
     stage = "deleteFirestoreDocuments";
-    const refsToDelete: any[] = [collegeRef, collegeUserDocRef];
-    
-    // Add all fetched collections
-    studentDocs.forEach(d => {
-      refsToDelete.push(d.ref);
-      refsToDelete.push(db.collection("users").doc(d.id));
-    });
-    departmentsSnap.docs.forEach((d: any) => refsToDelete.push(d.ref));
-    collegeAdminSnap.docs.forEach((d: any) => refsToDelete.push(d.ref));
-    batchesSnap.docs.forEach((d: any) => refsToDelete.push(d.ref));
-    examsSnap.docs.forEach((d: any) => refsToDelete.push(d.ref));
-    resourcesSnap.docs.forEach((d: any) => refsToDelete.push(d.ref));
-    examResultsSnaps.forEach(d => refsToDelete.push(d.ref));
-
-    const MAX_OPS = 500;
-    const batchPromises = [];
+    const refsToDelete = Array.from(refsToDeleteMap.values());
+    const MAX_OPS = 450;
     for (let i = 0; i < refsToDelete.length; i += MAX_OPS) {
       const chunk = refsToDelete.slice(i, i + MAX_OPS);
       const batch = db.batch();
-      for (const ref of chunk) {
-        batch.delete(ref);
-      }
-      batchPromises.push(
-        batch.commit().catch((err: any) => {
-          console.error({ route: "/api/admin/delete-college", stage: "batchCommit", errorCode: err?.code, message: err?.message });
-          throw err;
-        })
-      );
+      chunk.forEach((ref) => batch.delete(ref));
+      await batch.commit();
     }
 
-    try {
-      await Promise.all(batchPromises);
-    } catch (err: any) {
-      console.error({ route: "/api/admin/delete-college", stage, errorCode: err?.code, message: err?.message, stack: err?.stack });
-      return NextResponse.json({ success: false, stage, errorCode: err?.code, message: "Failed to delete all firestore documents.", details: err?.message, retryable: true }, { status: 500 });
-    }
-
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, purgedAuthAccounts: uidsList.length });
   } catch (err: any) {
-    console.error({ route: "/api/admin/delete-college", stage: "unhandledException", errorCode: err?.code, message: err?.message, stack: err?.stack });
+    console.error({ route: "/api/admin/delete-college", stage, errorCode: err?.code, message: err?.message, stack: err?.stack });
     return NextResponse.json(
-      { success: false, stage: "unhandledException", errorCode: err?.code, message: "Internal server error.", details: String(err), retryable: true },
+      { success: false, stage, errorCode: err?.code, message: err?.message || "Failed to delete college and clear Firebase data." },
       { status: 500 }
     );
   }
