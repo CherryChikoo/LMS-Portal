@@ -1,22 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "motion/react";
-import { GraduationCap, Plus, Building2, Layers, Users, FolderTree, ChevronRight, Trash2, Pencil, Loader2 } from "lucide-react";
+import { GraduationCap, Plus, Building2, Layers, Users, FolderTree, ChevronRight, Trash2, Pencil, Loader2, Upload, FileSpreadsheet, FolderOpen, StopCircle, Download } from "lucide-react";
 import Link from "next/link";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
-import { getAllColleges, createCollege, deleteCollege, getAllStudents, deleteStudentProfile, updateCollege, updateStudentProfile, renameCollegeAndMigrate, PREDEFINED_DEPARTMENTS, ensureGeneralDepartment } from "@/lib/services";
+import { getAllColleges, createCollege, deleteCollege, getAllStudents, deleteStudentProfile, updateCollege, updateStudentProfile, renameCollegeAndMigrate, PREDEFINED_DEPARTMENTS, ensureGeneralDepartment, createStudentAuthProfile, importStudentsCSV, parseStudentsCSV, generateCredentialsCSV } from "@/lib/services";
 import { useLMSDataSelector } from "@/lib/data/use-lms-data";
 import { optimisticDeleteCollege } from "@/lib/data/lms-store";
 import { markCollegeAsDeleted } from "@/lib/hierarchy/hierarchy-data";
 import { getAuth } from "firebase/auth";
 import { getDocuments, where } from "@/lib/firebase/firestore";
-import type { College, Student } from "@/types";
+import type { College, Student, CSVStudentRow, CSVImportSummary } from "@/types";
 import { useErrorHandler } from "@/providers/error-provider";
 
 export default function CollegesPage() {
@@ -51,6 +51,147 @@ export default function CollegesPage() {
   const [editExternalName, setEditExternalName] = useState("");
   const [updatingExternal, setUpdatingExternal] = useState(false);
   const [successPopup, setSuccessPopup] = useState("");
+
+  // College Card Enroll & Import State
+  const [selectedCollegeForAction, setSelectedCollegeForAction] = useState<College | { id: string; name: string } | null>(null);
+  const [showCardEnrollModal, setShowCardEnrollModal] = useState(false);
+  const [cardEnrollName, setCardEnrollName] = useState("");
+  const [cardEnrollEmail, setCardEnrollEmail] = useState("");
+  const [cardEnrollDept, setCardEnrollDept] = useState("");
+  const [cardEnrollYear, setCardEnrollYear] = useState("1st Year");
+  const [cardEnrollSection, setCardEnrollSection] = useState("A");
+  const [cardCustomSection, setCardCustomSection] = useState("");
+  const [cardEnrollBatch, setCardEnrollBatch] = useState("General Cohort");
+  const [cardEnrolling, setCardEnrolling] = useState(false);
+  const [cardEnrollError, setCardEnrollError] = useState<string | null>(null);
+
+  const [showCardImportModal, setShowCardImportModal] = useState(false);
+  const [cardImporting, setCardImporting] = useState(false);
+  const [cardCancelling, setCardCancelling] = useState(false);
+  const [cardImportProgress, setCardImportProgress] = useState<{ processed: number; total: number } | null>(null);
+  const [cardImportSummary, setCardImportSummary] = useState<CSVImportSummary | null>(null);
+  const cardCancelImportRef = useRef(false);
+
+  const handleOpenEnrollForCollege = (col: College | { id: string; name: string }) => {
+    setSelectedCollegeForAction(col);
+    const depts = (col as College).departments || ["Computer Science & Engineering (CSE)"];
+    setCardEnrollDept(depts[0] || "Computer Science & Engineering (CSE)");
+    setCardEnrollName("");
+    setCardEnrollEmail("");
+    setCardCustomSection("");
+    setCardEnrollError(null);
+    setShowCardEnrollModal(true);
+  };
+
+  const handleOpenImportForCollege = (col: College | { id: string; name: string }) => {
+    setSelectedCollegeForAction(col);
+    setCardImportSummary(null);
+    setShowCardImportModal(true);
+  };
+
+  const handleCreateStudentFromCard = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedCollegeForAction || !cardEnrollName || !cardEnrollEmail || !cardEnrollDept) return;
+    setCardEnrolling(true);
+    setCardEnrollError(null);
+    try {
+      await createStudentAuthProfile({
+        name: cardEnrollName.trim(),
+        email: cardEnrollEmail.toLowerCase().trim(),
+        collegeId: selectedCollegeForAction.id,
+        collegeName: selectedCollegeForAction.name,
+        department: cardEnrollDept,
+        academicYear: cardEnrollYear,
+        section: cardEnrollSection === "CUSTOM" ? cardCustomSection.trim() || "A" : cardEnrollSection,
+        batch: cardEnrollBatch,
+      });
+
+      const fullCol = colleges.find((c) => c.id === selectedCollegeForAction.id);
+      if (fullCol) {
+        await updateCollege(fullCol.id, {
+          studentCount: (fullCol.studentCount || 0) + 1,
+        });
+      }
+
+      toast.success(`Successfully enrolled ${cardEnrollName} in ${selectedCollegeForAction.name}.`);
+      setShowCardEnrollModal(false);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setCardEnrollError(msg || "Failed to enroll student.");
+    } finally {
+      setCardEnrolling(false);
+    }
+  };
+
+  const handleFileUploadFromCard = async (filesOrEvent: React.ChangeEvent<HTMLInputElement> | File[]) => {
+    let files: File[] = [];
+    if (Array.isArray(filesOrEvent)) {
+      files = filesOrEvent;
+    } else if (filesOrEvent.target.files) {
+      files = Array.from(filesOrEvent.target.files);
+      filesOrEvent.target.value = "";
+    }
+
+    if (files.length === 0 || !selectedCollegeForAction) return;
+
+    cardCancelImportRef.current = false;
+    setCardCancelling(false);
+    setCardImporting(true);
+    setCardImportSummary(null);
+    setCardImportProgress(null);
+
+    const allRows: CSVStudentRow[] = [];
+    for (const file of files) {
+      const name = file.name.toLowerCase();
+      if (name.endsWith(".csv") || name.endsWith(".txt") || name.endsWith(".json") || !name.includes(".")) {
+        const text = await file.text();
+        const rows = parseStudentsCSV(text);
+        rows.forEach((r) => {
+          if (!r.college || r.college === "Unassigned") r.college = selectedCollegeForAction.name;
+        });
+        allRows.push(...rows);
+      }
+    }
+
+    if (allRows.length === 0) {
+      toast.error("No valid student rows with email addresses found.");
+      setCardImporting(false);
+      return;
+    }
+
+    try {
+      setCardImportProgress({ processed: 0, total: allRows.length });
+      const summary = await importStudentsCSV(
+        allRows,
+        (processed, total) => {
+          setCardImportProgress({ processed, total });
+        },
+        () => cardCancelImportRef.current
+      );
+      setCardImportSummary(summary);
+      toast.success(`Import complete for ${selectedCollegeForAction.name}.`);
+    } catch (err) {
+      console.error("Import error", err);
+      toast.error("Failed to import CSV.");
+    } finally {
+      setCardImporting(false);
+      setCardCancelling(false);
+      setCardImportProgress(null);
+    }
+  };
+
+  const handleDownloadCardCredentials = () => {
+    if (!cardImportSummary) return;
+    const csvContent = generateCredentialsCSV(cardImportSummary.results);
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `${selectedCollegeForAction?.name || "college"}_credentials_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
 
 
@@ -654,14 +795,26 @@ export default function CollegesPage() {
                     </div>
                   </div>
 
-                  <div className="pt-2 border-t border-border flex items-center justify-between text-xs text-muted-foreground">
-                    <span className="flex items-center gap-1">
-                      <Layers className="w-3.5 h-3.5" />
-                      <span>4 Years • A-D Sections</span>
-                    </span>
+                  <div className="pt-2.5 border-t border-border flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEnrollForCollege(col)}
+                        className="px-2.5 py-1 rounded-lg bg-brand/10 hover:bg-brand/20 text-brand font-bold text-[11px] flex items-center gap-1 transition-all"
+                      >
+                        <Plus className="w-3 h-3" /> Enroll
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenImportForCollege(col)}
+                        className="px-2.5 py-1 rounded-lg bg-accent hover:bg-accent/80 text-foreground font-bold text-[11px] flex items-center gap-1 transition-all border border-border/50"
+                      >
+                        <Upload className="w-3 h-3 text-brand" /> Import CSV
+                      </button>
+                    </div>
                     <Link
                       href={`/colleges/${col.id}`}
-                      className="text-brand font-semibold flex items-center gap-0.5 hover:underline cursor-pointer"
+                      className="text-brand font-semibold flex items-center gap-0.5 hover:underline cursor-pointer text-[11px]"
                     >
                       Manage Students <ChevronRight className="w-3.5 h-3.5" />
                     </Link>
@@ -814,14 +967,26 @@ export default function CollegesPage() {
                     </div>
                   </div>
 
-                  <div className="pt-2 border-t border-border flex items-center justify-between text-xs text-muted-foreground mt-4">
-                    <span className="flex items-center gap-1">
-                      <Layers className="w-3.5 h-3.5" />
-                      <span>External Origin</span>
-                    </span>
+                  <div className="pt-2.5 border-t border-border flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground mt-4">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEnrollForCollege(col)}
+                        className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 font-bold text-[11px] flex items-center gap-1 transition-all border border-amber-500/20"
+                      >
+                        <Plus className="w-3 h-3" /> Enroll
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenImportForCollege(col)}
+                        className="px-2.5 py-1 rounded-lg bg-accent hover:bg-accent/80 text-foreground font-bold text-[11px] flex items-center gap-1 transition-all border border-border/50"
+                      >
+                        <Upload className="w-3 h-3 text-amber-500" /> Import CSV
+                      </button>
+                    </div>
                     <Link
                       href={col.isPromoted ? `/colleges/${col.id}` : `/colleges/${encodeURIComponent(col.name)}`}
-                      className="text-amber-500 font-semibold flex items-center gap-0.5 hover:underline cursor-pointer"
+                      className="text-amber-500 font-semibold flex items-center gap-0.5 hover:underline cursor-pointer text-[11px]"
                     >
                       Manage Students <ChevronRight className="w-3.5 h-3.5" />
                     </Link>
@@ -1180,6 +1345,240 @@ export default function CollegesPage() {
                 <h3 className="text-lg font-bold text-foreground">Success</h3>
                 <p className="text-sm text-muted-foreground mt-1">{successPopup}</p>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* College Card Enroll Modal */}
+      <AnimatePresence>
+        {showCardEnrollModal && selectedCollegeForAction && (
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-5"
+            >
+              <div className="flex items-center justify-between border-b border-border pb-3">
+                <div>
+                  <h3 className="text-base font-bold text-foreground">Enroll Student in {selectedCollegeForAction.name}</h3>
+                  <p className="text-[11px] text-muted-foreground">Pre-configured to create student in this college</p>
+                </div>
+                <button onClick={() => setShowCardEnrollModal(false)} className="text-muted-foreground hover:text-foreground">✕</button>
+              </div>
+
+              <form onSubmit={handleCreateStudentFromCard} className="space-y-4 text-xs">
+                <div className="space-y-1.5">
+                  <label className="font-semibold text-foreground">Student Name</label>
+                  <input
+                    type="text"
+                    value={cardEnrollName}
+                    onChange={(e) => setCardEnrollName(e.target.value)}
+                    required
+                    placeholder="e.g. Ananya Rao"
+                    className="w-full h-9 px-3 rounded-xl border border-border bg-background text-foreground"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="font-semibold text-foreground">Email Address</label>
+                  <input
+                    type="email"
+                    value={cardEnrollEmail}
+                    onChange={(e) => setCardEnrollEmail(e.target.value)}
+                    required
+                    placeholder="ananya@college.edu"
+                    className="w-full h-9 px-3 rounded-xl border border-border bg-background text-foreground"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="font-semibold text-foreground">Department</label>
+                    <select
+                      value={cardEnrollDept}
+                      onChange={(e) => setCardEnrollDept(e.target.value)}
+                      required
+                      className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground font-semibold"
+                    >
+                      {((selectedCollegeForAction as College).departments || ["Computer Science & Engineering (CSE)", "General"]).map((d) => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="font-semibold text-foreground">Academic Year</label>
+                    <select
+                      value={cardEnrollYear}
+                      onChange={(e) => setCardEnrollYear(e.target.value)}
+                      className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground font-semibold"
+                    >
+                      <option value="1st Year">1st Year</option>
+                      <option value="2nd Year">2nd Year</option>
+                      <option value="3rd Year">3rd Year</option>
+                      <option value="4th Year">4th Year</option>
+                    </select>
+                  </div>
+                </div>
+
+                {cardEnrollError && (
+                  <div className="bg-rose-500/10 border border-rose-500/30 text-rose-500 p-3 rounded-xl text-xs font-medium">
+                    {cardEnrollError}
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2 pt-3 border-t border-border">
+                  <Button type="button" variant="outline" onClick={() => setShowCardEnrollModal(false)}>Cancel</Button>
+                  <Button type="submit" disabled={cardEnrolling} className="bg-brand text-brand-foreground">
+                    {cardEnrolling ? "Enrolling..." : "Enroll Student"}
+                  </Button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* College Card CSV Import Modal */}
+      <AnimatePresence>
+        {showCardImportModal && selectedCollegeForAction && (
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-5"
+            >
+              <div className="flex items-center justify-between border-b border-border pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-brand/10 text-brand flex items-center justify-center font-bold">
+                    <Upload className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-foreground">Import CSV for {selectedCollegeForAction.name}</h3>
+                    <p className="text-[11px] text-muted-foreground">Rows imported here are automatically assigned to {selectedCollegeForAction.name}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowCardImportModal(false);
+                    setCardImportSummary(null);
+                  }}
+                  className="text-muted-foreground hover:text-foreground text-sm"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {!cardImportSummary && (
+                <div className="space-y-4">
+                  {cardImporting ? (
+                    <div className="p-8 text-center space-y-4 bg-accent/30 rounded-2xl border border-border">
+                      <div className="w-10 h-10 border-2 border-brand border-t-transparent rounded-full animate-spin mx-auto" />
+                      <div className="space-y-1">
+                        <p className="text-sm font-bold text-foreground">Importing Students...</p>
+                        {cardImportProgress && (
+                          <p className="text-xs font-semibold text-brand">
+                            Processed {cardImportProgress.processed} of {cardImportProgress.total} ({Math.round((cardImportProgress.processed / cardImportProgress.total) * 100)}%)
+                          </p>
+                        )}
+                      </div>
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        disabled={cardCancelling}
+                        onClick={() => {
+                          setCardCancelling(true);
+                          cardCancelImportRef.current = true;
+                        }}
+                        className="flex items-center gap-1.5 mx-auto bg-destructive/20 hover:bg-destructive text-destructive hover:text-white border border-destructive/30 text-xs font-semibold"
+                      >
+                        <StopCircle className="w-3.5 h-3.5" />
+                        <span>{cardCancelling ? "Stopping..." : "Stop Import"}</span>
+                      </Button>
+                    </div>
+                  ) : (
+                    <div
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (e.dataTransfer.files.length > 0) {
+                          handleFileUploadFromCard(Array.from(e.dataTransfer.files));
+                        }
+                      }}
+                      className="border-2 border-dashed border-border hover:border-brand/70 rounded-2xl p-8 text-center space-y-4 transition-colors bg-background/50"
+                    >
+                      <FileSpreadsheet className="w-10 h-10 text-brand mx-auto" />
+                      <div className="space-y-1">
+                        <p className="text-sm font-semibold text-foreground">Select or Drag & Drop CSV / Data File(s)</p>
+                        <p className="text-xs text-muted-foreground">Supported formats: .csv, .txt with student Name & Email columns</p>
+                      </div>
+                      <div className="flex items-center justify-center gap-3 pt-2">
+                        <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-brand text-brand-foreground text-xs font-bold cursor-pointer hover:bg-brand/90 transition-all shadow-sm">
+                          <FileSpreadsheet className="w-4 h-4 shrink-0" />
+                          <span>Select CSV File(s)</span>
+                          <input
+                            type="file"
+                            accept=".csv,.txt,.json,text/csv,text/plain,application/json,*"
+                            multiple
+                            onChange={handleFileUploadFromCard}
+                            disabled={cardImporting}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {cardImportSummary && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+                    <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                      <span className="text-[11px] text-muted-foreground font-medium">Created</span>
+                      <p className="text-xl font-bold text-emerald-500">{cardImportSummary.createdCount}</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                      <span className="text-[11px] text-muted-foreground font-medium">Duplicates</span>
+                      <p className="text-xl font-bold text-amber-500">{cardImportSummary.duplicateCount}</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-slate-500/10 border border-slate-500/20">
+                      <span className="text-[11px] text-muted-foreground font-medium">Skipped</span>
+                      <p className="text-xl font-bold text-slate-400">{cardImportSummary.skippedCount}</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20">
+                      <span className="text-[11px] text-muted-foreground font-medium">Failed</span>
+                      <p className="text-xl font-bold text-rose-500">{cardImportSummary.failedCount}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-3 border-t border-border">
+                    <Button
+                      type="button"
+                      onClick={handleDownloadCardCredentials}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Download Credentials CSV</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setShowCardImportModal(false);
+                        setCardImportSummary(null);
+                      }}
+                      className="text-xs"
+                    >
+                      Done
+                    </Button>
+                  </div>
+                </div>
+              )}
             </motion.div>
           </div>
         )}

@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState, use } from "react";
+import { useEffect, useMemo, useState, use, useRef } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { useErrorHandler } from "@/providers/error-provider";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import { ArrowLeft, Building2, FolderTree, Users, Plus, Trash2, Search, CheckCircle2, Pencil, Ban } from "lucide-react";
+import { ArrowLeft, Building2, FolderTree, Users, Plus, Trash2, Search, CheckCircle2, Pencil, Ban, Upload, FileSpreadsheet, FolderOpen, StopCircle, Download, X } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { FilterDropdown } from "@/components/shared/filter-dropdown";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -14,10 +14,10 @@ import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
 import { uniqueOptions } from "@/lib/utils/array";
-import { getCollegeById, updateCollege, createCollege, getAllStudents, createStudentProfile, createStudentAuthProfile, getAllBatches, deleteStudentProfile, getStudentByEmail, getStudentsByCollege, updateStudentProfile, deleteDepartmentAndMigrate, renameDepartmentAndMigrate, PREDEFINED_DEPARTMENTS, ensureGeneralDepartment } from "@/lib/services";
+import { getCollegeById, updateCollege, createCollege, getAllStudents, createStudentProfile, createStudentAuthProfile, getAllBatches, deleteStudentProfile, getStudentByEmail, getStudentsByCollege, updateStudentProfile, deleteDepartmentAndMigrate, renameDepartmentAndMigrate, PREDEFINED_DEPARTMENTS, ensureGeneralDepartment, importStudentsCSV, parseStudentsCSV, generateCredentialsCSV, formatAuthError } from "@/lib/services";
 import { getDocuments, where } from "@/lib/firebase/firestore";
 import { matchesYearFilter } from "@/lib/hierarchy/hierarchy-data";
-import type { College, Student, Batch } from "@/types";
+import type { College, Student, Batch, CSVStudentRow, CSVImportSummary } from "@/types";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -114,6 +114,84 @@ function getYearBadgeStyle(year?: string) {
   const [editStudBatch, setEditStudBatch] = useState("General Cohort");
   const [savingEditStudent, setSavingEditStudent] = useState(false);
   const [editStudentError, setEditStudentError] = useState<string | null>(null);
+
+  // CSV Import State
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [importProgress, setImportProgress] = useState<{ processed: number; total: number } | null>(null);
+  const [importSummary, setImportSummary] = useState<CSVImportSummary | null>(null);
+  const cancelImportRef = useRef(false);
+
+  const handleFileUpload = async (filesOrEvent: React.ChangeEvent<HTMLInputElement> | File[]) => {
+    let files: File[] = [];
+    if (Array.isArray(filesOrEvent)) {
+      files = filesOrEvent;
+    } else if (filesOrEvent.target.files) {
+      files = Array.from(filesOrEvent.target.files);
+      filesOrEvent.target.value = "";
+    }
+
+    if (files.length === 0 || !college) return;
+
+    cancelImportRef.current = false;
+    setCancelling(false);
+    setImporting(true);
+    setImportSummary(null);
+    setImportProgress(null);
+
+    const allRows: CSVStudentRow[] = [];
+    for (const file of files) {
+      const name = file.name.toLowerCase();
+      if (name.endsWith(".csv") || name.endsWith(".txt") || name.endsWith(".json") || !name.includes(".")) {
+        const text = await file.text();
+        const rows = parseStudentsCSV(text);
+        rows.forEach((r) => {
+          if (!r.college || r.college === "Unassigned") r.college = college.name;
+        });
+        allRows.push(...rows);
+      }
+    }
+
+    if (allRows.length === 0) {
+      toast.error("No valid student rows with email addresses found in the selected file(s)/folder.");
+      setImporting(false);
+      return;
+    }
+
+    try {
+      setImportProgress({ processed: 0, total: allRows.length });
+      const summary = await importStudentsCSV(
+        allRows,
+        (processed, total) => {
+          setImportProgress({ processed, total });
+        },
+        () => cancelImportRef.current
+      );
+      setImportSummary(summary);
+      await refreshData();
+    } catch (err) {
+      console.error("Import error", err);
+      toast.error("Failed to import students.");
+    } finally {
+      setImporting(false);
+      setCancelling(false);
+      setImportProgress(null);
+    }
+  };
+
+  const handleDownloadCredentials = () => {
+    if (!importSummary) return;
+    const csvContent = generateCredentialsCSV(importSummary.results);
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `${college?.name || "college"}_student_credentials_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   useEffect(() => {
     const loadCollege = async () => {
@@ -644,11 +722,11 @@ function getYearBadgeStyle(year?: string) {
         title={`${college.name} Hub`}
         description={`Manage academic departments, sections, and student enrollment inside ${college.name}.`}
         actions={
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
             <Button
               onClick={() => setShowAddDeptModal(true)}
               variant="outline"
-              className="border border-border hover:bg-accent flex items-center gap-2 text-xs"
+              className="border border-border hover:bg-accent flex items-center gap-2 text-xs font-semibold h-10 px-4 rounded-xl"
             >
               <FolderTree className="w-4 h-4 text-brand" />
               <span>+ Add Department</span>
@@ -659,10 +737,20 @@ function getYearBadgeStyle(year?: string) {
                 setEnrollError(null);
                 setShowEnrollModal(true);
               }}
-              className="bg-brand hover:bg-brand/90 text-brand-foreground flex items-center gap-2 text-xs"
+              className="bg-brand hover:bg-brand/90 text-brand-foreground flex items-center gap-2 text-xs font-semibold h-10 px-4 rounded-xl"
             >
               <Plus className="w-4 h-4" />
               <span>Enroll Student in College</span>
+            </Button>
+            <Button
+              onClick={() => {
+                setImportSummary(null);
+                setShowImportModal(true);
+              }}
+              className="bg-brand/10 hover:bg-brand/20 border-0 text-brand flex items-center gap-2 text-xs font-bold h-10 px-4 rounded-xl"
+            >
+              <Upload className="w-4 h-4 shrink-0" />
+              <span>Import CSV</span>
             </Button>
           </div>
         }
@@ -1404,6 +1492,197 @@ function getYearBadgeStyle(year?: string) {
                   </Button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Import CSV Modal */}
+      <AnimatePresence>
+        {showImportModal && (
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-5"
+            >
+              <div className="flex items-center justify-between border-b border-border pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-brand/10 text-brand flex items-center justify-center font-bold">
+                    <Upload className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-foreground">Import CSV to {college?.name}</h3>
+                    <p className="text-[11px] text-muted-foreground">Upload CSV file(s) to automatically create & enroll students in {college?.name}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowImportModal(false);
+                    setImportSummary(null);
+                  }}
+                  className="text-muted-foreground hover:text-foreground text-sm"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {!importSummary && (
+                <div className="space-y-4">
+                  {importing ? (
+                    <div className="p-8 text-center space-y-4 bg-accent/30 rounded-2xl border border-border">
+                      <div className="w-10 h-10 border-2 border-brand border-t-transparent rounded-full animate-spin mx-auto" />
+                      <div className="space-y-1">
+                        <p className="text-sm font-bold text-foreground">
+                          Importing & Provisioning Accounts...
+                        </p>
+                        {importProgress && (
+                          <p className="text-xs font-semibold text-brand">
+                            Processed {importProgress.processed} of {importProgress.total} students ({Math.round((importProgress.processed / importProgress.total) * 100)}%)
+                          </p>
+                        )}
+                      </div>
+                      {importProgress && (
+                        <div className="w-full max-w-xs bg-accent rounded-full h-2 mx-auto overflow-hidden">
+                          <div
+                            className="bg-brand h-full transition-all duration-300"
+                            style={{ width: `${Math.round((importProgress.processed / importProgress.total) * 100)}%` }}
+                          />
+                        </div>
+                      )}
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        disabled={cancelling}
+                        onClick={() => {
+                          setCancelling(true);
+                          cancelImportRef.current = true;
+                        }}
+                        className="flex items-center gap-1.5 mx-auto bg-destructive/20 hover:bg-destructive text-destructive hover:text-white border border-destructive/30 text-xs font-semibold"
+                      >
+                        <StopCircle className="w-3.5 h-3.5" />
+                        <span>{cancelling ? "Stopping..." : "Stop Import"}</span>
+                      </Button>
+                    </div>
+                  ) : (
+                    <div
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (e.dataTransfer.files.length > 0) {
+                          handleFileUpload(Array.from(e.dataTransfer.files));
+                        }
+                      }}
+                      className="border-2 border-dashed border-border hover:border-brand/70 rounded-2xl p-8 text-center space-y-4 transition-colors bg-background/50"
+                    >
+                      <FileSpreadsheet className="w-10 h-10 text-brand mx-auto" />
+                      <div className="space-y-1">
+                        <p className="text-sm font-semibold text-foreground">Select or Drag & Drop CSV / Data File(s)</p>
+                        <p className="text-xs text-muted-foreground">Supported formats: .csv, .txt with Name, Email, Dept, Year columns</p>
+                      </div>
+                      <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                        <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-brand text-brand-foreground text-xs font-bold cursor-pointer hover:bg-brand/90 transition-all shadow-sm">
+                          <FileSpreadsheet className="w-4 h-4 shrink-0" />
+                          <span>Select CSV File(s)</span>
+                          <input
+                            type="file"
+                            accept=".csv,.txt,.json,text/csv,text/plain,application/json,*"
+                            multiple
+                            onChange={handleFileUpload}
+                            disabled={importing}
+                            className="hidden"
+                          />
+                        </label>
+                        <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent text-foreground border border-border text-xs font-bold cursor-pointer hover:bg-accent/80 transition-all shadow-sm">
+                          <FolderOpen className="w-4 h-4 text-brand shrink-0" />
+                          <span>Select Folder</span>
+                          <input
+                            type="file"
+                            {...({ webkitdirectory: "", directory: "" } as React.InputHTMLAttributes<HTMLInputElement>)}
+                            multiple
+                            onChange={handleFileUpload}
+                            disabled={importing}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {importSummary && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+                    <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                      <span className="text-[11px] text-muted-foreground font-medium">Created</span>
+                      <p className="text-xl font-bold text-emerald-500">{importSummary.createdCount}</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                      <span className="text-[11px] text-muted-foreground font-medium">Duplicates</span>
+                      <p className="text-xl font-bold text-amber-500">{importSummary.duplicateCount}</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-slate-500/10 border border-slate-500/20">
+                      <span className="text-[11px] text-muted-foreground font-medium">Skipped</span>
+                      <p className="text-xl font-bold text-slate-400">{importSummary.skippedCount}</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20">
+                      <span className="text-[11px] text-muted-foreground font-medium">Failed</span>
+                      <p className="text-xl font-bold text-rose-500">{importSummary.failedCount}</p>
+                    </div>
+                  </div>
+
+                  <div className="max-h-48 overflow-y-auto rounded-xl border border-border text-xs bg-background">
+                    <table className="w-full text-left border-collapse">
+                      <thead className="bg-card text-foreground font-bold border-b border-border sticky top-0 z-20">
+                        <tr>
+                          <th className="px-3 py-2">Name</th>
+                          <th className="px-3 py-2">Email</th>
+                          <th className="px-3 py-2">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {importSummary.results.map((res, i) => (
+                          <tr key={i} className="hover:bg-muted/40">
+                            <td className="px-3 py-2 font-medium text-foreground">{res.name}</td>
+                            <td className="px-3 py-2 font-mono text-muted-foreground">{res.email}</td>
+                            <td className="px-3 py-2">
+                              {res.status === "created" && <span className="text-emerald-500 font-bold">Created</span>}
+                              {res.status === "duplicate" && <span className="text-amber-500 font-bold">Duplicate</span>}
+                              {res.status === "skipped" && <span className="text-slate-400 font-semibold">Skipped</span>}
+                              {res.status === "failed" && <span className="text-rose-500 font-bold">Failed</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-3 border-t border-border">
+                    <Button
+                      type="button"
+                      onClick={handleDownloadCredentials}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Download Credentials CSV</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setShowImportModal(false);
+                        setImportSummary(null);
+                      }}
+                      className="text-xs"
+                    >
+                      Done
+                    </Button>
+                  </div>
+                </div>
+              )}
             </motion.div>
           </div>
         )}
