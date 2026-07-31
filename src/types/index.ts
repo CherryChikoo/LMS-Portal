@@ -110,6 +110,7 @@ export type AssignmentTargetType = "college" | "department" | "year" | "section"
 
 export interface AssignmentTarget {
   type: AssignmentTargetType;
+  level?: string;
   ids: string[];
   names?: string[];
   // Composite filter fields (used when type === "composite")

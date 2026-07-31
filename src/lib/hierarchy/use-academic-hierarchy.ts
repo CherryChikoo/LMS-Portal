@@ -327,38 +327,51 @@ export function useAcademicHierarchy(options: UseAcademicHierarchyOptions = {}):
 
   // Determine the most specific assignment level matching the current filters.
   const buildAssignmentTarget = useCallback((): AssignmentTarget => {
-    const collegeId = filters.collegeId;
+    const isClean = (v?: string) => {
+      if (!v) return false;
+      const lower = v.toLowerCase().trim();
+      return lower !== "" && lower !== "all" && lower !== "all_departments" && lower !== "global";
+    };
+
+    const collegeId = isClean(filters.collegeId) ? filters.collegeId : undefined;
     const collegeName = collegeId
       ? hierarchy?.collegeMap.get(collegeId)?.name || resolveInstitutionName(hierarchy, collegeId)
       : undefined;
 
+    const dept = isClean(filters.department) ? filters.department : undefined;
+    const year = isClean(filters.academicYear) ? filters.academicYear : undefined;
+    const sec = isClean(filters.section) ? filters.section : undefined;
+    const batchId = isClean(filters.batchId) ? filters.batchId : undefined;
+    const studentId = isClean(filters.studentId) ? filters.studentId : undefined;
+
     let level: AssignmentLevel = "global";
-    if (filters.studentId) level = "student";
-    else if (filters.batchId) level = "batch";
-    else if (filters.section) level = "section";
-    else if (filters.academicYear) level = "academicYear";
-    else if (filters.department) level = "department";
+    if (studentId) level = "student";
+    else if (batchId) level = "batch";
+    else if (sec) level = "section";
+    else if (year) level = "academicYear";
+    else if (dept) level = "department";
     else if (collegeId) {
       level = collegeId === GLOBAL_INSTITUTION_ID ? "global" : "institution";
     }
 
-    const batch = filters.batchId ? hierarchy?.batchMap.get(filters.batchId) : undefined;
-    const student = filters.studentId
-      ? (hierarchy?.students as Student[])?.find((s: Student) => s.id === filters.studentId)
+    const batch = batchId ? hierarchy?.batchMap.get(batchId) : undefined;
+    const student = studentId
+      ? (hierarchy?.students as Student[])?.find((s: Student) => s.id === studentId)
       : undefined;
 
-    const target: AssignmentTarget = { 
+    const target: AssignmentTarget = {
+      level,
       type: "composite", 
       ids: ["composite"] 
     };
     if (collegeId) target.collegeId = collegeId;
     if (collegeName) target.collegeName = collegeName;
-    if (filters.department) target.department = filters.department;
-    if (filters.academicYear) target.academicYear = filters.academicYear;
-    if (filters.section) target.section = filters.section;
-    if (filters.batchId) target.batchId = filters.batchId;
+    if (dept) target.department = dept;
+    if (year) target.academicYear = year;
+    if (sec) target.section = sec;
+    if (batchId) target.batchId = batchId;
     if (batch?.name) target.batchName = batch.name;
-    if (filters.studentId) target.studentId = filters.studentId;
+    if (studentId) target.studentId = studentId;
     if (student?.name) target.studentName = student.name;
     return target;
   }, [

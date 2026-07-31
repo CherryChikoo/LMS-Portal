@@ -6,7 +6,21 @@ function normalize(value: unknown): string {
 }
 
 function isAllValue(value: string): boolean {
-  return !value || value === "all" || value === "all colleges" || value === "global";
+  if (!value) return true;
+  const v = value.toLowerCase().trim();
+  return (
+    v === "" ||
+    v === "all" ||
+    v === "all colleges" ||
+    v === "all departments" ||
+    v === "all academic years" ||
+    v === "all sections" ||
+    v === "all batches" ||
+    v === "all students" ||
+    v === "global" ||
+    v === "composite" ||
+    v === "*"
+  );
 }
 
 /**

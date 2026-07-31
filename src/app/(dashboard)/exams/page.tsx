@@ -303,16 +303,24 @@ export default function ExamsPage() {
       console.error("Failed to parse user session for college assignment:", e);
     }
 
+    const isCleanVal = (v?: string) => {
+      if (!v) return undefined;
+      const lower = v.toLowerCase().trim();
+      if (lower === "" || lower === "all" || lower === "all_departments" || lower === "global") return undefined;
+      return v;
+    };
+
     const compositeTarget: AssignmentTarget = {
+      level: builtTarget.level || "institution",
       type: "composite",
       ids: ["composite"],
-      collegeId: targetCollegeId,
-      collegeName: targetCollegeName,
-      department: builtTarget.department,
-      academicYear: builtTarget.academicYear,
-      section: builtTarget.section,
-      batchId: builtTarget.batchId,
-      batchName: builtTarget.batchName,
+      collegeId: isCleanVal(targetCollegeId),
+      collegeName: isCleanVal(targetCollegeName),
+      department: isCleanVal(builtTarget.department),
+      academicYear: isCleanVal(builtTarget.academicYear),
+      section: isCleanVal(builtTarget.section),
+      batchId: isCleanVal(builtTarget.batchId),
+      batchName: isCleanVal(builtTarget.batchName),
     };
 
     const startDt = scheduleMode === "scheduled" && startTimeStr ? new Date(startTimeStr) : null;
