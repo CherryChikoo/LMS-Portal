@@ -5,7 +5,7 @@ import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { useErrorHandler } from "@/providers/error-provider";
-import { ClipboardList, Plus, FileCode, Play, Eye, Edit3, Trash2, Target, Clock, CheckCircle2, ArrowLeft, ArrowRight, Sparkles, Send, Search, Calendar, Building2, Ban, Zap } from "lucide-react";
+import { ClipboardList, Plus, FileCode, Play, Eye, Edit3, Trash2, Target, Clock, CheckCircle2, ArrowLeft, ArrowRight, Sparkles, Send, Search, Calendar, Building2, Ban, Zap, Globe } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
@@ -394,7 +394,13 @@ export default function ExamsPage() {
     }
   };
 
-  const handleExpire = (id: string) => {
+  const handleExpire = (exam: Exam) => {
+    const tCol = (exam as any).collegeId || exam.targets?.[0]?.collegeId;
+    const isGlobal = !tCol || tCol === "global" || tCol === "GLOBAL" || tCol === "all" || tCol === "ALL";
+    if (userRole === "college_admin" && isGlobal) {
+      toast.error("Global assignments are managed system-wide and cannot be expired by College Admins.");
+      return;
+    }
     setConfirmConfig({
       isOpen: true,
       title: "Expire Assessment",
@@ -402,7 +408,7 @@ export default function ExamsPage() {
       variant: "warning",
       onConfirm: async () => {
         try {
-          await expireExam(id);
+          await expireExam(exam.id);
           toast.success("Assessment expired successfully");
         } catch (err) {
           console.error("Failed to expire exam:", err);
@@ -412,7 +418,13 @@ export default function ExamsPage() {
     });
   };
 
-  const handleDeleteExam = (id: string) => {
+  const handleDeleteExam = (exam: Exam) => {
+    const tCol = (exam as any).collegeId || exam.targets?.[0]?.collegeId;
+    const isGlobal = !tCol || tCol === "global" || tCol === "GLOBAL" || tCol === "all" || tCol === "ALL";
+    if (userRole === "college_admin" && isGlobal) {
+      toast.error("Global assignments are managed system-wide and cannot be deleted by College Admins.");
+      return;
+    }
     setConfirmConfig({
       isOpen: true,
       title: "Delete Assessment",
@@ -420,7 +432,7 @@ export default function ExamsPage() {
       variant: "destructive",
       onConfirm: async () => {
         try {
-          await deleteExam(id);
+          await deleteExam(exam.id);
           toast.success("Assessment deleted successfully");
         } catch (err) {
           console.error("Failed to delete exam:", err);
@@ -693,7 +705,11 @@ export default function ExamsPage() {
               const effStatus = getEffectiveExamStatus(exam);
               const att = getStudentAttemptForExam(exam.id);
 
+              const tCol = (exam as any).collegeId || exam.targets?.[0]?.collegeId;
+              const isGlobalAssignment = !tCol || tCol === "global" || tCol === "GLOBAL" || tCol === "all" || tCol === "ALL";
+
               const getExamTargetDisplay = () => {
+                if (isGlobalAssignment) return "Global Assignment (All Colleges)";
                 const t = exam.targets?.[0];
                 if (!t) return "All Students";
                 // New hierarchy shape: targets carry a `level` field (global /
@@ -913,31 +929,40 @@ export default function ExamsPage() {
                   className="group relative rounded-xl border border-gray-200 bg-white hover:border-gray-300 dark:border-gray-800 dark:bg-[#0B0F15] dark:hover:border-gray-600 p-6 flex flex-col justify-between gap-5 shadow-sm transition-colors duration-200"
                 >
                   <div className="space-y-4">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className={`px-3 py-1 rounded-full text-[11px] font-extrabold tracking-wide uppercase flex items-center gap-1.5 ${
-                        userRole === "student" ? studentBadgeColor :
-                        (effStatus === "active" && !att
-                          ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400"
-                          : att
-                          ? "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400"
-                          : effStatus === "expired" || effStatus === "completed" || effStatus === "cancelled"
-                          ? "bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-900/50"
-                          : effStatus === "scheduled"
-                          ? "bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-400"
-                          : "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400")
-                      }`}>
-                        {userRole === "student" ? (
-                          <>
-                            {(studentBadgeText === "ACTIVE" || studentBadgeText === "AVAILABLE") && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse" />}
-                            {studentBadgeText}
-                          </>
-                        ) : (
-                          <>
-                            {effStatus === "active" && !att && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse" />}
-                            {att ? "COMPLETED" : effStatus === "active" ? "ACTIVE (LIVE)" : effStatus === "expired" || effStatus === "completed" || effStatus === "cancelled" ? "EXPIRED" : effStatus}
-                          </>
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`px-3 py-1 rounded-full text-[11px] font-extrabold tracking-wide uppercase flex items-center gap-1.5 ${
+                          userRole === "student" ? studentBadgeColor :
+                          (effStatus === "active" && !att
+                            ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400"
+                            : att
+                            ? "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400"
+                            : effStatus === "expired" || effStatus === "completed" || effStatus === "cancelled"
+                            ? "bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-900/50"
+                            : effStatus === "scheduled"
+                            ? "bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-400"
+                            : "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400")
+                        }`}>
+                          {userRole === "student" ? (
+                            <>
+                              {(studentBadgeText === "ACTIVE" || studentBadgeText === "AVAILABLE") && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse" />}
+                              {studentBadgeText}
+                            </>
+                          ) : (
+                            <>
+                              {effStatus === "active" && !att && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse" />}
+                              {att ? "COMPLETED" : effStatus === "active" ? "ACTIVE (LIVE)" : effStatus === "expired" || effStatus === "completed" || effStatus === "cancelled" ? "EXPIRED" : effStatus}
+                            </>
+                          )}
+                        </span>
+
+                        {isGlobalAssignment && (
+                          <span className="px-2.5 py-1 rounded-full text-[11px] font-extrabold tracking-wide uppercase flex items-center gap-1.5 bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 shadow-sm">
+                            <Globe className="w-3.5 h-3.5 shrink-0" />
+                            Global Assignment
+                          </span>
                         )}
-                      </span>
+                      </div>
                       <span className="inline-flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400 font-medium">
                         <Clock className="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
                         <span>{exam.duration} mins</span>
@@ -998,7 +1023,19 @@ export default function ExamsPage() {
                           </span>
                         </div>
 
-                        {exam.targets?.[0]?.collegeId && exam.targets[0].collegeId !== "GLOBAL" && (
+                        {isGlobalAssignment ? (
+                          <div className="pt-2">
+                            <div className="inline-flex flex-col gap-0.5 px-3 py-2 rounded-lg border bg-blue-50/50 border-blue-200/60 dark:border-blue-900/40 dark:bg-blue-900/10">
+                              <span className="text-[10px] font-bold text-blue-500/80 uppercase tracking-wider">Test Provider</span>
+                              <div className="flex items-center gap-1.5 text-blue-700 dark:text-blue-300">
+                                <Globe className="w-3.5 h-3.5 shrink-0 text-blue-500" />
+                                <span className="text-sm font-bold truncate max-w-[200px]" title="Global LMS Platform">
+                                  Global System Assignment
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        ) : exam.targets?.[0]?.collegeId && exam.targets[0].collegeId !== "GLOBAL" && (
                           <div className="pt-2">
                             {(() => {
                               const instName = resolveInstitution(exam.targets[0].collegeId);
@@ -1046,19 +1083,36 @@ export default function ExamsPage() {
                             <span>Details</span>
                           </Button>
                           <button
-                            onClick={() => handleExpire(exam.id)}
-                            disabled={effStatus === "expired" || effStatus === "cancelled" || effStatus === "completed"}
+                            onClick={() => handleExpire(exam)}
+                            disabled={effStatus === "expired" || effStatus === "cancelled" || effStatus === "completed" || (userRole === "college_admin" && isGlobalAssignment)}
                             className={`p-2 rounded-lg transition-all duration-200 border ${
-                              effStatus === "expired" || effStatus === "cancelled" || effStatus === "completed"
+                              effStatus === "expired" || effStatus === "cancelled" || effStatus === "completed" || (userRole === "college_admin" && isGlobalAssignment)
+                                ? "opacity-40 cursor-not-allowed bg-gray-100 text-gray-400 border-gray-200 dark:bg-gray-800 dark:text-gray-600 dark:border-gray-700"
+                                : "bg-transparent text-gray-500 border-gray-200 hover:bg-orange-50 hover:text-orange-600 hover:border-orange-200 dark:text-gray-400 dark:hover:bg-orange-900/20 dark:hover:text-orange-400 dark:hover:border-orange-900/50"
                             }`}
-                            title={effStatus === "expired" || effStatus === "cancelled" || effStatus === "completed" ? "Assessment already expired" : "Expire Assessment"}
+                            title={
+                              userRole === "college_admin" && isGlobalAssignment
+                                ? "Global assignments cannot be expired by College Admins"
+                                : effStatus === "expired" || effStatus === "cancelled" || effStatus === "completed"
+                                ? "Assessment already expired"
+                                : "Expire Assessment"
+                            }
                           >
                             <Ban className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => handleDeleteExam(exam.id)}
-                            className="p-2 rounded-lg transition-all duration-200 bg-transparent text-gray-500 border-gray-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200 dark:text-gray-400 dark:hover:bg-red-900/20 dark:hover:text-red-400 dark:hover:border-red-900/50"
-                            title="Delete Assessment"
+                            onClick={() => handleDeleteExam(exam)}
+                            disabled={userRole === "college_admin" && isGlobalAssignment}
+                            className={`p-2 rounded-lg transition-all duration-200 border ${
+                              userRole === "college_admin" && isGlobalAssignment
+                                ? "opacity-40 cursor-not-allowed bg-gray-100 text-gray-400 border-gray-200 dark:bg-gray-800 dark:text-gray-600 dark:border-gray-700"
+                                : "bg-transparent text-gray-500 border-gray-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200 dark:text-gray-400 dark:hover:bg-red-900/20 dark:hover:text-red-400 dark:hover:border-red-900/50"
+                            }`}
+                            title={
+                              userRole === "college_admin" && isGlobalAssignment
+                                ? "Global assignments cannot be deleted by College Admins"
+                                : "Delete Assessment"
+                            }
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
