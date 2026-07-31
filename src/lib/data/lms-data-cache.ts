@@ -169,8 +169,22 @@ function recomputeScopedData() {
       const parsed = JSON.parse(uStr);
       const r = (role || parsed.role || "").toLowerCase();
 
-      if ((r === "college_admin" || r === "student") && parsed.collegeId) {
-        fColleges = fColleges.filter((c) => c.id === parsed.collegeId);
+      if ((r === "college_admin" || r === "student") && (parsed.collegeId || parsed.collegeName)) {
+        const dummyStudent = { collegeId: parsed.collegeId, collegeName: parsed.collegeName || parsed.collegeId } as Student;
+        const matched = fColleges.filter((c) => isStudentInCollege(dummyStudent, c));
+        if (matched.length > 0) {
+          fColleges = matched;
+        }
+      }
+
+      if (r === "college_admin" && fColleges.length > 0) {
+        const myCol = fColleges[0];
+        fStudents = fStudents.filter((s) => isStudentInCollege(s, myCol));
+        fBatches = fBatches.filter((b) => b.collegeId === myCol.id || isStudentInCollege({ collegeId: b.collegeId } as any, myCol));
+        fExams = fExams.filter((e: any) => !e.collegeId || e.collegeId === "global" || e.collegeId === myCol.id || isStudentInCollege({ collegeId: e.collegeId } as any, myCol));
+        fResources = fResources.filter((res: any) => !res.collegeId || res.collegeId === "global" || res.collegeId === myCol.id || isStudentInCollege({ collegeId: res.collegeId } as any, myCol));
+        const studentIdSet = new Set(fStudents.map((s) => s.id));
+        fAttempts = fAttempts.filter((att: any) => studentIdSet.has(att.userId || att.studentId || ""));
       }
     }
   } catch (_) {}
@@ -178,7 +192,7 @@ function recomputeScopedData() {
   // Dynamically compute accurate student counts for colleges and batches based on current students
   fColleges = fColleges.map((c) => ({
     ...c,
-    studentCount: fStudents.filter((s) => s.collegeId === c.id).length,
+    studentCount: fStudents.filter((s) => isStudentInCollege(s, c)).length,
   }));
 
   fBatches = fBatches.map((b) => ({

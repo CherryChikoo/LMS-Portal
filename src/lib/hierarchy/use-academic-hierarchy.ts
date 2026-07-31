@@ -5,6 +5,7 @@ import type { SelectOption, Batch, AssignmentTarget, College, Student } from "@/
 import {
   EMPTY_FILTERS,
   GLOBAL_INSTITUTION_ID,
+  isStudentInCollege,
   type AcademicFilters,
   type AssignmentLevel,
   type Hierarchy,
@@ -128,15 +129,18 @@ export function useAcademicHierarchy(options: UseAcademicHierarchyOptions = {}):
 
   // Auto-lock college for scoped roles when hierarchy loads
   useEffect(() => {
-    if (isScopedRole && userCollegeId && hierarchy) {
+    if (isScopedRole && (userCollegeId || userCollegeName) && hierarchy) {
       setLocalFilters((current) => {
         if (!current.collegeId) {
-          return mergeFilters(current, { collegeId: userCollegeId });
+          const dummyStudent = { collegeId: userCollegeId, collegeName: userCollegeName || userCollegeId } as Student;
+          const targetCol = hierarchy.colleges.find((c: College) => isStudentInCollege(dummyStudent, c));
+          const effectiveColId = targetCol ? targetCol.id : userCollegeId;
+          return mergeFilters(current, { collegeId: effectiveColId });
         }
         return current;
       });
     }
-  }, [isScopedRole, userCollegeId, hierarchy]);
+  }, [isScopedRole, userCollegeId, userCollegeName, hierarchy]);
 
   const setFilters = useCallback((next: Partial<AcademicFilters>) => {
     setLocalFilters((current) => {
