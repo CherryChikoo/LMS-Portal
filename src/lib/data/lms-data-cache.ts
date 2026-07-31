@@ -20,6 +20,7 @@ import { getStudentAttempts, subscribeToStudentAttempts, subscribeToStudentAttem
 import {
   buildHierarchy,
   getExternalInstitutions,
+  isStudentInCollege,
   getInstitutionName as resolveInstitutionName,
   safeDisplayName,
   markCollegeAsDeleted,
@@ -403,11 +404,12 @@ function computeExportedState() {
 
   const officialInstitutions: Institution[] = colleges.map((c) => ({
     id: c.id,
-    name: safeDisplayName(c.name, c.id, "Unknown Institution"),
+    name: safeDisplayName(c.name ? c.name.toLowerCase() : "", c.id, "Unknown Institution").toLowerCase(),
     type: "official",
     code: c.code,
     departments: c.departments,
     isDeleted: c.isDeleted,
+    studentCount: students.filter((s) => isStudentInCollege(s, c)).length,
   }));
 
   const institutions: Institution[] = [

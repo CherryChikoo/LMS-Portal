@@ -513,11 +513,46 @@ export function markCollegeAsDeleted(idOrName: string) {
 }
 
 /**
- * Derives the list of institutions present in cached student data that are NOT
- * represented in the official `colleges` collection. These are typically
- * self-registered colleges that have not yet been onboarded by an admin.
- *
- * Accepts either a fully-built `Hierarchy` or raw `(students, colleges)` arrays.
+ * Helpers for slugification and student-college matching
+ */
+export function cleanSlug(val?: string | null): string {
+  if (!val) return "";
+  return String(val).trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+export function isStudentInCollege(s: Student, c: College): boolean {
+  if (!s || !c) return false;
+  const sColId = (s.collegeId || "").trim();
+  const sColName = (s.collegeName || "").trim();
+  const cId = (c.id || "").trim();
+  const cName = (c.name || "").trim();
+
+  // 1. Exact string match
+  if (sColId && cId && sColId === cId) return true;
+  if (sColName && cName && sColName === cName) return true;
+  if (sColId && cName && sColId === cName) return true;
+  if (sColName && cId && sColName === cId) return true;
+
+  // 2. Case-insensitive match
+  if (sColId && cId && sColId.toLowerCase() === cId.toLowerCase()) return true;
+  if (sColName && cName && sColName.toLowerCase() === cName.toLowerCase()) return true;
+
+  // 3. Clean slug match
+  const slugSId = cleanSlug(sColId);
+  const slugSName = cleanSlug(sColName);
+  const slugCId = cleanSlug(cId);
+  const slugCName = cleanSlug(cName);
+
+  if (slugSId && slugCId && slugSId === slugCId) return true;
+  if (slugSName && slugCName && slugSName === slugCName) return true;
+  if (slugSId && slugCName && slugSId === slugCName) return true;
+  if (slugSName && slugCId && slugSName === slugCId) return true;
+
+  return false;
+}
+
+/**
+ * Returns outside / self-registered institutions for students who don't belong to any official registered college.
  */
 export function getExternalInstitutions(students: Student[], colleges: College[]): Institution[];
 export function getExternalInstitutions(hierarchy: Hierarchy | null): Institution[];
@@ -556,16 +591,6 @@ export function getExternalInstitutions(
   };
 
   const activeColleges = colleges.filter((c) => (c.status as string) !== "deleted" && !c.isDeleted);
-  const deletedCollegeIds = new Set(colleges.filter((c) => (c.status as string) === "deleted" || c.isDeleted).map((c) => c.id));
-  const deletedCollegeNames = new Set(
-    colleges.filter((c) => (c.status as string) === "deleted" || c.isDeleted).map((c) => normalize(c.name).toLowerCase()).filter(Boolean)
-  );
-
-  const officialIds = new Set(activeColleges.map((c) => c.id));
-  const officialNames = new Set(
-    activeColleges.map((c) => normalize(c.name).toLowerCase()).filter(Boolean)
-  );
-
   const externalMap = new Map<string, { id: string; name: string; students: Student[] }>();
 
   activeStudents.forEach((s) => {
@@ -574,24 +599,14 @@ export function getExternalInstitutions(
 
     if (isIgnored(cId) && isIgnored(cName)) return;
 
-    // Completely ignore student records associated with deleted colleges so they never jump to Outside Institutions
-    if (
-      (!isIgnored(cId) && (deletedCollegeIds.has(cId) || deletedCollegesSet.has(cId.toLowerCase()))) ||
-      (!isIgnored(cName) && (deletedCollegeNames.has(cName.toLowerCase()) || deletedCollegesSet.has(cName.toLowerCase())))
-    ) {
-      return;
-    }
-
-    const isOfficial =
-      (!isIgnored(cId) && officialIds.has(cId)) ||
-      (!isIgnored(cName) && (officialNames.has(cName.toLowerCase()) || officialIds.has(cName)));
+    // Check if student belongs to an official active college
+    const isOfficial = activeColleges.some((c) => isStudentInCollege(s, c));
 
     if (!isOfficial) {
-      const displayName = !isIgnored(cName)
-        ? safeDisplayName(cName, cId, "External Institution")
-        : safeDisplayName(cId, cId, "External Institution");
+      const rawName = !isIgnored(cName) ? cName : cId;
+      const displayName = safeDisplayName(rawName, rawName, "External Institution").toLowerCase();
       
-      const key = displayName.toLowerCase();
+      const key = cleanSlug(displayName) || displayName.toLowerCase();
       if (!externalMap.has(key)) {
         externalMap.set(key, {
           id: displayName,

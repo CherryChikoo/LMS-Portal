@@ -249,28 +249,58 @@ export async function renameCollegeAndMigrate(
   isExternal: boolean = false
 ): Promise<void> {
   const batch = writeBatch(db);
+  const cleanSlug = (v?: string) => (v ? String(v).trim().toLowerCase().replace(/[^a-z0-9]+/g, "") : "");
+  const normalizedNewName = newName.trim().toLowerCase();
+  const targetOldSlugName = cleanSlug(oldName);
+  const targetOldSlugId = cleanSlug(collegeId);
 
-  // Update college document
+  // Update official college document if not external
   if (!isExternal) {
     const collegeRef = doc(db, "colleges", collegeId);
     batch.update(collegeRef, {
-      name: newName,
+      name: normalizedNewName,
       updatedAt: Timestamp.now(),
     });
   }
 
-  // Update all students
-  const studentsQuery = query(
-    collection(db, "students"),
-    where(isExternal ? "collegeName" : "collegeId", "==", isExternal ? oldName : collegeId)
-  );
+  // Fetch all students to ensure clean slug match captures every single student
+  const allStudentsSnap = await getDocs(collection(db, "students"));
+  allStudentsSnap.docs.forEach((studentDoc) => {
+    const sData = studentDoc.data();
+    const sColId = sData?.collegeId || "";
+    const sColName = sData?.collegeName || "";
+    const slugId = cleanSlug(sColId);
+    const slugName = cleanSlug(sColName);
 
-  const studentsSnap = await getDocs(studentsQuery);
-  studentsSnap.docs.forEach((studentDoc) => {
-    batch.update(studentDoc.ref, {
-      collegeName: newName,
-      updatedAt: Timestamp.now(),
-    });
+    const matches =
+      sColId === collegeId ||
+      sColName === oldName ||
+      sColId === oldName ||
+      sColName === collegeId ||
+      (targetOldSlugId && slugId === targetOldSlugId) ||
+      (targetOldSlugId && slugName === targetOldSlugId) ||
+      (targetOldSlugName && slugId === targetOldSlugName) ||
+      (targetOldSlugName && slugName === targetOldSlugName);
+
+    if (matches) {
+      batch.update(studentDoc.ref, {
+        collegeId: isExternal ? normalizedNewName : (sColId || collegeId),
+        collegeName: normalizedNewName,
+        updatedAt: Timestamp.now(),
+      });
+
+      // Also sync user document in users collection if present
+      const userRef = doc(db, "users", studentDoc.id);
+      batch.set(
+        userRef,
+        {
+          collegeId: isExternal ? normalizedNewName : (sColId || collegeId),
+          collegeName: normalizedNewName,
+          updatedAt: Timestamp.now(),
+        },
+        { merge: true }
+      );
+    }
   });
 
   await batch.commit();
