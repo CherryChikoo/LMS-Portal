@@ -205,6 +205,11 @@ export default function CollegesPage() {
         }
       }
     } catch (_) {}
+
+    // Auto-normalize database colleges and students to small letters directly in Firestore
+    fetch("/api/admin/normalize-colleges", { method: "POST" }).catch((err) =>
+      console.error("Auto-normalization sweep failed:", err)
+    );
   }, []);
 
   const handleDeleteAdminCollege = (col: College) => {
@@ -535,62 +540,73 @@ export default function CollegesPage() {
     if (!editingCollege || !editCollegeName.trim()) return;
     setUpdatingCollege(true);
     try {
-      if (editCollegeName.trim() !== editingCollege.name) {
+      const normalizedNewName = editCollegeName.trim().toLowerCase();
+      const oldName = editingCollege.name;
+      const oldEmail = editingCollege.adminEmail || "";
+      const newEmail = editAdminEmail.trim().toLowerCase();
+
+      // Tier 1: Rename college & migrate student/user documents in Firestore if name changed
+      if (normalizedNewName !== oldName.toLowerCase()) {
         await renameCollegeAndMigrate(
           editingCollege.id,
-          editingCollege.name,
-          editCollegeName.trim(),
+          oldName,
+          normalizedNewName,
           false
         );
       }
-      
-      // Tier 1: Auth Execution Lock (Run Auth Update FIRST)
-      const auth = getAuth();
-      const token = await auth.currentUser?.getIdToken();
-      if (!token) {
-        showError({ message: "Session expired. Please sign in again." });
-        return;
-      }
 
-      const authResp = await fetch("/api/admin/update-college-auth", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          adminIdToken: token,
-          collegeId: editingCollege.id,
-          collegeName: editCollegeName.trim(),
-          newEmail: editAdminEmail.trim().toLowerCase(),
-          newPassword: editInitialPassword,
-          loginEnabled: editLoginEnabled
-        }),
-      });
+      // Tier 2: Check if Auth credentials need to be updated
+      const authCredentialsChanged =
+        editLoginEnabled &&
+        (newEmail !== oldEmail.toLowerCase() || Boolean(editInitialPassword));
 
-      if (!authResp.ok) {
-        let data: any = {};
-        const textResponse = await authResp.text();
-        try {
-          data = JSON.parse(textResponse);
-        } catch {
-          data = { message: "Failed to update college auth details." };
+      if (authCredentialsChanged) {
+        const auth = getAuth();
+        const token = await auth.currentUser?.getIdToken();
+        if (!token) {
+          showError({ message: "Session expired. Please sign in again." });
+          return;
         }
-        showError(data);
-        // HARD STOP GUARANTEE: Immediately terminate execution.
-        // Firestore update and modal cleanup are NEVER reached if Auth failed.
-        return;
+
+        const authResp = await fetch("/api/admin/update-college-auth", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            adminIdToken: token,
+            collegeId: editingCollege.id,
+            collegeName: normalizedNewName,
+            oldEmail: oldEmail,
+            newEmail: newEmail,
+            newPassword: editInitialPassword,
+            loginEnabled: editLoginEnabled,
+          }),
+        });
+
+        if (!authResp.ok) {
+          let data: any = {};
+          const textResponse = await authResp.text();
+          try {
+            data = JSON.parse(textResponse);
+          } catch {
+            data = { message: "Failed to update college auth details." };
+          }
+          showError(data);
+          return;
+        }
       }
 
-      // Tier 2: Firestore Database Update (Executed ONLY if Tier 1 succeeded)
+      // Tier 3: Update college metadata in Firestore
       const payload: Partial<College> = {
-        name: editCollegeName.trim(),
-        adminEmail: editAdminEmail.trim().toLowerCase(),
-        initialPassword: editInitialPassword,
+        name: normalizedNewName,
+        adminEmail: editLoginEnabled ? newEmail : oldEmail,
+        initialPassword: editInitialPassword || editingCollege.initialPassword,
         loginEnabled: editLoginEnabled,
       };
 
       await updateCollege(editingCollege.id, payload);
-      toast.success("College updated successfully.");
+      toast.success("College details updated successfully.");
 
-      // Tier 3: State Cleanup (Executed ONLY after entire transaction succeeds)
+      // Tier 4: State Cleanup
       setEditingCollege(null);
       setEditCollegeName("");
       setEditAdminEmail("");
@@ -598,6 +614,7 @@ export default function CollegesPage() {
       setEditLoginEnabled(false);
     } catch (err) {
       console.error("Failed to update college", err);
+      toast.error("Failed to update college details.");
     } finally {
       setUpdatingCollege(false);
     }
@@ -609,7 +626,7 @@ export default function CollegesPage() {
     setUpdatingExternal(true);
     try {
       const oldName = editingExternal.name;
-      const newName = editExternalName.trim();
+      const newName = editExternalName.trim().toLowerCase();
       if (!newName || oldName === newName) {
         setEditingExternal(null);
         setEditExternalName("");
@@ -617,12 +634,14 @@ export default function CollegesPage() {
       }
 
       await renameCollegeAndMigrate(oldName, oldName, newName, true);
+      toast.success("Outside institution updated successfully.");
 
       setEditingExternal(null);
       setEditExternalName("");
       setSelectedExternalIds((prev) => prev.map((id) => (id === oldName ? newName : id)));
     } catch (err) {
       console.error("Failed to update outside institution", err);
+      toast.error("Failed to update outside institution.");
     } finally {
       setUpdatingExternal(false);
     }

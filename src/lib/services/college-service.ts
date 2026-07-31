@@ -95,9 +95,11 @@ export const getCollegeById = fetchCollegeById;
  */
 export async function createCollege(data: Partial<College>): Promise<string> {
   const now = Timestamp.now();
+  const name = data.name ? data.name.trim().toLowerCase() : "";
 
   const collegeData = {
     ...data,
+    name,
     studentCount: 0,
     status: "active",
     isDeleted: false,
@@ -120,12 +122,16 @@ export async function updateCollege(
   if (!id) return;
   const docRef = doc(db, "colleges", id);
 
+  const updateData = { ...data };
+  if (updateData.name) {
+    updateData.name = updateData.name.trim().toLowerCase();
+  }
+
   await setDoc(
     docRef,
     {
       id,
-      name: data.name || id,
-      ...data,
+      ...updateData,
       updatedAt: Timestamp.now(),
     },
     { merge: true }
