@@ -649,23 +649,28 @@ export function getInstitutionName(
   }
 
   if (Array.isArray(input)) {
-    const found = input.find((i) => i.id === id || i.name === id);
-    if (found) return safeDisplayName(found.name, id, id);
+    const found = input.find((i) => i.id === id || i.name === id || cleanSlug(i.name) === cleanSlug(id) || cleanSlug(i.id) === cleanSlug(id));
+    if (found) return safeDisplayName(found.name, id, id).toLowerCase();
     const isHash = (id.length === 20 || id.length === 28) && !id.includes(" ");
-    return (!isHash && id) ? id : id;
+    return (!isHash && id) ? id.toLowerCase() : id.toLowerCase();
   }
 
   const hierarchy = input;
   if (hierarchy) {
+    if (hierarchy.colleges) {
+      const dummyStudent = { collegeId: id, collegeName: id } as Student;
+      const matchedCol = hierarchy.colleges.find((c) => isStudentInCollege(dummyStudent, c));
+      if (matchedCol) return safeDisplayName(matchedCol.name, id, id).toLowerCase();
+    }
     const official = hierarchy.collegeMap.get(id);
-    if (official) return safeDisplayName(official.name, id, id);
-    const external = getExternalInstitutions(hierarchy).find((i) => i.id === id || i.name === id);
-    if (external) return safeDisplayName(external.name, id, id);
+    if (official) return safeDisplayName(official.name, id, id).toLowerCase();
+    const external = getExternalInstitutions(hierarchy).find((i) => i.id === id || i.name === id || cleanSlug(i.name) === cleanSlug(id));
+    if (external) return safeDisplayName(external.name, id, id).toLowerCase();
   }
 
   const isHash = (id.length === 20 || id.length === 28) && !id.includes(" ");
-  if (!isHash && id) return id;
-  return id || "Unassigned";
+  if (!isHash && id) return id.toLowerCase();
+  return id ? id.toLowerCase() : "Unassigned";
 }
 
 /**
@@ -783,7 +788,14 @@ export function matchesYearFilter(studentYear: string | undefined | null, filter
 
 export function filterStudentByAcademicFilters(student: Student, filters: AcademicFilters): boolean {
   if (!filters.batchOnlyMode) {
-    if (filters.collegeId && student.collegeId !== filters.collegeId) return false;
+    if (filters.collegeId && filters.collegeId.toLowerCase() !== "global" && filters.collegeId.toLowerCase() !== "unassigned") {
+      const dummyCol = { id: filters.collegeId, name: filters.collegeId } as College;
+      const isMatch =
+        student.collegeId === filters.collegeId ||
+        student.collegeName === filters.collegeId ||
+        isStudentInCollege(student, dummyCol);
+      if (!isMatch) return false;
+    }
     if (filters.department && student.department !== filters.department) return false;
     if (filters.academicYear && !matchesYearFilter(student.academicYear, filters.academicYear)) return false;
     if (filters.section && student.section !== filters.section) return false;

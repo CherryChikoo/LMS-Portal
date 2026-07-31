@@ -303,6 +303,62 @@ export async function renameCollegeAndMigrate(
     }
   });
 
+  // Update exams for this college
+  const examsSnap = await getDocs(collection(db, "exams"));
+  examsSnap.docs.forEach((exDoc) => {
+    const eData = exDoc.data();
+    const eColId = eData?.collegeId || "";
+    const eColName = eData?.collegeName || "";
+    const slugId = cleanSlug(eColId);
+    const slugName = cleanSlug(eColName);
+
+    const matches =
+      eColId === collegeId ||
+      eColName === oldName ||
+      eColId === oldName ||
+      eColName === collegeId ||
+      (targetOldSlugId && slugId === targetOldSlugId) ||
+      (targetOldSlugId && slugName === targetOldSlugId) ||
+      (targetOldSlugName && slugId === targetOldSlugName) ||
+      (targetOldSlugName && slugName === targetOldSlugName);
+
+    if (matches) {
+      batch.update(exDoc.ref, {
+        collegeName: normalizedNewName,
+        collegeId: isExternal ? normalizedNewName : (eColId || collegeId),
+        updatedAt: Timestamp.now(),
+      });
+    }
+  });
+
+  // Update resources for this college
+  const resourcesSnap = await getDocs(collection(db, "resources"));
+  resourcesSnap.docs.forEach((resDoc) => {
+    const rData = resDoc.data();
+    const rColId = rData?.collegeId || "";
+    const rColName = rData?.collegeName || "";
+    const slugId = cleanSlug(rColId);
+    const slugName = cleanSlug(rColName);
+
+    const matches =
+      rColId === collegeId ||
+      rColName === oldName ||
+      rColId === oldName ||
+      rColName === collegeId ||
+      (targetOldSlugId && slugId === targetOldSlugId) ||
+      (targetOldSlugId && slugName === targetOldSlugId) ||
+      (targetOldSlugName && slugId === targetOldSlugName) ||
+      (targetOldSlugName && slugName === targetOldSlugName);
+
+    if (matches) {
+      batch.update(resDoc.ref, {
+        collegeName: normalizedNewName,
+        collegeId: isExternal ? normalizedNewName : (rColId || collegeId),
+        updatedAt: Timestamp.now(),
+      });
+    }
+  });
+
   await batch.commit();
 }
 

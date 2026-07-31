@@ -19,6 +19,16 @@ export const resolveEntity = (entitiesArray: any[], targetId: string | number | 
     );
   }
 
+  if (!found && entityType === "Institution") {
+    const cleanSlug = (v?: string) => (v ? String(v).trim().toLowerCase().replace(/[^a-z0-9]+/g, "") : "");
+    const targetSlug = cleanSlug(targetStr);
+    if (targetSlug) {
+      found = entitiesArray.find(item =>
+        cleanSlug(item?.id) === targetSlug || cleanSlug(item?.name) === targetSlug
+      );
+    }
+  }
+
   if (!found) {
     const rawStr = String(targetId).trim();
     const looksLikeHash = (rawStr.length === 20 || rawStr.length === 28) && !rawStr.includes(" ");

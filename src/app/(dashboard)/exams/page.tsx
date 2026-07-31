@@ -1051,20 +1051,31 @@ export default function ExamsPage() {
                               </div>
                             </div>
                           </div>
-                        ) : exam.targets?.[0]?.collegeId && exam.targets[0].collegeId !== "GLOBAL" && (
+                        ) : (exam.targets?.[0]?.collegeId || (exam as any).collegeId) && (
                           <div className="pt-2">
                             {(() => {
                               const targetCol = exam.targets?.[0];
-                              const rawInst = targetCol?.collegeName || (targetCol?.collegeId ? resolveInstitution(targetCol.collegeId) : null);
-                              const instName = (!rawInst || rawInst.includes("Unknown")) && targetCol?.collegeId ? targetCol.collegeId : (rawInst || "Institution");
-                              const isUnknown = instName.includes("Unknown");
+                              const targetId = targetCol?.collegeId || (exam as any).collegeId || "";
+                              const targetName = targetCol?.collegeName || (exam as any).collegeName || "";
+                              const resolvedInstName = resolveInstitution(targetId || targetName || "").toLowerCase();
+                              const instName = resolvedInstName !== "unassigned" && !resolvedInstName.includes("unknown") ? resolvedInstName : (targetName.toLowerCase() || targetId.toLowerCase() || "institution");
+                              const isUnknown = instName.includes("unknown");
+                              const isAdminCreated = (exam as any).createdByRole === "admin" || (exam as any).createdByRole === "trainer" || (exam as any).createdByName?.toLowerCase().includes("admin");
+
                               return (
                                 <div className={`inline-flex flex-col gap-0.5 px-3 py-2 rounded-lg border ${
                                   isUnknown 
                                     ? 'bg-orange-50 border-orange-200 dark:border-orange-900/50 dark:bg-orange-900/10' 
                                     : 'bg-gray-50 border-gray-200 dark:border-gray-700 dark:bg-gray-800/50'
                                 }`}>
-                                  <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Test Provider</span>
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Test Provider</span>
+                                    {isAdminCreated && (
+                                      <span className="text-[9px] font-semibold text-amber-500 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">
+                                        Admin Test
+                                      </span>
+                                    )}
+                                  </div>
                                   <div className={`flex items-center gap-1.5 ${isUnknown ? 'text-orange-700 dark:text-orange-400' : 'text-gray-700 dark:text-gray-300'}`}>
                                     <Building2 className={`w-3.5 h-3.5 shrink-0 ${isUnknown ? 'text-orange-500' : 'text-emerald-500'}`} />
                                     <span className="text-sm font-bold truncate max-w-[200px]" title={instName}>
