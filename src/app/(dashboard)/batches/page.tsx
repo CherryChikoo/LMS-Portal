@@ -131,12 +131,13 @@ function BatchesContent() {
   const filteredBatches = useMemo(() => {
     return (cacheBatches as Batch[]).filter((b: Batch) => {
       if (b.isDeleted) return false;
+      if ((userRole === "college_admin" || userRole === "student") && userCollegeId && b.collegeId !== userCollegeId) return false;
       if (batchFilters.collegeId && b.collegeId !== batchFilters.collegeId) return false;
       if (batchFilters.department && b.department !== batchFilters.department) return false;
       if (batchFilters.academicYear && b.academicYear !== batchFilters.academicYear) return false;
       return true;
     });
-  }, [cacheBatches, batchFilters]);
+  }, [cacheBatches, batchFilters, userRole, userCollegeId]);
 
   return (
     <motion.div initial="hidden" animate="visible" variants={fadeInUp} className="space-y-6">

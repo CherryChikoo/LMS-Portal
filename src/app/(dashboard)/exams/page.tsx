@@ -557,12 +557,16 @@ export default function ExamsPage() {
               <div className="text-xs font-semibold text-muted-foreground">
                 Showing <span className="text-foreground font-extrabold">
                   {exams.filter(exam => {
-                    const t = exam.targets?.[0];
-                    if (examFilters.collegeId && t?.collegeId !== examFilters.collegeId) return false;
-                    if (examFilters.department && t?.department !== examFilters.department) return false;
-                    if (examFilters.academicYear && t?.academicYear !== examFilters.academicYear) return false;
-                    if (examFilters.section && t?.section !== examFilters.section) return false;
-                    if (examFilters.batchId && t?.batchId !== examFilters.batchId) return false;
+                    const tCol = (exam as any).collegeId || exam.targets?.[0]?.collegeId;
+                    const isGlobal = !tCol || tCol === "global" || tCol === "GLOBAL" || tCol === "all" || tCol === "ALL";
+                    if (!isGlobal) {
+                      const t = exam.targets?.[0];
+                      if (examFilters.collegeId && t?.collegeId !== examFilters.collegeId) return false;
+                      if (examFilters.department && t?.department && t.department !== examFilters.department) return false;
+                      if (examFilters.academicYear && t?.academicYear && t.academicYear !== examFilters.academicYear) return false;
+                      if (examFilters.section && t?.section && t.section !== examFilters.section) return false;
+                      if (examFilters.batchId && t?.batchId && t.batchId !== examFilters.batchId) return false;
+                    }
                     return true;
                   }).length}
                 </span> of {exams.length} Assessments
@@ -643,12 +647,16 @@ export default function ExamsPage() {
                 if (adminTab === "live" && !(eff === "active" || eff === "scheduled" || eff === "draft")) return false;
                 if (adminTab === "expired" && !(eff === "expired" || eff === "completed" || eff === "cancelled")) return false;
 
-                const t = exam.targets?.[0];
-                if (examFilters.collegeId && t?.collegeId !== examFilters.collegeId) return false;
-                if (examFilters.department && t?.department !== examFilters.department) return false;
-                if (examFilters.academicYear && t?.academicYear !== examFilters.academicYear) return false;
-                if (examFilters.section && t?.section !== examFilters.section) return false;
-                if (examFilters.batchId && t?.batchId !== examFilters.batchId) return false;
+                const tCol = (exam as any).collegeId || exam.targets?.[0]?.collegeId;
+                const isGlobal = !tCol || tCol === "global" || tCol === "GLOBAL" || tCol === "all" || tCol === "ALL";
+                if (!isGlobal) {
+                  const t = exam.targets?.[0];
+                  if (examFilters.collegeId && t?.collegeId !== examFilters.collegeId) return false;
+                  if (examFilters.department && t?.department && t.department !== examFilters.department) return false;
+                  if (examFilters.academicYear && t?.academicYear && t.academicYear !== examFilters.academicYear) return false;
+                  if (examFilters.section && t?.section && t.section !== examFilters.section) return false;
+                  if (examFilters.batchId && t?.batchId && t.batchId !== examFilters.batchId) return false;
+                }
               }
               return true;
             })

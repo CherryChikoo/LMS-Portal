@@ -314,6 +314,7 @@ export default function DashboardPage() {
   const { branding } = useBranding();
   const mounted = useMounted();
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [userCollegeId, setUserCollegeId] = useState<string | null>(null);
   const [userName, setUserName] = useState<string>("User");
 
   useEffect(() => {
@@ -322,6 +323,9 @@ export default function DashboardPage() {
       const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
       if (uStr) {
         const parsed = JSON.parse(uStr);
+        if (parsed.collegeId) {
+          setUserCollegeId(parsed.collegeId);
+        }
         if (parsed.role) {
           setUserRole(parsed.role.toLowerCase());
         } else if (role) {
@@ -342,6 +346,14 @@ export default function DashboardPage() {
       setUserRole("student");
     }
   }, [branding]);
+
+  const displayBatches = useMemo(() => {
+    let list = (batches || []) as Batch[];
+    if (userRole === "college_admin" && userCollegeId) {
+      list = list.filter((b: Batch) => b.collegeId === userCollegeId);
+    }
+    return list;
+  }, [batches, userRole, userCollegeId]);
 
   const activeOrScheduledExams = useMemo(() => {
     return (exams as Exam[]).filter((e: Exam) => {
@@ -626,12 +638,12 @@ export default function DashboardPage() {
             <div className="space-y-3 flex-1">
             {loading ? (
               <div className="py-8 text-center text-xs text-muted-foreground">Loading batches...</div>
-            ) : batches.length === 0 ? (
+            ) : displayBatches.length === 0 ? (
               <GlassCard className="p-6 text-center text-xs text-muted-foreground">
                 No batches found.
               </GlassCard>
             ) : (
-              (batches as Batch[]).slice(0, 5).map((batch: Batch) => {
+              displayBatches.slice(0, 5).map((batch: Batch) => {
                 const college = (colleges as College[]).find((c: College) => c.id === batch.collegeId);
                 const batchStudents = (students as Student[]).filter((s: Student) => s.batchIds?.includes(batch.id)).length;
                 return (
