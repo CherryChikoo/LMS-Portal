@@ -47,9 +47,7 @@ export function FilterDropdown({
 
   const allLabel = loading
     ? `Loading ${label}s...`
-    : !hasValidOptions 
-      ? `No ${label}s` 
-      : (placeholder || `All ${label}s`);
+    : (placeholder || `All ${label}s`);
 
   // Determine what to render in the trigger
   let triggerContent = allLabel;
@@ -68,9 +66,8 @@ export function FilterDropdown({
     }
   }
 
-  // Force disable if no valid options exist AND the current value is empty ("ALL")
-  // If they have an invalid selection, keep it enabled so they can manually clear it!
-  const isDisabled = disabled || (!hasValidOptions && internalValue === "ALL");
+  // Never auto-disable filter dropdowns; keep them interactive at all times
+  const isDisabled = !!disabled;
 
   return (
     <div className={cn("flex flex-col gap-2 w-full", className)}>

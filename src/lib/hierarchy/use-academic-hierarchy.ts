@@ -252,25 +252,40 @@ export function useAcademicHierarchy(options: UseAcademicHierarchyOptions = {}):
 
   const academicYearOptions = useMemo<SelectOption[]>(() => {
     if (!hierarchy) return [ALL_OPTION];
-    if (!filters.collegeId || isGlobal) return [ALL_OPTION, ...toSelectOptions(getAllAcademicYears(hierarchy))];
-    if (!filters.department) return [ALL_OPTION, ...toSelectOptions(getYearsForCollege(hierarchy, filters.collegeId))];
-    return [
-      ALL_OPTION,
-      ...toSelectOptions(getYearsForDepartment(hierarchy, filters.collegeId, filters.department)),
-    ];
+    let years = (!filters.collegeId || isGlobal)
+      ? getAllAcademicYears(hierarchy)
+      : filters.department 
+        ? getYearsForDepartment(hierarchy, filters.collegeId, filters.department)
+        : getYearsForCollege(hierarchy, filters.collegeId);
+    
+    // Fallback if specific department has no mapped years
+    if (years.length === 0 && filters.collegeId) {
+      years = getYearsForCollege(hierarchy, filters.collegeId);
+    }
+    if (years.length === 0) {
+      years = getAllAcademicYears(hierarchy);
+    }
+    return [ALL_OPTION, ...toSelectOptions(years)];
   }, [hierarchy, filters.collegeId, filters.department, isGlobal]);
 
   const sectionOptions = useMemo<SelectOption[]>(() => {
     if (!hierarchy) return [ALL_OPTION];
-    if (!filters.collegeId || isGlobal) return [ALL_OPTION, ...toSelectOptions(getAllSections(hierarchy))];
-    if (!filters.department) return [ALL_OPTION, ...toSelectOptions(getSectionsForCollege(hierarchy, filters.collegeId))];
-    if (!filters.academicYear) return [ALL_OPTION, ...toSelectOptions(getSectionsForCollegeAndDepartment(hierarchy, filters.collegeId, filters.department))];
-    return [
-      ALL_OPTION,
-      ...toSelectOptions(
-        getSectionsForYear(hierarchy, filters.collegeId, filters.department, filters.academicYear)
-      ),
-    ];
+    let sections = (!filters.collegeId || isGlobal)
+      ? getAllSections(hierarchy)
+      : (filters.department && filters.academicYear)
+        ? getSectionsForYear(hierarchy, filters.collegeId, filters.department, filters.academicYear)
+        : filters.department
+          ? getSectionsForCollegeAndDepartment(hierarchy, filters.collegeId, filters.department)
+          : getSectionsForCollege(hierarchy, filters.collegeId);
+
+    // Fallback if specific year/department has no mapped sections
+    if (sections.length === 0 && filters.collegeId) {
+      sections = getSectionsForCollege(hierarchy, filters.collegeId);
+    }
+    if (sections.length === 0) {
+      sections = getAllSections(hierarchy);
+    }
+    return [ALL_OPTION, ...toSelectOptions(sections)];
   }, [hierarchy, filters.collegeId, filters.department, filters.academicYear, isGlobal]);
 
   const batchOptions = useMemo<SelectOption[]>(() => {
@@ -278,13 +293,19 @@ export function useAcademicHierarchy(options: UseAcademicHierarchyOptions = {}):
     let list = hierarchy.batches as Batch[];
     
     if (!filters.batchOnlyMode) {
-      list = list.filter((b: Batch) => {
+      const filteredList = list.filter((b: Batch) => {
         if (filters.collegeId && filters.collegeId !== GLOBAL_INSTITUTION_ID && b.collegeId && b.collegeId !== filters.collegeId) return false;
         if (filters.department && b.department && b.department.toLowerCase() !== filters.department.toLowerCase()) return false;
         if (filters.academicYear && b.academicYear && b.academicYear.toLowerCase() !== filters.academicYear.toLowerCase()) return false;
         if (filters.section && b.section && cleanSectionName(b.section).toLowerCase() !== cleanSectionName(filters.section).toLowerCase()) return false;
         return true;
       });
+      // Fallback to all batches for college if intersection is empty
+      if (filteredList.length > 0) {
+        list = filteredList;
+      } else if (filters.collegeId && filters.collegeId !== GLOBAL_INSTITUTION_ID) {
+        list = list.filter((b: Batch) => !b.collegeId || b.collegeId === filters.collegeId);
+      }
     }
     const seen = new Set<string>();
     const uniqueList: Batch[] = [];
@@ -304,21 +325,22 @@ export function useAcademicHierarchy(options: UseAcademicHierarchyOptions = {}):
         uniqueList.push(b);
       }
     });
-    if (uniqueList.length === 0 && !filters.batchOnlyMode) {
-      return [{ label: "No batches available", value: "" }];
-    }
     return [ALL_OPTION, ...toBatchOptions(uniqueList)];
   }, [hierarchy, filters.collegeId, filters.department, filters.academicYear, filters.section, filters.batchId, filters.batchOnlyMode]);
 
   const studentOptions = useMemo<SelectOption[]>(() => {
     if (!hierarchy) return [ALL_OPTION];
+    let studentList: Student[] = [];
     if (filters.batchId) {
-      return [ALL_OPTION, ...toStudentOptions(getStudentsForBatch(hierarchy, filters.batchId))];
+      studentList = getStudentsForBatch(hierarchy, filters.batchId);
     }
-    if (isGlobal && !filters.collegeId) {
-      return [ALL_OPTION, ...toStudentOptions(hierarchy.students)];
+    if (studentList.length === 0 && filters.collegeId && filters.collegeId !== GLOBAL_INSTITUTION_ID) {
+      studentList = (hierarchy.students as Student[]).filter((s: Student) => !s.collegeId || s.collegeId === filters.collegeId);
     }
-    return [ALL_OPTION];
+    if (studentList.length === 0) {
+      studentList = hierarchy.students as Student[];
+    }
+    return [ALL_OPTION, ...toStudentOptions(studentList)];
   }, [hierarchy, filters.batchId, filters.collegeId, isGlobal]);
 
   // For students cascading without a batch: derive matching students from
