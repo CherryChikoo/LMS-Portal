@@ -1,6 +1,6 @@
 "use client";
 
-import { useId } from "react";
+import { useId, useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { FilterDropdown } from "@/components/shared/filter-dropdown";
 import type { SelectOption } from "@/types";
@@ -209,6 +209,14 @@ export function AcademicHierarchyFilters({
     onChange({ batchOnlyMode: checked });
   };
 
+  const [userRole, setUserRole] = useState<string | null>(null);
+  useEffect(() => {
+    try {
+      const role = localStorage.getItem("lms_role");
+      if (role) setUserRole(role);
+    } catch {}
+  }, []);
+
   return (
     <div className="space-y-4 w-full">
       {hasBatchLevel && (
@@ -264,6 +272,10 @@ export function AcademicHierarchyFilters({
         )}
       >
         {effectiveLevels.map(({ level, label, allLabel, placeholder, disabled: levelDisabled }) => {
+          // ⚠️ RBAC Strict Enforcer: College Admins and Students must NEVER see Institution or College filter dropdowns
+          if ((level === "institution" || level === "college") && (userRole === "college_admin" || userRole === "student")) {
+            return null;
+          }
           const options = getOptionsForLevel(level, {
             institutionOptions,
             collegeOptions,

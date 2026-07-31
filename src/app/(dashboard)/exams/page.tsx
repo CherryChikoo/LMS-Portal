@@ -44,9 +44,39 @@ export default function ExamsPage() {
   
   const { showError } = useErrorHandler();
   const router = useRouter();
+
   const { filteredExams: allExams, filteredAttempts: attempts, filteredStudents: students, loading } = useLMSData();
   const { resolveInstitution, resolveStudent, resolveBatch } = useEntityResolution();
-  const exams = useMemo(() => (allExams as Exam[]).filter((e: Exam) => !e.deletedAt), [allExams]);
+
+  const { userRole: currentRole, userCollegeId } = useMemo(() => {
+    if (typeof window === "undefined") return { userRole: "student", userCollegeId: "" };
+    try {
+      const role = localStorage.getItem("lms_role") || "student";
+      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      const profile = uStr ? JSON.parse(uStr) : {};
+      return { userRole: role, userCollegeId: profile.collegeId || "" };
+    } catch {
+      return { userRole: "student", userCollegeId: "" };
+    }
+  }, []);
+
+  const exams = useMemo(() => {
+    let list = ((allExams || []) as Exam[]).filter((e: Exam) => !e.deletedAt);
+    if (currentRole === "college_admin" && userCollegeId) {
+      list = list.filter((e: Exam) => {
+        const targetColId = (e as any).collegeId || e.targets?.[0]?.collegeId;
+        return (
+          !targetColId ||
+          targetColId === userCollegeId ||
+          targetColId === "global" ||
+          targetColId === "GLOBAL" ||
+          targetColId === "all" ||
+          targetColId === "ALL"
+        );
+      });
+    }
+    return list;
+  }, [allExams, currentRole, userCollegeId]);
   
   const pathname = usePathname();
   const [studentUser, setStudentUser] = useState<Student | null>(null);

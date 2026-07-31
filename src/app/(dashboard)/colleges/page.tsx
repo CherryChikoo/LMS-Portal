@@ -31,7 +31,7 @@ export default function CollegesPage() {
   const [deletingIds, setDeletingIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void } | null>(null);
+  const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; confirmText?: string; onConfirm: () => void } | null>(null);
   const [name, setName] = useState("");
   const [selectedDepts, setSelectedDepts] = useState<string[]>(["Computer Science & Engineering (CSE)", "General"]);
   const [customDeptName, setCustomDeptName] = useState<string>("");
@@ -253,15 +253,17 @@ export default function CollegesPage() {
   };
 
   const handleToggleCollegeStatus = async (col: College) => {
+    const isRestricted = col.status === "restricted";
     setConfirmConfig({
       isOpen: true,
-      title: col.status === "restricted" ? "Unrestrict Partner Institution" : "Restrict Partner Institution",
-      message: col.status === "restricted" 
+      title: isRestricted ? "Unrestrict Partner Institution" : "Restrict Partner Institution",
+      message: isRestricted 
         ? `Are you sure you want to restore access to "${col.name}"? Their College Admin will be able to log in again.`
         : `Are you sure you want to restrict "${col.name}"? Their College Admin will immediately lose access to the portal.`,
+      confirmText: isRestricted ? "Unrestrict" : "Restrict",
       onConfirm: async () => {
         try {
-          const newStatus = col.status === "restricted" ? "active" : "restricted";
+          const newStatus = isRestricted ? "active" : "restricted";
           await updateCollege(col.id, { status: newStatus });
           toast.success(`Updated status for "${col.name}".`);
         } catch (err) {
@@ -1590,7 +1592,7 @@ export default function CollegesPage() {
         onConfirm={confirmConfig?.onConfirm || (() => {})}
         title={confirmConfig?.title || ""}
         message={confirmConfig?.message || ""}
-        confirmText="Delete"
+        confirmText={confirmConfig?.confirmText || "Confirm"}
         variant="destructive"
       />
     </motion.div>

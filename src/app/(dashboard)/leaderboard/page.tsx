@@ -142,8 +142,8 @@ function LeaderboardContent() {
       });
 
     // Filter by college if admin selected one
-    // Scope for student role: students only see their own college peers
-    if (userRole === "student" && userCollegeId && userCollegeId !== "col-unassigned" && userCollegeId !== "unassigned") {
+    // Scope for student and college_admin roles: strictly see their own college peers
+    if ((userRole === "student" || userRole === "college_admin") && userCollegeId && userCollegeId !== "col-unassigned" && userCollegeId !== "unassigned") {
       results = results.filter((r) => r.student.collegeId === userCollegeId);
     } else if (filterCollege !== "all") {
       results = results.filter((r) => r.student.collegeId === filterCollege);
@@ -177,7 +177,7 @@ function LeaderboardContent() {
     return <div className="p-12 text-center text-sm text-muted-foreground animate-pulse">Loading leaderboard rankings...</div>;
   }
 
-  const isCollegeScoped = userRole === "student" && userCollegeId && userCollegeId !== "col-unassigned" && userCollegeId !== "unassigned";
+  const isCollegeScoped = (userRole === "student" || userRole === "college_admin") && userCollegeId && userCollegeId !== "col-unassigned" && userCollegeId !== "unassigned";
   const displayCollegeName = userCollegeName || (colleges as College[]).find(c => c.id === userCollegeId)?.name || "College";
 
   return (
@@ -195,18 +195,18 @@ function LeaderboardContent() {
         </div>
       </motion.div>
 
-      {/* Filters (Admin Only) */}
-      {userRole !== "student" && (
-        <motion.div variants={staggerItem} className="flex flex-col sm:flex-row gap-4 p-4 rounded-xl bg-card border border-border shadow-sm">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input 
-              placeholder="Search by student name or department..." 
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 bg-background border-border h-10"
-            />
-          </div>
+      {/* Filters (Institution Filter ONLY for Super Admin / Master Trainer) */}
+      <motion.div variants={staggerItem} className="flex flex-col sm:flex-row gap-4 p-4 rounded-xl bg-card border border-border shadow-sm">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input 
+            placeholder="Search by student name or department..." 
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9 bg-background border-border h-10"
+          />
+        </div>
+        {(userRole === "super_admin" || userRole === "master_trainer") && (
           <div className="w-full sm:w-64 shrink-0">
             <Select value={filterCollege} onValueChange={(val) => setFilterCollege(val || "all")}>
               <SelectTrigger className="h-10 bg-background border-border">
@@ -222,8 +222,8 @@ function LeaderboardContent() {
               </SelectContent>
             </Select>
           </div>
-        </motion.div>
-      )}
+        )}
+      </motion.div>
 
       {rankedStudents.length === 0 ? (
         <motion.div variants={staggerItem} className="p-12 text-center bg-card rounded-xl border border-border shadow-sm">

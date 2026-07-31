@@ -47,7 +47,17 @@ function StudentsContent() {
   const initialCollegeId = searchParams.get("collegeId") || "";
   const initialBatchId = searchParams.get("batchId") || "";
   const actionParam = searchParams.get("action");
-  const userRole = typeof window !== "undefined" ? (localStorage.getItem("lms_role") || "student") : "student";
+  const { userRole, userCollegeId } = useMemo(() => {
+    if (typeof window === "undefined") return { userRole: "student", userCollegeId: "" };
+    try {
+      const role = localStorage.getItem("lms_role") || "student";
+      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      const profile = uStr ? JSON.parse(uStr) : {};
+      return { userRole: role, userCollegeId: profile.collegeId || "" };
+    } catch {
+      return { userRole: "student", userCollegeId: "" };
+    }
+  }, []);
 
   const students = useLMSDataSelector((s) => s.filteredStudents);
   const colleges = useLMSDataSelector((s) => s.filteredColleges);
@@ -336,6 +346,12 @@ function StudentsContent() {
       students
         .filter((s) => {
           if (s.isDeleted) return false;
+
+          // ⚠️ Tenant-Scoped Data Hard-Lock: College Admins & Students can strictly only see students in their own college
+          if ((userRole === "college_admin" || userRole === "student") && userCollegeId && s.collegeId !== userCollegeId) {
+            return false;
+          }
+
           const searchVal = (debouncedSearch || "").toLowerCase();
           const matchesSearch =
             (s.name || "").toLowerCase().includes(searchVal) ||
