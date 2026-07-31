@@ -595,7 +595,7 @@ export default function CollegesPage() {
         }
       }
 
-      // Tier 3: Update college metadata in Firestore
+      // Tier 3: Update college metadata and migrate associated records in Firestore
       const payload: Partial<College> = {
         name: normalizedNewName,
         adminEmail: editLoginEnabled ? newEmail : oldEmail,
@@ -603,6 +603,9 @@ export default function CollegesPage() {
         loginEnabled: editLoginEnabled,
       };
 
+      if (editingCollege.name !== normalizedNewName) {
+        await renameCollegeAndMigrate(editingCollege.id, editingCollege.name, normalizedNewName, false);
+      }
       await updateCollege(editingCollege.id, payload);
       toast.success("College details updated successfully.");
 

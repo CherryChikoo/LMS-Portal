@@ -4,10 +4,10 @@ import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "motion/react";
 import { Building2, Upload, X, Check } from "lucide-react";
-import { doc, setDoc, serverTimestamp } from "@/lib/firebase/firestore";
+import { doc, setDoc, serverTimestamp, getDocuments } from "@/lib/firebase/firestore";
 import { db } from "@/lib/firebase/config";
 import { updateCompanyBranding } from "@/lib/services/branding-service";
-import { updateCollege } from "@/lib/services/college-service";
+import { updateCollege, renameCollegeAndMigrate } from "@/lib/services/college-service";
 import { useBranding } from "@/providers/branding-provider";
 import { APP_NAME } from "@/lib/constants";
 
@@ -48,9 +48,24 @@ export function BrandingModal({ isOpen, onClose }: BrandingModalProps) {
       const userRole = localStorage.getItem("lms_role") || u?.role;
 
       if (userRole === "college_admin" || (cId && cId !== "global")) {
-        if (!cId) throw new Error("No college ID associated with this admin.");
+        const allCols = await getDocuments<import("@/types").College>("colleges");
+        const cleanSlug = (v?: string) => (v ? String(v).trim().toLowerCase().replace(/[^a-z0-9]+/g, "") : "");
+        const searchSlug = cleanSlug(cId || u?.collegeName || editName);
+        const searchEmail = (u?.email || "").toLowerCase().trim();
 
-        const collegeRef = doc(db, "colleges", cId);
+        const colDoc = allCols.find((c) =>
+          c.id === cId ||
+          cleanSlug(c.id) === searchSlug ||
+          cleanSlug(c.name) === searchSlug ||
+          (searchEmail && c.adminEmail && c.adminEmail.toLowerCase().trim() === searchEmail)
+        );
+
+        const targetColId = colDoc ? colDoc.id : cId;
+        if (!targetColId) throw new Error("No college ID associated with this admin.");
+
+        const collegeRef = doc(db, "colleges", targetColId);
+        const newCollegeName = editName.trim().toLowerCase();
+
         const cBrand = {
           companyName: editName.trim(),
           companySubtitle: editSubtitle.trim() || "College Portal",
@@ -61,12 +76,27 @@ export function BrandingModal({ isOpen, onClose }: BrandingModalProps) {
         await setDoc(
           collegeRef,
           {
+            name: newCollegeName,
             branding: cBrand,
+            updatedAt: serverTimestamp(),
           },
           { merge: true }
         );
 
-        localStorage.setItem("lms_college_branding", JSON.stringify({ collegeId: cId, branding: cBrand }));
+        // Migrate all students, users, exams, and resources to the new lower-case college name
+        if (colDoc && colDoc.name && colDoc.name.toLowerCase() !== newCollegeName) {
+          await renameCollegeAndMigrate(targetColId, colDoc.name, newCollegeName, (colDoc as any).isExternal || false);
+        }
+
+        // Update user profile in localStorage with updated college information
+        if (u) {
+          u.collegeId = targetColId;
+          u.collegeName = newCollegeName;
+          localStorage.setItem("lms_user", JSON.stringify(u));
+          localStorage.setItem("user", JSON.stringify(u));
+        }
+
+        localStorage.setItem("lms_college_branding", JSON.stringify({ collegeId: targetColId, branding: cBrand }));
         window.dispatchEvent(new Event("storage"));
       } else {
         await updateCompanyBranding({
