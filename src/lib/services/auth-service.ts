@@ -646,8 +646,12 @@ export async function unifiedGoogleLogin(): Promise<{ success: true; role: UserR
   const verifyResult = await verifyEmailRegistration(email);
 
   if (!verifyResult.exists) {
-    await firebaseSignOut(auth);
-    throw new Error("Access Denied: This email is not registered. Please create an account first.");
+    try {
+      await credential.user.delete();
+    } catch {
+      await firebaseSignOut(auth).catch(() => {});
+    }
+    throw new Error(`Access Denied: The email address (${email}) is not registered. Please create an account or contact your administrator.`);
   }
 
   const userDoc = verifyResult.userDoc;
@@ -658,25 +662,45 @@ export async function unifiedGoogleLogin(): Promise<{ success: true; role: UserR
 
   if (role === "student") {
     if (userDoc?.status === "restricted" || studentDoc?.status === "restricted") {
-      await firebaseSignOut(auth);
+      try {
+        await credential.user.delete();
+      } catch {
+        await firebaseSignOut(auth).catch(() => {});
+      }
       throw new Error("RESTRICTED_ACCOUNT: Your LMS account has been temporarily restricted.");
     }
     if (userDoc?.isDeleted || userDoc?.status === "deleted" || studentDoc?.isDeleted || studentDoc?.status === "deleted") {
-      await firebaseSignOut(auth);
+      try {
+        await credential.user.delete();
+      } catch {
+        await firebaseSignOut(auth).catch(() => {});
+      }
       throw new Error("ACCOUNT_DELETED: Your student account has been permanently deleted.");
     }
   } else if (role === "college_admin") {
     if (collegeDoc?.loginEnabled === false || collegeDoc?.status === "restricted") {
-      await firebaseSignOut(auth);
+      try {
+        await credential.user.delete();
+      } catch {
+        await firebaseSignOut(auth).catch(() => {});
+      }
       throw new Error("RESTRICTED_ACCOUNT: Your college dashboard access has been disabled.");
     }
     if (collegeDoc?.isDeleted || collegeDoc?.status === "deleted" || userDoc?.isDeleted || userDoc?.status === "deleted") {
-      await firebaseSignOut(auth);
+      try {
+        await credential.user.delete();
+      } catch {
+        await firebaseSignOut(auth).catch(() => {});
+      }
       throw new Error("ACCOUNT_DELETED: This partner institution account has been permanently deleted.");
     }
   } else if (role === "trainer" || role === "admin") {
     if (userDoc?.isDeleted || userDoc?.status === "deleted") {
-      await firebaseSignOut(auth);
+      try {
+        await credential.user.delete();
+      } catch {
+        await firebaseSignOut(auth).catch(() => {});
+      }
       throw new Error("ACCOUNT_DELETED: Your trainer account has been permanently deleted.");
     }
   }
