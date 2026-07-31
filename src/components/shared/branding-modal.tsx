@@ -21,6 +21,7 @@ export function BrandingModal({ isOpen, onClose }: BrandingModalProps) {
   const [editName, setEditName] = useState("");
   const [editSubtitle, setEditSubtitle] = useState("");
   const [editLogo, setEditLogo] = useState("");
+  const [userCollegeName, setUserCollegeName] = useState("");
   const [saving, setSaving] = useState(false);
 
   // Sync form state when modal opens or branding resolves
@@ -29,6 +30,11 @@ export function BrandingModal({ isOpen, onClose }: BrandingModalProps) {
       setEditName(branding.companyName || "");
       setEditSubtitle(branding.companySubtitle || "");
       setEditLogo(branding.logoBase64 || "");
+      try {
+        const uStr = typeof window !== "undefined" ? (localStorage.getItem("lms_user") || localStorage.getItem("user")) : null;
+        const parsed = uStr ? JSON.parse(uStr) : null;
+        setUserCollegeName(parsed?.collegeName || "");
+      } catch {}
     }
   }, [isOpen, branding]);
 
@@ -233,17 +239,23 @@ export function BrandingModal({ isOpen, onClose }: BrandingModalProps) {
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold">
                   {typeof window !== "undefined" && localStorage.getItem("lms_role") === "college_admin" 
-                    ? "College / Portal Name" 
+                    ? "College Name (Set by Admin)" 
                     : "Company / Portal Name"}
                 </label>
-                <input
-                  type="text"
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  required
-                  placeholder="e.g. Acme Institute LMS"
-                  className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-brand/50"
-                />
+                {typeof window !== "undefined" && localStorage.getItem("lms_role") === "college_admin" ? (
+                  <div className="w-full h-10 px-3 flex items-center rounded-xl border border-border/80 bg-muted/30 text-sm font-bold text-foreground capitalize">
+                    {editName || branding.companyName || userCollegeName || "College"}
+                  </div>
+                ) : (
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    required
+                    placeholder="e.g. Acme Institute LMS"
+                    className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-brand/50"
+                  />
+                )}
               </div>
 
               <div className="space-y-1.5">

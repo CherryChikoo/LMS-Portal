@@ -197,8 +197,34 @@ function recomputeScopedData() {
         const myCol = fColleges[0];
         fStudents = fStudents.filter((s) => isStudentInCollege(s, myCol));
         fBatches = fBatches.filter((b) => b.collegeId === myCol.id || isStudentInCollege({ collegeId: b.collegeId } as any, myCol));
-        fExams = fExams.filter((e: any) => !e.collegeId || e.collegeId === "global" || e.collegeId === myCol.id || isStudentInCollege({ collegeId: e.collegeId } as any, myCol));
-        fResources = fResources.filter((res: any) => !res.collegeId || res.collegeId === "global" || res.collegeId === myCol.id || isStudentInCollege({ collegeId: res.collegeId } as any, myCol));
+
+        fExams = fExams.filter((e: any) => {
+          if (!isActive(e)) return false;
+          const eColId = e.collegeId || e.targets?.[0]?.collegeId;
+          const eColName = e.collegeName || e.targets?.[0]?.collegeName;
+
+          if (!eColId && !eColName && (!e.targets || e.targets.length === 0)) return true;
+          if (eColId === "global" || eColId === "all" || eColName === "global" || eColName === "all") return true;
+          if (isStudentInCollege({ collegeId: eColId, collegeName: eColName } as any, myCol)) return true;
+          if (Array.isArray(e.targets) && e.targets.length > 0) {
+            return e.targets.some((t: any) => {
+              if (!t) return false;
+              if (t.level === "global" || !t.collegeId || t.collegeId === "global" || t.collegeId === "all") return true;
+              return isStudentInCollege({ collegeId: t.collegeId, collegeName: t.collegeName } as any, myCol);
+            });
+          }
+          return false;
+        });
+
+        fResources = fResources.filter((res: any) => {
+          if (!isActive(res)) return false;
+          const rColId = res.collegeId || res.targets?.[0]?.collegeId;
+          const rColName = res.collegeName || res.targets?.[0]?.collegeName;
+          if (!rColId && !rColName) return true;
+          if (rColId === "global" || rColId === "all") return true;
+          return isStudentInCollege({ collegeId: rColId, collegeName: rColName } as any, myCol);
+        });
+
         const studentIdSet = new Set(fStudents.map((s) => s.id));
         fAttempts = fAttempts.filter((att: any) => studentIdSet.has(att.userId || att.studentId || ""));
       }

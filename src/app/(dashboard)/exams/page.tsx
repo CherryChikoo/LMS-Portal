@@ -1060,7 +1060,13 @@ export default function ExamsPage() {
                               const resolvedInstName = resolveInstitution(targetId || targetName || "").toLowerCase();
                               const instName = resolvedInstName !== "unassigned" && !resolvedInstName.includes("unknown") ? resolvedInstName : (targetName.toLowerCase() || targetId.toLowerCase() || "institution");
                               const isUnknown = instName.includes("unknown");
-                              const isAdminCreated = (exam as any).createdByRole === "admin" || (exam as any).createdByRole === "trainer" || (exam as any).createdByName?.toLowerCase().includes("admin");
+                              const isAdminCreated = 
+                                (exam as any).createdByRole === "admin" || 
+                                (exam as any).createdByRole === "trainer" || 
+                                (exam as any).createdByRole === "super_admin" || 
+                                (exam as any).isMainAdminCreated ||
+                                ((exam as any).createdByName || "").toLowerCase().includes("admin") ||
+                                ((exam as any).author || "").toLowerCase().includes("admin");
 
                               return (
                                 <div className={`inline-flex flex-col gap-0.5 px-3 py-2 rounded-lg border ${
@@ -1071,15 +1077,15 @@ export default function ExamsPage() {
                                   <div className="flex items-center justify-between gap-2">
                                     <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Test Provider</span>
                                     {isAdminCreated && (
-                                      <span className="text-[9px] font-semibold text-amber-500 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">
-                                        Admin Test
+                                      <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-1.5 py-0.5 rounded">
+                                        Admin Created
                                       </span>
                                     )}
                                   </div>
                                   <div className={`flex items-center gap-1.5 ${isUnknown ? 'text-orange-700 dark:text-orange-400' : 'text-gray-700 dark:text-gray-300'}`}>
                                     <Building2 className={`w-3.5 h-3.5 shrink-0 ${isUnknown ? 'text-orange-500' : 'text-emerald-500'}`} />
-                                    <span className="text-sm font-bold truncate max-w-[200px]" title={instName}>
-                                      {instName}
+                                    <span className="text-sm font-bold truncate max-w-[200px]" title={isAdminCreated ? `Main Admin (Assigned to ${instName})` : instName}>
+                                      {isAdminCreated ? "Main Admin" : instName}
                                     </span>
                                   </div>
                                 </div>
