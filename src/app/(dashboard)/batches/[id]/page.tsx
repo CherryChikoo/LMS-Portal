@@ -435,9 +435,9 @@ export default function BatchDetailPage({ params }: PageProps) {
             <Building2 className="w-6 h-6" />
           </div>
           <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Department</p>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">College Name</p>
             <p className="text-sm font-bold text-foreground truncate">
-              {batch.department || "All Departments"}
+              {(batch as any).collegeName || colleges.find((c) => c.id === batch.collegeId)?.name || batch.collegeId || "All Colleges"}
             </p>
           </div>
         </div>
