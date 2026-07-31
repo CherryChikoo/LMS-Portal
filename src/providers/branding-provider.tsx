@@ -89,9 +89,20 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
             }
           }
 
-          // 3. Subscribe directly to colleges/{collegeId} for tenant users
+          // 3. Resolve exact college document ID and subscribe to colleges/{targetColId}
           if (collegeId && collegeId !== "global") {
-            const colRef = doc(db, "colleges", collegeId);
+            let targetColId = collegeId;
+            try {
+              const allCols = await getDocuments<import("@/types").College>("colleges");
+              const cleanSlug = (v?: string) => (v ? String(v).trim().toLowerCase().replace(/[^a-z0-9]+/g, "") : "");
+              const targetSlug = cleanSlug(collegeId);
+              const colDoc = allCols.find((c) => c.id === collegeId || cleanSlug(c.id) === targetSlug || cleanSlug(c.name) === targetSlug);
+              if (colDoc) targetColId = colDoc.id;
+            } catch (e) {
+              console.error("Error resolving college document for branding:", e);
+            }
+
+            const colRef = doc(db, "colleges", targetColId);
             unsubCollege = onSnapshot(colRef, (snap) => {
               if (isCancelled) return;
               if (snap.exists()) {
@@ -102,7 +113,7 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
                   logoBase64: data.branding?.logoBase64 || "",
                 };
                 setTenantBranding(cBrand);
-                localStorage.setItem("lms_college_branding", JSON.stringify({ collegeId, branding: cBrand }));
+                localStorage.setItem("lms_college_branding", JSON.stringify({ collegeId: targetColId, branding: cBrand }));
               } else {
                 const fallbackName = profile.collegeName?.trim() || "College Admin Portal";
                 setTenantBranding({
@@ -158,9 +169,7 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const isPublicRoute = !pathname || pathname === "/login" || pathname === "/register";
-
-  const activeBranding = isPublicRoute ? emptyBranding : (tenantBranding || masterBranding || emptyBranding);
+  const activeBranding = tenantBranding || masterBranding || emptyBranding;
 
   return (
     <BrandingContext.Provider value={{ branding: activeBranding, loading }}>

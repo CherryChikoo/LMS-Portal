@@ -767,7 +767,15 @@ export default function ResultsPage() {
                               <span className="text-[11px] text-muted-foreground font-normal">
                                 {(() => {
                                   const student = getStudentForAttempt(att);
-                                  return student?.collegeName || "Unknown Institution";
+                                  const cId = student?.collegeId || (att as any)?.collegeId || "";
+                                  const cName = student?.collegeName || (att as any)?.collegeName || "";
+                                  const resName = resolveInstitution(cId || cName || "");
+                                  if (resName && resName.toLowerCase() !== "unassigned" && !resName.toLowerCase().includes("unknown")) {
+                                    return resName.toLowerCase();
+                                  }
+                                  if (cName) return cName.toLowerCase();
+                                  if (cId && cId.toLowerCase() !== "global" && cId.toLowerCase() !== "unassigned") return cId.toLowerCase();
+                                  return "unassigned";
                                 })()}
                               </span>
                             )}
