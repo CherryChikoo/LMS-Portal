@@ -1,9 +1,17 @@
+import { z } from 'zod';
+import { getAdminAuth } from '@/lib/firebase/admin';
+import { getErrorMessage } from '@/lib/utils/error';
 import { NextResponse } from "next/server";
 import { getExamById, updateExam } from "@/lib/services/exam-service";
 import type { AIExplanation, Question } from "@/types";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { generateFallbackExplanation } from "@/lib/utils/ai-explanation-fallback";
 
+const AIExplanationSchema = z.object({
+  examId: z.string().optional(),
+  questions: z.array(z.any()).optional(),
+  forceRegenerate: z.boolean().optional(),
+}).strict();
 export const maxDuration = 60; // Max allowed for Vercel Hobby tier
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
@@ -13,8 +21,16 @@ const CHUNK_SIZE = 5; // Process 5 questions per Gemini API call to avoid timeou
 
 export async function POST(req: Request) {
   try {
+    const authHeader = req.headers.get('authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const auth = getAdminAuth();
+    let decodedToken;
+    try { decodedToken = await auth.verifyIdToken(authHeader.split('Bearer ')[1]); } catch(e) { return NextResponse.json({ error: 'Invalid token' }, { status: 401 }); }
+
     const body = await req.json().catch(() => ({}));
-    const { examId, questions: inputQuestions, forceRegenerate = false } = body;
+    const parseResult = await AIExplanationSchema.safeParseAsync(body);
+    if (!parseResult.success) return NextResponse.json({ error: parseResult.error.errors[0].message }, { status: 400 });
+    const { examId, questions: inputQuestions, forceRegenerate = false } = parseResult.data;
 
     let existingQuestions: Question[] = [];
     if (inputQuestions && Array.isArray(inputQuestions) && inputQuestions.length > 0) {
@@ -162,7 +178,7 @@ Do NOT wrap the output in markdown code blocks like \`\`\`json. Return RAW valid
           }
           return q;
         });
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("[SEQUENTIAL AI PIPELINE] FATAL GEMINI ERROR:", err?.response?.data || err?.message || err, err?.stack);
         failedCount += chunk.length;
       }
@@ -192,9 +208,9 @@ Do NOT wrap the output in markdown code blocks like \`\`\`json. Return RAW valid
       failedCount,
       totalProcessed: pendingQuestions.length,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("[SEQUENTIAL AI PIPELINE] FATAL API ERROR:", error?.response?.data || error?.message || error, error?.stack);
-    const errorMessage = error instanceof Error ? error.message : "Internal Server Error";
+    const errorMessage = error instanceof Error ? getErrorMessage(error) : "Internal Server Error";
     return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }

@@ -11,6 +11,7 @@ import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { GlobalAlert } from "@/components/shared/global-alert";
 import { unifiedLogin, unifiedGoogleLogin, formatAuthError } from "@/lib/services/auth-service";
 import { setAuthSession } from "@/lib/utils/auth-session";
+import { UserRole } from "@/types";
 import { useBranding } from "@/providers/branding-provider";
 
 function LoginContent() {
@@ -65,7 +66,7 @@ function LoginContent() {
         batchIds: (res.profile as any)?.batchIds,
       };
       
-      await setAuthSession(uObj, res.role as "admin" | "trainer" | "college_admin" | "student");
+      await setAuthSession(uObj, res.role as UserRole);
       
       const target = res.role === "student" ? "/student" : (res.role === "college_admin" ? "/" : "/admin");
       window.location.assign(target);
@@ -107,7 +108,7 @@ function LoginContent() {
         batchIds: res.profile?.batchIds,
       };
       
-      await setAuthSession(uObj, res.role as "admin" | "trainer" | "college_admin" | "student");
+      await setAuthSession(uObj, res.role as UserRole);
 
       if (res.role === "student") {
         window.location.assign("/student");

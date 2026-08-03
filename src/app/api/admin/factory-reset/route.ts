@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/lib/utils/error';
 import { NextResponse } from "next/server";
 import { getAdminAuth, getAdminFirestore } from "@/lib/firebase/admin";
 
@@ -134,10 +135,10 @@ export async function POST(req: Request) {
         clearedCollections: [...TARGET_COLLECTIONS, "users (except trainer@gmail.com)"],
       },
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("[FACTORY RESET FATAL ERROR]", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Internal Server Error during Factory Reset" },
+      { error: error instanceof Error ? getErrorMessage(error) : "Internal Server Error during Factory Reset" },
       { status: 500 }
     );
   }

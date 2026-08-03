@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/lib/utils/error';
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth } from "@/lib/firebase/admin";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
@@ -39,8 +40,8 @@ export async function POST(request: NextRequest) {
     // 1. Explicit Firebase Auth Update with Collision Protection
     try {
       await auth.updateUser(uid, { email: cleanEmail });
-    } catch (error: any) {
-      if (error.code === "auth/email-already-exists") {
+    } catch (error: unknown) {
+      if ((error as any)?.code === "auth/email-already-exists") {
         return NextResponse.json(
           { error: "Update failed: This email address is already in use by another account.", errorCode: "auth/email-already-exists" },
           { status: 409 }
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
       }
       console.error("Admin updateUser error:", error);
       return NextResponse.json(
-        { error: error.message || "Failed to update Firebase Auth user." },
+        { error: getErrorMessage(error) || "Failed to update Firebase Auth user." },
         { status: 500 }
       );
     }
@@ -74,23 +75,23 @@ export async function POST(request: NextRequest) {
       }
 
       await batch.commit();
-    } catch (dbErr: any) {
+    } catch (dbErr: unknown) {
       console.error("[CRITICAL SYNC FAILURE] Auth email updated successfully, but Firestore update failed:", dbErr);
       return NextResponse.json(
         {
           success: true,
           warning: "Email updated in Auth, but Firestore sync encountered an issue.",
-          details: dbErr.message,
+          details: getErrorMessage(dbErr),
         },
         { status: 200 }
       );
     }
 
     return NextResponse.json({ success: true, uid, email: cleanEmail });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Admin update email root error:", error);
 
-    if (error.code === "auth/email-already-exists") {
+    if ((error as any)?.code === "auth/email-already-exists") {
       return NextResponse.json(
         { error: "Update failed: This email address is already in use by another account.", errorCode: "auth/email-already-exists" },
         { status: 409 }
@@ -98,7 +99,7 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { error: error.message || "Failed to update email" },
+      { error: getErrorMessage(error) || "Failed to update email" },
       { status: 500 }
     );
   }

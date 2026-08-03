@@ -59,11 +59,18 @@ export function MobileSidebar() {
   }, []);
 
   const handleLogout = async () => {
-    closeMobile();
     try {
       await logoutUser();
+      closeMobile();
     } catch {}
   };
+
+  const isExamTakeRoute =
+    pathname !== null && /^\/(student|admin)\/exams\/[^/]+\/(take|review)(\/|$)/.test(pathname);
+
+  if (isExamTakeRoute) {
+    return null;
+  }
 
   const effectiveNav = useMemo(() => {
     if (!userRole) return [];

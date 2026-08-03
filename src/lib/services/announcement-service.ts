@@ -1,10 +1,10 @@
-import { getDocuments } from "@/lib/firebase/firestore";
+import { getDocuments, type QueryOptions, type PaginatedResult } from "@/lib/firebase/firestore";
 import type { Announcement } from "@/types";
 
 const ANNOUNCEMENTS_COLLECTION = "announcements";
 
-export async function getAllAnnouncements(): Promise<Announcement[]> {
-  return getDocuments<Announcement>(ANNOUNCEMENTS_COLLECTION);
+export async function getAllAnnouncements(options?: QueryOptions): Promise<PaginatedResult<Announcement>> {
+  return getDocuments<Announcement>(ANNOUNCEMENTS_COLLECTION, [], false, options);
 }
 
 /**

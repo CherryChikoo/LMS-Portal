@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/lib/utils/error';
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth } from "@/lib/firebase/admin";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
@@ -20,8 +21,8 @@ export async function POST(request: NextRequest) {
     let decodedToken;
     try {
       decodedToken = await auth.verifyIdToken(adminIdToken);
-    } catch (err: any) {
-      console.error({ route: "/api/admin/update-college-auth", stage, errorCode: err.code, message: err.message });
+    } catch (err: unknown) {
+      console.error({ route: "/api/admin/update-college-auth", stage, errorCode: (err as any)?.code, message: getErrorMessage(err) });
       return NextResponse.json({ success: false, stage, error: "Invalid or expired admin session." }, { status: 401 });
     }
 
@@ -117,14 +118,14 @@ export async function POST(request: NextRequest) {
         });
         targetUid = createdUser.uid;
         currentEmail = fallbackEmail;
-      } catch (createErr: any) {
+      } catch (createErr: unknown) {
         if (createErr?.code === "auth/email-already-exists") {
           try {
             const existingUser = await auth.getUserByEmail(normalizedNewEmail!);
             targetUid = existingUser.uid;
             currentEmail = existingUser.email || normalizedNewEmail;
           } catch (_) {
-            return NextResponse.json({ success: false, stage, errorCode: createErr.code, error: "Update failed: This email address is already in use by another account." }, { status: 409 });
+            return NextResponse.json({ success: false, stage, errorCode: (createErr as any)?.code, error: "Update failed: This email address is already in use by another account." }, { status: 409 });
           }
         } else {
           return NextResponse.json({ success: false, stage, errorCode: createErr?.code, error: createErr?.message || "Failed to create college admin Auth account." }, { status: 500 });
@@ -153,14 +154,14 @@ export async function POST(request: NextRequest) {
     if (Object.keys(updatePayload).length > 0 && targetUid) {
       try {
         await auth.updateUser(targetUid, updatePayload);
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (err?.code === "auth/email-already-exists") {
           try {
             const existing = await auth.getUserByEmail(normalizedNewEmail!);
             targetUid = existing.uid;
             if (newPassword) await auth.updateUser(targetUid, { password: newPassword });
           } catch (_) {
-            return NextResponse.json({ success: false, stage, errorCode: err.code, error: "Update failed: This email address is already in use by another account." }, { status: 409 });
+            return NextResponse.json({ success: false, stage, errorCode: (err as any)?.code, error: "Update failed: This email address is already in use by another account." }, { status: 409 });
           }
         } else if (err?.code === "auth/user-not-found") {
           try {
@@ -202,7 +203,7 @@ export async function POST(request: NextRequest) {
         batch.set(colDocRef, colUpdateData, { merge: true });
 
         await batch.commit();
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("[CRITICAL SYNC FAILURE] Auth updated but Firestore sync failed:", err);
         return NextResponse.json({
           success: false,
@@ -214,7 +215,7 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ success: true, uid: targetUid, email: normalizedNewEmail });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error({ route: "/api/admin/update-college-auth", stage: "unhandledException", errorCode: err?.code, message: err?.message });
     return NextResponse.json({ success: false, stage: "unhandledException", error: err?.message || "Internal server error." }, { status: 500 });
   }

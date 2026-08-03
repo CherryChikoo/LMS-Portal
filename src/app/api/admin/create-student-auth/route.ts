@@ -1,13 +1,11 @@
+import { getErrorMessage } from '@/lib/utils/error';
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth } from "@/lib/firebase/admin";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 
 const DEFAULT_STUDENT_PASSWORD = "Welcome@123";
 
-function getErrorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return String(err);
-}
+
 
 function getErrorCode(err: unknown): string | undefined {
   if (err && typeof err === "object" && "code" in err) {
@@ -215,6 +213,7 @@ export async function POST(request: NextRequest) {
 
     stage = "createFirestoreDocuments";
     try {
+      await auth.setCustomUserClaims(uid, { role: "student", collegeId: finalCollegeId });
       const batchWrite = db.batch();
       batchWrite.set(db.collection("users").doc(uid), userDoc);
       batchWrite.set(db.collection("students").doc(uid), studentDoc);

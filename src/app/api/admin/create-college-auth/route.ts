@@ -1,11 +1,9 @@
+import { getErrorMessage } from '@/lib/utils/error';
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth } from "@/lib/firebase/admin";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 
-function getErrorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return String(err);
-}
+
 
 function getErrorCode(err: unknown): string | undefined {
   if (err && typeof err === "object" && "code" in err) {
@@ -109,6 +107,7 @@ export async function POST(request: NextRequest) {
 
     stage = "createFirestoreDocument";
     try {
+      await auth.setCustomUserClaims(uid, { role: "college_admin", collegeId: collegeId });
       await db.collection("users").doc(uid).set(userDoc);
     } catch (dbErr) {
       console.error("Failed to write college user document:", dbErr);

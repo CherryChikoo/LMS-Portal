@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/lib/utils/error';
 import {
   getDocuments,
   getDocument,
@@ -9,11 +10,18 @@ import {
   where,
   onSnapshot,
 } from "@/lib/firebase/firestore";
+
 import { auth, db } from "@/lib/firebase/config";
+
 import { doc, writeBatch } from "firebase/firestore";
+
 import { firestoreDiagnostics } from "@/lib/firebase/diagnostics";
+
 import { invalidateLMSCache } from "@/lib/data/lms-data-cache";
+
 import type { Student, User } from "@/types";
+
+import { type QueryOptions, type PaginatedResult } from "@/lib/firebase/firestore";
 
 const COLLECTION_NAME = "students";
 
@@ -97,8 +105,9 @@ export async function createStudentAuthProfile(
       if (response.status === 400 || response.status === 409) {
         throw new Error(body.error || "Failed to create student account.");
       }
-    } catch (err: any) {
-      if (err?.message && (err.message.includes("already exists") || err.message.includes("valid"))) {
+    } catch (err: unknown) {
+      const msg = getErrorMessage(err);
+      if (msg && (msg.includes("already exists") || msg.includes("valid"))) {
         throw err;
       }
       console.warn("Server API student creation failed, executing resilient Firestore fallback:", err);
@@ -156,16 +165,16 @@ export async function createStudentAuthProfile(
   };
 }
 
-export async function getAllStudents(): Promise<Student[]> {
-  return getDocuments<Student>(COLLECTION_NAME);
+export async function getAllStudents(options?: QueryOptions): Promise<PaginatedResult<Student>> {
+  return getDocuments<Student>(COLLECTION_NAME, [], false, options);
 }
 
-export function subscribeToAllStudents(callback: (students: Student[]) => void): () => void {
-  return subscribeToDocuments<Student>(COLLECTION_NAME, callback);
+export function subscribeToAllStudents(callback: (students: Student[]) => void, options?: QueryOptions): () => void {
+  return subscribeToDocuments<Student>(COLLECTION_NAME, callback, [], false, options);
 }
 
-export function subscribeToStudentsByCollege(collegeId: string, callback: (students: Student[]) => void): () => void {
-  return subscribeToDocuments<Student>(COLLECTION_NAME, callback, [where("collegeId", "==", collegeId)]);
+export function subscribeToStudentsByCollege(collegeId: string, callback: (students: Student[]) => void, options?: QueryOptions): () => void {
+  return subscribeToDocuments<Student>(COLLECTION_NAME, callback, [where("collegeId", "==", collegeId)], false, options);
 }
 
 export function subscribeToStudentPeerDirectory(
@@ -228,12 +237,12 @@ export function subscribeToStudentById(studentId: string, callback: (students: S
   };
 }
 
-export async function getStudentsByCollege(collegeId: string): Promise<Student[]> {
-  return getDocuments<Student>(COLLECTION_NAME, [where("collegeId", "==", collegeId)]);
+export async function getStudentsByCollege(collegeId: string, options?: QueryOptions): Promise<PaginatedResult<Student>> {
+  return getDocuments<Student>(COLLECTION_NAME, [where("collegeId", "==", collegeId)], false, options);
 }
 
-export async function getStudentsByBatch(batchId: string): Promise<Student[]> {
-  return getDocuments<Student>(COLLECTION_NAME, [where("batchIds", "array-contains", batchId)]);
+export async function getStudentsByBatch(batchId: string, options?: QueryOptions): Promise<PaginatedResult<Student>> {
+  return getDocuments<Student>(COLLECTION_NAME, [where("batchIds", "array-contains", batchId)], false, options);
 }
 
 export async function getStudentById(studentId: string): Promise<Student | null> {
@@ -296,8 +305,8 @@ export async function updateStudentProfile(
         const body = await response.json().catch(() => ({}));
         return { success: false, error: body.error || "Update failed: Could not update Firebase Auth account." };
       }
-    } catch (err: any) {
-      return { success: false, error: err?.message || "Failed to update Firebase Auth account." };
+    } catch (err: unknown) {
+      return { success: false, error: getErrorMessage(err) || "Failed to update Firebase Auth account." };
     }
   }
 
@@ -311,8 +320,8 @@ export async function updateStudentProfile(
       invalidateLMSCache();
     } catch (_) {}
     return { success: true };
-  } catch (err: any) {
-    return { success: false, error: err?.message || "Failed to update student profile database record." };
+  } catch (err: unknown) {
+    return { success: false, error: getErrorMessage(err) || "Failed to update student profile database record." };
   }
 }
 

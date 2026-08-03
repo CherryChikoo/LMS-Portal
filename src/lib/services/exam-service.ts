@@ -7,6 +7,8 @@ import {
   where,
   serverTimestamp,
   subscribeToDocuments,
+  type QueryOptions,
+  type PaginatedResult,
 } from "@/lib/firebase/firestore";
 import type { Exam, ExamResult, Student, ExamStatus, ExamAttempt } from "@/types";
 import { isAssignedToStudent } from "./assignment-engine";
@@ -15,16 +17,31 @@ import { toMillis } from "@/lib/utils/date";
 const EXAMS_COLLECTION = "exams";
 const RESULTS_COLLECTION = "exam_results";
 
-export function subscribeToAllExams(callback: (exams: Exam[]) => void): () => void {
-  return subscribeToDocuments<Exam>(EXAMS_COLLECTION, callback);
+export function subscribeToAllExams(callback: (exams: Exam[]) => void, options?: QueryOptions): () => void {
+  return subscribeToDocuments<Exam>(EXAMS_COLLECTION, callback, [], false, options);
 }
 
-export function subscribeToAllAttempts(callback: (attempts: ExamAttempt[]) => void): () => void {
-  return subscribeToDocuments<ExamAttempt>(RESULTS_COLLECTION, callback);
+export function subscribeToExamsByCollege(collegeId: string, callback: (exams: Exam[]) => void, options?: QueryOptions): () => void {
+  return subscribeToDocuments<Exam>(EXAMS_COLLECTION, callback, [where("collegeId", "==", collegeId)], false, options);
 }
 
-export function subscribeToStudentAttempts(studentId: string, callback: (attempts: ExamAttempt[]) => void): () => void {
-  return subscribeToDocuments<ExamAttempt>(RESULTS_COLLECTION, callback, [where("studentId", "==", studentId)]);
+export function subscribeToPublishedExamsByCollege(collegeId: string, callback: (exams: Exam[]) => void, options?: QueryOptions): () => void {
+  return subscribeToDocuments<Exam>(EXAMS_COLLECTION, callback, [
+    where("collegeId", "==", collegeId),
+    where("status", "!=", "draft")
+  ], false, options);
+}
+
+export function subscribeToAllAttempts(callback: (attempts: ExamAttempt[]) => void, options?: QueryOptions): () => void {
+  return subscribeToDocuments<ExamAttempt>(RESULTS_COLLECTION, callback, [], false, options);
+}
+
+export function subscribeToAttemptsByCollege(collegeId: string, callback: (attempts: ExamAttempt[]) => void, options?: QueryOptions): () => void {
+  return subscribeToDocuments<ExamAttempt>(RESULTS_COLLECTION, callback, [where("collegeId", "==", collegeId)], false, options);
+}
+
+export function subscribeToStudentAttempts(studentId: string, callback: (attempts: ExamAttempt[]) => void, options?: QueryOptions): () => void {
+  return subscribeToDocuments<ExamAttempt>(RESULTS_COLLECTION, callback, [where("studentId", "==", studentId)], false, options);
 }
 
 export function subscribeToStudentAttemptsForUser(
@@ -64,12 +81,12 @@ export function subscribeToLeaderboardAttempts(
   return subscribeToAllAttempts(callback);
 }
 
-export async function getAllExams(): Promise<Exam[]> {
-  return getDocuments<Exam>(EXAMS_COLLECTION);
+export async function getAllExams(options?: QueryOptions): Promise<PaginatedResult<Exam>> {
+  return getDocuments<Exam>(EXAMS_COLLECTION, [], false, options);
 }
 
-export async function getAllExamsIncludingDeleted(): Promise<Exam[]> {
-  return getDocuments<Exam>(EXAMS_COLLECTION, [], true);
+export async function getAllExamsIncludingDeleted(options?: QueryOptions): Promise<PaginatedResult<Exam>> {
+  return getDocuments<Exam>(EXAMS_COLLECTION, [], true, options);
 }
 
 export async function getExamById(id: string): Promise<Exam | null> {
@@ -88,7 +105,8 @@ export async function updateExam(id: string, data: Partial<Exam>): Promise<void>
 
 export async function deleteExam(id: string): Promise<void> {
   // Hard delete the exam and all associated results
-  const results = await getResultsByExam(id);
+  const resultsResult = await getResultsByExam(id);
+  const results = resultsResult.data;
   if (results.length > 0) {
     await Promise.all(results.map(r => deleteDocument(RESULTS_COLLECTION, r.id)));
   }
@@ -127,8 +145,8 @@ export function filterExamsForStudent(exams: Exam[], student: Student): Exam[] {
 }
 
 // Results
-export async function getResultsByExam(examId: string): Promise<ExamResult[]> {
-  return getDocuments<ExamResult>(RESULTS_COLLECTION, [where("examId", "==", examId)]);
+export async function getResultsByExam(examId: string, options?: QueryOptions): Promise<PaginatedResult<ExamResult>> {
+  return getDocuments<ExamResult>(RESULTS_COLLECTION, [where("examId", "==", examId)], false, options);
 }
 
 export async function getResultsByStudent(studentId: string): Promise<ExamResult[]> {

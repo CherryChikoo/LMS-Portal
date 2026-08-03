@@ -5,17 +5,19 @@ import {
   updateDocument,
   deleteDocument,
   where,
+  type QueryOptions,
+  type PaginatedResult,
 } from "@/lib/firebase/firestore";
 import type { DoubtDiscussion } from "@/types";
 
 const COLLECTION_NAME = "doubts";
 
-export async function getAllDoubts(): Promise<DoubtDiscussion[]> {
-  return getDocuments<DoubtDiscussion>(COLLECTION_NAME);
+export async function getAllDoubts(options?: QueryOptions): Promise<PaginatedResult<DoubtDiscussion>> {
+  return getDocuments<DoubtDiscussion>(COLLECTION_NAME, [], false, options);
 }
 
-export async function getDoubtsByStudent(studentId: string): Promise<DoubtDiscussion[]> {
-  return getDocuments<DoubtDiscussion>(COLLECTION_NAME, [where("studentId", "==", studentId)]);
+export async function getDoubtsByStudent(studentId: string, options?: QueryOptions): Promise<PaginatedResult<DoubtDiscussion>> {
+  return getDocuments<DoubtDiscussion>(COLLECTION_NAME, [where("studentId", "==", studentId)], false, options);
 }
 
 export async function getDoubtById(id: string): Promise<DoubtDiscussion | null> {

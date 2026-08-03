@@ -83,7 +83,7 @@ function asString(value: unknown): string {
   return String(value);
 }
 
-function isQuestionCorrect(question: { correctAnswer: string | string[] }, answer: string | string[] | undefined): boolean {
+function isQuestionCorrect(question: { correctAnswer: string | number | string[] }, answer: string | string[] | undefined): boolean {
   if (answer === undefined || answer === null) return false;
   const normalize = (input: unknown) => (typeof input === "string" ? input.trim().toLowerCase() : "");
 

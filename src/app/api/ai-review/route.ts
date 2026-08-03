@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/lib/utils/error';
 import { NextResponse } from "next/server";
 import type { Question } from "@/types";
 import { GoogleGenerativeAI } from "@google/generative-ai";
@@ -64,7 +65,7 @@ ${JSON.stringify(questions, null, 2)}`;
     }
   } catch (error) {
     console.error("AI Review Route Error:", error);
-    const errorMessage = error instanceof Error ? error.message : "Internal Server Error";
+    const errorMessage = error instanceof Error ? getErrorMessage(error) : "Internal Server Error";
     return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }

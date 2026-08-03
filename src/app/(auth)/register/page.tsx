@@ -39,8 +39,8 @@ export default function RegisterPage() {
   const purgeGhostUser = async (u: any) => {
     try {
       await u.delete();
-    } catch (e: any) {
-      console.warn("[GHOST PURGE] Client delete warning (token expired):", e?.message || e);
+    } catch (e: unknown) {
+      console.warn("[GHOST PURGE] Client delete warning (token expired):", e instanceof Error ? e.message : e);
     } finally {
       await firebaseSignOut(auth).catch(() => {});
       setRegisteredUid("");

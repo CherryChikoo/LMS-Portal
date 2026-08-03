@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/lib/utils/error';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { Question } from "@/types";
 
@@ -40,9 +41,9 @@ Respond ONLY with the raw JSON array. Do not include markdown code blocks.`;
     
     const parsed = JSON.parse(text);
     return Array.isArray(parsed) ? parsed : [];
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Gemini SDK Generation Error:", error);
-    throw new Error(error.message || "Failed to generate explanations via Gemini SDK");
+    throw new Error(getErrorMessage(error) || "Failed to generate explanations via Gemini SDK");
   }
 }
 
@@ -67,7 +68,7 @@ Please format your response in professional, structured Markdown.`;
     const result = await model.generateContent(prompt);
     const response = await result.response;
     return response.text();
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Gemini SDK Summary Generation Error:", error);
     throw new Error("Failed to generate AI summary");
   }
@@ -98,7 +99,7 @@ Format the output strictly as a professional Markdown document.`;
     const result = await model.generateContent(prompt);
     const response = await result.response;
     return response.text();
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Gemini SDK Review Generation Error:", error);
     throw new Error("Failed to generate AI review");
   }

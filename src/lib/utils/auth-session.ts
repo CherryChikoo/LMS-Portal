@@ -1,3 +1,4 @@
+import { UserRole } from '@/types';
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "@/lib/firebase/config";
 
@@ -24,7 +25,7 @@ function getLogoutRole(): "student" | "admin" | "college_admin" {
 
 export async function setAuthSession(
   session: string | Record<string, unknown>,
-  role: "student" | "admin" | "trainer" | "college_admin",
+  role: UserRole,
   user?: Record<string, unknown>
 ): Promise<void> {
   const normalizedRole = role === "trainer" ? "admin" : role;

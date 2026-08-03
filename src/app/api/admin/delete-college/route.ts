@@ -1,7 +1,14 @@
+import { getErrorMessage } from '@/lib/utils/error';
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth, getAdminApp } from "@/lib/firebase/admin";
 import { getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
+import { z } from "zod";
+
+const DeleteCollegeSchema = z.object({
+  id: z.string().min(1, "College ID is required."),
+  collegeName: z.string().optional(),
+}).strict();
 
 const cleanSlug = (v?: string | null): string =>
   v ? String(v).trim().toLowerCase().replace(/[^a-z0-9]+/g, "") : "";
@@ -9,28 +16,32 @@ const cleanSlug = (v?: string | null): string =>
 export async function POST(request: NextRequest) {
   let stage = "parseRequest";
   try {
-    const body = await request.json().catch(() => ({}));
-    const { id, collegeName: clientCollegeName, adminIdToken } = body;
-
-    if (!id || typeof id !== "string") {
+    const authHeader = request.headers.get("authorization");
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return NextResponse.json(
-        { success: false, stage, errorCode: "invalid-argument", message: "College ID is required." },
-        { status: 400 }
-      );
-    }
-    if (!adminIdToken || typeof adminIdToken !== "string") {
-      return NextResponse.json(
-        { success: false, stage, errorCode: "auth/missing-token", message: "Admin authorization token is required." },
+        { success: false, stage, errorCode: "auth/missing-token", message: "Admin authorization token is required in headers." },
         { status: 401 }
       );
     }
+    const adminIdToken = authHeader.split("Bearer ")[1];
+
+    const body = await request.json().catch(() => ({}));
+    const parseResult = await DeleteCollegeSchema.safeParseAsync(body);
+    
+    if (!parseResult.success) {
+      return NextResponse.json(
+        { success: false, stage, errorCode: "invalid-argument", message: parseResult.error.errors[0].message },
+        { status: 400 }
+      );
+    }
+    const { id, collegeName: clientCollegeName } = parseResult.data;
 
     stage = "verifyAdminToken";
     const auth = getAdminAuth();
     let decodedToken;
     try {
       decodedToken = await auth.verifyIdToken(adminIdToken);
-    } catch (err: any) {
+    } catch (err: unknown) {
       return NextResponse.json(
         { success: false, stage, errorCode: err?.code, message: "Invalid or expired admin session.", details: String(err) },
         { status: 401 }
@@ -257,7 +268,7 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ success: true, purgedAuthAccounts: uidsList.length });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error({ route: "/api/admin/delete-college", stage, errorCode: err?.code, message: err?.message, stack: err?.stack });
     return NextResponse.json(
       { success: false, stage, errorCode: err?.code, message: err?.message || "Failed to delete college and clear Firebase data." },

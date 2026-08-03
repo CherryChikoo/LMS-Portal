@@ -15,19 +15,28 @@ export interface NavSection {
 }
 
 // User
-export interface User {
-  id: string;
+export type UserRole = "main_admin" | "college_admin" | "student" | "admin" | "trainer";
+export type AccountStatus = "active" | "inactive" | "restricted" | "deleted";
+
+export interface UserProfile {
+  uid?: string;
+  id?: string; // Legacy support
   email: string;
   displayName: string;
   photoURL?: string;
   role: UserRole;
   status?: AccountStatus;
-  createdAt: Date;
-  updatedAt: Date;
+  collegeId?: string;
+  collegeName?: string;
+  department?: string;
+  academicYear?: string;
+  section?: string;
+  batchIds?: string[];
+  createdAt?: string | Date;
+  updatedAt?: string | Date;
 }
 
-export type UserRole = "trainer" | "student" | "admin" | "college_admin";
-export type AccountStatus = "active" | "restricted" | "deleted";
+export interface User extends UserProfile {}
 
 // College
 export interface CollegeBranding {
@@ -47,10 +56,10 @@ export interface College {
   adminEmail?: string;
   initialPassword?: string;
   loginEnabled?: boolean;
-  status?: AccountStatus;
+  status: AccountStatus;
   branding?: CollegeBranding;
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt?: string | Date;
+  updatedAt?: string | Date;
   isDeleted?: boolean;
   deletedAt?: Date;
 }
@@ -58,24 +67,27 @@ export interface College {
 // Student
 export interface Student {
   id: string;
+  userId?: string;
   name: string;
   email: string;
   phone?: string;
   collegeId: string;
   collegeName?: string;
-  department: string;
+  department?: string;
   academicYear?: string;
-  semester: number;
-  section: string;
-  rollNumber: string;
-  batchIds: string[];
+  semester?: number;
+  section?: string;
+  rollNumber?: string;
+  enrollmentNo?: string;
+  batchIds?: string[];
+  batchId?: string;
   photoURL?: string;
   mustChangePassword?: boolean;
   initialPassword?: string;
   enrollmentType?: "csv" | "manual" | "self";
-  status?: AccountStatus;
-  createdAt: Date;
-  updatedAt: Date;
+  status: AccountStatus;
+  createdAt?: string | Date;
+  updatedAt?: string | Date;
   isDeleted?: boolean;
   deletedAt?: Date;
 }
@@ -93,14 +105,15 @@ export interface Batch {
   id: string;
   name: string;
   description?: string;
-  collegeId?: string;
+  collegeId: string;
   department?: string;
-  academicYear?: string;
+  academicYear: string;
   section?: string;
-  studentIds: string[];
-  studentCount: number;
-  createdAt: Date;
-  updatedAt: Date;
+  studentIds?: string[];
+  studentCount?: number;
+  status: "active" | "archived";
+  createdAt?: string | Date;
+  updatedAt?: string | Date;
   isDeleted?: boolean;
   deletedAt?: Date;
 }
@@ -137,6 +150,8 @@ export interface Resource {
   tags: string[];
   sharedWith: string[];
   targets?: AssignmentTarget[];
+  collegeId?: string;
+  collegeName?: string;
   createdBy?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -168,48 +183,54 @@ export interface AIExplanation {
 // Question
 export interface Question {
   id: string;
+  examId?: string;
+  collegeId?: string;
   text: string;
-  type: QuestionType;
-  options?: string[];
-  correctAnswer: string | string[];
-  marks?: number;
+  type?: QuestionType;
+  options: string[];
+  correctAnswer: number | string | string[];
+  marks: number;
   explanation?: string;
-  subject: string;
-  topic: string;
-  difficulty: QuestionDifficulty;
-  tags: string[];
+  subject?: string;
+  topic?: string;
+  difficulty?: QuestionDifficulty;
+  tags?: string[];
   aiExplanation?: AIExplanation;
   aiExplanationStatus?: "pending" | "generated" | "failed";
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt?: string | Date;
+  updatedAt?: string | Date;
 }
 
 export type QuestionType = "mcq" | "true-false" | "short-answer" | "fill-blank";
 export type QuestionDifficulty = "easy" | "medium" | "hard";
 
 // Exam
+export type ExamStatus = "draft" | "scheduled" | "active" | "completed" | "expired" | "cancelled";
+
 export interface Exam {
   id: string;
   title: string;
   description?: string;
-  duration: number;
+  collegeId: string;
+  collegeName?: string;
+  batchId?: string;
+  durationMinutes: number;
+  duration?: number; // legacy support
   totalMarks: number;
-  passingMarks: number;
-  questionIds: string[];
+  passingMarks?: number;
+  questionIds?: string[];
   questions?: Question[];
   targets?: AssignmentTarget[];
-  scheduledAt?: Date;
+  scheduledAt?: string | Date;
   startTime?: Date;
   endTime?: Date;
   status: ExamStatus;
-  settings: ExamSettings;
+  settings?: ExamSettings;
   createdBy?: string;
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt?: string | Date;
+  updatedAt?: string | Date;
   deletedAt?: Date;
 }
-
-export type ExamStatus = "draft" | "scheduled" | "active" | "completed" | "expired" | "cancelled";
 
 export interface ExamSettings {
   shuffleQuestions: boolean;
@@ -227,19 +248,22 @@ export interface ExamResult {
   examTitle?: string;
   studentId: string;
   studentName?: string;
+  studentEmail?: string;
+  collegeId?: string;
+  collegeName?: string;
   score: number;
   totalMarks: number;
   percentage: number;
   passed?: boolean;
-  timeTakenMinutes?: number;
-  status?: string;
+  status: "in_progress" | "submitted" | "graded";
   correctCount?: number;
   incorrectCount?: number;
-  answers: Record<string, unknown>;
-  aiSummary?: string | Record<string, any>;
-  submittedAt?: Date;
-  createdAt?: Date;
-  updatedAt?: Date;
+  answers?: Record<string, string | string[]>;
+  aiSummary?: string | Record<string, unknown>;
+  submittedAt?: string | Date;
+  createdAt?: string | Date;
+  updatedAt?: string | Date;
+  timeTakenMinutes?: number;
   timeTaken?: number;
   startTime?: Date;
 }

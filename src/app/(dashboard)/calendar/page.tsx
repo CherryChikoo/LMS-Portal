@@ -29,6 +29,7 @@ export default function CalendarPage() {
     section: "",
     rollNumber: "",
     batchIds: [],
+    status: "active",
     createdAt: new Date(),
     updatedAt: new Date(),
   });

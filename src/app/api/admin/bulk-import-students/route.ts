@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/lib/utils/error';
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminApp, getAdminAuth } from "@/lib/firebase/admin";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
@@ -242,7 +243,7 @@ export async function POST(request: NextRequest) {
               displayName: name,
             });
             uid = createdAuth.uid;
-          } catch (authErr: any) {
+          } catch (authErr: unknown) {
             if (authErr?.code === "auth/email-already-exists") {
               try {
                 const existingAuth = await auth.getUserByEmail(email);
@@ -304,6 +305,7 @@ export async function POST(request: NextRequest) {
           };
 
           try {
+            await auth.setCustomUserClaims(uid, { role: "student", collegeId: finalCollegeId });
             const studentBatch = db.batch();
             studentBatch.set(db.collection("users").doc(uid), userDoc, { merge: true });
             studentBatch.set(db.collection("students").doc(uid), studentDoc, { merge: true });
@@ -312,7 +314,7 @@ export async function POST(request: NextRequest) {
             existingEmailSet.add(email);
             summary.createdCount++;
             summary.results.push({ name, email, password: tempPassword, status: "created" });
-          } catch (dbErr: any) {
+          } catch (dbErr: unknown) {
             // ⚠️ CRITICAL FIX: Rollback Auth user if Firestore write fails
             try {
               await auth.deleteUser(uid);
@@ -327,7 +329,7 @@ export async function POST(request: NextRequest) {
       );
 
       return NextResponse.json({ success: true, summary });
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Bulk import students endpoint error:", err);
       return NextResponse.json({ error: "Internal server error during bulk import.", details: err?.message || String(err) }, { status: 500 });
     }

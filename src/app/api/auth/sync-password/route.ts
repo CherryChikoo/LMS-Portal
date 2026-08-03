@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/lib/utils/error';
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminApp, getAdminAuth } from "@/lib/firebase/admin";
 import { getFirestore } from "firebase-admin/firestore";
@@ -40,7 +41,7 @@ export async function POST(request: NextRequest) {
     try {
       authUser = await authAdmin.getUserByEmail(normalizedEmail);
       await authAdmin.updateUser(authUser.uid, { password });
-    } catch (authErr: any) {
+    } catch (authErr: unknown) {
       if (authErr?.code === "auth/user-not-found" || authErr?.message?.includes("user-not-found")) {
         authUser = await authAdmin.createUser({
           email: normalizedEmail,
@@ -56,7 +57,7 @@ export async function POST(request: NextRequest) {
   } catch (err: unknown) {
     console.error("[AUTH] sync-password error:", err);
     return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : String(err) },
+      { success: false, error: err instanceof Error ? getErrorMessage(err) : String(err) },
       { status: 500 }
     );
   }

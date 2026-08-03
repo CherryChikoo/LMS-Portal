@@ -393,8 +393,8 @@ export async function completeStudentAcademicDetails(
   let resolvedCollegeName = details.collegeName;
 
   try {
-    const allColleges = await getDocuments<{ id: string; name: string }>("colleges");
-    const match = allColleges.find(
+    const allCollegesResult = await getDocuments<{ id: string; name: string }>("colleges");
+    const match = allCollegesResult.data.find(
       (c) => c.name.toLowerCase().trim() === details.collegeName.toLowerCase().trim()
     );
     if (match) {
@@ -499,6 +499,9 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
     throw new Error("Authentication failed.");
   }
 
+  // Immediately refresh token to pull latest custom claims injected by Admin SDK
+  await credential.user.getIdTokenResult(true);
+
   // If we reach here, signInWithEmailAndPassword succeeded. We have a UID.
   const uid = credential.user.uid;
   let profile = await getDocument<ExtendedUser>(USERS_COLLECTION, uid);
@@ -507,9 +510,13 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
   if (!profile) {
     console.log(`[AUTH] unifiedLogin: No profile found by UID, searching by email...`);
     const existingUsersByEmail = await getDocuments<ExtendedUser>(USERS_COLLECTION, [where("email", "==", cleanEmail)]);
-    if (existingUsersByEmail.length > 0) {
-      profile = existingUsersByEmail[0];
+    if (existingUsersByEmail.data.length > 0) {
+      profile = existingUsersByEmail.data[0];
       console.log(`[AUTH] unifiedLogin: Profile found by email. Role: ${profile.role}`);
+      
+      // SELF-HEALING: Write the profile to the correct UID so future logins don't fallback to email
+      await setDoc(doc(db, USERS_COLLECTION, uid), profile);
+      console.log(`[AUTH] unifiedLogin: Self-healed profile to correct UID ${uid}`);
     }
   }
 
@@ -528,8 +535,8 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
     } else {
       // Check if email matches a college admin email in colleges collection
       const colsByAdminEmail = await getDocuments<import("@/types").College>("colleges", [where("adminEmail", "==", cleanEmail)]);
-      if (colsByAdminEmail.length > 0) {
-        const col = colsByAdminEmail[0];
+      if (colsByAdminEmail.data.length > 0) {
+        const col = colsByAdminEmail.data[0];
         profile = {
           id: uid,
           email: cleanEmail,
@@ -547,8 +554,8 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
         let studentDoc = await getDocument<Student>("students", uid);
         if (!studentDoc) {
           const studsByEmail = await getDocuments<Student>("students", [where("email", "==", cleanEmail)]);
-          if (studsByEmail.length > 0) {
-            studentDoc = studsByEmail[0];
+          if (studsByEmail.data.length > 0) {
+            studentDoc = studsByEmail.data[0];
           }
         }
 
@@ -581,8 +588,8 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
     let studentDoc = await getDocument<Student>("students", uid);
     if (!studentDoc) {
       const studsByEmail = await getDocuments<Student>("students", [where("email", "==", cleanEmail)]);
-      if (studsByEmail.length > 0) {
-        studentDoc = studsByEmail[0];
+      if (studsByEmail.data.length > 0) {
+        studentDoc = studsByEmail.data[0];
       }
     }
     if (studentDoc) {
@@ -609,7 +616,7 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
     let studentDoc = await getDocument<Student>("students", uid);
     if (!studentDoc) {
       const studsByEmail = await getDocuments<Student>("students", [where("email", "==", cleanEmail)]);
-      if (studsByEmail.length > 0) studentDoc = studsByEmail[0];
+      if (studsByEmail.data.length > 0) studentDoc = studsByEmail.data[0];
     }
     if (profile?.status === "restricted" || studentDoc?.status === "restricted") {
       await firebaseSignOut(auth);
@@ -630,13 +637,13 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
 
     if (!collegeDoc && (targetColId || targetColName || profile.email)) {
       try {
-        const allCols = await getDocuments<import("@/types").College>("colleges");
+        const allColsResult = await getDocuments<import("@/types").College>("colleges");
         const cleanSlug = (v?: string) => (v ? String(v).trim().toLowerCase().replace(/[^a-z0-9]+/g, "") : "");
         const searchSlugId = cleanSlug(targetColId);
         const searchSlugName = cleanSlug(targetColName);
         const searchEmail = (profile.email || "").toLowerCase().trim();
 
-        collegeDoc = allCols.find((c) => {
+        collegeDoc = allColsResult.data.find((c) => {
           if ((c.status as string) === "deleted" || c.isDeleted) return false;
           const cIdSlug = cleanSlug(c.id);
           const cNameSlug = cleanSlug(c.name);

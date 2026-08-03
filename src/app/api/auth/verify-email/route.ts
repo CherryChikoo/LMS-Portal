@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/lib/utils/error';
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminApp } from "@/lib/firebase/admin";
 import { getFirestore } from "firebase-admin/firestore";
@@ -38,7 +39,7 @@ export async function POST(request: NextRequest) {
   } catch (err: unknown) {
     console.error("[AUTH] verify-email error:", err);
     return NextResponse.json(
-      { exists: false, error: err instanceof Error ? err.message : String(err) },
+      { exists: false, error: err instanceof Error ? getErrorMessage(err) : String(err) },
       { status: 500 }
     );
   }

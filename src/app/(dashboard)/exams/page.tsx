@@ -20,6 +20,7 @@ import { toDate, toMillis } from "@/lib/utils/date";
 import { useLMSData } from "@/lib/data/use-lms-data";
 import { useEntityResolution } from "@/lib/data/use-entity-resolution";
 import { formatAuthError } from "@/lib/services/auth-service";
+import { getAuth } from "firebase/auth";
 import type { Exam, Question, QuestionType, Student, AssignmentTarget, ExamAttempt } from "@/types";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -391,9 +392,14 @@ export default function ExamsPage() {
       });
 
       // Background Gemini upgrade (non-blocking)
+      const auth = getAuth();
+      const token = await auth.currentUser?.getIdToken();
       fetch("/api/ai-explanation", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          ...(token ? { "Authorization": `Bearer ${token}` } : {})
+        },
         body: JSON.stringify({ examId: newExamId }),
       }).catch((err) => console.error("[BACKGROUND AI PIPELINE] Fetch error:", err));
 

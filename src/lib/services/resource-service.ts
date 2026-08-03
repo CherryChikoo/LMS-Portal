@@ -5,18 +5,25 @@ import {
   updateDocument,
   deleteDocument,
   subscribeToDocuments,
+  where,
+  type QueryOptions,
+  type PaginatedResult,
 } from "@/lib/firebase/firestore";
 import type { Resource, Student } from "@/types";
 import { isAssignedToStudent } from "./assignment-engine";
 
 const COLLECTION_NAME = "resources";
 
-export function subscribeToAllResources(callback: (resources: Resource[]) => void): () => void {
-  return subscribeToDocuments<Resource>(COLLECTION_NAME, callback);
+export function subscribeToAllResources(callback: (resources: Resource[]) => void, options?: QueryOptions): () => void {
+  return subscribeToDocuments<Resource>(COLLECTION_NAME, callback, [], false, options);
 }
 
-export async function getAllResources(): Promise<Resource[]> {
-  return getDocuments<Resource>(COLLECTION_NAME);
+export function subscribeToResourcesByCollege(collegeId: string, callback: (resources: Resource[]) => void, options?: QueryOptions): () => void {
+  return subscribeToDocuments<Resource>(COLLECTION_NAME, callback, [where("collegeId", "==", collegeId)], false, options);
+}
+
+export async function getAllResources(options?: QueryOptions): Promise<PaginatedResult<Resource>> {
+  return getDocuments<Resource>(COLLECTION_NAME, [], false, options);
 }
 
 export async function getResourceById(id: string): Promise<Resource | null> {

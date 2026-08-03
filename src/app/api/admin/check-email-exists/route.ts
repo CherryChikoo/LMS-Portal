@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/lib/utils/error';
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth } from "@/lib/firebase/admin";
 import { getFirestore } from "firebase-admin/firestore";
@@ -43,13 +44,13 @@ export async function POST(request: NextRequest) {
         uid: existingUser.uid,
         provider: existingUser.providerData[0]?.providerId || "password"
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (err?.code === "auth/user-not-found") {
         return NextResponse.json({ exists: false });
       }
       throw err;
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("Check email exists error:", err);
     return NextResponse.json(
       { error: "Failed to check email existence.", details: err?.message || String(err) },

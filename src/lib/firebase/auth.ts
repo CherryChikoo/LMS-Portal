@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/lib/utils/error';
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -43,7 +44,7 @@ export { signInWithPopup, signInWithRedirect, getRedirectResult };
 export async function signInWithGoogle() {
   try {
     return await signInWithPopup(auth, googleProvider);
-  } catch (err: any) {
+  } catch (err: unknown) {
     const code = err?.code || "";
     // Only use redirect fallback if popup is strictly blocked by browser policy
     if (code === "auth/popup-blocked") {

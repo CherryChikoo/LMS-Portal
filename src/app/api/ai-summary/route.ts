@@ -1,27 +1,57 @@
-import { NextResponse } from "next/server";
+import { getErrorMessage } from '@/lib/utils/error';
+import { NextRequest, NextResponse } from "next/server";
 import { getDocument, updateDocument } from "@/lib/firebase/firestore";
 import type { ExamResult, Exam, Question } from "@/types";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { getAdminAuth } from "@/lib/firebase/admin";
+import { z } from "zod";
 
 export const maxDuration = 60; // Max allowed for Vercel Hobby tier
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 const MODEL_NAME = "gemini-1.5-flash"; // Recommended fast model
 
-export async function POST(req: Request) {
-  try {
-    const { resultId } = await req.json();
+const AISummarySchema = z.object({
+  resultId: z.string().min(1, "Result ID is required"),
+}).strict();
 
-    if (!resultId) {
-      return NextResponse.json({ error: "Result ID is required" }, { status: 400 });
+export async function POST(req: NextRequest) {
+  try {
+    const authHeader = req.headers.get("authorization");
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return NextResponse.json({ error: "Missing or invalid authorization token" }, { status: 401 });
     }
+    const idToken = authHeader.split("Bearer ")[1];
+    
+    const auth = getAdminAuth();
+    let decodedToken;
+    try {
+      decodedToken = await auth.verifyIdToken(idToken);
+    } catch (err) {
+      return NextResponse.json({ error: "Invalid or expired session" }, { status: 401 });
+    }
+
+    const body = await req.json().catch(() => ({}));
+    const parseResult = await AISummarySchema.safeParseAsync(body);
+    if (!parseResult.success) {
+      return NextResponse.json({ error: parseResult.error.errors[0].message }, { status: 400 });
+    }
+    const { resultId } = parseResult.data;
 
     const result = await getDocument<ExamResult>("exam_results", resultId);
     if (!result) {
       return NextResponse.json({ error: "Result not found" }, { status: 404 });
     }
 
-    // If summary already exists, return it to save tokens
+    // BOLA protection: Only allow the student who took the exam, or an admin/college_admin
+    const userRole = decodedToken.role;
+    if (userRole === "student" && result.studentId !== decodedToken.uid) {
+      return NextResponse.json({ error: "Access denied. You can only view your own results." }, { status: 403 });
+    }
+    if (userRole === "college_admin" && result.collegeId !== decodedToken.collegeId) {
+      return NextResponse.json({ error: "Access denied. Student does not belong to your college." }, { status: 403 });
+    }
+
     if (result.aiSummary && typeof result.aiSummary === "object") {
       return NextResponse.json({ summary: result.aiSummary });
     }
@@ -31,10 +61,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Exam or questions not found" }, { status: 404 });
     }
 
-    // Map questions with answers to provide context to Gemini
     const performanceData = exam.questions.map((q: Question) => {
-      const studentAnswer = result.answers[q.id];
-      // simplified correct check
+      const studentAnswer = ((result.answers || {}) || {})[q.id];
       let isCorrect = false;
       if (Array.isArray(q.correctAnswer) && Array.isArray(studentAnswer)) {
         isCorrect = q.correctAnswer.length === studentAnswer.length &&
@@ -94,15 +122,12 @@ Do NOT wrap the output in markdown code blocks like \`\`\`json. Return RAW valid
       performanceData
     }, null, 2)}`;
 
-    const response = await model.generateContent({
+    const aiResponse = await model.generateContent({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.3,
-        responseMimeType: "application/json",
-      }
+      generationConfig: { temperature: 0.3, responseMimeType: "application/json" }
     });
 
-    const resultResp = await response.response;
+    const resultResp = await aiResponse.response;
     let textResponse = resultResp.text();
     
     if (!textResponse) {
@@ -110,14 +135,11 @@ Do NOT wrap the output in markdown code blocks like \`\`\`json. Return RAW valid
     }
 
     const summaryData = JSON.parse(textResponse);
-
-    // Save summary permanently in ExamResult document
     await updateDocument("exam_results", resultId, { aiSummary: summaryData });
-
     return NextResponse.json({ summary: summaryData });
 
   } catch (error) {
-    console.error("AI Summary Generation Error:", error);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    const message = process.env.NODE_ENV === "production" ? "Internal server error." : getErrorMessage(error);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

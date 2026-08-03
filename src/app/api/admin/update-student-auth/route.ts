@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/lib/utils/error';
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth } from "@/lib/firebase/admin";
 import { getFirestore } from "firebase-admin/firestore";
@@ -105,7 +106,7 @@ export async function POST(request: NextRequest) {
             password: fallbackPassword,
             displayName: fallbackName,
           });
-        } catch (createErr: any) {
+        } catch (createErr: unknown) {
           if (createErr?.code === "auth/email-already-exists") {
             return NextResponse.json(
               { error: "Update failed: This email address is already in use by another account.", errorCode: "auth/email-already-exists" },

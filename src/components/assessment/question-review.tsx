@@ -7,12 +7,12 @@ import type { Question } from "@/types";
 export interface QuestionReviewProps {
   question: Question;
   index: number;
-  studentAnswer?: string | string[];
+  studentAnswer?: string | number | string[];
   showCorrectAnswer: boolean;
 }
 
 const DIFFICULTY_STYLES: Record<
-  Question["difficulty"],
+  NonNullable<Question["difficulty"]>,
   { label: string; className: string }
 > = {
   easy: {

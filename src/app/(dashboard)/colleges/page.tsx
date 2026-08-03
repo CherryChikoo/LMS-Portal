@@ -207,9 +207,22 @@ export default function CollegesPage() {
     } catch (_) {}
 
     // Auto-normalize database colleges and students to small letters directly in Firestore
-    fetch("/api/admin/normalize-colleges", { method: "POST" }).catch((err) =>
-      console.error("Auto-normalization sweep failed:", err)
-    );
+    const auth = getAuth();
+    const unsub = auth.onAuthStateChanged(async (user) => {
+      if (user) {
+        try {
+          const token = await user.getIdToken();
+          await fetch("/api/admin/normalize-colleges", { 
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ adminIdToken: token })
+          });
+        } catch (err) {
+          console.error("Auto-normalization sweep failed:", err);
+        }
+        unsub(); // Unsubscribe after first successful run
+      }
+    });
   }, []);
 
   const handleDeleteAdminCollege = (col: College) => {
@@ -247,9 +260,9 @@ export default function CollegesPage() {
               console.error("Background college delete cleanup error:", err);
             }
           }
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.error("Failed to delete college:", err);
-          toast.error(err.message || "Failed to delete college");
+          toast.error(err instanceof Error ? err.message : "Failed to delete college");
         } finally {
           setDeletingIds((prev) => prev.filter((id) => id !== col.id));
         }
@@ -310,9 +323,9 @@ export default function CollegesPage() {
               })
             );
           }
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.error("Failed to delete selected colleges:", err);
-          toast.error(err.message || "Failed to delete selected colleges");
+          toast.error(err instanceof Error ? err.message : "Failed to delete selected colleges");
         }
       }
     });

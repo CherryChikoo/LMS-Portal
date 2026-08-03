@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/lib/utils/error';
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth, getAdminFirestore } from "@/lib/firebase/admin";
 
@@ -213,7 +214,7 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : "Migration failed";
+    const errorMsg = err instanceof Error ? getErrorMessage(err) : "Migration failed";
     console.error({ route: "/api/admin/normalize-colleges", stage, error: errorMsg });
     return NextResponse.json({ success: false, stage, error: errorMsg }, { status: 500 });
   }

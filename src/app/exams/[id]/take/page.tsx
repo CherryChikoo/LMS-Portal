@@ -389,7 +389,7 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
       incorrectCount,
       startTime: startTime ?? new Date(),
       submittedAt: new Date(),
-      timeTakenMinutes: Math.ceil(((exam.duration * 60) - timeLeft) / 60),
+      timeTakenMinutes: Math.ceil((((exam.duration || 0) * 60) - timeLeft) / 60),
       status: "submitted" as const,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -998,7 +998,7 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
                 </div>
                 <div className="p-3 rounded-xl bg-muted/40 border border-border">
                   <span className="text-muted-foreground font-semibold">Duration</span>
-                  <p className="text-lg font-bold text-foreground">{exam.duration || 30} mins</p>
+                  <p className="text-lg font-bold text-foreground">{(exam.duration || 0) || 30} mins</p>
                 </div>
                 <div className="p-3 rounded-xl bg-muted/40 border border-border">
                   <span className="text-muted-foreground font-semibold">Total Marks</span>

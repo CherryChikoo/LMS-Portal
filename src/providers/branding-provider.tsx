@@ -78,9 +78,9 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
           if (!collegeId && profile.email) {
             try {
               const cleanEmail = profile.email.toLowerCase().trim();
-              const colSnaps = await getDocuments("colleges", [where("adminEmail", "==", cleanEmail)]);
-              if (colSnaps.length > 0) {
-                collegeId = colSnaps[0].id;
+              const colSnapsResult = await getDocuments("colleges", [where("adminEmail", "==", cleanEmail)]);
+              if (colSnapsResult.data.length > 0) {
+                collegeId = colSnapsResult.data[0].id;
                 profile.collegeId = collegeId;
                 localStorage.setItem("lms_user", JSON.stringify(profile));
               }
@@ -93,10 +93,10 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
           if (collegeId && collegeId !== "global") {
             let targetColId = collegeId;
             try {
-              const allCols = await getDocuments<import("@/types").College>("colleges");
+              const allColsResult = await getDocuments<import("@/types").College>("colleges");
               const cleanSlug = (v?: string) => (v ? String(v).trim().toLowerCase().replace(/[^a-z0-9]+/g, "") : "");
               const targetSlug = cleanSlug(collegeId);
-              const colDoc = allCols.find((c) => c.id === collegeId || cleanSlug(c.id) === targetSlug || cleanSlug(c.name) === targetSlug);
+              const colDoc = allColsResult.data.find((c) => c.id === collegeId || cleanSlug(c.id) === targetSlug || cleanSlug(c.name) === targetSlug);
               if (colDoc) targetColId = colDoc.id;
             } catch (e) {
               console.error("Error resolving college document for branding:", e);

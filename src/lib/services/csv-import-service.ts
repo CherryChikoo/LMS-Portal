@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/lib/utils/error';
 import { createUserWithEmailAndPassword, updateProfile, getAuth } from "firebase/auth";
 import { initializeApp, deleteApp } from "firebase/app";
 import { auth, db, firebaseConfig } from "@/lib/firebase/config";
@@ -215,11 +216,8 @@ export async function importStudentsCSV(
               console.error("Chunk import server error after retries:", errReason);
               return { errorReason: errReason };
             }
-          } catch (fetchErr: any) {
-            if (attempt === retries) {
-              console.warn("Chunk import fetch error after retries:", fetchErr);
-              return { errorReason: fetchErr?.message || "Network error" };
-            }
+          } catch (fetchErr: unknown) {
+            return { errorReason: getErrorMessage(fetchErr) || "Network error" };
           }
           if (attempt < retries) {
             await new Promise((r) => setTimeout(r, attempt * 500));
@@ -401,6 +399,16 @@ export async function importStudentsCSV(
         updatedAt: new Date(),
         status: "active",
       } as Student;
+
+      const authMockUser: User = {
+        uid: uid,
+        id: uid,
+        email,
+        displayName: row.studentName,
+        role: "student",
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
 
       const userDoc: User = {
         id: uid,

@@ -15,8 +15,8 @@ import {
   Timestamp,
   writeBatch,
 } from "firebase/firestore";
-import { getDocuments, subscribeToDocuments } from "@/lib/firebase/firestore";
-import type { College } from "@/types";
+import { getDocuments, subscribeToDocuments, type QueryOptions, type PaginatedResult } from "@/lib/firebase/firestore";
+import type { College, SelectOption, User } from "@/types";
 
 /**
  * Predefined department options for colleges
@@ -52,8 +52,8 @@ export function ensureGeneralDepartment(departments: string[]): string[] {
 /**
  * Fetch all colleges from Firestore
  */
-export async function fetchColleges(): Promise<College[]> {
-  return getDocuments<College>("colleges", [orderBy("createdAt", "desc")]);
+export async function fetchColleges(options?: QueryOptions): Promise<PaginatedResult<College>> {
+  return getDocuments<College>("colleges", [orderBy("createdAt", "desc")], false, options);
 }
 
 /**
@@ -64,8 +64,8 @@ export const getAllColleges = fetchColleges;
 /**
  * Subscribe to all colleges with real-time updates
  */
-export function subscribeToAllColleges(callback: (colleges: College[]) => void): () => void {
-  return subscribeToDocuments<College>("colleges", callback, [orderBy("createdAt", "desc")]);
+export function subscribeToAllColleges(callback: (colleges: College[]) => void, options?: QueryOptions): () => void {
+  return subscribeToDocuments<College>("colleges", callback, [orderBy("createdAt", "desc")], false, options);
 }
 
 /**
