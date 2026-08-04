@@ -49,31 +49,116 @@ export async function POST(request: NextRequest) {
     }
 
     const requesterRole = requesterDoc.data()?.role;
-    if (requesterRole !== "admin" && requesterRole !== "trainer") {
+    if (requesterRole !== "admin" && requesterRole !== "trainer" && requesterRole !== "main_admin") {
       return NextResponse.json({ success: false, stage, errorCode: "permission-denied", message: "Only admins or trainers can create college accounts." }, { status: 403 });
     }
 
     stage = "checkEmailUniqueness";
     const normalizedEmail = email.toLowerCase().trim();
     const displayName = `${collegeName.trim()} Admin`;
-
-    // Pre-flight Firestore Check across all relevant collections
-    const existingUsersSnapshot = await db.collection("users").where("email", "==", normalizedEmail).get();
-    const existingCollegesSnapshot = await db.collection("colleges").where("adminEmail", "==", normalizedEmail).get();
-    const existingStudentsSnapshot = await db.collection("students").where("email", "==", normalizedEmail).get();
     
-    if (!existingUsersSnapshot.empty || !existingCollegesSnapshot.empty || !existingStudentsSnapshot.empty) {
-      return NextResponse.json({ success: false, stage, errorCode: "firestore/email-already-exists", message: "This email is already registered to an existing account/college." }, { status: 409 });
+    // DIAGNOSTIC LOGGING - START
+    console.log(`\n========================================`);
+    console.log(`[CreateCollege] 🔍 CHECKING EMAIL: "${normalizedEmail}"`);
+    console.log(`[CreateCollege] College Name: "${collegeName}"`);
+    console.log(`[CreateCollege] College ID: "${collegeId}"`);
+
+    // Pre-flight Firestore Check across all relevant collections  
+    const [existingUsersSnapshot, existingStudentsSnapshot] = await Promise.all([
+      db.collection("users").where("email", "==", normalizedEmail).get(),
+      db.collection("students").where("email", "==", normalizedEmail).get()
+    ]);
+    
+    console.log(`\n[CreateCollege] 📊 RAW QUERY RESULTS:`);
+    console.log(`  - Users found: ${existingUsersSnapshot.docs.length}`);
+    console.log(`  - Students found: ${existingStudentsSnapshot.docs.length}`);
+    
+    // Log ALL found documents with full details
+    if (existingUsersSnapshot.docs.length > 0) {
+      console.log(`\n[CreateCollege] 👤 USERS FOUND:`);
+      existingUsersSnapshot.docs.forEach((doc, idx) => {
+        const data = doc.data();
+        console.log(`  User ${idx + 1}:`, {
+          id: doc.id,
+          email: data.email,
+          role: data.role,
+          isActive: data.isActive,
+          isDeleted: data.isDeleted,
+          collegeId: data.collegeId,
+          collegeName: data.collegeName
+        });
+      });
     }
+    
+    if (existingStudentsSnapshot.docs.length > 0) {
+      console.log(`\n[CreateCollege] 🎓 STUDENTS FOUND:`);
+      existingStudentsSnapshot.docs.forEach((doc, idx) => {
+        const data = doc.data();
+        console.log(`  Student ${idx + 1}:`, {
+          id: doc.id,
+          email: data.email,
+          isActive: data.isActive,
+          isDeleted: data.isDeleted,
+          collegeId: data.collegeId
+        });
+      });
+    }
+    
+    // Filter for ACTIVE records only
+    console.log(`\n[CreateCollege] 🔎 FILTERING FOR ACTIVE RECORDS...`);
+    const activeUsers = existingUsersSnapshot.docs.filter(doc => {
+      const data = doc.data();
+      const isActive = data.isActive !== false && data.isDeleted !== true;
+      console.log(`  User ${doc.id}: isActive=${data.isActive}, isDeleted=${data.isDeleted} → ${isActive ? 'KEEP' : 'SKIP'}`);
+      return isActive;
+    });
+    console.log(`  ✓ Active users after filter: ${activeUsers.length}`);
+    
+    const activeStudents = existingStudentsSnapshot.docs.filter(doc => {
+      const data = doc.data();
+      const isActive = data.isActive !== false && data.isDeleted !== true;
+      console.log(`  Student ${doc.id}: isActive=${data.isActive}, isDeleted=${data.isDeleted} → ${isActive ? 'KEEP' : 'SKIP'}`);
+      return isActive;
+    });
+    console.log(`  ✓ Active students after filter: ${activeStudents.length}`);
+    
+    if (activeUsers.length > 0 || activeStudents.length > 0) {
+      console.log(`\n[CreateCollege] ❌ CONFLICT DETECTED!`);
+      console.log(`  Conflicting users:`, activeUsers.map(d => ({ id: d.id, email: d.data().email, role: d.data().role })));
+      console.log(`  Conflicting students:`, activeStudents.map(d => ({ id: d.id, email: d.data().email })));
+      console.log(`========================================\n`);
+      
+      return NextResponse.json({ 
+        success: false, 
+        stage, 
+        errorCode: "firestore/email-already-exists", 
+        message: "This email is already registered to an existing active account/college." 
+      }, { status: 409 });
+    }
+    
+    console.log(`\n[CreateCollege] ✅ No Firestore conflicts found`);
+    console.log(`[CreateCollege] 🔍 Checking Firebase Auth...`);
 
     try {
-      await auth.getUserByEmail(normalizedEmail);
-      return NextResponse.json({ success: false, stage, errorCode: "auth/email-already-exists", message: "An account with this email already exists." }, { status: 409 });
+      const existingAuthUser = await auth.getUserByEmail(normalizedEmail);
+      console.log(`[CreateCollege] ❌ Email EXISTS in Firebase Auth:`, {
+        uid: existingAuthUser.uid,
+        email: existingAuthUser.email,
+        disabled: existingAuthUser.disabled
+      });
+      console.log(`========================================\n`);
+      return NextResponse.json({ success: false, stage, errorCode: "auth/email-already-exists", message: "An account with this email already exists in Firebase Auth." }, { status: 409 });
     } catch (err) {
       if (getErrorCode(err) !== "auth/user-not-found") {
+        console.error(`[CreateCollege] ⚠️  Error checking auth:`, err);
+        console.log(`========================================\n`);
         return NextResponse.json({ success: false, stage, errorCode: getErrorCode(err), message: "Could not verify email uniqueness.", details: getErrorMessage(err), retryable: true }, { status: 500 });
       }
     }
+    
+    console.log(`[CreateCollege] ✅ Email not in Firebase Auth`);
+    console.log(`[CreateCollege] 🎉 EMAIL IS AVAILABLE - Proceeding with creation...`);
+    console.log(`========================================\n`)
 
     stage = "createAuthUser";
     let authUser = null;
@@ -83,8 +168,9 @@ export async function POST(request: NextRequest) {
         password: password,
         displayName: displayName,
       });
+      console.log(`[CreateCollege] ✅ Created Auth user: ${authUser.uid}`);
     } catch (authErr) {
-      console.error("Admin createUser error:", authErr);
+      console.error("[CreateCollege] ❌ createUser error:", authErr);
       if (getErrorCode(authErr) === "auth/email-already-exists") {
         return NextResponse.json({ success: false, stage, errorCode: "auth/email-already-exists", message: "An account with this email address already exists." }, { status: 409 });
       }
@@ -104,6 +190,7 @@ export async function POST(request: NextRequest) {
       role: "college_admin",
       collegeId: collegeId,
       collegeName: collegeName.trim(),
+      isActive: true,
       createdAt: now,
       updatedAt: now,
     };
@@ -112,13 +199,16 @@ export async function POST(request: NextRequest) {
     try {
       await auth.setCustomUserClaims(uid, { role: "college_admin", collegeId: collegeId });
       await db.collection("users").doc(uid).set(userDoc);
+      console.log(`[CreateCollege] ✅ Created Firestore doc: ${uid}`);
+      console.log(`[CreateCollege] 🎉 SUCCESS!\n`);
     } catch (dbErr) {
-      console.error("Failed to write college user document:", dbErr);
+      console.error("[CreateCollege] ❌ Firestore write failed:", dbErr);
       stage = "rollbackAuthUser";
       try {
         await auth.deleteUser(uid);
+        console.log(`[CreateCollege] ✅ Rolled back Auth user`);
       } catch (rollbackErr) {
-        console.error("CRITICAL: Failed to rollback auth user creation after Firestore error:", rollbackErr);
+        console.error("[CreateCollege] ❌ CRITICAL: Rollback failed:", rollbackErr);
         return NextResponse.json(
           { success: false, stage, errorCode: getErrorCode(dbErr), message: "Failed to create college user profile. Auth rollback also failed.", details: `DB Error: ${getErrorMessage(dbErr)} | Rollback Error: ${getErrorMessage(rollbackErr)}`, retryable: false },
           { status: 500 }
@@ -132,7 +222,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, uid, email: normalizedEmail });
   } catch (err) {
-    console.error("Create college auth endpoint error:", err);
+    console.error("[CreateCollege] ❌ Unhandled error:", err);
     return NextResponse.json({ success: false, stage: "unhandledException", errorCode: getErrorCode(err), message: "Internal server error.", details: getErrorMessage(err), retryable: true }, { status: 500 });
   }
 }

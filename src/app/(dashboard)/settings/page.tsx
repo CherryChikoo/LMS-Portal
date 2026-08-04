@@ -171,7 +171,7 @@ function StudentAccountSettings() {
       if (auth.currentUser && name !== u.name) {
         try {
           await updateProfile(auth.currentUser, { displayName: name });
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+           
         } catch (profileErr: unknown) {
           console.warn("Could not update Firebase Auth display name:", profileErr);
         }
@@ -187,7 +187,7 @@ function StudentAccountSettings() {
               setDoc(doc(db, "exam_results", r.id), { studentName: name, updatedAt: new Date() }, { merge: true })
             )
           );
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+           
         } catch (syncErr: unknown) {
           console.warn("Could not sync name to past results:", syncErr);
         }
@@ -387,7 +387,7 @@ function StudentAccountSettings() {
       setCurPwd("");
       setNewPwd("");
       pwdSuccessTimeoutRef.current = setTimeout(() => setPwdSuccess(false), 3000);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
     } catch (err: unknown) {
       const code = (err as any)?.code || "";
       const msg = (err as any)?.message || "";

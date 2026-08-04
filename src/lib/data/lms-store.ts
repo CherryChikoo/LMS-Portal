@@ -83,10 +83,20 @@ import {
   optimisticDeleteCollegeFromCache,
   optimisticDeleteStudentFromCache,
   optimisticUpdateStudentInCache,
+  refreshCache,
 } from "./lms-data-cache";
+
+// Re-export for pages to call after mutations
+export { refreshCache };
+
+/** Schedule a background refresh after a short delay (lets the server-side mutation commit first) */
+function scheduleRefresh(delayMs = 2000) {
+  setTimeout(() => { refreshCache().catch(() => {}); }, delayMs);
+}
 
 export function optimisticDeleteStudent(studentId: string): LMSStoreState {
   optimisticDeleteStudentFromCache(studentId);
+  scheduleRefresh();
   return storeState;
 }
 
@@ -95,6 +105,7 @@ export function optimisticDeleteStudent(studentId: string): LMSStoreState {
  */
 export function optimisticDeleteCollege(collegeId: string): LMSStoreState {
   optimisticDeleteCollegeFromCache(collegeId);
+  scheduleRefresh();
   return storeState;
 }
 
@@ -103,6 +114,7 @@ export function optimisticDeleteCollege(collegeId: string): LMSStoreState {
  */
 export function optimisticUpdateStudent(studentId: string, updates: Partial<Student>): LMSStoreState {
   optimisticUpdateStudentInCache(studentId, updates);
+  scheduleRefresh();
   return storeState;
 }
 

@@ -49,7 +49,7 @@ ${JSON.stringify(questions, null, 2)}`;
     });
 
     const resultResp = await response.response;
-    let textResponse = resultResp.text();
+    const textResponse = resultResp.text();
     
     if (!textResponse) {
       return NextResponse.json({ error: "Empty response from AI" }, { status: 500 });

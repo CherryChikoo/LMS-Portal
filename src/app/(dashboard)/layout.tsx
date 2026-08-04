@@ -9,6 +9,7 @@ import { NavigationProgress } from "@/components/layout/navigation-progress";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { subscribeToLMSCache } from "@/lib/data/lms-data-cache";
+import { ErrorBoundary } from "@/components/error-boundary";
 
 export default function DashboardLayout({
   children,
@@ -224,32 +225,34 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="min-h-[100dvh] flex relative bg-transparent overflow-x-hidden">
-      <NavigationProgress />
-      {/* Background removed to fix performance issues on lower end devices */}
+    <ErrorBoundary>
+      <div className="min-h-[100dvh] flex relative bg-transparent overflow-x-hidden">
+        <NavigationProgress />
+        {/* Background removed to fix performance issues on lower end devices */}
 
-      {/* Sidebar - desktop */}
-      <Sidebar />
+        {/* Sidebar - desktop */}
+        <Sidebar />
 
-      {/* Mobile sidebar */}
-      <MobileSidebar />
+        {/* Mobile sidebar */}
+        <MobileSidebar />
 
-      {/* Main content area */}
-      <div
-        className={cn(
-          "flex-1 flex flex-col min-h-[100dvh] relative z-10 min-w-0 w-full",
-          isExpanded ? "lg:ml-[260px]" : "lg:ml-[80px]"
-        )}
-        style={{
-          transition: 'margin-left 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
-          willChange: 'margin-left'
-        }}
-      >
-        <Topbar />
-        <main className="flex-1 p-4 sm:p-7 lg:p-9 lg:pb-16 pb-20 max-w-[100vw] lg:max-w-[1600px] w-full mx-auto min-w-0">
-          {children}
-        </main>
+        {/* Main content area */}
+        <div
+          className={cn(
+            "flex-1 flex flex-col min-h-[100dvh] relative z-10 min-w-0 w-full",
+            isExpanded ? "lg:ml-[260px]" : "lg:ml-[80px]"
+          )}
+          style={{
+            transition: 'margin-left 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
+            willChange: 'margin-left'
+          }}
+        >
+          <Topbar />
+          <main className="flex-1 p-4 sm:p-7 lg:p-9 lg:pb-16 pb-20 max-w-[100vw] lg:max-w-[1600px] w-full mx-auto min-w-0">
+            {children}
+          </main>
+        </div>
       </div>
-    </div>
+    </ErrorBoundary>
   );
 }

@@ -25,14 +25,64 @@ export async function POST(request: NextRequest) {
 
     const normalizedEmail = email.toLowerCase().trim();
 
-    // Check if email exists in Firestore
+    // Check if email exists in Firestore (only active records)
     const db = getFirestore();
-    const existingUsersSnapshot = await db.collection("users").where("email", "==", normalizedEmail).get();
-    if (!existingUsersSnapshot.empty) {
+    
+    // Check for active users
+    const existingUsersSnapshot = await db.collection("users")
+      .where("email", "==", normalizedEmail)
+      .get();
+    
+    // Filter for truly active users
+    const activeUsers = existingUsersSnapshot.docs.filter(doc => {
+      const data = doc.data();
+      return data.isActive !== false && data.isDeleted !== true;
+    });
+    
+    if (activeUsers.length > 0) {
       return NextResponse.json({
         exists: true,
-        uid: existingUsersSnapshot.docs[0].id,
-        provider: "firestore"
+        uid: activeUsers[0].id,
+        provider: "firestore",
+        reason: "active_user"
+      });
+    }
+    
+    // Check for active colleges with this admin email
+    const existingCollegesSnapshot = await db.collection("colleges")
+      .where("adminEmail", "==", normalizedEmail)
+      .get();
+      
+    const activeColleges = existingCollegesSnapshot.docs.filter(doc => {
+      const data = doc.data();
+      return data.isDeleted !== true && data.status !== 'deleted';
+    });
+    
+    if (activeColleges.length > 0) {
+      return NextResponse.json({
+        exists: true,
+        uid: activeColleges[0].id,
+        provider: "firestore",
+        reason: "college_admin"
+      });
+    }
+    
+    // Check for active students
+    const existingStudentsSnapshot = await db.collection("students")
+      .where("email", "==", normalizedEmail)
+      .get();
+      
+    const activeStudents = existingStudentsSnapshot.docs.filter(doc => {
+      const data = doc.data();
+      return data.isActive !== false && data.isDeleted !== true;
+    });
+    
+    if (activeStudents.length > 0) {
+      return NextResponse.json({
+        exists: true,
+        uid: activeStudents[0].id,
+        provider: "firestore",
+        reason: "student"
       });
     }
 

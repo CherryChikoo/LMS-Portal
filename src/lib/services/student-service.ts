@@ -179,14 +179,15 @@ export function subscribeToStudentsByCollege(collegeId: string, callback: (stude
 
 export function subscribeToStudentPeerDirectory(
   collegeId: string | undefined | null,
-  callback: (students: Student[]) => void
+  callback: (students: Student[]) => void,
+  options?: QueryOptions
 ): () => void {
   const cleanColId = (collegeId || "").trim();
 
   if (cleanColId && cleanColId !== "col-unassigned" && cleanColId !== "unassigned") {
     return subscribeToDocuments<Student>(COLLECTION_NAME, callback, [
       where("collegeId", "==", cleanColId),
-    ]);
+    ], false, options);
   }
 
   const studentsMap = new Map<string, Student>();
@@ -202,7 +203,9 @@ export function subscribeToStudentPeerDirectory(
           data.forEach((s) => studentsMap.set(s.id, s));
           update();
         },
-        [where("collegeId", "==", t)]
+        [where("collegeId", "==", t)],
+        false,
+        options
       )
     );
   });

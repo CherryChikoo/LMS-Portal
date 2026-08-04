@@ -60,21 +60,70 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Only admin, trainer, or college roles can import students." }, { status: 403 });
     }
 
-    // 1. Pre-fetch existing colleges to register/sync any missing colleges
-    const collegesSnap = await db.collection("colleges").get();
-    const collegeMap = new Map<string, { id: string; name: string; departments: Set<string>; initialDepsCount: number }>();
-
-    collegesSnap.docs.forEach((d) => {
-      const data = d.data();
-      if (!data.isDeleted && data.status !== "deleted") {
-        const normName = (data.name || "").toLowerCase().trim();
-        const normId = d.id.toLowerCase().trim();
-        const deps = new Set<string>(Array.isArray(data.departments) ? data.departments : []);
-        const entry = { id: d.id, name: data.name || formatCollegeTitle(normName), departments: deps, initialDepsCount: deps.size };
-        if (normName) collegeMap.set(normName, entry);
-        if (normId) collegeMap.set(normId, entry);
+    // 1. OPTIMIZATION: Pre-fetch existing colleges with pagination to avoid unbounded reads
+    // Extract unique college names from import rows first to determine what we actually need
+    const uniqueCollegeNames = new Set<string>();
+    (rows as ImportRowInput[]).forEach((r) => {
+      const rawCol = String(r.college ?? "UNASSIGNED").trim();
+      const normCol = rawCol.toLowerCase();
+      if (normCol && normCol !== "unassigned") {
+        uniqueCollegeNames.add(normCol);
       }
     });
+
+    const collegeMap = new Map<string, { id: string; name: string; departments: Set<string>; initialDepsCount: number }>();
+    
+    // Strategy 1: For small imports (<100 unique colleges), fetch all with reasonable limit
+    if (uniqueCollegeNames.size <= 100) {
+      const collegesSnap = await db.collection("colleges").limit(1000).get();
+      collegesSnap.docs.forEach((d) => {
+        const data = d.data();
+        if (!data.isDeleted && data.status !== "deleted") {
+          const normName = (data.name || "").toLowerCase().trim();
+          const normId = d.id.toLowerCase().trim();
+          const deps = new Set<string>(Array.isArray(data.departments) ? data.departments : []);
+          const entry = { id: d.id, name: data.name || formatCollegeTitle(normName), departments: deps, initialDepsCount: deps.size };
+          if (normName) collegeMap.set(normName, entry);
+          if (normId) collegeMap.set(normId, entry);
+        }
+      });
+    } else {
+      // Strategy 2: For large imports (>100 unique colleges), use targeted queries in batches
+      // Group by first letter for efficient querying
+      const nameGroups = new Map<string, string[]>();
+      uniqueCollegeNames.forEach(name => {
+        const firstLetter = name[0] || 'a';
+        if (!nameGroups.has(firstLetter)) {
+          nameGroups.set(firstLetter, []);
+        }
+        nameGroups.get(firstLetter)!.push(name);
+      });
+
+      // Fetch colleges in parallel by letter groups
+      const fetchPromises = Array.from(nameGroups.entries()).map(async ([letter, names]) => {
+        const startAt = letter;
+        const endAt = letter + '\uf8ff'; // Unicode high character for range query
+        const snapshot = await db.collection("colleges")
+          .where("name", ">=", startAt)
+          .where("name", "<=", endAt)
+          .limit(500)
+          .get();
+        return snapshot.docs;
+      });
+
+      const allDocs = (await Promise.all(fetchPromises)).flat();
+      allDocs.forEach((d) => {
+        const data = d.data();
+        if (!data.isDeleted && data.status !== "deleted") {
+          const normName = (data.name || "").toLowerCase().trim();
+          const normId = d.id.toLowerCase().trim();
+          const deps = new Set<string>(Array.isArray(data.departments) ? data.departments : []);
+          const entry = { id: d.id, name: data.name || formatCollegeTitle(normName), departments: deps, initialDepsCount: deps.size };
+          if (normName) collegeMap.set(normName, entry);
+          if (normId) collegeMap.set(normId, entry);
+        }
+      });
+    }
 
     // Extract unique colleges from the import rows
     const newCollegesToCreate = new Map<string, { id: string; name: string; departments: Set<string>; initialDepsCount: number }>();
@@ -186,29 +235,47 @@ export async function POST(request: NextRequest) {
       .map((r) => String(r.collegeEmail ?? "").toLowerCase().trim())
       .filter(Boolean);
 
-    // Targeted email duplicate lookup (query only emails in this chunk)
+    // OPTIMIZATION: Targeted email duplicate lookup with batch size limits
+    // Use cached email set for better performance on large imports
     const existingEmailSet = new Set<string>();
     if (chunkEmails.length > 0) {
-      const EMAIL_BATCH_SIZE = 30;
-      const emailLookups: Promise<any>[] = [];
-      for (let i = 0; i < chunkEmails.length; i += EMAIL_BATCH_SIZE) {
-        const subList = chunkEmails.slice(i, i + EMAIL_BATCH_SIZE);
-        emailLookups.push(db.collection("users").where("email", "in", subList).get());
-      }
-      const snaps = await Promise.all(emailLookups);
-      snaps.forEach((snap) => {
-        snap.docs.forEach((d: any) => {
-          const email = d.data()?.email;
-          if (email) existingEmailSet.add(String(email).toLowerCase().trim());
+      const EMAIL_BATCH_SIZE = 30; // Firestore 'in' query limit
+      const MAX_CONCURRENT_QUERIES = 10; // Limit concurrent queries to avoid overwhelming Firestore
+      
+      // Process email lookups in controlled batches
+      for (let i = 0; i < chunkEmails.length; i += EMAIL_BATCH_SIZE * MAX_CONCURRENT_QUERIES) {
+        const emailLookups: Promise<any>[] = [];
+        const endIndex = Math.min(i + EMAIL_BATCH_SIZE * MAX_CONCURRENT_QUERIES, chunkEmails.length);
+        
+        for (let j = i; j < endIndex; j += EMAIL_BATCH_SIZE) {
+          const subList = chunkEmails.slice(j, Math.min(j + EMAIL_BATCH_SIZE, chunkEmails.length));
+          if (subList.length > 0) {
+            emailLookups.push(db.collection("users").where("email", "in", subList).get());
+          }
+        }
+        
+        const snaps = await Promise.all(emailLookups);
+        snaps.forEach((snap) => {
+          snap.docs.forEach((d: any) => {
+            const email = d.data()?.email;
+            if (email) existingEmailSet.add(String(email).toLowerCase().trim());
+          });
         });
-      });
+      }
     }
 
     const now = FieldValue.serverTimestamp();
 
-    // Process all items in this request batch in parallel
-    await Promise.all(
-      items.map(async (row) => {
+    // OPTIMIZATION: Process students in controlled batches to avoid overwhelming Firebase Auth
+    // Firebase Auth has rate limits (~500 operations/second), so we batch the parallel processing
+    const CONCURRENT_BATCH_SIZE = 50; // Process 50 students at a time
+    const processedResults: typeof summary.results = [];
+
+    for (let i = 0; i < items.length; i += CONCURRENT_BATCH_SIZE) {
+      const batch = items.slice(i, i + CONCURRENT_BATCH_SIZE);
+      
+      const batchResults = await Promise.all(
+        batch.map(async (row) => {
           const email = String(row.collegeEmail ?? "").toLowerCase().trim();
           const name = String(row.studentName ?? "").trim();
           const rawCol = String(row.college ?? "Default College").trim();
@@ -224,15 +291,11 @@ export async function POST(request: NextRequest) {
           const tempPassword = "Welcome@123";
 
           if (!email || !name) {
-            summary.skippedCount++;
-            summary.results.push({ name: name || "Unknown", email: email || "Missing", password: "", status: "skipped", reason: "Missing name or email" });
-            return;
+            return { name: name || "Unknown", email: email || "Missing", password: "", status: "skipped", reason: "Missing name or email" };
           }
 
           if (existingEmailSet.has(email)) {
-            summary.duplicateCount++;
-            summary.results.push({ name, email, password: "", status: "duplicate", reason: "Account already exists in database" });
-            return;
+            return { name, email, password: "", status: "duplicate", reason: "Account already exists in database" };
           }
 
           let uid: string;
@@ -252,19 +315,13 @@ export async function POST(request: NextRequest) {
                   await auth.updateUser(existingAuth.uid, { password: tempPassword, displayName: name });
                   uid = existingAuth.uid;
                 } else {
-                  summary.duplicateCount++;
-                  summary.results.push({ name, email, password: "", status: "duplicate", reason: "Email already registered in Auth" });
-                  return;
+                  return { name, email, password: "", status: "duplicate", reason: "Email already registered in Auth" };
                 }
               } catch {
-                summary.failedCount++;
-                summary.results.push({ name, email, password: "", status: "failed", reason: "Auth verification error" });
-                return;
+                return { name, email, password: "", status: "failed", reason: "Auth verification error" };
               }
             } else {
-              summary.failedCount++;
-              summary.results.push({ name, email, password: "", status: "failed", reason: (authErr as any)?.message || "Auth creation failed" });
-              return;
+              return { name, email, password: "", status: "failed", reason: (authErr as any)?.message || "Auth creation failed" };
             }
           }
 
@@ -312,23 +369,38 @@ export async function POST(request: NextRequest) {
             await studentBatch.commit();
 
             existingEmailSet.add(email);
-            summary.createdCount++;
-            summary.results.push({ name, email, password: tempPassword, status: "created" });
+            return { name, email, password: tempPassword, status: "created" };
           } catch (dbErr: unknown) {
-            // ⚠️ CRITICAL FIX: Rollback Auth user if Firestore write fails
+            // Rollback Auth user if Firestore write fails
             try {
               await auth.deleteUser(uid);
               console.log(`Rolled back Auth user ${uid} after Firestore failure`);
             } catch (rollbackErr) {
               console.error(`Failed to rollback Auth user ${uid}:`, rollbackErr);
             }
-            summary.failedCount++;
-            summary.results.push({ name, email, password: "", status: "failed", reason: `Firestore write failed: ${(dbErr as any)?.message || "Unknown error"}. Auth account rolled back.` });
+            return { name, email, password: "", status: "failed", reason: `Firestore write failed: ${(dbErr as any)?.message || "Unknown error"}. Auth account rolled back.` };
           }
         })
       );
 
-      return NextResponse.json({ success: true, summary });
+      // Aggregate results from this batch
+      batchResults.forEach(result => {
+        processedResults.push(result);
+        if (result.status === "created") summary.createdCount++;
+        else if (result.status === "skipped") summary.skippedCount++;
+        else if (result.status === "duplicate") summary.duplicateCount++;
+        else if (result.status === "failed") summary.failedCount++;
+      });
+
+      // Small delay between batches to avoid rate limiting (optional)
+      if (i + CONCURRENT_BATCH_SIZE < items.length) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
+
+    summary.results = processedResults;
+
+    return NextResponse.json({ success: true, summary });
     } catch (err: unknown) {
       console.error("Bulk import students endpoint error:", err);
       return NextResponse.json({ error: "Internal server error during bulk import.", details: (err as any)?.message || String(err) }, { status: 500 });

@@ -60,7 +60,7 @@ export function parseStudentsCSV(csvText: string): CSVStudentRow[] {
   }
 
   // 2. Student Name Index (must not be class name, college name, dept name, institution name)
-  let nameIdx = findColIdx(
+  const nameIdx = findColIdx(
     ["student name", "full name", "studentname", "fullname", "name", "student", "candidate", "learner"],
     ["class", "college", "dept", "depart", "institution", "school", "username", "file", "batch", "email"]
   );

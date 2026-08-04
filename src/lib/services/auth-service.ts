@@ -121,7 +121,7 @@ export async function studentGoogleLogin(): Promise<
 
   const role: UserRole = (userDoc?.role as UserRole) || "student";
 
-  let profile = {
+  const profile = {
     ...(userDoc || {}),
     ...(studentDoc || {}),
     id: uid,
@@ -204,7 +204,7 @@ export async function trainerGoogleLogin(): Promise<{ success: true; role: UserR
 
   const token = await getIdToken(credential.user, true);
 
-  let profile = {
+  const profile = {
     ...(userDoc || {}),
     id: uid,
     email: userDoc?.email || email,
@@ -723,7 +723,7 @@ export async function unifiedGoogleLogin(): Promise<{ success: true; role: UserR
   const studentDoc = verifyResult.studentDoc;
   const collegeDoc = verifyResult.collegeDoc;
 
-  let role = userDoc?.role || (studentDoc ? "student" : (collegeDoc ? "college_admin" : "student"));
+  const role = userDoc?.role || (studentDoc ? "student" : (collegeDoc ? "college_admin" : "student"));
 
   if (role === "student") {
     if (userDoc?.status === "restricted" || studentDoc?.status === "restricted") {
@@ -772,7 +772,7 @@ export async function unifiedGoogleLogin(): Promise<{ success: true; role: UserR
 
   const token = await getIdToken(credential.user, true);
 
-  let profile = {
+  const profile = {
     ...(userDoc || {}),
     ...(studentDoc || {}),
     id: uid,

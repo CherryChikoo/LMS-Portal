@@ -49,7 +49,8 @@ export function subscribeToStudentAttemptsForUser(
   uid: string,
   profileId: string | undefined,
   _email: string | undefined,
-  callback: (attempts: ExamAttempt[]) => void
+  callback: (attempts: ExamAttempt[]) => void,
+  options?: QueryOptions
 ): () => void {
   const attemptsMap = new Map<string, ExamAttempt>();
   const unsubs: Array<() => void> = [];
@@ -66,7 +67,7 @@ export function subscribeToStudentAttemptsForUser(
         attemptsMap.clear();
         data.forEach((a) => attemptsMap.set(a.id, a));
         update();
-      }, [where("studentId", "==", targetUid)])
+      }, [where("studentId", "==", targetUid)], false, options)
     );
   }
 
@@ -77,9 +78,17 @@ export function subscribeToStudentAttemptsForUser(
 
 export function subscribeToLeaderboardAttempts(
   collegeId: string | undefined | null,
-  callback: (attempts: ExamAttempt[]) => void
+  callback: (attempts: ExamAttempt[]) => void,
+  options?: QueryOptions
 ): () => void {
-  return subscribeToAllAttempts(callback);
+  // OPTIMIZATION: Previously fetched all attempts globally for leaderboard.
+  // Now scoped to collegeId to dramatically reduce reads for students.
+  if (collegeId && collegeId !== "global") {
+    return subscribeToAttemptsByCollege(collegeId, callback, options);
+  }
+  // Fallback for admin/trainer without collegeId: still use subscribeToAllAttempts
+  // but with a limit applied via options
+  return subscribeToAllAttempts(callback, options);
 }
 
 export async function getAllExams(options?: QueryOptions): Promise<PaginatedResult<Exam>> {
@@ -205,8 +214,41 @@ export async function deleteResultById(id: string): Promise<void> {
 }
 
 export async function clearAllResults(): Promise<void> {
-  const results = await getDocuments<ExamResult>(RESULTS_COLLECTION);
-  await Promise.all(results.data.map((r) => deleteDocument(RESULTS_COLLECTION, r.id)));
+  // OPTIMIZATION: Use pagination to avoid loading all results into memory at once
+  // This prevents timeouts and memory issues with large datasets (10,000+ results)
+  const BATCH_SIZE = 500;
+  let hasMore = true;
+  let deletedCount = 0;
+  
+  while (hasMore) {
+    // Fetch next batch of results
+    const results = await getDocuments<ExamResult>(
+      RESULTS_COLLECTION, 
+      [], 
+      false, 
+      { pageSize: BATCH_SIZE }
+    );
+    
+    if (results.data.length === 0) {
+      hasMore = false;
+      break;
+    }
+    
+    // Delete current batch in parallel
+    await Promise.all(
+      results.data.map(r => deleteDocument(RESULTS_COLLECTION, r.id))
+    );
+    
+    deletedCount += results.data.length;
+    console.log(`[ClearAllResults] Deleted ${deletedCount} results so far...`);
+    
+    // If we got fewer results than the batch size, we're done
+    if (results.data.length < BATCH_SIZE) {
+      hasMore = false;
+    }
+  }
+  
+  console.log(`[ClearAllResults] Completed. Total deleted: ${deletedCount} results`);
 }
 
 /**

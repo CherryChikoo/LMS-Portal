@@ -40,37 +40,79 @@ export async function POST(request: NextRequest) {
     let updatedResourcesCount = 0;
     let updatedCollegesCount = 0;
 
-    let batch = db.batch();
-    let batchOpCount = 0;
+    // OPTIMIZATION: Process collections in batches to prevent timeout and memory issues
+    const BATCH_SIZE = 500;
 
-    // 1. Normalize Colleges Collection (both official & outside colleges) to small letters
-    const collegesSnap = await db.collection("colleges").get();
-    for (const docSnap of collegesSnap.docs) {
-      const data = docSnap.data();
+    // Helper function to normalize a collection in paginated batches
+    async function normalizeCollection(
+      collectionName: string,
+      processFn: (data: any) => any | null
+    ): Promise<number> {
+      let updatedCount = 0;
+      let lastDocId: string | null = null;
+      let hasMore = true;
+
+      while (hasMore) {
+        let query = db.collection(collectionName)
+          .orderBy('__name__')
+          .limit(BATCH_SIZE);
+        
+        if (lastDocId) {
+          query = query.startAfter(lastDocId);
+        }
+
+        const snapshot = await query.get();
+        if (snapshot.empty) break;
+
+        let batch = db.batch();
+        let batchOpCount = 0;
+
+        for (const docSnap of snapshot.docs) {
+          const updates = processFn(docSnap.data());
+          
+          if (updates) {
+            batch.update(docSnap.ref, {
+              ...updates,
+              updatedAt: new Date(),
+            });
+            batchOpCount++;
+            updatedCount++;
+
+            if (batchOpCount >= 450) {
+              await batch.commit();
+              batch = db.batch();
+              batchOpCount = 0;
+            }
+          }
+        }
+
+        if (batchOpCount > 0) {
+          await batch.commit();
+        }
+
+        lastDocId = snapshot.docs[snapshot.docs.length - 1].id;
+        hasMore = snapshot.docs.length === BATCH_SIZE;
+        
+        console.log(`[Normalize] Processed ${snapshot.docs.length} docs from ${collectionName}, updated: ${updatedCount}`);
+      }
+
+      return updatedCount;
+    }
+
+    // 1. Normalize Colleges Collection
+    updatedCollegesCount = await normalizeCollection('colleges', (data) => {
       const rawName = data.name;
       if (rawName && typeof rawName === "string") {
         const lowerName = rawName.toLowerCase().trim();
         if (rawName !== lowerName) {
-          batch.update(docSnap.ref, {
-            name: lowerName,
-            updatedAt: new Date(),
-          });
-          updatedCollegesCount++;
-          batchOpCount++;
-
-          if (batchOpCount >= 450) {
-            await batch.commit();
-            batch = db.batch();
-            batchOpCount = 0;
-          }
+          return { name: lowerName };
         }
       }
-    }
+      return null;
+    });
 
-    // 2. Normalize Students (both collegeId and collegeName to small letters)
-    const studentsSnap = await db.collection("students").get();
-    for (const docSnap of studentsSnap.docs) {
-      const data = docSnap.data();
+    // 2. Normalize Students (both collegeId and collegeName)
+    updatedStudentsCount = await normalizeCollection('students', (data) => {
       const rawCId = data.collegeId;
       const rawCName = data.collegeName;
 
@@ -78,26 +120,16 @@ export async function POST(request: NextRequest) {
       const lowerName = rawCName ? String(rawCName).toLowerCase().trim() : slug;
 
       if ((rawCId && rawCId !== slug) || (rawCName && rawCName !== lowerName)) {
-        batch.update(docSnap.ref, {
+        return {
           collegeId: slug,
           collegeName: lowerName,
-          updatedAt: new Date(),
-        });
-        updatedStudentsCount++;
-        batchOpCount++;
-
-        if (batchOpCount >= 450) {
-          await batch.commit();
-          batch = db.batch();
-          batchOpCount = 0;
-        }
+        };
       }
-    }
+      return null;
+    });
 
     // 3. Normalize Users
-    const usersSnap = await db.collection("users").get();
-    for (const docSnap of usersSnap.docs) {
-      const data = docSnap.data();
+    updatedUsersCount = await normalizeCollection('users', (data) => {
       const rawCId = data.collegeId;
       const rawCName = data.collegeName;
 
@@ -105,26 +137,16 @@ export async function POST(request: NextRequest) {
       const lowerName = rawCName ? String(rawCName).toLowerCase().trim() : slug;
 
       if ((rawCId && rawCId !== slug) || (rawCName && rawCName !== lowerName)) {
-        batch.update(docSnap.ref, {
+        return {
           collegeId: slug,
           collegeName: lowerName,
-          updatedAt: new Date(),
-        });
-        updatedUsersCount++;
-        batchOpCount++;
-
-        if (batchOpCount >= 450) {
-          await batch.commit();
-          batch = db.batch();
-          batchOpCount = 0;
-        }
+        };
       }
-    }
+      return null;
+    });
 
     // 4. Normalize Exams targets
-    const examsSnap = await db.collection("exams").get();
-    for (const docSnap of examsSnap.docs) {
-      const data = docSnap.data();
+    updatedExamsCount = await normalizeCollection('exams', (data) => {
       const targets = data.targets;
 
       if (Array.isArray(targets) && targets.length > 0) {
@@ -144,26 +166,14 @@ export async function POST(request: NextRequest) {
         });
 
         if (modified) {
-          batch.update(docSnap.ref, {
-            targets: normalizedTargets,
-            updatedAt: new Date(),
-          });
-          updatedExamsCount++;
-          batchOpCount++;
-
-          if (batchOpCount >= 450) {
-            await batch.commit();
-            batch = db.batch();
-            batchOpCount = 0;
-          }
+          return { targets: normalizedTargets };
         }
       }
-    }
+      return null;
+    });
 
     // 5. Normalize Resources targets
-    const resourcesSnap = await db.collection("resources").get();
-    for (const docSnap of resourcesSnap.docs) {
-      const data = docSnap.data();
+    updatedResourcesCount = await normalizeCollection('resources', (data) => {
       const targets = data.targets;
 
       if (Array.isArray(targets) && targets.length > 0) {
@@ -183,25 +193,11 @@ export async function POST(request: NextRequest) {
         });
 
         if (modified) {
-          batch.update(docSnap.ref, {
-            targets: normalizedTargets,
-            updatedAt: new Date(),
-          });
-          updatedResourcesCount++;
-          batchOpCount++;
-
-          if (batchOpCount >= 450) {
-            await batch.commit();
-            batch = db.batch();
-            batchOpCount = 0;
-          }
+          return { targets: normalizedTargets };
         }
       }
-    }
-
-    if (batchOpCount > 0) {
-      await batch.commit();
-    }
+      return null;
+    });
 
     return NextResponse.json({
       success: true,

@@ -3,29 +3,65 @@ import { getAdminApp } from '@/lib/firebase/admin';
 import { getFirestore, WhereFilterOp } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 
+/**
+ * OPTIMIZATION: Deletes documents matching a query in paginated batches
+ * Prevents memory issues and timeouts with large result sets (10,000+ docs)
+ */
 export async function bulkDeleteByQuery(
   collectionName: string,
   field: string,
   operator: WhereFilterOp,
-  value: any
+  value: any,
+  options?: { batchSize?: number }
 ): Promise<number> {
   const db = getFirestore(getAdminApp());
-  let deletedCount = 0;
+  const BATCH_SIZE = options?.batchSize || 500;
+  let totalDeleted = 0;
 
   try {
-    const querySnapshot = await db.collection(collectionName).where(field, operator, value).get();
+    let hasMore = true;
     
-    if (querySnapshot.empty) return 0;
+    while (hasMore) {
+      // Fetch next batch with limit
+      const querySnapshot = await db
+        .collection(collectionName)
+        .where(field, operator, value)
+        .limit(BATCH_SIZE)
+        .get();
+      
+      if (querySnapshot.empty) {
+        break;
+      }
 
-    const bulkWriter = db.bulkWriter();
+      const bulkWriter = db.bulkWriter();
+      
+      // Add retry logic for transient failures
+      bulkWriter.onWriteError((error) => {
+        if (error.failedAttempts < 3) return true; // Retry
+        console.error(`[CleanupService] BulkWriter error after retries:`, error);
+        return false; // Give up after 3 attempts
+      });
+      
+      querySnapshot.docs.forEach((doc) => {
+        bulkWriter.delete(doc.ref);
+      });
+
+      await bulkWriter.close();
+      totalDeleted += querySnapshot.docs.length;
+      
+      console.log(`[CleanupService] Deleted batch of ${querySnapshot.docs.length} from ${collectionName}, total: ${totalDeleted}`);
+      
+      // If we got fewer docs than batch size, we're done
+      hasMore = querySnapshot.docs.length === BATCH_SIZE;
+      
+      // Small delay between batches to avoid overwhelming Firestore
+      if (hasMore) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
     
-    querySnapshot.docs.forEach((doc) => {
-      bulkWriter.delete(doc.ref);
-      deletedCount++;
-    });
-
-    await bulkWriter.close();
-    return deletedCount;
+    console.log(`[CleanupService] bulkDeleteByQuery complete: ${totalDeleted} docs deleted from ${collectionName}`);
+    return totalDeleted;
   } catch (error) {
     console.error(`[CleanupService] bulkDeleteByQuery failed for ${collectionName}:`, error);
     throw error;

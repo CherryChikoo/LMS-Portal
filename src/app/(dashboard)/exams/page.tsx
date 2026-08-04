@@ -573,7 +573,7 @@ export default function ExamsPage() {
 
       {/* Search & Powerful Hierarchy Filter Bar for Exams */}
       {!loading && exams.length > 0 && (
-        <div className="flex flex-col gap-3.5 bg-card/95 p-4 rounded-2xl border border-border/80 shadow-sm">
+        <div className="flex flex-col gap-3.5 bg-card/95 p-4 rounded-2xl border border-border/80 shadow-sm" suppressHydrationWarning>
           <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
             <div className="relative w-full sm:w-80">
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />

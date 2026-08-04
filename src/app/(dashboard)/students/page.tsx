@@ -154,15 +154,16 @@ function StudentsContent() {
       setShowAddModal(true);
       /* eslint-enable react-hooks/set-state-in-effect */
     } else if (actionParam === "import" || actionParam === "csv") {
-      /* eslint-disable react-hooks/set-state-in-effect -- opening modal from query param on mount */
+       
       setShowImportModal(true);
-      /* eslint-enable react-hooks/set-state-in-effect */
+       
     }
   }, [actionParam]);
 
   const fetchStudents = async () => {
-    // Data is kept live by the LMS cache; explicit fetches after
-    // mutations are no longer required.
+    // Trigger a fresh cache pull from Firestore after mutations
+    const { refreshCache } = await import("@/lib/data/lms-store");
+    await refreshCache();
   };
 
   const handleOpenEdit = (student: Student) => {

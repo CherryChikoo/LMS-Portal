@@ -70,8 +70,12 @@ export async function getDocuments<T extends DocumentData & { isDeleted?: boolea
   options?: QueryOptions
 ): Promise<PaginatedResult<T>> {
   const hasLimit = constraints.some((c) => c.type === 'limit');
-  const finalConstraints = options?.pageSize && !hasLimit
-    ? [...constraints, limit(options.pageSize)]
+  
+  // OPTIMIZATION: Apply safe default limit if not specified to prevent unbounded reads
+  const safePageSize = options?.pageSize || (hasLimit ? undefined : 1000);
+  
+  const finalConstraints = safePageSize && !hasLimit
+    ? [...constraints, limit(safePageSize)]
     : [...constraints];
   
   if (options?.lastDoc) {
@@ -190,22 +194,24 @@ export function subscribeToDocuments<T extends DocumentData & { isDeleted?: bool
   options?: QueryOptions
 ): () => void {
   const hasLimit = constraints.some((c) => c.type === 'limit');
-  const finalConstraints = options?.pageSize
-    ? (hasLimit ? constraints : [...constraints, limit(options.pageSize)])
+  
+  // OPTIMIZATION: Apply safe default limit if not specified to prevent unbounded live subscriptions
+  const safePageSize = options?.pageSize || (hasLimit ? undefined : 1000);
+  
+  const finalConstraints = safePageSize && !hasLimit
+    ? [...constraints, limit(safePageSize)]
     : constraints;
   
   const q = query(collection(db, collectionName), ...finalConstraints);
-  console.log(`[Firestore] 🔌 Subscribing to "${collectionName}" (constraints: ${finalConstraints.length}, pageSize: ${options?.pageSize || 'none'})`);
   return onSnapshot(
     q,
     (snapshot) => {
       const mapped = mapDocs<T>(snapshot.docs);
       const data = mapped.filter((d) => includeDeleted || (!d.isDeleted && !d.deletedAt && d.status !== "deleted"));
-      console.log(`[Firestore] ✅ "${collectionName}" snapshot: ${snapshot.docs.length} raw docs → ${mapped.length} mapped → ${data.length} after filter`);
       callback(data);
     },
     (error) => {
-      console.error(`[Firestore] ❌ "${collectionName}" LISTENER FAILED:`, error?.code, error?.message, error);
+      console.warn(`[Firestore Listener ${collectionName}] Error:`, error?.message);
       callback([]);
     }
   );

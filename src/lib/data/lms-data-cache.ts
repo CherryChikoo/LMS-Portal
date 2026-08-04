@@ -1,26 +1,14 @@
 import {
-  subscribeToAllColleges,
-  subscribeToAllBatches,
-  subscribeToAllStudents,
-  subscribeToAllExams,
-  subscribeToAllResources,
-  subscribeToAllAttempts,
   getAllColleges,
   getAllBatches,
   getAllStudents,
-  getAllExamsIncludingDeleted,
+  getAllExams,
   getAllResources,
-  subscribeToStudentsByCollege,
-  subscribeToBatchesByCollege,
-  subscribeToStudentById,
   getStudentsByCollege,
   getBatchesByCollege,
-  subscribeToExamsByCollege,
-  subscribeToPublishedExamsByCollege,
-  subscribeToResourcesByCollege,
-  subscribeToAttemptsByCollege,
+  getStudentAttempts,
 } from "@/lib/services";
-import { getStudentAttempts, subscribeToStudentAttempts, subscribeToStudentAttemptsForUser, subscribeToStudentPeerDirectory, subscribeToLeaderboardAttempts } from "@/lib/services";
+import { getDocuments, type QueryOptions, where } from "@/lib/firebase/firestore";
 import {
   buildHierarchy,
   getExternalInstitutions,
@@ -35,6 +23,8 @@ import {
 import type { College, Batch, Student, SelectOption, Exam, Resource, ExamAttempt } from "@/types";
 import { setLMSStoreState } from "./lms-store";
 import { logger } from "@/lib/utils/logger";
+
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 interface CacheEntry<T> {
   data: T;
@@ -66,7 +56,13 @@ export interface LMSDataCacheState {
   _exportedState: any;
 }
 
+// ─── Configuration ───────────────────────────────────────────────────────────
+
 const CACHE_STORAGE_KEY = "lms_data_cache_v4";
+/** How often to poll Firestore for fresh data (in ms). 30 seconds for responsive updates. */
+const POLL_INTERVAL_MS = 30 * 1000; // 30 seconds (was 5 minutes)
+
+// ─── localStorage Persistence ────────────────────────────────────────────────
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 function persistCacheToStorage() {
@@ -112,6 +108,8 @@ function hydrateCacheFromStorage() {
   } catch (_) {}
 }
 
+// ─── Cache State ─────────────────────────────────────────────────────────────
+
 const cache: LMSDataCacheState = {
   colleges: null,
   batches: null,
@@ -140,6 +138,8 @@ if (typeof window !== "undefined") {
   hydrateCacheFromStorage();
 }
 
+// ─── Recompute & Filtering ───────────────────────────────────────────────────
+
 function recomputeScopedData() {
   const collegesData = cache.colleges?.data || [];
   const batchesData = cache.batches?.data || [];
@@ -153,11 +153,9 @@ function recomputeScopedData() {
   // Reconcile deletedCollegesSet: if a college exists in the live Firestore data,
   // it was re-created after being deleted. Remove it from the blacklist.
   // Uses slug-based fuzzy matching to handle format variations
-  // (e.g. "colramachandracollegeofengineering" vs "col-ramachandra-college-of-engineering" vs "ramachandra college of engineering")
   if (deletedCollegesSet.size > 0) {
     const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
     
-    // Build slug sets from live colleges AND live students' college references
     const liveSlugs = new Set<string>();
     collegesData.forEach((c) => {
       if (c.id) liveSlugs.add(slugify(c.id));
@@ -172,7 +170,6 @@ function recomputeScopedData() {
       let matched = false;
       for (const liveSlug of liveSlugs) {
         if (!liveSlug) continue;
-        // Exact slug match, or one contains the other (handles "col" prefix variations)
         if (slugKey === liveSlug || slugKey.includes(liveSlug) || liveSlug.includes(slugKey)) {
           matched = true;
           break;
@@ -200,9 +197,8 @@ function recomputeScopedData() {
 
   let fColleges = collegesData.filter((c) => isActive(c) && !isCollegeDeleted(c.id, c.name));
   let fBatches = batchesData.filter(isActive);
-  let fStudents = studentsData.filter((s) => isActive(s) && !isCollegeDeleted(s.collegeId, s.collegeName));
-  console.log(`[CACHE] 🔄 recompute: raw colleges=${collegesData.length} → filtered=${fColleges.length}, raw students=${studentsData.length} → filtered=${fStudents.length}, deletedSet=${deletedCollegesSet.size} [${Array.from(deletedCollegesSet).join(', ')}]`);
-  let fExams = examsData.filter((e) => {
+  const fStudents = studentsData.filter((s) => isActive(s) && !isCollegeDeleted(s.collegeId, s.collegeName));
+  const fExams = examsData.filter((e) => {
     if (!isActive(e)) return false;
     const eColId = e.collegeId || e.targets?.[0]?.collegeId;
     const eColName = e.collegeName || e.targets?.[0]?.collegeName;
@@ -211,7 +207,7 @@ function recomputeScopedData() {
     }
     return true;
   });
-  let fResources = resourcesData.filter((r) => {
+  const fResources = resourcesData.filter((r) => {
     if (!isActive(r as any)) return false;
     const rColId = r.collegeId || r.targets?.[0]?.collegeId;
     const rColName = r.collegeName || r.targets?.[0]?.collegeName;
@@ -220,7 +216,7 @@ function recomputeScopedData() {
     }
     return true;
   });
-  let fAttempts = attemptsData.filter(isActive);
+  const fAttempts = attemptsData.filter(isActive);
 
   try {
     const uStr = typeof window !== "undefined" ? localStorage.getItem("lms_user") || localStorage.getItem("user") : null;
@@ -237,15 +233,10 @@ function recomputeScopedData() {
           fColleges = matched;
         }
       }
-
-      if (r === "college_admin" && fColleges.length > 0) {
-        // Redundant JS filtering removed: Firestore queries now natively restrict 
-        // batches, students, exams, and resources to the user's college.
-      }
     }
   } catch (_) {}
 
-  // Dynamically compute accurate student counts for colleges and batches based on current students
+  // Dynamically compute accurate student counts for colleges and batches
   fColleges = fColleges.map((c) => ({
     ...c,
     studentCount: fStudents.filter((s) => isStudentInCollege(s, c)).length,
@@ -271,6 +262,21 @@ function recomputeScopedData() {
   persistCacheToStorage();
 }
 
+// ─── Debounced Recompute + Notify ────────────────────────────────────────────
+
+let recomputeTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Batch multiple rapid data updates into a single recompute + notify cycle. */
+function debouncedRecomputeAndNotify() {
+  if (recomputeTimer) clearTimeout(recomputeTimer);
+  recomputeTimer = setTimeout(() => {
+    recomputeScopedData();
+    notifyListeners();
+  }, 50);
+}
+
+// ─── Listener Management ─────────────────────────────────────────────────────
+
 function notifyListeners() {
   computeExportedState();
   callbacks.forEach((cb) => {
@@ -293,7 +299,7 @@ export function subscribeToLMSCache(callback: () => void): () => void {
 
   callbacks.add(callback);
   if (cache.listeners === 0) {
-    startSubscriptions();
+    startPolling();
   }
   cache.listeners++;
 
@@ -303,14 +309,99 @@ export function subscribeToLMSCache(callback: () => void): () => void {
     if (cache.listeners === 0) {
       cleanupTimer = setTimeout(() => {
         if (cache.listeners === 0) {
-          stopSubscriptions();
+          stopPolling();
         }
-      }, 5000); // 5s grace period to keep subscriptions warm during route transitions
+      }, 5000);
     }
   };
 }
 
-function startSubscriptions() {
+// ─── Polling Engine (replaces onSnapshot listeners) ──────────────────────────
+
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+let isFetching = false;
+let currentUserInfo: { uid: string; role: string; collegeId?: string; parsed: any } | null = null;
+
+/**
+ * One-shot fetch of ALL collections using getDocs (not onSnapshot).
+ * Each document read counts as 1 read. No ongoing listener cost.
+ */
+async function fetchAllData() {
+  if (isFetching || !currentUserInfo) return;
+  isFetching = true;
+
+  const { role, collegeId, parsed } = currentUserInfo;
+  const isMainAdmin = role === "main_admin" || role === "admin" || role === "superadmin" || role === "trainer";
+  const isCollegeAdmin = role === "college_admin" && collegeId;
+  const isStudent = role === "student" && parsed?.id;
+
+  try {
+    // Fetch all collections in parallel (single round-trip per collection)
+    const [collegesRes, batchesRes, studentsRes, examsRes, resourcesRes, attemptsRes] = await Promise.all([
+      // Colleges: always fetch all (small collection)
+      getAllColleges({ pageSize: 200 }),
+
+      // Batches: scope by college for non-admins
+      (isCollegeAdmin || isStudent) && collegeId
+        ? getBatchesByCollege(collegeId, { pageSize: 500 })
+        : isMainAdmin
+        ? getAllBatches({ pageSize: 500 })
+        : Promise.resolve({ data: [], lastDoc: null }),
+
+      // Students: scope by college for non-admins
+      isStudent && collegeId
+        ? getStudentsByCollege(collegeId, { pageSize: 1000 })
+        : isCollegeAdmin && collegeId
+        ? getStudentsByCollege(collegeId, { pageSize: 2000 })
+        : isMainAdmin
+        ? getAllStudents({ pageSize: 5000 })
+        : Promise.resolve({ data: [], lastDoc: null }),
+
+      // Exams: scope by college for non-admins
+      (isStudent || isCollegeAdmin) && collegeId
+        ? getDocuments<Exam>("exams", [where("collegeId", "==", collegeId)], false, { pageSize: 1000 })
+        : isMainAdmin
+        ? getAllExams({ pageSize: 2000 })
+        : Promise.resolve({ data: [], lastDoc: null }),
+
+      // Resources: scope by college for non-admins
+      (isCollegeAdmin || isStudent) && collegeId
+        ? getDocuments<Resource>("resources", [where("collegeId", "==", collegeId)], false, { pageSize: 1000 })
+        : isMainAdmin
+        ? getAllResources({ pageSize: 2000 })
+        : Promise.resolve({ data: [], lastDoc: null }),
+
+      // Attempts: scope by student or college
+      isStudent && parsed?.id
+        ? getDocuments<ExamAttempt>("exam_results", [where("studentId", "==", parsed.id)], false, { pageSize: 500 })
+        : isCollegeAdmin && collegeId
+        ? getDocuments<ExamAttempt>("exam_results", [where("collegeId", "==", collegeId)], false, { pageSize: 2000 })
+        : isMainAdmin
+        ? getDocuments<ExamAttempt>("exam_results", [], false, { pageSize: 5000 })
+        : Promise.resolve({ data: [], lastDoc: null }),
+    ]);
+
+    const now = Date.now();
+    cache.colleges = { data: collegesRes.data, updatedAt: now };
+    cache.batches = { data: batchesRes.data, updatedAt: now };
+    cache.students = { data: studentsRes.data, updatedAt: now };
+    cache.exams = { data: examsRes.data, updatedAt: now };
+    cache.resources = { data: resourcesRes.data, updatedAt: now };
+    cache.attempts = { data: attemptsRes.data, updatedAt: now };
+    cache.error = null;
+
+    recomputeScopedData();
+    notifyListeners();
+  } catch (err: any) {
+    logger.error("CACHE", "fetchAllData failed:", err);
+    cache.error = err;
+    // Don't overwrite cached data on error — show stale data rather than nothing
+  } finally {
+    isFetching = false;
+  }
+}
+
+function startPolling() {
   if (!cache.colleges && !cache.students && !cache.exams && !cache.batches) {
     cache.loading = true;
   }
@@ -321,11 +412,12 @@ function startSubscriptions() {
       const auth = getAuth(app);
       
       const authUnsub = onAuthStateChanged(auth, async (user) => {
-        // Clear old ones if auth state changes
-        stopSubscriptions();
+        // Clear polling on auth state change
+        stopPolling();
         
         if (!user) {
           cache.loading = false;
+          currentUserInfo = null;
           notifyListeners();
           return;
         }
@@ -349,13 +441,11 @@ function startSubscriptions() {
           }
 
           if (parsed) {
-            // Sync with localStorage
             if (typeof window !== "undefined") {
               localStorage.setItem("lms_user", JSON.stringify(parsed));
               localStorage.setItem("user", JSON.stringify(parsed));
               localStorage.setItem("lms_role", role);
               
-              // Ensure cookie is synced for middleware
               const isSecure = window.location.protocol === "https:";
               const cookieOptions = `path=/; max-age=86400; SameSite=Lax${isSecure ? "; Secure" : ""}`;
               document.cookie = `lms_role=${role}; ${cookieOptions}`;
@@ -379,125 +469,24 @@ function startSubscriptions() {
         }
 
         const isMainAdmin = role === "main_admin" || role === "admin" || role === "superadmin" || role === "trainer";
-        console.log(`[CACHE] 🔑 Auth resolved: role="${role}", isMainAdmin=${isMainAdmin}, uid=${user.uid}, collegeId=${parsed?.collegeId || 'none'}`);
-        const isCollegeAdmin = role === "college_admin" && parsed?.collegeId;
-        const isStudent = role === "student" && parsed?.id;
 
         // AUTH READINESS GUARD: Prevent race condition where queries fire before collegeId resolves
         if (!isMainAdmin && !parsed?.collegeId) {
           return;
         }
 
-        const unsubColleges = subscribeToAllColleges((data) => {
-          cache.colleges = { data, updatedAt: Date.now() };
-          recomputeScopedData();
-          notifyListeners();
-        });
+        // Store user info for polling
+        currentUserInfo = { uid: user.uid, role, collegeId: parsed?.collegeId, parsed };
 
-        const unsubBatches = (isCollegeAdmin || isStudent) && parsed?.collegeId
-          ? subscribeToBatchesByCollege(parsed.collegeId, (data) => {
-              cache.batches = { data, updatedAt: Date.now() };
-              recomputeScopedData();
-              notifyListeners();
-            })
-          : isMainAdmin
-          ? subscribeToAllBatches((data) => {
-              cache.batches = { data, updatedAt: Date.now() };
-              recomputeScopedData();
-              notifyListeners();
-            })
-          : () => {};
+        // Do initial fetch immediately
+        await fetchAllData();
 
-        const handleStudentsPayload = (data: Student[]) => {
-          console.log(`[CACHE] 📥 Students payload received: ${data.length} students`);
-          cache.students = { data, updatedAt: Date.now() };
-          recomputeScopedData();
-          notifyListeners();
-        };
-
-        const unsubStudents = isStudent
-          ? subscribeToStudentPeerDirectory(parsed?.collegeId, handleStudentsPayload)
-          : isCollegeAdmin
-          ? subscribeToStudentsByCollege(parsed?.collegeId, handleStudentsPayload)
-          : subscribeToAllStudents(handleStudentsPayload);
-
-        const unsubExams = isStudent && parsed?.collegeId
-          ? subscribeToPublishedExamsByCollege(parsed.collegeId, (data) => {
-              cache.exams = { data, updatedAt: Date.now() };
-              recomputeScopedData();
-              notifyListeners();
-            })
-          : isCollegeAdmin && parsed?.collegeId
-          ? subscribeToExamsByCollege(parsed.collegeId, (data) => {
-              cache.exams = { data, updatedAt: Date.now() };
-              recomputeScopedData();
-              notifyListeners();
-            })
-          : isMainAdmin
-          ? subscribeToAllExams((data) => {
-              cache.exams = { data, updatedAt: Date.now() };
-              recomputeScopedData();
-              notifyListeners();
-            })
-          : () => {};
-
-        const unsubResources = (isCollegeAdmin || isStudent) && parsed?.collegeId
-          ? subscribeToResourcesByCollege(parsed.collegeId, (data) => {
-              cache.resources = { data, updatedAt: Date.now() };
-              recomputeScopedData();
-              notifyListeners();
-            })
-          : isMainAdmin
-          ? subscribeToAllResources((data) => {
-              cache.resources = { data, updatedAt: Date.now() };
-              recomputeScopedData();
-              notifyListeners();
-            })
-          : () => {};
-
-        let unsubAttempts: () => void;
-
-        if (isStudent) {
-          const attemptsCombinedMap = new Map<string, ExamAttempt>();
-
-          const updateAttemptsState = () => {
-            const data = Array.from(attemptsCombinedMap.values());
-            cache.attempts = { data, updatedAt: Date.now() };
-            recomputeScopedData();
-            notifyListeners();
-          };
-
-          const unsubPrivate = subscribeToStudentAttemptsForUser(user.uid, parsed?.id, user.email || parsed?.email, (data) => {
-            data.forEach((a) => attemptsCombinedMap.set(a.id, a));
-            updateAttemptsState();
-          });
-
-          const unsubLeaderboard = subscribeToLeaderboardAttempts(parsed?.collegeId, (data) => {
-            data.forEach((a) => attemptsCombinedMap.set(a.id, a));
-            updateAttemptsState();
-          });
-
-          unsubAttempts = () => {
-            unsubPrivate();
-            unsubLeaderboard();
-          };
-        } else {
-          unsubAttempts = isCollegeAdmin
-            ? subscribeToAttemptsByCollege(parsed?.collegeId, (data) => {
-                cache.attempts = { data, updatedAt: Date.now() };
-                recomputeScopedData();
-                notifyListeners();
-              })
-            : subscribeToAllAttempts((data) => {
-                cache.attempts = { data, updatedAt: Date.now() };
-                recomputeScopedData();
-                notifyListeners();
-              });
+        // Start polling interval
+        if (!pollTimer) {
+          pollTimer = setInterval(() => {
+            fetchAllData();
+          }, POLL_INTERVAL_MS);
         }
-
-        cache.unsubscribers.push(
-          unsubColleges, unsubBatches, unsubStudents, unsubExams, unsubResources, unsubAttempts
-        );
       });
 
       cache.unsubscribers.push(authUnsub);
@@ -505,10 +494,18 @@ function startSubscriptions() {
   });
 }
 
-function stopSubscriptions() {
+function stopPolling() {
+  // Stop the poll timer
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+  // Stop any lingering unsubscribers (auth listener)
   cache.unsubscribers.forEach((unsub) => unsub());
   cache.unsubscribers = [];
 }
+
+// ─── Exported State Computation ──────────────────────────────────────────────
 
 function computeExportedState() {
   const hierarchy = cache.hierarchy;
@@ -538,7 +535,6 @@ function computeExportedState() {
       : { label: inst.name, value: inst.id }
   );
 
-  // We explicitly omit the internal properties and only expose what's needed
   cache._exportedState = {
     colleges: cache.colleges?.data || [],
     batches: cache.batches?.data || [],
@@ -571,6 +567,19 @@ export function getLMSCache() {
   }
   return cache._exportedState;
 }
+
+// ─── Public API: Manual Refresh ──────────────────────────────────────────────
+
+/**
+ * Force an immediate refresh of all cached data from Firestore.
+ * Call this after mutations (create/update/delete) to get fresh data without
+ * waiting for the next poll interval.
+ */
+export async function refreshCache(): Promise<void> {
+  await fetchAllData();
+}
+
+// ─── Optimistic Updates ──────────────────────────────────────────────────────
 
 export function optimisticDeleteCollegeFromCache(collegeId: string): void {
   markCollegeAsDeleted(collegeId);
@@ -640,7 +649,7 @@ export function optimisticUpdateStudentInCache(studentId: string, updates: Parti
 }
 
 export function invalidateLMSCache(): void {
-  stopSubscriptions();
+  stopPolling();
   cache.colleges = null;
   cache.batches = null;
   cache.students = null;
@@ -657,4 +666,5 @@ export function invalidateLMSCache(): void {
   cache.filteredAttempts = [];
   cache.listeners = 0;
   callbacks.clear();
+  currentUserInfo = null;
 }

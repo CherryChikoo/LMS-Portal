@@ -155,7 +155,7 @@ export default function ResultsPage() {
     setMounted(true);
     try {
       const role = localStorage.getItem("lms_role") || "admin";
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- loading persisted role/user snapshot from localStorage on mount
+       
       setActualRole(role.toLowerCase());
       if (role.toLowerCase() === "student") {
         setUserRole("student");
@@ -168,7 +168,7 @@ export default function ResultsPage() {
     } catch (_err) {}
 
     loadData();
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- initial load: only runs once on mount
+   
   }, []);
 
   // Data is synced by useLMSData, no need for redundant subscriptions

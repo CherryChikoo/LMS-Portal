@@ -208,20 +208,40 @@ function getYearBadgeStyle(year?: string) {
       setLoading(true);
       try {
         const decodedId = decodeURIComponent(collegeId);
-        const [colDataRaw, allStudsRes, allBatchesRes] = await Promise.all([
-          getCollegeById(collegeId),
-          getAllStudents(),
-          getAllBatches(),
-        ]);
-        const allStuds = allStudsRes.data;
-        const allBatches = allBatchesRes.data;
-
-        let colData = colDataRaw;
+        
+        // OPTIMIZATION: Load college doc directly first
+        let colData = await getCollegeById(collegeId);
         let external = false;
+        
         if (!colData) {
+          // Try alternate lookup for external colleges
+          const allColsResult = await getDocuments<College>("colleges", [], false, { pageSize: 100 });
+          const cleanSlug = (v?: string) => (v ? String(v).trim().toLowerCase().replace(/[^a-z0-9]+/g, "") : "");
+          const targetSlug = cleanSlug(decodedId);
+          colData = allColsResult.data.find((c) => c.id === decodedId || cleanSlug(c.id) === targetSlug || cleanSlug(c.name) === targetSlug) || null;
+        }
+
+        // OPTIMIZATION: Use scoped queries instead of loading ALL students/batches
+        let allStuds: Student[] = [];
+        let allBatches: Batch[] = [];
+        
+        if (colData) {
+          // Load only students for this specific college
+          const studentsRes = await getStudentsByCollege(colData.id);
+          allStuds = studentsRes.data;
+          
+          // Load only batches for this college (or all batches with limit for backward compat)
+          const batchesRes = await getAllBatches({ pageSize: 500 });
+          allBatches = batchesRes.data;
+        } else {
+          // Fallback: try to find students by name match for external colleges
+          const allStudsRes = await getAllStudents({ pageSize: 5000 });
+          allStuds = allStudsRes.data;
+          
           const extStuds = allStuds.filter(
             (s) => s.collegeId === decodedId || s.collegeName?.toLowerCase() === decodedId.toLowerCase()
           );
+          
           if (extStuds.length > 0) {
             external = true;
             const extDepts = Array.from(new Set(extStuds.map((s) => s.department).filter(Boolean)));
@@ -234,7 +254,11 @@ function getYearBadgeStyle(year?: string) {
               createdAt: new Date(),
               updatedAt: new Date(),
             } as College;
+            allStuds = extStuds;
           }
+          
+          const batchesRes = await getAllBatches({ pageSize: 500 });
+          allBatches = batchesRes.data;
         }
 
         setIsExternal(external);
@@ -266,20 +290,35 @@ function getYearBadgeStyle(year?: string) {
   const refreshData = async () => {
     try {
       const decodedId = decodeURIComponent(collegeId);
-      const [colDataRaw, allStudsRes, allBatchesRes] = await Promise.all([
-        getCollegeById(collegeId),
-        getAllStudents(),
-        getAllBatches(),
-      ]);
-      const allStuds = allStudsRes.data;
-      const allBatches = allBatchesRes.data;
-
-      let colData = colDataRaw;
+      
+      // OPTIMIZATION: Load college doc directly first
+      let colData = await getCollegeById(collegeId);
       let external = isExternal;
+      
       if (!colData) {
+        const allColsResult = await getDocuments<College>("colleges", [], false, { pageSize: 100 });
+        const cleanSlug = (v?: string) => (v ? String(v).trim().toLowerCase().replace(/[^a-z0-9]+/g, "") : "");
+        const targetSlug = cleanSlug(decodedId);
+        colData = allColsResult.data.find((c) => c.id === decodedId || cleanSlug(c.id) === targetSlug || cleanSlug(c.name) === targetSlug) || null;
+      }
+
+      // OPTIMIZATION: Use scoped queries
+      let allStuds: Student[] = [];
+      let allBatches: Batch[] = [];
+      
+      if (colData) {
+        const studentsRes = await getStudentsByCollege(colData.id);
+        allStuds = studentsRes.data;
+        const batchesRes = await getAllBatches({ pageSize: 500 });
+        allBatches = batchesRes.data;
+      } else {
+        const allStudsRes = await getAllStudents({ pageSize: 5000 });
+        allStuds = allStudsRes.data;
+        
         const extStuds = allStuds.filter(
           (s) => s.collegeId === decodedId || s.collegeName?.toLowerCase() === decodedId.toLowerCase()
         );
+        
         if (extStuds.length > 0) {
           external = true;
           const extDepts = Array.from(new Set(extStuds.map((s) => s.department).filter(Boolean)));
@@ -292,7 +331,11 @@ function getYearBadgeStyle(year?: string) {
             createdAt: new Date(),
             updatedAt: new Date(),
           } as College;
+          allStuds = extStuds;
         }
+        
+        const batchesRes = await getAllBatches({ pageSize: 500 });
+        allBatches = batchesRes.data;
       }
 
       setIsExternal(external);

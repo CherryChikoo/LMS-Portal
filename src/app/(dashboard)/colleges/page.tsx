@@ -13,6 +13,7 @@ import { fadeInUp } from "@/lib/animations";
 import { getAllColleges, createCollege, deleteCollege, getAllStudents, deleteStudentProfile, updateCollege, updateStudentProfile, renameCollegeAndMigrate, PREDEFINED_DEPARTMENTS, ensureGeneralDepartment, createStudentAuthProfile, importStudentsCSV, parseStudentsCSV, generateCredentialsCSV } from "@/lib/services";
 import { useLMSDataSelector } from "@/lib/data/use-lms-data";
 import { optimisticDeleteCollege } from "@/lib/data/lms-store";
+import { refreshCache } from "@/lib/data/lms-data-cache";
 import { markCollegeAsDeleted } from "@/lib/hierarchy/hierarchy-data";
 import { getAuth } from "firebase/auth";
 import { getDocuments, where } from "@/lib/firebase/firestore";
@@ -114,6 +115,7 @@ export default function CollegesPage() {
       }
 
       toast.success(`Successfully enrolled ${cardEnrollName} in ${selectedCollegeForAction.name}.`);
+      await refreshCache(); // Immediate UI update
       setShowCardEnrollModal(false);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -179,6 +181,7 @@ export default function CollegesPage() {
         () => cardCancelImportRef.current
       );
       setCardImportSummary(summary);
+      await refreshCache(); // Immediate UI update
       toast.success(`Import complete for ${selectedCollegeForAction.name}.`);
     } catch (err) {
       console.error("Import error", err);
@@ -216,23 +219,9 @@ export default function CollegesPage() {
       }
     } catch (_) {}
 
-    // Auto-normalize database colleges and students to small letters directly in Firestore
-    const auth = getAuth();
-    const unsub = auth.onAuthStateChanged(async (user) => {
-      if (user) {
-        try {
-          const token = await user.getIdToken();
-          await fetch("/api/admin/normalize-colleges", { 
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ adminIdToken: token })
-          });
-        } catch (err) {
-          console.error("Auto-normalization sweep failed:", err);
-        }
-        unsub(); // Unsubscribe after first successful run
-      }
-    });
+    // OPTIMIZATION: Removed automatic normalize-colleges sweep to prevent expensive 
+    // full-collection scans on every page load. This operation should only be run 
+    // manually when needed via a dedicated admin maintenance button.
   }, []);
 
   const handleDeleteAdminCollege = (col: College) => {
@@ -244,13 +233,36 @@ export default function CollegesPage() {
         try {
           setDeletingIds((prev) => [...prev, col.id]);
 
-          // 1. Instant optimistic local deletion
+          // 1. Instant optimistic local deletion (for immediate UI feedback)
           optimisticDeleteCollege(col.id);
           setSelectedAdminIds((prev) => prev.filter((id) => id !== col.id));
           toast.success(`College "${col.name}" deleted successfully.`);
 
-          // 2. Instant client-side Firestore document deletion
+          // 2. Instant client-side Firestore college document deletion
           await deleteCollege(col.id);
+
+          // 3. CRITICAL: Server-side cascading deletion (students, exams, resources, auth, etc.)
+          const auth = getAuth();
+          const token = await auth.currentUser?.getIdToken();
+          if (token) {
+            await fetch("/api/admin/delete-college", {
+              method: "POST",
+              headers: { 
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${token}`
+              },
+              body: JSON.stringify({ 
+                id: col.id, 
+                collegeName: col.name 
+              }),
+            }).catch((err) => {
+              console.error("College cascading delete error:", err);
+              toast.error("Warning: Some associated data may not have been deleted. Please contact support.");
+            });
+          }
+
+          // 4. Immediate cache refresh for instant UI update
+          await refreshCache();
         } catch (err: unknown) {
           console.error("Failed to delete college:", err);
           toast.error(err instanceof Error ? err.message : "Failed to delete college");
@@ -274,6 +286,7 @@ export default function CollegesPage() {
         try {
           const newStatus = isRestricted ? "active" : "restricted";
           await updateCollege(col.id, { status: newStatus });
+          await refreshCache(); // Immediate UI update
           toast.success(`Updated status for "${col.name}".`);
         } catch (err) {
           console.error("Failed to toggle college status:", err);
@@ -308,12 +321,18 @@ export default function CollegesPage() {
                 const col = colleges.find((c) => c.id === id);
                 return fetch("/api/admin/delete-college", {
                   method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ id, collegeName: col?.name || "", adminIdToken: token }),
+                  headers: { 
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`
+                  },
+                  body: JSON.stringify({ id, collegeName: col?.name || "" }),
                 }).catch((err) => console.error("College delete cleanup error:", err));
               })
             );
           }
+
+          // Immediate cache refresh
+          await refreshCache();
         } catch (err: unknown) {
           console.error("Failed to delete selected colleges:", err);
           toast.error(err instanceof Error ? err.message : "Failed to delete selected colleges");
@@ -339,6 +358,7 @@ export default function CollegesPage() {
           toast.success(`Outside institution "${extName}" deleted.`);
 
           await Promise.all(studentsToDelete.map((s) => deleteStudentProfile(s.id)));
+          await refreshCache(); // Immediate UI update
         } catch (err) {
           console.error("Failed to delete outside institution:", err);
           toast.error("Failed to delete outside institution.");
@@ -372,6 +392,7 @@ export default function CollegesPage() {
           toast.success("Selected outside institutions deleted.");
 
           await Promise.all(studentsToDelete.map((s) => deleteStudentProfile(s.id)));
+          await refreshCache(); // Immediate UI update
         } catch (err) {
           console.error("Failed to delete selected outside institutions:", err);
           toast.error("Failed to delete selected outside institutions.");
@@ -403,6 +424,7 @@ export default function CollegesPage() {
           toast.success("All outside institutions deleted.");
 
           await Promise.all(studentsToDelete.map((s) => deleteStudentProfile(s.id)));
+          await refreshCache(); // Immediate UI update
         } catch (err) {
           console.error("Failed to delete all outside institutions:", err);
           toast.error("Failed to delete all outside institutions.");
@@ -525,6 +547,7 @@ export default function CollegesPage() {
       }
 
       toast.success(`College "${name}" created successfully.`);
+      await refreshCache(); // Immediate UI update
       setShowAddModal(false);
       setName("");
       setSelectedDepts(["Computer Science & Engineering (CSE)", "General"]);
@@ -574,15 +597,14 @@ export default function CollegesPage() {
 
         const authResp = await fetch("/api/admin/update-college-auth", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { 
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`
+          },
           body: JSON.stringify({
-            adminIdToken: token,
             collegeId: editingCollege.id,
             collegeName: normalizedNewName,
-            oldEmail: oldEmail,
-            newEmail: newEmail,
-            newPassword: editInitialPassword,
-            loginEnabled: editLoginEnabled,
+            adminEmail: newEmail,
           }),
         });
 
@@ -611,6 +633,7 @@ export default function CollegesPage() {
         await renameCollegeAndMigrate(editingCollege.id, editingCollege.name, normalizedNewName, false);
       }
       await updateCollege(editingCollege.id, payload);
+      await refreshCache(); // Immediate UI update
       toast.success("College details updated successfully.");
 
       // Tier 4: State Cleanup
@@ -641,6 +664,7 @@ export default function CollegesPage() {
       }
 
       await renameCollegeAndMigrate(oldName, oldName, newName, true);
+      await refreshCache(); // Immediate UI update
       toast.success("Outside institution updated successfully.");
 
       setEditingExternal(null);

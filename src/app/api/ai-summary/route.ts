@@ -128,7 +128,7 @@ Do NOT wrap the output in markdown code blocks like \`\`\`json. Return RAW valid
     });
 
     const resultResp = await aiResponse.response;
-    let textResponse = resultResp.text();
+    const textResponse = resultResp.text();
     
     if (!textResponse) {
       return NextResponse.json({ error: "Empty AI response" }, { status: 500 });

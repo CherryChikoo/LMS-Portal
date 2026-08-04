@@ -11,6 +11,112 @@ const DeleteCollegeSchema = z.object({
   collegeName: z.string().optional(),
 }).strict();
 
+/**
+ * Helper function to delete ALL documents (exams/resources) related to a college.
+ * Checks multiple fields:
+ * 1. Direct collegeId field
+ * 2. Direct collegeName field  
+ * 3. targets array (targets[0].collegeId or targets[0].collegeName)
+ * 
+ * Processes in batches to avoid memory issues.
+ */
+async function deleteAllCollegeContent(
+  db: ReturnType<typeof getFirestore>,
+  collectionName: string,
+  collegeId: string,
+  collegeName?: string
+): Promise<number> {
+  let deletedCount = 0;
+  const BATCH_SIZE = 500;
+  
+  console.log(`[DeleteCollege] Scanning ${collectionName} for college ${collegeId} (${collegeName})...`);
+  
+  // Fetch ALL documents in batches and check them
+  let lastDoc: any = null;
+  let hasMore = true;
+
+  while (hasMore) {
+    let query = db.collection(collectionName)
+      .orderBy('__name__')
+      .limit(BATCH_SIZE);
+    
+    if (lastDoc) {
+      query = query.startAfter(lastDoc);
+    }
+
+    const snapshot = await query.get();
+    if (snapshot.empty) {
+      hasMore = false;
+      break;
+    }
+
+    const bulkWriter = db.bulkWriter();
+    bulkWriter.onWriteError((error) => {
+      if (error.failedAttempts < 3) return true;
+      console.error(`[DeleteCollege] BulkWriter error for ${collectionName}:`, error);
+      return false;
+    });
+
+    // Check each document
+    snapshot.docs.forEach(doc => {
+      const data = doc.data();
+      let shouldDelete = false;
+      
+      // Check 1: Direct collegeId match
+      if (data.collegeId === collegeId) {
+        shouldDelete = true;
+      }
+      
+      // Check 2: Direct collegeName match
+      if (!shouldDelete && collegeName && data.collegeName) {
+        const normalizedName = String(data.collegeName).toLowerCase().trim();
+        const normalizedTarget = collegeName.toLowerCase().trim();
+        if (normalizedName === normalizedTarget) {
+          shouldDelete = true;
+        }
+      }
+      
+      // Check 3: targets array (targets[0].collegeId or targets[0].collegeName)
+      if (!shouldDelete && Array.isArray(data.targets) && data.targets.length > 0) {
+        const hasCollegeInTargets = data.targets.some((t: any) => {
+          // Check collegeId in targets
+          if (t && typeof t === 'object' && t.collegeId === collegeId) {
+            return true;
+          }
+          // Check collegeName in targets
+          if (t && typeof t === 'object' && collegeName && t.collegeName) {
+            const tName = String(t.collegeName).toLowerCase().trim();
+            const targetName = collegeName.toLowerCase().trim();
+            return tName === targetName;
+          }
+          // Check if target is just a string (collegeId)
+          if (typeof t === 'string' && t === collegeId) {
+            return true;
+          }
+          return false;
+        });
+        
+        if (hasCollegeInTargets) {
+          shouldDelete = true;
+        }
+      }
+      
+      if (shouldDelete) {
+        bulkWriter.delete(doc.ref);
+        deletedCount++;
+      }
+    });
+
+    await bulkWriter.close();
+
+    lastDoc = snapshot.docs[snapshot.docs.length - 1];
+    hasMore = snapshot.docs.length === BATCH_SIZE;
+  }
+
+  console.log(`[DeleteCollege] ✅ Deleted ${deletedCount} ${collectionName} documents for college ${collegeId}`);
+  return deletedCount;
+}
+
 export async function POST(request: NextRequest) {
   let stage = "parseRequest";
   try {
@@ -51,24 +157,51 @@ export async function POST(request: NextRequest) {
     stage = "gatherAuthUids";
     const authUidsToDelete = new Set<string>();
     
+    // OPTIMIZATION: Parallelize independent queries
+    const [collegeDoc, usersSnap, studentsSnap] = await Promise.all([
+      db.collection("colleges").doc(collegeId).get(),
+      db.collection("users").where("collegeId", "==", collegeId).get(),
+      db.collection("students").where("collegeId", "==", collegeId).get()
+    ]);
+    
     // Add college admin emails (from the college doc)
-    const collegeDoc = await db.collection("colleges").doc(collegeId).get();
+    // CRITICAL: Only delete if role is college_admin
     if (collegeDoc.exists) {
       const adminEmail = collegeDoc.data()?.adminEmail;
       if (adminEmail) {
         try {
           const u = await auth.getUserByEmail(adminEmail.toLowerCase().trim());
-          authUidsToDelete.add(u.uid);
-        } catch (_) {}
+          // Check role before deleting
+          const userDoc = await db.collection("users").doc(u.uid).get();
+          const userRole = userDoc.exists ? userDoc.data()?.role : null;
+          
+          // ONLY delete college_admin, never delete main_admin/admin/trainer/superadmin
+          if (userRole === 'college_admin') {
+            authUidsToDelete.add(u.uid);
+          } else {
+            console.log(`[DeleteCollege] Skipping deletion of protected role: ${userRole} (${adminEmail})`);
+          }
+        } catch (_) {
+          // Admin email not found in Auth - skip
+        }
       }
     }
 
-    // Fetch all users tied to this college
-    const usersSnap = await db.collection("users").where("collegeId", "==", collegeId).get();
-    usersSnap.docs.forEach(doc => authUidsToDelete.add(doc.id));
-
-    // Fetch all students tied to this college
-    const studentsSnap = await db.collection("students").where("collegeId", "==", collegeId).get();
+    // Gather user UIDs - ONLY college_admin and student roles
+    // CRITICAL: Never delete main_admin/admin/trainer/superadmin accounts
+    usersSnap.docs.forEach(doc => {
+      const data = doc.data();
+      const role = data?.role;
+      
+      // Only delete non-protected roles
+      if (role === 'college_admin' || role === 'student' || !role) {
+        authUidsToDelete.add(doc.id);
+      } else {
+        console.log(`[DeleteCollege] Skipping deletion of protected role: ${role} (${doc.id})`);
+      }
+    });
+    
+    // Students are always safe to delete
     studentsSnap.docs.forEach(doc => authUidsToDelete.add(doc.id));
 
     stage = "deleteAuthAccounts";
@@ -86,67 +219,97 @@ export async function POST(request: NextRequest) {
     const examIds = examsSnap.docs.map(doc => doc.id);
 
     stage = "cascadingDelete";
-    // 1. Delete all exam_results for the exams tied to this college
+    
+    // Delete exam-related data first (results and questions)
     const bulkWriter = db.bulkWriter();
-    for (const eId of examIds) {
-      const eResSnap = await db.collection("exam_results").where("examId", "==", eId).get();
+    bulkWriter.onWriteError((error) => {
+      if (error.failedAttempts < 3) return true;
+      console.error(`[DeleteCollege] BulkWriter failed after retries:`, error);
+      return false;
+    });
+
+    // Parallelize exam results and questions deletion
+    const examDeletionPromises = examIds.map(async (eId) => {
+      const [eResSnap, qSnap] = await Promise.all([
+        db.collection("exam_results").where("examId", "==", eId).get(),
+        db.collection("questions").where("examId", "==", eId).get()
+      ]);
       eResSnap.docs.forEach(doc => bulkWriter.delete(doc.ref));
-      
-      const qSnap = await db.collection("questions").where("examId", "==", eId).get();
       qSnap.docs.forEach(doc => bulkWriter.delete(doc.ref));
+    });
+
+    await Promise.all(examDeletionPromises);
+    
+    // Delete all exam_results for students in this college (chunked 'in' queries)
+    if (uidsArray.length > 0) {
+      const CHUNK_SIZE = 10;
+      const studentResultPromises: Promise<void>[] = [];
+      
+      for (let i = 0; i < uidsArray.length; i += CHUNK_SIZE) {
+        const chunk = uidsArray.slice(i, i + CHUNK_SIZE);
+        const promise = db.collection("exam_results")
+          .where("studentId", "in", chunk)
+          .get()
+          .then(chunkResSnap => {
+            chunkResSnap.docs.forEach(doc => bulkWriter.delete(doc.ref));
+          });
+        studentResultPromises.push(promise);
+      }
+      
+      await Promise.all(studentResultPromises);
     }
     
-    // 2. Delete all exam_results for students in this college
-    if (uidsArray.length > 0) {
-      // Chunk uidsArray into batches of 10 for 'in' queries
-      for (let i = 0; i < uidsArray.length; i += 10) {
-        const chunk = uidsArray.slice(i, i + 10);
-        const chunkResSnap = await db.collection("exam_results").where("studentId", "in", chunk).get();
-        chunkResSnap.docs.forEach(doc => bulkWriter.delete(doc.ref));
-      }
-    }
     await bulkWriter.close();
 
-    // 3. Bulk delete primary collections by collegeId (Dual Sweep)
+    // Get college name for comprehensive deletion
     let collegeName = parseResult.data.collegeName;
     if (!collegeName && collegeDoc.exists) {
       collegeName = collegeDoc.data()?.name;
     }
 
-    // Pass 1: Strict ID Sweep
-    await bulkDeleteByQuery("students", "collegeId", "==", collegeId);
-    await bulkDeleteByQuery("users", "collegeId", "==", collegeId);
+    // COMPREHENSIVE DELETION: Delete ALL content related to this college
+    // This handles: direct collegeId, collegeName, and targets array
+    stage = "deleteAllCollegeContent";
+    console.log(`[DeleteCollege] Starting comprehensive deletion for ${collegeId} (${collegeName})...`);
     
-    // Pass 2: Loose Name Sweep (catch-all for ghost CSV imports)
-    if (collegeName) {
-      await bulkDeleteByQuery("students", "collegeName", "==", collegeName);
-      await bulkDeleteByQuery("users", "collegeName", "==", collegeName);
-    }
-
-    // Cascade wipe other collections (Strict ID Sweep)
-    await bulkDeleteByQuery("exams", "collegeId", "==", collegeId);
-    await bulkDeleteByQuery("batches", "collegeId", "==", collegeId);
-    await bulkDeleteByQuery("departments", "collegeId", "==", collegeId);
-    await bulkDeleteByQuery("resources", "collegeId", "==", collegeId);
-
-    // Pass 2: Loose Name Sweep for other collections (catch-all for ghost records)
-    if (collegeName) {
-      await bulkDeleteByQuery("exams", "collegeName", "==", collegeName);
-      await bulkDeleteByQuery("batches", "collegeName", "==", collegeName);
-      await bulkDeleteByQuery("departments", "collegeName", "==", collegeName);
-      await bulkDeleteByQuery("resources", "collegeName", "==", collegeName);
-    }
+    await Promise.all([
+      deleteAllCollegeContent(db, "students", collegeId, collegeName),
+      deleteAllCollegeContent(db, "users", collegeId, collegeName),
+      deleteAllCollegeContent(db, "exams", collegeId, collegeName),
+      deleteAllCollegeContent(db, "batches", collegeId, collegeName),
+      deleteAllCollegeContent(db, "departments", collegeId, collegeName),
+      deleteAllCollegeContent(db, "resources", collegeId, collegeName),
+      deleteAllCollegeContent(db, "courses", collegeId, collegeName)
+    ]);
     
-    // Wipe nested student data (Dual Sweep)
+    // Wipe nested student data (Dual Sweep) - OPTIMIZED with parallelization
     if (uidsArray.length > 0) {
       const studentBulkWriter = db.bulkWriter();
-      for (let i = 0; i < uidsArray.length; i += 10) {
-        const chunk = uidsArray.slice(i, i + 10);
-        const notesSnap = await db.collection("trainer_notes").where("studentId", "in", chunk).get();
-        notesSnap.docs.forEach(doc => studentBulkWriter.delete(doc.ref));
-        const doubtsSnap = await db.collection("doubts").where("studentId", "in", chunk).get();
-        doubtsSnap.docs.forEach(doc => studentBulkWriter.delete(doc.ref));
+      studentBulkWriter.onWriteError((error) => {
+        if (error.failedAttempts < 3) return true;
+        console.error(`[DeleteCollege] StudentBulkWriter failed:`, error);
+        return false;
+      });
+
+      const CHUNK_SIZE = 10;
+      const nestedDataPromises: Promise<void>[] = [];
+      
+      for (let i = 0; i < uidsArray.length; i += CHUNK_SIZE) {
+        const chunk = uidsArray.slice(i, i + CHUNK_SIZE);
+        
+        // Parallelize trainer_notes and doubts queries
+        const promise = Promise.all([
+          db.collection("trainer_notes").where("studentId", "in", chunk).get(),
+          db.collection("doubts").where("studentId", "in", chunk).get()
+        ]).then(([notesSnap, doubtsSnap]) => {
+          notesSnap.docs.forEach(doc => studentBulkWriter.delete(doc.ref));
+          doubtsSnap.docs.forEach(doc => studentBulkWriter.delete(doc.ref));
+        });
+        
+        nestedDataPromises.push(promise);
       }
+      
+      await Promise.all(nestedDataPromises);
       await studentBulkWriter.close();
     }
     
