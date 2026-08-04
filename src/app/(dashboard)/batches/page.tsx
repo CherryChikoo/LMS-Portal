@@ -133,8 +133,8 @@ function BatchesContent() {
       if (b.isDeleted) return false;
       if ((userRole === "college_admin" || userRole === "student") && userCollegeId && b.collegeId !== userCollegeId) return false;
       if (batchFilters.collegeId && b.collegeId !== batchFilters.collegeId) return false;
-      if (batchFilters.department && b.department !== batchFilters.department) return false;
-      if (batchFilters.academicYear && b.academicYear !== batchFilters.academicYear) return false;
+      if (batchFilters.department && (b.department || "").trim().toLowerCase() !== (batchFilters.department || "").trim().toLowerCase()) return false;
+      if (batchFilters.academicYear && (b.academicYear || "").trim().toLowerCase() !== (batchFilters.academicYear || "").trim().toLowerCase()) return false;
       return true;
     });
   }, [cacheBatches, batchFilters, userRole, userCollegeId]);

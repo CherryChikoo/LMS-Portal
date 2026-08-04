@@ -297,7 +297,8 @@ export function AcademicHierarchyFilters({
             | "studentOptions"
           >);
           const value = getValueForLevel(level, filters);
-          const isDisabled = !!disabled || !!levelDisabled || !!loading;
+          const isBatchOnlyDisabled = batchOnlyMode && level !== "batch";
+          const isDisabled = !!disabled || !!levelDisabled || !!loading || isBatchOnlyDisabled;
           const id = `${baseId}-${level}`;
           const fieldLabel = label ?? DEFAULT_LABELS[level];
 

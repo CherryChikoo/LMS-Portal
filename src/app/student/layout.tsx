@@ -29,7 +29,7 @@ export default async function StudentRootLayout({
       <MobileSidebar />
 
       {/* Main content wrapper */}
-      <div className="flex-1 flex flex-col min-h-[100dvh] relative z-10 min-w-0 w-full lg:ml-[260px] lg:peer-[.w-\[80px\]]:ml-[80px] transition-[margin-left] duration-300">
+      <div className="flex-1 flex flex-col min-h-[100dvh] relative z-10 min-w-0 w-full lg:ml-0 lg:peer-[.w-\[260px\]]:ml-[260px] lg:peer-[.w-\[80px\]]:ml-[80px] transition-[margin-left] duration-300">
         <StudentHeader />
         <main className="flex-1 p-4 sm:p-7 lg:p-9 lg:pb-16 pb-20 max-w-[100vw] lg:max-w-[1600px] w-full mx-auto min-w-0">
           {children}

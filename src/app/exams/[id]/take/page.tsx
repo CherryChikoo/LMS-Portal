@@ -60,7 +60,14 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
     async function load() {
       setLoading(true);
       try {
+        console.log("[take/page.tsx] Starting load. Fetching getCurrentUser...");
+        // Ensure Firebase Auth is initialized before querying Firestore to prevent permission errors
+        const me = await getCurrentUser();
+        console.log("[take/page.tsx] getCurrentUser resolved. me=", me?.uid);
+        
+        console.log("[take/page.tsx] Fetching getExamById for", resolvedParams.id);
         const data = await getExamById(resolvedParams.id);
+        console.log("[take/page.tsx] getExamById resolved. data=", !!data);
         if (data) {
           if (data?.deletedAt) {
             setAccessDeniedReason("Assessment Unavailable. This assessment has been removed.");
@@ -73,8 +80,6 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
           } catch {}
 
           if (role !== "admin" && role !== "trainer") {
-            // Resolve the current Firebase user instead of relying only on localStorage.
-            const me = await getCurrentUser();
             const sId = me?.uid || "";
             const sEmail = me?.email || "";
 
@@ -86,10 +91,13 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
             }
 
             // Verify this exam is actually assigned to the current student.
+            console.log("[take/page.tsx] Fetching student profile...");
             let studentProfile = sId ? await getStudentById(sId) : null;
             if (!studentProfile && sEmail) {
+              console.log("[take/page.tsx] Fetching student by email...");
               studentProfile = await getStudentByEmail(sEmail);
             }
+            console.log("[take/page.tsx] Student profile resolved.");
             if (!studentProfile && me?.profile) {
               studentProfile = me.profile as unknown as Student;
             }
@@ -111,7 +119,23 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
               setCandidateName(studentProfile.name);
             }
 
-            const isEligible = filterExamsForStudent([data], studentProfile).length > 0;
+            // We allow access if they are assigned OR if they already have an attempt (e.g. they started it, then got removed from the batch).
+            let isEligible = filterExamsForStudent([data], studentProfile).length > 0;
+
+            let existing: ExamResult | undefined;
+            try {
+              const attempts = await getStudentAttemptsForCurrentUser(sId, sEmail);
+              existing = attempts.find((a) => a.examId === resolvedParams.id);
+              if (existing) {
+                isEligible = true; // Allow them to view/resume their past attempt
+                if (existing.status === "submitted" || (existing.answers && Object.keys(existing.answers).length > 0)) {
+                  setExistingAttempt(existing);
+                  setAccessDeniedReason(`You have already completed this evaluation. Earned Score: ${existing.percentage}% (${existing.passed ? "PASSED" : "REVIEW"}).`);
+                  setLoading(false);
+                  return;
+                }
+              }
+            } catch {}
 
             if (!isEligible) {
               setAccessDeniedReason("Assessment Not Assigned. This evaluation is not assigned to your batch or academic hierarchy.");
@@ -125,17 +149,6 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
               setLoading(false);
               return;
             }
-
-            try {
-              const attempts = await getStudentAttemptsForCurrentUser(sId, sEmail);
-              const found = attempts.find((a) => a.examId === resolvedParams.id);
-              if (found) {
-                setExistingAttempt(found);
-                setAccessDeniedReason(`You have already completed this evaluation. Earned Score: ${found.percentage}% (${found.passed ? "PASSED" : "REVIEW"}).`);
-                setLoading(false);
-                return;
-              }
-            } catch {}
           }
 
           setExam(data);
@@ -178,8 +191,9 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
           });
           setAnswers(restoredAnswerMap);
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error("Failed to load exam", err);
+        setAccessDeniedReason(`System Error: ${err.message || "Failed to load"}`);
       } finally {
         setLoading(false);
       }

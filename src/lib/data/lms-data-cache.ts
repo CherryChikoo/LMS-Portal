@@ -477,8 +477,9 @@ async function fetchAllData() {
         : Promise.resolve({ data: [], lastDoc: null }),
 
       // Attempts: scope by student or college
-      isStudent && parsed?.id
-        ? getDocuments<ExamAttempt>("exam_results", [where("studentId", "==", parsed.id)], false, { pageSize: 500 })
+      // Students need to see attempts for their college to populate the leaderboard
+      isStudent && collegeId
+        ? getDocuments<ExamAttempt>("exam_results", [where("collegeId", "==", collegeId)], false, { pageSize: 500 })
         : isCollegeAdmin && collegeId
         ? getDocuments<ExamAttempt>("exam_results", [where("collegeId", "==", collegeId)], false, { pageSize: 2000 })
         : isMainAdmin

@@ -122,13 +122,13 @@ export function StudentPortalDashboard({
             </div>
 
             <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 shrink-0">
-              <Link href="/exams">
+              <Link href="/student/exams">
                 <Button className="h-11 px-6 rounded-full bg-brand hover:bg-brand/90 text-brand-foreground font-bold transition-all flex items-center gap-2 shadow-none">
                   <PlayCircle className="w-4 h-4 stroke-[2.5]" />
                   <span>Take Assessment</span>
                 </Button>
               </Link>
-              <Link href="/resources">
+              <Link href="/student/resources">
                 <Button variant="outline" className="h-11 px-5 rounded-full border border-border bg-secondary hover:bg-accent text-foreground font-semibold transition-all shadow-none">
                   <BookOpen className="w-4 h-4 mr-2" />
                   <span>Study Notes</span>
@@ -191,7 +191,7 @@ export function StudentPortalDashboard({
                   <p className="text-xs text-muted-foreground">Evaluation papers scheduled for your academic cohort</p>
                 </div>
               </div>
-              <Link href="/exams" className="text-xs font-bold text-brand hover:underline flex items-center gap-1">
+              <Link href="/student/exams" className="text-xs font-bold text-brand hover:underline flex items-center gap-1">
                 View All <ArrowRight className="w-3.5 h-3.5" />
               </Link>
             </div>
@@ -229,14 +229,14 @@ export function StudentPortalDashboard({
                         <p className="text-xs text-muted-foreground truncate max-w-sm">{ex.description || "Proctored academic online test."}</p>
                       </div>
                       {att ? (
-                        <Link href="/results">
+                        <Link href="/student/results">
                           <Button size="sm" variant="outline" className="w-full sm:w-auto border-emerald-500/30 bg-emerald-500/10 text-emerald-500 font-bold text-xs rounded-lg px-4 flex items-center gap-1.5">
                             <CheckCircle2 className="w-3.5 h-3.5" />
                             Completed ({att.percentage}%)
                           </Button>
                         </Link>
                       ) : status === "active" ? (
-                        <Link href={`/exams/${ex.id}/take`}>
+                        <Link href={`/student/exams/${ex.id}/take`}>
                           <Button size="sm" className="w-full sm:w-auto bg-brand hover:bg-brand/90 text-brand-foreground font-bold text-xs rounded-lg px-4">
                             Launch Assessment <PlayCircle className="w-3.5 h-3.5 ml-1.5" />
                           </Button>
@@ -267,7 +267,7 @@ export function StudentPortalDashboard({
                   <p className="text-xs text-muted-foreground">Personal score transcript & answers</p>
                 </div>
               </div>
-              <Link href="/results" className="text-xs font-bold text-brand hover:underline flex items-center gap-1">
+              <Link href="/student/results" className="text-xs font-bold text-brand hover:underline flex items-center gap-1">
                 All Scores <ArrowRight className="w-3.5 h-3.5" />
               </Link>
             </div>

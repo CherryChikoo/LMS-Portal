@@ -63,9 +63,17 @@ service cloud.firestore {
       return isMainAdmin() || isCollegeAdmin();
     }
 
+    function getStudentCollege() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/students/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/students/$(request.auth.uid)).data.get('collegeId', '')
+        : '';
+    }
+
     // College membership check
     function belongsToSameCollege(collegeId) {
-      return isMainAdmin() || (getUserCollege() != '' && getUserCollege() == collegeId);
+      return isMainAdmin() || 
+             (getUserCollege() != '' && getUserCollege() == collegeId) ||
+             (getStudentCollege() != '' && getStudentCollege() == collegeId);
     }
 
     // Check if resource is shared with user (for resources with sharedWith array)
@@ -217,8 +225,9 @@ service cloud.firestore {
       // Create: Students can create their own results
       allow create: if isStudent() && request.resource.data.studentId == request.auth.uid;
       
-      // Read: Own results, or admin access
+      // Read: Own results, admin access, or students in the same college (needed for leaderboard)
       allow read: if isAuthenticated() && (
+        (isStudent() && belongsToSameCollege(resource.data.collegeId)) ||
         isOwner(resource.data.studentId) || 
         (getUserEmail() != '' && resource.data.studentEmail == getUserEmail()) ||
         isMainAdmin() || 

@@ -75,23 +75,43 @@ export default function CalendarPage() {
       // hierarchy. Mirrors the logic in the Resources and Exams pages: match
       // against the first target's composite fields.
       activeExams = activeExams.filter((ex: Exam) => {
+        const tCol = (ex as any).collegeId || ex.targets?.[0]?.collegeId;
+        const isGlobal = !tCol || tCol === "global" || tCol === "GLOBAL" || tCol === "all" || tCol === "ALL";
+        
+        const hasSubCollegeFilter = !!(filters.department || filters.academicYear || filters.section || filters.batchId);
+
+        if (isGlobal) {
+          if (hasSubCollegeFilter) return false;
+          if (userRole === "admin" && filters.collegeId && filters.collegeId !== "GLOBAL") return false;
+          return true;
+        }
+
         const t = ex.targets?.[0];
-        if (!t) return true;
-        if (filters.collegeId && t.collegeId !== filters.collegeId) return false;
-        if (filters.department && t.department !== filters.department) return false;
-        if (filters.academicYear && t.academicYear !== filters.academicYear) return false;
-        if (filters.section && t.section !== filters.section) return false;
-        if (filters.batchId && t.batchId !== filters.batchId) return false;
+        if (filters.collegeId && t?.collegeId !== filters.collegeId) return false;
+        if (filters.department && (t?.department || "").trim().toLowerCase() !== (filters.department || "").trim().toLowerCase()) return false;
+        if (filters.academicYear && t?.academicYear !== filters.academicYear) return false;
+        if (filters.section && (t?.section || "").trim().toLowerCase() !== (filters.section || "").trim().toLowerCase()) return false;
+        if (filters.batchId && t?.batchId !== filters.batchId) return false;
         return true;
       });
       activeResources = activeResources.filter((res: Resource) => {
+        const tCol = (res as any).collegeId || res.targets?.[0]?.collegeId;
+        const isGlobal = !tCol || tCol === "global" || tCol === "GLOBAL" || tCol === "all" || tCol === "ALL";
+        
+        const hasSubCollegeFilter = !!(filters.department || filters.academicYear || filters.section || filters.batchId);
+
+        if (isGlobal) {
+          if (hasSubCollegeFilter) return false;
+          if (userRole === "admin" && filters.collegeId && filters.collegeId !== "GLOBAL") return false;
+          return true;
+        }
+
         const t = res.targets?.[0];
-        if (!t) return true;
-        if (filters.collegeId && t.collegeId !== filters.collegeId) return false;
-        if (filters.department && t.department !== filters.department) return false;
-        if (filters.academicYear && t.academicYear !== filters.academicYear) return false;
-        if (filters.section && t.section !== filters.section) return false;
-        if (filters.batchId && t.batchId !== filters.batchId) return false;
+        if (filters.collegeId && t?.collegeId !== filters.collegeId) return false;
+        if (filters.department && (t?.department || "").trim().toLowerCase() !== (filters.department || "").trim().toLowerCase()) return false;
+        if (filters.academicYear && t?.academicYear !== filters.academicYear) return false;
+        if (filters.section && (t?.section || "").trim().toLowerCase() !== (filters.section || "").trim().toLowerCase()) return false;
+        if (filters.batchId && t?.batchId !== filters.batchId) return false;
         return true;
       });
     }

@@ -15,21 +15,22 @@ interface SidebarNavLinkProps {
 
 export function SidebarNavLink({ href, title, icon: Icon, isExpanded }: SidebarNavLinkProps) {
   const pathname = usePathname();
-  const isActive = pathname === href || (href !== "/" && pathname?.startsWith(href));
+  const isActive =
+    pathname === href ||
+    (href !== "/admin" && href !== "/student" && href !== "/" && pathname?.startsWith(href + "/"));
 
   const content = (
     <Link
       href={href}
       className={cn(
-        "group relative flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-300",
-        "hover:bg-brand/10 w-full min-w-0 overflow-hidden",
-        isActive ? "bg-brand font-medium shadow-sm shadow-brand/20" : "text-muted-foreground",
-        isActive && "hover:bg-brand"
+        "group flex items-center h-11 rounded-xl text-sm font-medium transition-colors overflow-hidden",
+        isActive
+          ? "bg-brand text-black shadow-sm font-bold"
+          : "text-muted-foreground hover:text-foreground hover:bg-secondary/80",
+        isExpanded ? "px-3 gap-3" : "justify-center px-0 w-11 mx-auto"
       )}
+      style={{ willChange: 'background-color, color' }}
     >
-      {isActive && (
-        <div className="absolute inset-y-0 left-0 w-1 bg-white rounded-r-full" />
-      )}
       <div className="w-5 h-5 flex items-center justify-center shrink-0">
         <Icon className={cn("w-5 h-5 shrink-0", isActive ? "text-black" : "text-muted-foreground group-hover:text-foreground")} />
       </div>

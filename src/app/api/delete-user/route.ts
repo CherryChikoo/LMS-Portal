@@ -35,8 +35,8 @@ export async function POST(request: NextRequest) {
     const requesterDoc = await db.collection("users").doc(requesterUid).get();
     const requesterRole = requesterDoc.exists ? requesterDoc.data()?.role : undefined;
     
-    if (requesterRole !== "main_admin" && requesterRole !== "admin" && requesterRole !== "college_admin") {
-      return NextResponse.json({ success: false, stage, errorCode: "permission-denied", message: "Only admins can delete users." }, { status: 403 });
+    if (requesterRole !== "main_admin" && requesterRole !== "admin" && requesterRole !== "college_admin" && requesterRole !== "trainer" && requesterRole !== "superadmin") {
+      return NextResponse.json({ success: false, stage, errorCode: "permission-denied", message: "Only admins and trainers can delete users." }, { status: 403 });
     }
 
     stage = "validatePayload";

@@ -522,20 +522,29 @@ export default function ExamsPage() {
       {userRole === "student" && (
         <div className="flex items-center gap-2 border-b border-border pb-3 overflow-x-auto">
           {(["available", "results"] as const).map((tab) => {
-            const count = (studentUser ? filterExamsForStudent(exams, studentUser) : []).filter((e) => {
-              const eff = getEffectiveExamStatus(e);
+            const count = exams.filter((e) => {
+              if (!studentUser) return false;
+              
               const att = getStudentAttemptForExam(e.id);
+              const isAssigned = filterExamsForStudent([e], studentUser).length > 0;
+              
+              if (!isAssigned && !att) return false;
+
+              const eff = getEffectiveExamStatus(e);
               const isSubmitted = att && att.status === "submitted";
               const isExpiredAndNotAttempted = !isSubmitted && (eff === "expired" || eff === "completed" || eff === "cancelled");
+              
+              const effectivelyExpired = isExpiredAndNotAttempted || (!isAssigned && !!att && !isSubmitted);
+              const effectivelySubmitted = isSubmitted || (!isAssigned && !!att);
               
               const examCreatedMillis = toMillis(e.createdAt) ?? 0;
               const studentCreatedMillis = studentUser ? toMillis(studentUser.createdAt) ?? 0 : 0;
               const wasCreatedBeforeStudent = examCreatedMillis > 0 && studentCreatedMillis > 0 && examCreatedMillis < studentCreatedMillis;
               
-              if (isExpiredAndNotAttempted && wasCreatedBeforeStudent) return false;
+              if (effectivelyExpired && wasCreatedBeforeStudent) return false;
               
-              if (tab === "available") return !isSubmitted && !isExpiredAndNotAttempted;
-              if (tab === "results") return isSubmitted || isExpiredAndNotAttempted;
+              if (tab === "available") return !effectivelySubmitted && !effectivelyExpired;
+              if (tab === "results") return effectivelySubmitted || effectivelyExpired;
               return false;
             }).length;
             return (
@@ -601,14 +610,21 @@ export default function ExamsPage() {
                   {exams.filter(exam => {
                     const tCol = (exam as any).collegeId || exam.targets?.[0]?.collegeId;
                     const isGlobal = !tCol || tCol === "global" || tCol === "GLOBAL" || tCol === "all" || tCol === "ALL";
-                    if (!isGlobal) {
-                      const t = exam.targets?.[0];
-                      if (examFilters.collegeId && t?.collegeId !== examFilters.collegeId) return false;
-                      if (examFilters.department && t?.department && t.department !== examFilters.department) return false;
-                      if (examFilters.academicYear && t?.academicYear && t.academicYear !== examFilters.academicYear) return false;
-                      if (examFilters.section && t?.section && t.section !== examFilters.section) return false;
-                      if (examFilters.batchId && t?.batchId && t.batchId !== examFilters.batchId) return false;
+                    
+                    const hasSubCollegeFilter = !!(examFilters.department || examFilters.academicYear || examFilters.section || examFilters.batchId);
+
+                    if (isGlobal) {
+                      if (hasSubCollegeFilter) return false;
+                      if (userRole === "admin" && examFilters.collegeId && examFilters.collegeId !== "GLOBAL") return false;
+                      return true;
                     }
+
+                    const t = exam.targets?.[0];
+                    if (examFilters.collegeId && t?.collegeId !== examFilters.collegeId) return false;
+                    if (examFilters.department && (t?.department || "").trim().toLowerCase() !== (examFilters.department || "").trim().toLowerCase()) return false;
+                    if (examFilters.academicYear && t?.academicYear && t.academicYear !== examFilters.academicYear) return false;
+                    if (examFilters.section && (t?.section || "").trim().toLowerCase() !== (examFilters.section || "").trim().toLowerCase()) return false;
+                    if (examFilters.batchId && t?.batchId && t.batchId !== examFilters.batchId) return false;
                     return true;
                   }).length}
                 </span> of {exams.length} Assessments
@@ -670,20 +686,32 @@ export default function ExamsPage() {
               if (!matchesSearch) return false;
 
               if (userRole === "student") {
-                if (!studentUser || filterExamsForStudent([exam], studentUser).length === 0) return false;
-                const eff = getEffectiveExamStatus(exam);
+                if (!studentUser) return false;
+                
                 const att = getStudentAttemptForExam(exam.id);
+                const isAssigned = filterExamsForStudent([exam], studentUser).length > 0;
+                
+                // If they are not assigned and have no attempt, completely hide it
+                if (!isAssigned && !att) return false;
+
+                const eff = getEffectiveExamStatus(exam);
                 const isSubmitted = att && att.status === "submitted";
                 const isExpiredAndNotAttempted = !isSubmitted && (eff === "expired" || eff === "completed" || eff === "cancelled");
                 
+                // If they are no longer assigned but have an attempt, force it to act like a completed/expired exam
+                // so it moves to the Results tab.
+                const effectivelyExpired = isExpiredAndNotAttempted || (!isAssigned && !!att && !isSubmitted);
+                const effectivelySubmitted = isSubmitted || (!isAssigned && !!att);
+
                 const examCreatedMillis = toMillis(exam.createdAt) ?? 0;
                 const studentCreatedMillis = studentUser ? toMillis(studentUser.createdAt) ?? 0 : 0;
                 const wasCreatedBeforeStudent = examCreatedMillis > 0 && studentCreatedMillis > 0 && examCreatedMillis < studentCreatedMillis;
                 
-                if (isExpiredAndNotAttempted && wasCreatedBeforeStudent) return false;
-
-                if (studentTab === "available") return !isSubmitted && !isExpiredAndNotAttempted;
-                if (studentTab === "results") return isSubmitted || isExpiredAndNotAttempted;
+                if (effectivelyExpired && wasCreatedBeforeStudent) return false;
+                
+                if (studentTab === "available") return !effectivelySubmitted && !effectivelyExpired;
+                if (studentTab === "results") return effectivelySubmitted || effectivelyExpired;
+                return false;
               } else {
                 const eff = getEffectiveExamStatus(exam);
                 if (adminTab === "live" && !(eff === "active" || eff === "scheduled" || eff === "draft")) return false;
@@ -691,14 +719,21 @@ export default function ExamsPage() {
 
                 const tCol = (exam as any).collegeId || exam.targets?.[0]?.collegeId;
                 const isGlobal = !tCol || tCol === "global" || tCol === "GLOBAL" || tCol === "all" || tCol === "ALL";
-                if (!isGlobal) {
-                  const t = exam.targets?.[0];
-                  if (examFilters.collegeId && t?.collegeId !== examFilters.collegeId) return false;
-                  if (examFilters.department && t?.department && t.department !== examFilters.department) return false;
-                  if (examFilters.academicYear && t?.academicYear && t.academicYear !== examFilters.academicYear) return false;
-                  if (examFilters.section && t?.section && t.section !== examFilters.section) return false;
-                  if (examFilters.batchId && t?.batchId && t.batchId !== examFilters.batchId) return false;
+                
+                const hasSubCollegeFilter = !!(examFilters.department || examFilters.academicYear || examFilters.section || examFilters.batchId);
+
+                if (isGlobal) {
+                  if (hasSubCollegeFilter) return false;
+                  if (userRole === "admin" && examFilters.collegeId && examFilters.collegeId !== "GLOBAL") return false;
+                  return true;
                 }
+
+                const t = exam.targets?.[0];
+                if (examFilters.collegeId && t?.collegeId !== examFilters.collegeId) return false;
+                if (examFilters.department && (t?.department || "").trim().toLowerCase() !== (examFilters.department || "").trim().toLowerCase()) return false;
+                if (examFilters.academicYear && t?.academicYear && t.academicYear !== examFilters.academicYear) return false;
+                if (examFilters.section && (t?.section || "").trim().toLowerCase() !== (examFilters.section || "").trim().toLowerCase()) return false;
+                if (examFilters.batchId && t?.batchId && t.batchId !== examFilters.batchId) return false;
               }
               return true;
             })
@@ -988,7 +1023,7 @@ export default function ExamsPage() {
                           )}
                         </span>
 
-                        {isGlobalAssignment && (
+                        {isGlobalAssignment && userRole !== "student" && (
                           <span className="px-2.5 py-1 rounded-full text-[11px] font-extrabold tracking-wide uppercase flex items-center gap-1.5 bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 shadow-sm">
                             <Globe className="w-3.5 h-3.5 shrink-0" />
                             Global Assignment
@@ -1055,7 +1090,7 @@ export default function ExamsPage() {
                           </span>
                         </div>
 
-                        {isGlobalAssignment ? (
+                        {isGlobalAssignment && userRole !== "student" ? (
                           <div className="pt-2">
                             <div className="inline-flex flex-col gap-0.5 px-3 py-2 rounded-lg border bg-blue-50/50 border-blue-200/60 dark:border-blue-900/40 dark:bg-blue-900/10">
                               <span className="text-[10px] font-bold text-blue-500/80 uppercase tracking-wider">Test Provider</span>

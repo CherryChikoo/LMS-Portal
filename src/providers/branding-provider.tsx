@@ -3,8 +3,9 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { doc, onSnapshot, getDoc, getDocuments, where } from "@/lib/firebase/firestore";
-import { db } from "@/lib/firebase/config";
+import { db, auth } from "@/lib/firebase/config";
 import { CompanyBranding, subscribeToCompanyBranding } from "@/lib/services/branding-service";
+import { getCurrentUser } from "@/lib/utils/auth-session";
 
 export interface BrandingContextType {
   branding: CompanyBranding;
@@ -49,6 +50,20 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
 
     const initBranding = async () => {
       try {
+        await getCurrentUser(); // Ensure Firebase Auth is fully initialized to prevent permission errors
+        
+        if (!auth.currentUser) {
+          // If we are not authenticated with Firebase Auth, any Firestore read will fail with missing permissions.
+          // Fallback to master branding only.
+          unsubMaster = subscribeToCompanyBranding((b) => {
+            if (!isCancelled) {
+              setMasterBranding(b);
+              setLoading(false);
+            }
+          });
+          return;
+        }
+
         const storedUser = localStorage.getItem("lms_user") || localStorage.getItem("user");
         const userRole = localStorage.getItem("lms_role");
 

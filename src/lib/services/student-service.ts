@@ -351,7 +351,7 @@ export async function deleteStudentProfile(studentId: string): Promise<void> {
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(body.error || "Failed to delete student account.");
+    throw new Error(body.message || body.error || "Failed to delete student account.");
   }
 }
 

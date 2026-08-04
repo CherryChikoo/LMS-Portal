@@ -68,9 +68,6 @@ export function MobileSidebar() {
   const isExamTakeRoute =
     pathname !== null && /^\/(student|admin)\/exams\/[^/]+\/(take|review)(\/|$)/.test(pathname);
 
-  if (isExamTakeRoute) {
-    return null;
-  }
 
   const effectiveNav = useMemo(() => {
     if (!userRole) return [];
@@ -121,6 +118,10 @@ export function MobileSidebar() {
       })),
     }));
   }, [userRole]);
+
+  if (isExamTakeRoute) {
+    return null;
+  }
 
   return (
     <Sheet open={isMobileOpen} onOpenChange={closeMobile}>

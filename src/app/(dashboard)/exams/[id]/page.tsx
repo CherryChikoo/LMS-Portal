@@ -332,11 +332,17 @@ export default function ExamDetailsPage({ params }: PageProps) {
       setLoading(true);
       try {
         const id = resolvedParams.id;
+        
+        let me = null;
+        if (role === "student") {
+          // Ensure Firebase Auth is initialized before querying Firestore
+          me = await getCurrentUser();
+        }
+
         const examData = await getExamById(id);
         setExam(examData);
 
         if (role === "student") {
-          const me = await getCurrentUser();
           if (me) {
             let studProfile = me.uid ? await getStudentById(me.uid) : null;
             if (!studProfile && me.email) {
@@ -357,12 +363,13 @@ export default function ExamDetailsPage({ params }: PageProps) {
             if (examData) {
               try {
                 const studentAttempts = await getStudentAttemptsForCurrentUser(me.uid, me.email);
-                const submitted = studentAttempts.find(
-                  (a) => a.examId === examData.id && (a.status === "submitted" || (a.answers && Object.keys(a.answers).length > 0)),
-                );
-                if (submitted) {
-                  router.replace(`/student/exams/${id}/review`);
-                  return;
+                const existing = studentAttempts.find((a) => a.examId === examData.id);
+                if (existing) {
+                  setAttempts([existing]); // Save it so we can use it to override isAssigned
+                  if (existing.status === "submitted" || (existing.answers && Object.keys(existing.answers).length > 0)) {
+                    router.replace(`/student/exams/${id}/review`);
+                    return;
+                  }
                 }
               } catch (err) {
                 console.error("Failed to check existing attempts", err);
@@ -454,8 +461,12 @@ function StudentExamDetails({ exam, studentUser, studentChecked, nowMs }: Studen
   const isAssigned = useMemo(() => {
     if (!studentChecked) return true;
     if (!studentUser) return false;
+    
+    // If they have an existing attempt, allow them to view it even if no longer assigned
+    if (attempts && attempts.length > 0) return true;
+
     return filterExamsForStudentLocal(exam, studentUser);
-  }, [exam, studentUser, studentChecked]);
+  }, [exam, studentUser, studentChecked, attempts]);
 
   if (studentChecked && !isAssigned) {
     return (

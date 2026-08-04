@@ -796,9 +796,9 @@ export function filterStudentByAcademicFilters(student: Student, filters: Academ
         isStudentInCollege(student, dummyCol);
       if (!isMatch) return false;
     }
-    if (filters.department && student.department !== filters.department) return false;
+    if (filters.department && (student.department || "").trim().toLowerCase() !== (filters.department || "").trim().toLowerCase()) return false;
     if (filters.academicYear && !matchesYearFilter(student.academicYear, filters.academicYear)) return false;
-    if (filters.section && student.section !== filters.section) return false;
+    if (filters.section && (student.section || "").trim().toLowerCase() !== (filters.section || "").trim().toLowerCase()) return false;
   }
   if (filters.batchId && (!student.batchIds || !student.batchIds.includes(filters.batchId))) return false;
   if (filters.studentId && student.id !== filters.studentId) return false;

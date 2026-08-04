@@ -86,13 +86,10 @@ export function getCurrentUser(): Promise<{ uid: string; email: string; profile:
           email: firebaseUser.email || (profile?.email as string) || "",
           profile: profile || {},
         });
-      } else if (profile && profile.id) {
-        resolve({
-          uid: (profile.id as string) || (profile.uid as string) || "",
-          email: (profile.email as string) || "",
-          profile,
-        });
       } else {
+        // We do NOT fall back to localStorage here because if firebaseUser is null,
+        // any Firestore query will fail with "Missing or insufficient permissions" anyway.
+        // It's better to force the user to log in again.
         resolve(null);
       }
     });
