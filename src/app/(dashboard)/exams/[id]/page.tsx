@@ -370,7 +370,7 @@ export default function ExamDetailsPage({ params }: PageProps) {
           }
         } else {
           const attData = await getResultsByExam(id);
-          setAttempts(attData || []);
+          setAttempts(attData?.data || []);
         }
       } catch (err) {
         console.error("Failed to load exam details", err);
@@ -468,15 +468,16 @@ function StudentExamDetails({ exam, studentUser, studentChecked, nowMs }: Studen
     (startMs === null || now >= startMs) && (endMs === null || now <= endMs);
   const canStart = effStatus === "active" && inWindow;
 
+  const passingMarks = exam.passingMarks ?? 0;
   const passingPercentage = exam.totalMarks > 0
-    ? (exam.passingMarks > exam.totalMarks
-        ? Math.min(100, exam.passingMarks)
-        : Math.round((exam.passingMarks / exam.totalMarks) * 100))
+    ? (passingMarks > exam.totalMarks
+        ? Math.min(100, passingMarks)
+        : Math.round((passingMarks / exam.totalMarks) * 100))
     : 0;
   const effectivePassingMarks = exam.totalMarks > 0
-    ? (exam.passingMarks > exam.totalMarks
-        ? Math.round((exam.totalMarks * Math.min(100, exam.passingMarks)) / 100)
-        : exam.passingMarks)
+    ? (passingMarks > exam.totalMarks
+        ? Math.round((exam.totalMarks * Math.min(100, passingMarks)) / 100)
+        : passingMarks)
     : 0;
 
   const startTimeStr = formatDateTime(exam.startTime ?? exam.scheduledAt);
@@ -739,15 +740,16 @@ function TrainerExamDetails({
   const statusBadge = buildStatusBadge(effStatus);
 
   const totalQuestions = exam.questions?.length ?? exam.questionIds?.length ?? 0;
+  const passingMarks = exam.passingMarks ?? 0;
   const passingPercentage = exam.totalMarks > 0
-    ? (exam.passingMarks > exam.totalMarks
-        ? Math.min(100, exam.passingMarks)
-        : Math.round((exam.passingMarks / exam.totalMarks) * 100))
+    ? (passingMarks > exam.totalMarks
+        ? Math.min(100, passingMarks)
+        : Math.round((passingMarks / exam.totalMarks) * 100))
     : 0;
   const effectivePassingMarks = exam.totalMarks > 0
-    ? (exam.passingMarks > exam.totalMarks
-        ? Math.round((exam.totalMarks * Math.min(100, exam.passingMarks)) / 100)
-        : exam.passingMarks)
+    ? (passingMarks > exam.totalMarks
+        ? Math.round((exam.totalMarks * Math.min(100, passingMarks)) / 100)
+        : passingMarks)
     : 0;
   const derivedSubject = exam.questions?.[0]?.subject || "General";
   const previewHref = isAdminLikePath()

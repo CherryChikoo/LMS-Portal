@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
         provider: existingUser.providerData[0]?.providerId || "password"
       });
     } catch (err: unknown) {
-      if (err?.code === "auth/user-not-found") {
+      if ((err as any)?.code === "auth/user-not-found") {
         return NextResponse.json({ exists: false });
       }
       throw err;
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
   } catch (err: unknown) {
     console.error("Check email exists error:", err);
     return NextResponse.json(
-      { error: "Failed to check email existence.", details: err?.message || String(err) },
+      { error: "Failed to check email existence.", details: (err as any)?.message || String(err) },
       { status: 500 }
     );
   }

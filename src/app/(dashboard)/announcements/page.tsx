@@ -61,14 +61,14 @@ export default function AnnouncementsPage() {
         if (normalizedRole === "student") {
           const me = await getCurrentUser();
           if (me) {
-            const data = await getAnnouncementsForCurrentUser(me.uid, me.email);
-            setAnnouncements(data);
+            const result = await getAnnouncementsForCurrentUser(me.uid, me.email);
+            setAnnouncements(result);
           } else {
             setAnnouncements([]);
           }
         } else {
-          const data = await getAllAnnouncements();
-          setAnnouncements(data);
+          const result = await getAllAnnouncements();
+          setAnnouncements(result.data);
         }
       } catch (err) {
         console.error("Failed to fetch announcements", err);

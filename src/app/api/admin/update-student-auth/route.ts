@@ -5,15 +5,16 @@ import { getFirestore } from "firebase-admin/firestore";
 
 export async function POST(request: NextRequest) {
   try {
-    const { uid, email, password, adminIdToken } = await request.json();
+    const authHeader = request.headers.get("authorization");
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return NextResponse.json({ error: "Missing or invalid authorization token." }, { status: 401 });
+    }
+    const adminIdToken = authHeader.split("Bearer ")[1];
+
+    const { uid, email, password, role, collegeId } = await request.json();
 
     if (!uid || typeof uid !== "string") {
       return NextResponse.json({ error: "User ID (uid) is required." }, { status: 400 });
-    }
-
-    // Verify the requester is an admin via their Firebase ID token
-    if (!adminIdToken || typeof adminIdToken !== "string") {
-      return NextResponse.json({ error: "Admin authorization token is required." }, { status: 401 });
     }
 
     let decodedToken;
@@ -39,10 +40,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Only admin, trainer, or college roles can update student auth." }, { status: 403 });
     }
 
-    // Validate that at least one of email or password is provided
-    if (!email && !password) {
+    // Validate that at least one update parameter is provided
+    if (!email && !password && !role && !collegeId) {
       return NextResponse.json(
-        { error: "At least one of 'email' or 'password' must be provided to update." },
+        { error: "At least one update parameter (email, password, role, collegeId) must be provided." },
         { status: 400 }
       );
     }
@@ -55,6 +56,26 @@ export async function POST(request: NextRequest) {
       if (!emailRegex.test(normalizedEmail)) {
         return NextResponse.json({ error: "Invalid email format." }, { status: 400 });
       }
+
+      // Check for email uniqueness in Firestore collections to avoid cross-role collisions
+      const emailQuerySnap = await db.collection("users").where("email", "==", normalizedEmail).get();
+      const emailStudentsSnap = await db.collection("students").where("email", "==", normalizedEmail).get();
+      const emailCollegesSnap = await db.collection("colleges").where("adminEmail", "==", normalizedEmail).get();
+
+      // Ensure we ignore the current user's own docs
+      const isOtherUser = (doc: any) => doc.id !== uid;
+      
+      const emailExists = emailQuerySnap.docs.some(isOtherUser) || 
+                          emailStudentsSnap.docs.some(isOtherUser) || 
+                          emailCollegesSnap.docs.some(isOtherUser);
+
+      if (emailExists) {
+        return NextResponse.json(
+          { error: "Update failed: This email address is already in use by another account in the system.", errorCode: "firestore/email-already-exists" },
+          { status: 409 }
+        );
+      }
+
       authUpdateFields.email = normalizedEmail;
     }
     if (password) {
@@ -107,7 +128,7 @@ export async function POST(request: NextRequest) {
             displayName: fallbackName,
           });
         } catch (createErr: unknown) {
-          if (createErr?.code === "auth/email-already-exists") {
+          if ((createErr as any)?.code === "auth/email-already-exists") {
             return NextResponse.json(
               { error: "Update failed: This email address is already in use by another account.", errorCode: "auth/email-already-exists" },
               { status: 409 }
@@ -115,7 +136,7 @@ export async function POST(request: NextRequest) {
           }
           console.error("Admin createUser error for missing user:", createErr);
           return NextResponse.json(
-            { error: createErr?.message || "Failed to create missing Firebase Auth account." },
+            { error: (createErr as any)?.message || "Failed to create missing Firebase Auth account." },
             { status: 500 }
           );
         }
@@ -128,7 +149,28 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Sync email to Firestore users doc and students doc
+    // Sync custom claims if role or collegeId is provided
+    if (role || collegeId) {
+      try {
+        const auth = getAdminAuth();
+        const userRecord = await auth.getUser(uid);
+        const currentClaims = userRecord.customClaims || {};
+        const updatedClaims = { ...currentClaims };
+        
+        if (role) updatedClaims.role = role;
+        if (collegeId) updatedClaims.collegeId = collegeId;
+        
+        await auth.setCustomUserClaims(uid, updatedClaims);
+      } catch (claimsErr) {
+        console.error("Admin setCustomUserClaims error:", claimsErr);
+        return NextResponse.json(
+          { error: "Failed to update Firebase Auth custom claims." },
+          { status: 500 }
+        );
+      }
+    }
+
+    // Sync email and other fields to Firestore users doc and students doc
     const batch = db.batch();
 
     if (email) {
@@ -141,6 +183,24 @@ export async function POST(request: NextRequest) {
       // Update students collection safely with merge
       const studentDocRef = db.collection("students").doc(uid);
       batch.set(studentDocRef, { email: normalizedEmail }, { merge: true });
+    }
+
+    if (role || collegeId) {
+      const userUpdates: Record<string, any> = {};
+      const studentUpdates: Record<string, any> = {};
+      
+      if (role) userUpdates.role = role;
+      if (collegeId) {
+        userUpdates.collegeId = collegeId;
+        studentUpdates.collegeId = collegeId;
+      }
+      
+      if (Object.keys(userUpdates).length > 0) {
+        batch.set(db.collection("users").doc(uid), userUpdates, { merge: true });
+      }
+      if (Object.keys(studentUpdates).length > 0) {
+        batch.set(db.collection("students").doc(uid), studentUpdates, { merge: true });
+      }
     }
 
     // When password is updated, clear mustChangePassword and initialPassword flags

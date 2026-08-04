@@ -193,7 +193,7 @@ export async function POST(request: NextRequest) {
       const emailLookups: Promise<any>[] = [];
       for (let i = 0; i < chunkEmails.length; i += EMAIL_BATCH_SIZE) {
         const subList = chunkEmails.slice(i, i + EMAIL_BATCH_SIZE);
-        emailLookups.push(db.collection("students").where("email", "in", subList).get());
+        emailLookups.push(db.collection("users").where("email", "in", subList).get());
       }
       const snaps = await Promise.all(emailLookups);
       snaps.forEach((snap) => {
@@ -244,11 +244,11 @@ export async function POST(request: NextRequest) {
             });
             uid = createdAuth.uid;
           } catch (authErr: unknown) {
-            if (authErr?.code === "auth/email-already-exists") {
+            if ((authErr as any)?.code === "auth/email-already-exists") {
               try {
                 const existingAuth = await auth.getUserByEmail(email);
-                const studentDocSnap = await db.collection("students").doc(existingAuth.uid).get();
-                if (!studentDocSnap.exists) {
+                const userDocSnap = await db.collection("users").doc(existingAuth.uid).get();
+                if (!userDocSnap.exists) {
                   await auth.updateUser(existingAuth.uid, { password: tempPassword, displayName: name });
                   uid = existingAuth.uid;
                 } else {
@@ -263,7 +263,7 @@ export async function POST(request: NextRequest) {
               }
             } else {
               summary.failedCount++;
-              summary.results.push({ name, email, password: "", status: "failed", reason: authErr?.message || "Auth creation failed" });
+              summary.results.push({ name, email, password: "", status: "failed", reason: (authErr as any)?.message || "Auth creation failed" });
               return;
             }
           }
@@ -323,7 +323,7 @@ export async function POST(request: NextRequest) {
               console.error(`Failed to rollback Auth user ${uid}:`, rollbackErr);
             }
             summary.failedCount++;
-            summary.results.push({ name, email, password: "", status: "failed", reason: `Firestore write failed: ${dbErr?.message || "Unknown error"}. Auth account rolled back.` });
+            summary.results.push({ name, email, password: "", status: "failed", reason: `Firestore write failed: ${(dbErr as any)?.message || "Unknown error"}. Auth account rolled back.` });
           }
         })
       );
@@ -331,6 +331,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, summary });
     } catch (err: unknown) {
       console.error("Bulk import students endpoint error:", err);
-      return NextResponse.json({ error: "Internal server error during bulk import.", details: err?.message || String(err) }, { status: 500 });
+      return NextResponse.json({ error: "Internal server error during bulk import.", details: (err as any)?.message || String(err) }, { status: 500 });
     }
   }

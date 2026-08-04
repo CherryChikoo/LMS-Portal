@@ -162,7 +162,7 @@ export default function ExamsPage() {
         } as Student;
         setStudentUser(mergedStudent);
       } else {
-        setStudentUser({ id: "", name: "", email: "", department: "", collegeId: "", collegeName: "", batchIds: [], semester: 0, section: "", rollNumber: "", createdAt: new Date(), updatedAt: new Date() } as Student);
+        setStudentUser({ id: "", name: "", email: "", department: "", collegeId: "", collegeName: "", batchIds: [], semester: 0, section: "", rollNumber: "", status: "active" as const, createdAt: new Date(), updatedAt: new Date() } as unknown as Student);
       }
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (_err) {
@@ -199,7 +199,7 @@ export default function ExamsPage() {
         id: `q-man-${Date.now()}`,
         text: type === "fill-blank" ? "The primary programming language used for Android app development is _____" : "New Question Text",
         type,
-        options: type === "mcq" ? ["Option A", "Option B", "Option C", "Option D"] : undefined,
+        options: type === "mcq" ? ["Option A", "Option B", "Option C", "Option D"] : [],
         correctAnswer: type === "fill-blank" ? "Java" : "Option A",
         marks: 2,
         subject: "General",
@@ -1502,7 +1502,7 @@ Marks: 1`}
                                 setQuestions(questions.map((item, i) => (i === idx ? {
                                   ...item,
                                   type: newType,
-                                  options: newType === "mcq" ? (item.options?.length ? item.options : ["Option A", "Option B", "Option C", "Option D"]) : undefined,
+                                  options: newType === "mcq" ? (item.options?.length ? item.options : ["Option A", "Option B", "Option C", "Option D"]) : [],
                                   correctAnswer: newType === "mcq" ? (item.options?.[0] || "Option A") : (typeof item.correctAnswer === "string" ? item.correctAnswer : "")
                                 } : item)));
                               }}

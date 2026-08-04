@@ -116,7 +116,7 @@ export async function createStudentAuthProfile(
 
   // Resilient direct Firestore registration fallback
   const existingDocs = await getDocuments<Student>(COLLECTION_NAME, [where("email", "==", cleanEmail)]);
-  if (existingDocs.length > 0) {
+  if (existingDocs.data.length > 0) {
     throw new Error("A student account with this email address already exists.");
   }
 
@@ -251,7 +251,7 @@ export async function getStudentById(studentId: string): Promise<Student | null>
 
 export async function getStudentByEmail(email: string): Promise<Student | null> {
   const docs = await getDocuments<Student>(COLLECTION_NAME, [where("email", "==", email.toLowerCase())]);
-  return docs.length > 0 ? docs[0] : null;
+  return docs.data.length > 0 ? docs.data[0] : null;
 }
 
 export async function createStudentProfile(data: Omit<Student, "id">): Promise<string> {
@@ -279,25 +279,28 @@ export async function updateStudentProfile(
 
   whitelistedData.updatedAt = new Date();
 
-  // 2. Auth Execution Lock: Update Firebase Auth FIRST if email or password changed
-  if (data.email || data.initialPassword) {
+  // 2. Auth Execution Lock: Update Firebase Auth FIRST if email, password, or collegeId changed
+  if (data.email || data.initialPassword || data.collegeId) {
     const currentUser = auth.currentUser;
     if (!currentUser) {
       return { success: false, error: "Cannot update student authentication: Session token expired. Please sign in again." };
     }
     try {
-      const adminIdToken = await currentUser.getIdToken();
+      const adminIdToken = await currentUser.getIdToken(true);
       const payload: Record<string, unknown> = {
         uid: studentId,
-        adminIdToken,
       };
 
       if (data.email) payload.email = data.email.toLowerCase().trim();
       if (data.initialPassword) payload.password = data.initialPassword;
+      if (data.collegeId) payload.collegeId = data.collegeId;
 
       const response = await fetch("/api/admin/update-student-auth", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${adminIdToken}`
+        },
         body: JSON.stringify(payload),
       });
 
@@ -326,11 +329,20 @@ export async function updateStudentProfile(
 }
 
 export async function deleteStudentProfile(studentId: string): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    throw new Error("Admin authentication required. Please sign in again.");
+  }
+  const idToken = await currentUser.getIdToken();
+
   // Use the secure server endpoint so the Firebase Auth account, Firestore
   // student doc, and Firestore user doc are all removed together.
   const response = await fetch("/api/delete-user", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { 
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${idToken}`
+    },
     body: JSON.stringify({ uid: studentId }),
   });
 
@@ -343,8 +355,8 @@ export async function deleteStudentProfile(studentId: string): Promise<void> {
 export async function getTrainerNotes(studentId: string): Promise<import("@/types").TrainerNote[]> {
   const q = [where("studentId", "==", studentId)];
   // Sort descending by createdAt after fetching, since getDocuments might not have order by default without an index
-  const notes = await getDocuments<import("@/types").TrainerNote>("trainer_notes", q);
-  return notes.sort((a, b) => {
+  const notesResult = await getDocuments<import("@/types").TrainerNote>("trainer_notes", q);
+  return notesResult.data.sort((a, b) => {
     const timeA = typeof a.createdAt === "object" && a.createdAt !== null && "toMillis" in (a.createdAt as any) ? (a.createdAt as any).toMillis() : new Date(a.createdAt).getTime();
     const timeB = typeof b.createdAt === "object" && b.createdAt !== null && "toMillis" in (b.createdAt as any) ? (b.createdAt as any).toMillis() : new Date(b.createdAt).getTime();
     return timeB - timeA;

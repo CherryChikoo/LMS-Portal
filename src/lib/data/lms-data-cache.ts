@@ -150,6 +150,46 @@ function recomputeScopedData() {
 
   cache.rawColleges = collegesData;
 
+  // Reconcile deletedCollegesSet: if a college exists in the live Firestore data,
+  // it was re-created after being deleted. Remove it from the blacklist.
+  // Uses slug-based fuzzy matching to handle format variations
+  // (e.g. "colramachandracollegeofengineering" vs "col-ramachandra-college-of-engineering" vs "ramachandra college of engineering")
+  if (deletedCollegesSet.size > 0) {
+    const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+    
+    // Build slug sets from live colleges AND live students' college references
+    const liveSlugs = new Set<string>();
+    collegesData.forEach((c) => {
+      if (c.id) liveSlugs.add(slugify(c.id));
+      if (c.name) liveSlugs.add(slugify(c.name));
+    });
+
+    let changed = false;
+    for (const key of deletedCollegesSet) {
+      const slugKey = slugify(key);
+      if (!slugKey) { deletedCollegesSet.delete(key); changed = true; continue; }
+
+      let matched = false;
+      for (const liveSlug of liveSlugs) {
+        if (!liveSlug) continue;
+        // Exact slug match, or one contains the other (handles "col" prefix variations)
+        if (slugKey === liveSlug || slugKey.includes(liveSlug) || liveSlug.includes(slugKey)) {
+          matched = true;
+          break;
+        }
+      }
+      if (matched) {
+        deletedCollegesSet.delete(key);
+        changed = true;
+      }
+    }
+    if (changed && typeof window !== "undefined") {
+      try {
+        localStorage.setItem("lms_deleted_colleges", JSON.stringify(Array.from(deletedCollegesSet)));
+      } catch (_) {}
+    }
+  }
+
   const isCollegeDeleted = (colId?: string, colName?: string) => {
     if (colId && deletedCollegesSet.has(colId.toLowerCase().trim())) return true;
     if (colName && deletedCollegesSet.has(colName.toLowerCase().trim())) return true;
@@ -161,6 +201,7 @@ function recomputeScopedData() {
   let fColleges = collegesData.filter((c) => isActive(c) && !isCollegeDeleted(c.id, c.name));
   let fBatches = batchesData.filter(isActive);
   let fStudents = studentsData.filter((s) => isActive(s) && !isCollegeDeleted(s.collegeId, s.collegeName));
+  console.log(`[CACHE] 🔄 recompute: raw colleges=${collegesData.length} → filtered=${fColleges.length}, raw students=${studentsData.length} → filtered=${fStudents.length}, deletedSet=${deletedCollegesSet.size} [${Array.from(deletedCollegesSet).join(', ')}]`);
   let fExams = examsData.filter((e) => {
     if (!isActive(e)) return false;
     const eColId = e.collegeId || e.targets?.[0]?.collegeId;
@@ -171,7 +212,7 @@ function recomputeScopedData() {
     return true;
   });
   let fResources = resourcesData.filter((r) => {
-    if (!isActive(r)) return false;
+    if (!isActive(r as any)) return false;
     const rColId = r.collegeId || r.targets?.[0]?.collegeId;
     const rColName = r.collegeName || r.targets?.[0]?.collegeName;
     if (rColId || rColName) {
@@ -337,7 +378,8 @@ function startSubscriptions() {
           }
         }
 
-        const isMainAdmin = role === "main_admin" || role === "admin" || role === "superadmin";
+        const isMainAdmin = role === "main_admin" || role === "admin" || role === "superadmin" || role === "trainer";
+        console.log(`[CACHE] 🔑 Auth resolved: role="${role}", isMainAdmin=${isMainAdmin}, uid=${user.uid}, collegeId=${parsed?.collegeId || 'none'}`);
         const isCollegeAdmin = role === "college_admin" && parsed?.collegeId;
         const isStudent = role === "student" && parsed?.id;
 
@@ -367,6 +409,7 @@ function startSubscriptions() {
           : () => {};
 
         const handleStudentsPayload = (data: Student[]) => {
+          console.log(`[CACHE] 📥 Students payload received: ${data.length} students`);
           cache.students = { data, updatedAt: Date.now() };
           recomputeScopedData();
           notifyListeners();

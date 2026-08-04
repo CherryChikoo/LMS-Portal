@@ -35,7 +35,7 @@ service cloud.firestore {
 
     function isMainAdmin() {
       let role = getRole();
-      return role == 'main_admin' || role == 'admin' || role == 'superadmin';
+      return role == 'main_admin' || role == 'admin' || role == 'superadmin' || role == 'trainer';
     }
 
     function isCollegeAdmin() {

@@ -378,7 +378,7 @@ function aggregateValues(values: string[]): string[] {
 export function getAllDepartments(hierarchy: Hierarchy): string[] {
   if (!hierarchy) return [];
   const collected: string[] = [];
-  hierarchy.students.forEach((s) => collected.push(s.department));
+  hierarchy.students.forEach((s) => { if (s.department) collected.push(s.department) });
   hierarchy.colleges.forEach((c) => (c.departments || []).forEach((d) => collected.push(d)));
   return aggregateValues(collected);
 }
@@ -402,7 +402,7 @@ export function cleanSectionName(section: string): string {
 export function getAllSections(hierarchy: Hierarchy): string[] {
   if (!hierarchy) return [];
   const collected: string[] = [];
-  hierarchy.students.forEach((s) => collected.push(cleanSectionName(s.section)));
+  hierarchy.students.forEach((s) => collected.push(cleanSectionName(s.section || "")));
   hierarchy.batches.forEach((b) => collected.push(cleanSectionName(b.section || "")));
   return aggregateValues(collected);
 }
@@ -423,7 +423,7 @@ export function getSectionsForCollege(hierarchy: Hierarchy, collegeId: string): 
   if (!hierarchy || !collegeId) return [];
   const collected: string[] = [];
   hierarchy.students.forEach((s) => {
-    if (s.collegeId === collegeId) collected.push(cleanSectionName(s.section));
+    if (s.collegeId === collegeId) collected.push(cleanSectionName(s.section || ""));
   });
   hierarchy.batches.forEach((b) => {
     if (b.collegeId === collegeId) collected.push(cleanSectionName(b.section || ""));
@@ -435,7 +435,7 @@ export function getSectionsForCollegeAndDepartment(hierarchy: Hierarchy, college
   if (!hierarchy || !collegeId || !department) return [];
   const collected: string[] = [];
   hierarchy.students.forEach((s) => {
-    if (s.collegeId === collegeId && s.department === department) collected.push(cleanSectionName(s.section));
+    if (s.collegeId === collegeId && s.department === department) collected.push(cleanSectionName(s.section || ""));
   });
   hierarchy.batches.forEach((b) => {
     if (b.collegeId === collegeId && b.department === department) collected.push(cleanSectionName(b.section || ""));
@@ -623,7 +623,7 @@ export function getExternalInstitutions(
     name: ext.name,
     type: "external" as const,
     studentCount: ext.students.length,
-    departments: Array.from(new Set(ext.students.map((s) => s.department).filter(Boolean))),
+    departments: Array.from(new Set(ext.students.map((s) => s.department).filter((d): d is string => Boolean(d)))),
   })).sort((a, b) => a.name.localeCompare(b.name));
 }
 

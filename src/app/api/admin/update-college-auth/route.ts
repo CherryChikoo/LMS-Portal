@@ -1,222 +1,163 @@
 import { getErrorMessage } from '@/lib/utils/error';
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth } from "@/lib/firebase/admin";
-import { getFirestore, FieldValue } from "firebase-admin/firestore";
+import { getFirestore } from "firebase-admin/firestore";
 
 export async function POST(request: NextRequest) {
-  let stage = "parseRequest";
   try {
-    const body = await request.json().catch(() => ({}));
-    const { adminIdToken, oldEmail, newEmail, newPassword, collegeId, collegeName } = body;
-
-    if (!adminIdToken || typeof adminIdToken !== "string") {
-      return NextResponse.json({ success: false, stage, error: "Admin authorization token is required." }, { status: 401 });
+    const authHeader = request.headers.get("authorization");
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return NextResponse.json({ error: "Missing or invalid authorization token." }, { status: 401 });
     }
-    if (!collegeId) {
-      return NextResponse.json({ success: false, stage, error: "College ID is required." }, { status: 400 });
+    const adminIdToken = authHeader.split("Bearer ")[1];
+
+    const { collegeId, adminEmail, collegeName } = await request.json();
+
+    if (!collegeId || typeof collegeId !== "string") {
+      return NextResponse.json({ error: "College ID is required." }, { status: 400 });
     }
 
-    stage = "verifyAdminToken";
-    const auth = getAdminAuth();
     let decodedToken;
     try {
+      const auth = getAdminAuth();
       decodedToken = await auth.verifyIdToken(adminIdToken);
-    } catch (err: unknown) {
-      console.error({ route: "/api/admin/update-college-auth", stage, errorCode: (err as any)?.code, message: getErrorMessage(err) });
-      return NextResponse.json({ success: false, stage, error: "Invalid or expired admin session." }, { status: 401 });
+    } catch {
+      return NextResponse.json({ error: "Invalid or expired admin session." }, { status: 401 });
     }
 
-    stage = "verifyAdminRole";
-    const db = getFirestore();
     const requesterUid = decodedToken.uid;
+    const db = getFirestore();
+
     const requesterDoc = await db.collection("users").doc(requesterUid).get();
     if (!requesterDoc.exists) {
-      return NextResponse.json({ success: false, stage, error: "Admin user not found in database." }, { status: 403 });
+      return NextResponse.json({ error: "Admin user not found in database." }, { status: 403 });
     }
 
     const requesterRole = requesterDoc.data()?.role;
     if (requesterRole !== "admin" && requesterRole !== "trainer") {
-      return NextResponse.json({ success: false, stage, error: "Only admins or trainers can update college accounts." }, { status: 403 });
+      return NextResponse.json({ error: "Only admins or trainers can update college authentication details." }, { status: 403 });
     }
 
-    stage = "findExistingAuth";
-    let targetUid: string | null = null;
-    let currentEmail: string | null = oldEmail ? oldEmail.toLowerCase().trim() : null;
+    if (!adminEmail && !collegeName) {
+      return NextResponse.json(
+        { error: "At least one update parameter (adminEmail, collegeName) must be provided." },
+        { status: 400 }
+      );
+    }
 
-    const normalizedOldEmail = oldEmail ? oldEmail.toLowerCase().trim() : null;
-    const normalizedNewEmail = newEmail ? newEmail.toLowerCase().trim() : currentEmail;
-
-    // 1. Search Auth user by oldEmail
-    if (normalizedOldEmail) {
+    // Find the College Admin's UID by their current email in the colleges collection
+    const collegeDocSnap = await db.collection("colleges").doc(collegeId).get();
+    if (!collegeDocSnap.exists) {
+      return NextResponse.json({ error: "College not found." }, { status: 404 });
+    }
+    const currentAdminEmail = collegeDocSnap.data()?.adminEmail;
+    
+    let collegeAdminUid = null;
+    const auth = getAdminAuth();
+    
+    if (currentAdminEmail) {
       try {
-        const existingUser = await auth.getUserByEmail(normalizedOldEmail);
-        targetUid = existingUser.uid;
-        currentEmail = existingUser.email || normalizedOldEmail;
-      } catch (_) {}
-    }
-
-    // 2. Search Auth user by newEmail
-    if (!targetUid && normalizedNewEmail) {
-      try {
-        const existingUser = await auth.getUserByEmail(normalizedNewEmail);
-        targetUid = existingUser.uid;
-        currentEmail = existingUser.email || normalizedNewEmail;
-      } catch (_) {}
-    }
-
-    // 3. Search Firestore user document or college document
-    if (!targetUid) {
-      try {
-        const usersQuery = await db.collection("users")
-          .where("collegeId", "==", collegeId)
-          .where("role", "==", "college_admin")
-          .get();
-
-        if (!usersQuery.empty) {
-          targetUid = usersQuery.docs[0].id;
-          currentEmail = usersQuery.docs[0].data().email || currentEmail;
-        } else {
-          const colDoc = await db.collection("colleges").doc(collegeId).get();
-          if (colDoc.exists && colDoc.data()?.adminEmail) {
-            const adminEmailFromCol = colDoc.data()?.adminEmail.toLowerCase().trim();
-            if (adminEmailFromCol) {
-              try {
-                const u = await auth.getUserByEmail(adminEmailFromCol);
-                targetUid = u.uid;
-                currentEmail = u.email || adminEmailFromCol;
-              } catch (_) {}
-            }
-          }
-        }
-      } catch (_) {}
-    }
-
-    // 4. Pre-Flight check if normalizedNewEmail belongs to an Auth user
-    if (!targetUid && normalizedNewEmail) {
-      try {
-        const u = await auth.getUserByEmail(normalizedNewEmail);
-        targetUid = u.uid;
-        currentEmail = u.email || normalizedNewEmail;
-      } catch (_) {}
-    }
-
-    if (!targetUid) {
-      if (!newEmail && !newPassword) {
-        return NextResponse.json({ success: true, message: "No Auth changes requested." });
+        const adminUser = await auth.getUserByEmail(currentAdminEmail);
+        collegeAdminUid = adminUser.uid;
+      } catch (err: any) {
+        console.warn(`Could not find auth user for current admin email ${currentAdminEmail}:`, err.message);
       }
-      // Create new Auth account ONLY if user does NOT exist anywhere in Auth
-      try {
-        const fallbackEmail = normalizedNewEmail;
-        const fallbackPassword = newPassword || "Welcome@123";
-        if (!fallbackEmail) {
-          return NextResponse.json({ success: false, stage, error: "College admin email is required to create a login account." }, { status: 400 });
-        }
-        const createdUser = await auth.createUser({
-          email: fallbackEmail,
-          password: fallbackPassword,
-          displayName: `${collegeName?.trim() || "College"} Admin`,
-        });
-        targetUid = createdUser.uid;
-        currentEmail = fallbackEmail;
-      } catch (createErr: unknown) {
-        if (createErr?.code === "auth/email-already-exists") {
-          try {
-            const existingUser = await auth.getUserByEmail(normalizedNewEmail!);
-            targetUid = existingUser.uid;
-            currentEmail = existingUser.email || normalizedNewEmail;
-          } catch (_) {
-            return NextResponse.json({ success: false, stage, errorCode: (createErr as any)?.code, error: "Update failed: This email address is already in use by another account." }, { status: 409 });
-          }
-        } else {
-          return NextResponse.json({ success: false, stage, errorCode: createErr?.code, error: createErr?.message || "Failed to create college admin Auth account." }, { status: 500 });
-        }
+    }
+    
+    // Fallback: search users collection for college_admin role with this collegeId
+    if (!collegeAdminUid) {
+      const usersSnap = await db.collection("users")
+        .where("collegeId", "==", collegeId)
+        .where("role", "==", "college_admin")
+        .limit(1).get();
+      if (!usersSnap.empty) {
+        collegeAdminUid = usersSnap.docs[0].id;
       }
     }
 
-    // Pre-Flight Server-Side Input Sanitization
-    if (newEmail) {
+    const authUpdateFields: Record<string, string> = {};
+    if (adminEmail) {
+      const normalizedEmail = (adminEmail as string).toLowerCase().trim();
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(normalizedNewEmail!)) {
-        return NextResponse.json({ success: false, stage, error: "Please enter a valid email address." }, { status: 400 });
+      if (!emailRegex.test(normalizedEmail)) {
+        return NextResponse.json({ error: "Invalid email format." }, { status: 400 });
       }
+
+      // Check for email uniqueness in Firestore collections
+      const emailQuerySnap = await db.collection("users").where("email", "==", normalizedEmail).get();
+      const emailStudentsSnap = await db.collection("students").where("email", "==", normalizedEmail).get();
+      const emailCollegesSnap = await db.collection("colleges").where("adminEmail", "==", normalizedEmail).get();
+
+      const isOtherUser = (doc: any) => doc.id !== collegeAdminUid;
+      const isOtherCollege = (doc: any) => doc.id !== collegeId;
+      
+      const emailExists = emailQuerySnap.docs.some(isOtherUser) || 
+                          emailStudentsSnap.docs.some(isOtherUser) || 
+                          emailCollegesSnap.docs.some(isOtherCollege);
+
+      if (emailExists) {
+        return NextResponse.json(
+          { error: "Update failed: This email address is already in use by another account in the system.", errorCode: "firestore/email-already-exists" },
+          { status: 409 }
+        );
+      }
+
+      authUpdateFields.email = normalizedEmail;
     }
-    if (newPassword) {
-      if (typeof newPassword !== "string" || newPassword.length < 6) {
-        return NextResponse.json({ success: false, stage, error: "Password must be at least 6 characters long." }, { status: 400 });
-      }
+    if (collegeName) {
+      authUpdateFields.displayName = `${(collegeName as string).trim()} Admin`;
     }
 
-    stage = "updateFirebaseAuth";
-    const updatePayload: Record<string, string> = {};
-    if (newPassword) updatePayload.password = newPassword;
-    if (normalizedNewEmail && normalizedNewEmail !== currentEmail) updatePayload.email = normalizedNewEmail;
-
-    if (Object.keys(updatePayload).length > 0 && targetUid) {
+    if (collegeAdminUid && Object.keys(authUpdateFields).length > 0) {
       try {
-        await auth.updateUser(targetUid, updatePayload);
-      } catch (err: unknown) {
-        if (err?.code === "auth/email-already-exists") {
-          try {
-            const existing = await auth.getUserByEmail(normalizedNewEmail!);
-            targetUid = existing.uid;
-            if (newPassword) await auth.updateUser(targetUid, { password: newPassword });
-          } catch (_) {
-            return NextResponse.json({ success: false, stage, errorCode: (err as any)?.code, error: "Update failed: This email address is already in use by another account." }, { status: 409 });
-          }
-        } else if (err?.code === "auth/user-not-found") {
-          try {
-            const fallbackEmail = normalizedNewEmail || currentEmail;
-            const fallbackPassword = newPassword || "Welcome@123";
-            if (fallbackEmail) {
-              const u = await auth.createUser({
-                uid: targetUid,
-                email: fallbackEmail,
-                password: fallbackPassword,
-                displayName: `${collegeName?.trim() || "College"} Admin`,
-              });
-              targetUid = u.uid;
-            }
-          } catch (_) {}
-        } else {
-          return NextResponse.json({ success: false, stage, errorCode: err?.code, error: err?.message || "Failed to update Firebase Auth user." }, { status: 500 });
+        await auth.updateUser(collegeAdminUid, authUpdateFields);
+      } catch (authErr: any) {
+        if (authErr.code === "auth/email-already-exists") {
+          return NextResponse.json(
+            { error: "Update failed: This admin email is already in use by another account.", errorCode: "auth/email-already-exists" },
+            { status: 409 }
+          );
         }
+        return NextResponse.json(
+          { error: authErr.message || "Failed to update College Admin Auth account." },
+          { status: 500 }
+        );
       }
     }
 
-    // STEP 3: Await Firestore Sync SECOND
-    stage = "updateFirestoreProfile";
-    if (targetUid) {
-      try {
-        const batch = db.batch();
-        const userDocRef = db.collection("users").doc(targetUid);
-        const userUpdateData: Record<string, any> = { updatedAt: FieldValue.serverTimestamp() };
-        if (normalizedNewEmail) userUpdateData.email = normalizedNewEmail;
-        if (collegeName) userUpdateData.collegeName = collegeName.trim().toLowerCase();
-        userUpdateData.collegeId = collegeId.toLowerCase().trim();
-        userUpdateData.role = "college_admin";
-        batch.set(userDocRef, userUpdateData, { merge: true });
+    const batch = db.batch();
+    
+    // Update College Document
+    const collegeUpdates: Record<string, any> = {};
+    if (adminEmail) collegeUpdates.adminEmail = adminEmail.toLowerCase().trim();
+    if (collegeName) collegeUpdates.name = collegeName.trim().toLowerCase();
+    
+    if (Object.keys(collegeUpdates).length > 0) {
+      batch.set(db.collection("colleges").doc(collegeId), collegeUpdates, { merge: true });
+    }
 
-        const colDocRef = db.collection("colleges").doc(collegeId);
-        const colUpdateData: Record<string, any> = { updatedAt: FieldValue.serverTimestamp() };
-        if (normalizedNewEmail) colUpdateData.adminEmail = normalizedNewEmail;
-        if (collegeName) colUpdateData.name = collegeName.trim().toLowerCase();
-        batch.set(colDocRef, colUpdateData, { merge: true });
-
-        await batch.commit();
-      } catch (err: unknown) {
-        console.error("[CRITICAL SYNC FAILURE] Auth updated but Firestore sync failed:", err);
-        return NextResponse.json({
-          success: false,
-          stage,
-          error: "Auth updated but Firestore sync encountered an issue.",
-          warning: err?.message,
-        }, { status: 500 });
+    // Update User Document
+    if (collegeAdminUid) {
+      const userUpdates: Record<string, any> = {};
+      if (adminEmail) userUpdates.email = adminEmail.toLowerCase().trim();
+      if (collegeName) {
+        userUpdates.displayName = `${(collegeName as string).trim()} Admin`;
+        userUpdates.collegeName = (collegeName as string).trim();
+      }
+      
+      if (Object.keys(userUpdates).length > 0) {
+        batch.set(db.collection("users").doc(collegeAdminUid), userUpdates, { merge: true });
       }
     }
 
-    return NextResponse.json({ success: true, uid: targetUid, email: normalizedNewEmail });
+    await batch.commit();
+
+    return NextResponse.json({ success: true });
   } catch (err: unknown) {
-    console.error({ route: "/api/admin/update-college-auth", stage: "unhandledException", errorCode: err?.code, message: err?.message });
-    return NextResponse.json({ success: false, stage: "unhandledException", error: err?.message || "Internal server error." }, { status: 500 });
+    console.error("Update college auth endpoint error:", err);
+    return NextResponse.json(
+      { error: "Internal server error.", details: (err as { message?: string })?.message || String(err) },
+      { status: 500 }
+    );
   }
 }

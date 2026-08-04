@@ -274,10 +274,10 @@ export async function importStudentsCSV(
     results: [],
   };
 
-  // Pre-fetch existing emails from Firestore to minimize queries
+  // Pre-fetch existing emails from Firestore (users collection covers all roles) to minimize queries
   const existingEmails = new Set<string>();
   try {
-    const q = query(collection(db, "students"));
+    const q = query(collection(db, "users"));
     const snap = await getDocs(q);
     snap.forEach((d) => {
       const data = d.data() as { email?: string };

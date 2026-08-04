@@ -141,6 +141,8 @@ function getYearBadgeStyle(year?: string) {
     setImportProgress(null);
 
     const allRows: CSVStudentRow[] = [];
+    let hasUnsupportedExcel = false;
+    
     for (const file of files) {
       const name = file.name.toLowerCase();
       if (name.endsWith(".csv") || name.endsWith(".txt") || name.endsWith(".json") || !name.includes(".")) {
@@ -150,7 +152,15 @@ function getYearBadgeStyle(year?: string) {
           if (!r.college || r.college === "Unassigned") r.college = college.name;
         });
         allRows.push(...rows);
+      } else if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
+        hasUnsupportedExcel = true;
+        toast.error(`Excel files (.xlsx, .xls) are no longer supported due to security updates. Please convert your file to .csv format and try again.`);
       }
+    }
+
+    if (hasUnsupportedExcel && allRows.length === 0) {
+      setImporting(false);
+      return;
     }
 
     if (allRows.length === 0) {
@@ -198,11 +208,13 @@ function getYearBadgeStyle(year?: string) {
       setLoading(true);
       try {
         const decodedId = decodeURIComponent(collegeId);
-        const [colDataRaw, allStuds, allBatches] = await Promise.all([
+        const [colDataRaw, allStudsRes, allBatchesRes] = await Promise.all([
           getCollegeById(collegeId),
           getAllStudents(),
           getAllBatches(),
         ]);
+        const allStuds = allStudsRes.data;
+        const allBatches = allBatchesRes.data;
 
         let colData = colDataRaw;
         let external = false;
@@ -254,11 +266,13 @@ function getYearBadgeStyle(year?: string) {
   const refreshData = async () => {
     try {
       const decodedId = decodeURIComponent(collegeId);
-      const [colDataRaw, allStuds, allBatches] = await Promise.all([
+      const [colDataRaw, allStudsRes, allBatchesRes] = await Promise.all([
         getCollegeById(collegeId),
         getAllStudents(),
         getAllBatches(),
       ]);
+      const allStuds = allStudsRes.data;
+      const allBatches = allBatchesRes.data;
 
       let colData = colDataRaw;
       let external = isExternal;
@@ -435,7 +449,7 @@ function getYearBadgeStyle(year?: string) {
       getStudentByEmail(normalizedEmail),
       getDocuments<Record<string, unknown>>("users", [where("email", "==", normalizedEmail)]),
     ]);
-    if (existingStudent || existingUsers.length > 0) {
+    if (existingStudent || existingUsers.data.length > 0) {
       setEnrollError("A student or user account with this email already exists.");
       setEnrolling(false);
       return;
@@ -500,7 +514,7 @@ function getYearBadgeStyle(year?: string) {
       ]);
       const isUsedByAnother =
         (existingStudent && existingStudent.id !== editingStudent.id) ||
-        existingUsers.some((u) => u.id !== editingStudent.id && (u.email as string)?.toLowerCase() === normalizedEmail);
+        existingUsers.data.some((u) => u.id !== editingStudent.id && (u.email as string)?.toLowerCase() === normalizedEmail);
       if (isUsedByAnother) {
         setEditStudentError("A student or user account with this email already exists.");
         return;
@@ -586,7 +600,7 @@ function getYearBadgeStyle(year?: string) {
         <EmptyState
           icon={Building2}
           title="College Not Found"
-          description="The requested institution could not be located in your database."
+          description="The requested institution could not be located in your system."
           actionLabel="Return to College Hub"
           onAction={() => window.location.assign("/colleges")}
         />
@@ -744,16 +758,6 @@ function getYearBadgeStyle(year?: string) {
             >
               <Plus className="w-4 h-4" />
               <span>Enroll Student in College</span>
-            </Button>
-            <Button
-              onClick={() => {
-                setImportSummary(null);
-                setShowImportModal(true);
-              }}
-              className="bg-brand/10 hover:bg-brand/20 border-0 text-brand flex items-center gap-2 text-xs font-bold h-10 px-4 rounded-xl"
-            >
-              <Upload className="w-4 h-4 shrink-0" />
-              <span>Import CSV</span>
             </Button>
           </div>
         }

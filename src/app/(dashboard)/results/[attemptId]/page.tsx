@@ -110,7 +110,7 @@ export default function AttemptAnswerSheetPage({
           try {
             const allExams = await getAllExamsIncludingDeleted();
             if (cancelled) return;
-            const found = allExams.find((e) => e.id === fetched.examId) ?? null;
+            const found = allExams.data.find((e) => e.id === fetched.examId) ?? null;
             setExam(found);
           } catch {
             if (!cancelled) setExam(null);

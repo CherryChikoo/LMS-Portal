@@ -32,16 +32,16 @@ const DIFFICULTY_STYLES: Record<
   },
 };
 
-function normalizeAnswer(answer: string | string[] | undefined): string[] {
+function normalizeAnswer(answer: string | number | string[] | undefined): string[] {
   if (answer === undefined || answer === null) return [];
-  return Array.isArray(answer) ? answer : [answer];
+  return Array.isArray(answer) ? answer.map(String) : [String(answer)];
 }
 
 function getCorrectAnswerSet(question: Question): Set<string> {
   return new Set(normalizeAnswer(question.correctAnswer));
 }
 
-function getStudentAnswerSet(answer: string | string[] | undefined): Set<string> {
+function getStudentAnswerSet(answer: string | number | string[] | undefined): Set<string> {
   return new Set(normalizeAnswer(answer));
 }
 
@@ -53,15 +53,15 @@ export function QuestionReview({
 }: QuestionReviewProps) {
   const correctSet = getCorrectAnswerSet(question);
   const studentSet = getStudentAnswerSet(studentAnswer);
-  const difficultyStyle = DIFFICULTY_STYLES[question.difficulty];
+  const difficultyStyle = DIFFICULTY_STYLES[question.difficulty || "medium"];
   const isChoiceQuestion =
     question.type === "mcq" || question.type === "true-false";
 
   const isUnattempted =
     studentSet.size === 0 ||
     (Array.isArray(studentAnswer)
-      ? studentAnswer.length === 0 || studentAnswer.every((a) => !a || !a.trim())
-      : !studentAnswer || !studentAnswer.trim());
+      ? studentAnswer.length === 0 || studentAnswer.every((a) => !a || !String(a).trim())
+      : !studentAnswer || !String(studentAnswer).trim());
 
   const isCorrect =
     !isUnattempted &&
@@ -97,7 +97,7 @@ export function QuestionReview({
           variant="outline"
           className="border-border bg-background text-muted-foreground font-medium capitalize"
         >
-          {question.type.replace("-", " ")}
+          {(question.type || "mcq").replace("-", " ")}
         </Badge>
 
         {isUnattempted ? (
@@ -201,7 +201,7 @@ export function QuestionReview({
             const rawAnswer = Array.isArray(studentAnswer)
               ? studentAnswer.join(", ")
               : studentAnswer ?? "";
-            const hasAnswer = rawAnswer.trim().length > 0;
+            const hasAnswer = String(rawAnswer).trim().length > 0;
             const isCorrect = hasAnswer && studentSet.size > 0 && [...studentSet].some(a => correctSet.has(a));
             const isWrong = showCorrectAnswer && hasAnswer && !isCorrect;
             const isBlank = showCorrectAnswer && !hasAnswer;

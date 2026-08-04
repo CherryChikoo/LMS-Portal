@@ -46,5 +46,5 @@ export async function getAnnouncementsForCurrentUser(
   email?: string
 ): Promise<Announcement[]> {
   const all = await getAllAnnouncements();
-  return filterAnnouncementsForStudent(all, uid, email);
+  return filterAnnouncementsForStudent(all.data, uid, email);
 }

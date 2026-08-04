@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
       authUser = await authAdmin.getUserByEmail(normalizedEmail);
       await authAdmin.updateUser(authUser.uid, { password });
     } catch (authErr: unknown) {
-      if (authErr?.code === "auth/user-not-found" || authErr?.message?.includes("user-not-found")) {
+      if ((authErr as any)?.code === "auth/user-not-found" || (authErr as any)?.message?.includes("user-not-found")) {
         authUser = await authAdmin.createUser({
           email: normalizedEmail,
           password,

@@ -869,7 +869,15 @@ export function formatAuthError(err: unknown, defaultMessage?: string): string {
   }
   
   if (msg.includes("Function setDoc() called with invalid data") || msg.includes("Unsupported field value: undefined")) {
-    return "Database synchronization failed due to incomplete data. Please try again or contact support.";
+    return "System synchronization failed due to incomplete data. Please try again or contact support.";
+  }
+
+  if (msg.toLowerCase().includes("delete") || msg.toLowerCase().includes("deletion")) {
+    return "Failed to complete the removal process. Please try again or contact support.";
+  }
+
+  if (msg.toLowerCase().includes("firebase") || msg.toLowerCase().includes("database") || msg.toLowerCase().includes("firestore")) {
+    return defaultMessage || "An unexpected system error occurred. Please try again.";
   }
 
   return msg || defaultMessage || "An unexpected error occurred.";

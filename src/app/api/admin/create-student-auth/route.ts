@@ -106,26 +106,25 @@ export async function POST(request: NextRequest) {
     let authUser = null;
     let reusedExistingAccount = false;
 
+    // PRE-FLIGHT CHECK: Check if an active profile doc exists in Firestore for any role (students or users)
+    const emailQuerySnap = await db.collection("users").where("email", "==", normalizedEmail).get();
+    const emailStudentsSnap = await db.collection("students").where("email", "==", normalizedEmail).get();
+    const emailCollegesSnap = await db.collection("colleges").where("adminEmail", "==", normalizedEmail).get();
+
+    if (!emailQuerySnap.empty || !emailStudentsSnap.empty || !emailCollegesSnap.empty) {
+      return NextResponse.json(
+        {
+          success: false, stage, errorCode: "firestore/email-already-exists",
+          message: "An active account with this email address already exists in the system database.",
+        },
+        { status: 409 }
+      );
+    }
+
     try {
       const existingUser = await auth.getUserByEmail(normalizedEmail);
-      // Check if an active student profile doc exists in Firestore
-      const studentDocSnap = await db.collection("students").doc(existingUser.uid).get();
-      const emailQuerySnap = await db.collection("students").where("email", "==", normalizedEmail).get();
-
-      const activeStudentExists = studentDocSnap.exists || !emailQuerySnap.empty;
-
-      if (activeStudentExists) {
-        return NextResponse.json(
-          {
-            success: false, stage, errorCode: "auth/email-already-exists",
-            message: "An active student account with this email address already exists.",
-            uid: existingUser.uid,
-          },
-          { status: 409 }
-        );
-      }
-
-      // Re-use existing Auth account whose Firestore student profile was deleted
+      
+      // Re-use existing Auth account whose Firestore student profile was deleted/missing
       stage = "updateExistingAuthUser";
       await auth.updateUser(existingUser.uid, {
         password: DEFAULT_STUDENT_PASSWORD,

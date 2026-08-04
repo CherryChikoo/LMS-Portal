@@ -70,7 +70,9 @@ export async function getDocuments<T extends DocumentData & { isDeleted?: boolea
   options?: QueryOptions
 ): Promise<PaginatedResult<T>> {
   const hasLimit = constraints.some((c) => c.type === 'limit');
-  const finalConstraints = hasLimit ? constraints : [...constraints, limit(options?.pageSize || 50)];
+  const finalConstraints = options?.pageSize && !hasLimit
+    ? [...constraints, limit(options.pageSize)]
+    : [...constraints];
   
   if (options?.lastDoc) {
     // Note: To use startAfter, there must be a matching orderBy. If not provided in constraints, it assumes doc ID order or an existing orderBy.
@@ -91,7 +93,7 @@ export async function getDocuments<T extends DocumentData & { isDeleted?: boolea
  * Safely strips undefined values from plain objects and arrays recursively
  * without altering Firestore sentinels (FieldValue, Timestamp, Date, etc.)
  */
-export function sanitizeFirestoreData(data: unknown): unknown {
+export function sanitizeFirestoreData(data: unknown): any {
   if (data === undefined) return null;
   if (data === null || typeof data !== "object") return data;
   if (data instanceof Date) return data;
@@ -188,18 +190,22 @@ export function subscribeToDocuments<T extends DocumentData & { isDeleted?: bool
   options?: QueryOptions
 ): () => void {
   const hasLimit = constraints.some((c) => c.type === 'limit');
-  const finalConstraints = hasLimit ? constraints : [...constraints, limit(options?.pageSize || 50)];
+  const finalConstraints = options?.pageSize
+    ? (hasLimit ? constraints : [...constraints, limit(options.pageSize)])
+    : constraints;
   
   const q = query(collection(db, collectionName), ...finalConstraints);
+  console.log(`[Firestore] 🔌 Subscribing to "${collectionName}" (constraints: ${finalConstraints.length}, pageSize: ${options?.pageSize || 'none'})`);
   return onSnapshot(
     q,
     (snapshot) => {
       const mapped = mapDocs<T>(snapshot.docs);
       const data = mapped.filter((d) => includeDeleted || (!d.isDeleted && !d.deletedAt && d.status !== "deleted"));
+      console.log(`[Firestore] ✅ "${collectionName}" snapshot: ${snapshot.docs.length} raw docs → ${mapped.length} mapped → ${data.length} after filter`);
       callback(data);
     },
     (error) => {
-      console.warn(`[Firestore Listener ${collectionName}] Graceful fallback:`, error?.message);
+      console.error(`[Firestore] ❌ "${collectionName}" LISTENER FAILED:`, error?.code, error?.message, error);
       callback([]);
     }
   );

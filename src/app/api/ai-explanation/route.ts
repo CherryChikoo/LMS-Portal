@@ -29,7 +29,7 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => ({}));
     const parseResult = await AIExplanationSchema.safeParseAsync(body);
-    if (!parseResult.success) return NextResponse.json({ error: parseResult.error.errors[0].message }, { status: 400 });
+    if (!parseResult.success) return NextResponse.json({ error: parseResult.error.issues[0].message }, { status: 400 });
     const { examId, questions: inputQuestions, forceRegenerate = false } = parseResult.data;
 
     let existingQuestions: Question[] = [];
@@ -179,7 +179,7 @@ Do NOT wrap the output in markdown code blocks like \`\`\`json. Return RAW valid
           return q;
         });
       } catch (err: unknown) {
-        console.error("[SEQUENTIAL AI PIPELINE] FATAL GEMINI ERROR:", err?.response?.data || err?.message || err, err?.stack);
+        console.error("[SEQUENTIAL AI PIPELINE] FATAL GEMINI ERROR:", (err as any)?.response?.data || (err as any)?.message || err, (err as any)?.stack);
         failedCount += chunk.length;
       }
     }
@@ -209,7 +209,7 @@ Do NOT wrap the output in markdown code blocks like \`\`\`json. Return RAW valid
       totalProcessed: pendingQuestions.length,
     });
   } catch (error: unknown) {
-    console.error("[SEQUENTIAL AI PIPELINE] FATAL API ERROR:", error?.response?.data || error?.message || error, error?.stack);
+    console.error("[SEQUENTIAL AI PIPELINE] FATAL API ERROR:", (error as any)?.response?.data || (error as any)?.message || error, (error as any)?.stack);
     const errorMessage = error instanceof Error ? getErrorMessage(error) : "Internal Server Error";
     return NextResponse.json({ error: errorMessage }, { status: 500 });
   }

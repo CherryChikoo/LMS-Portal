@@ -59,7 +59,7 @@ export function BrandingModal({ isOpen, onClose }: BrandingModalProps) {
         const searchSlug = cleanSlug(cId || u?.collegeName || editName);
         const searchEmail = (u?.email || "").toLowerCase().trim();
 
-        const colDoc = allCols.find((c) =>
+        const colDoc = allCols.data.find((c) =>
           c.id === cId ||
           cleanSlug(c.id) === searchSlug ||
           cleanSlug(c.name) === searchSlug ||

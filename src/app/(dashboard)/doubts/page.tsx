@@ -31,7 +31,7 @@ export default function DoubtsPage() {
     setLoading(true);
     try {
       const data = await getAllDoubts();
-      setDoubts(data);
+      setDoubts(data.data);
     } catch (err) {
       console.error("Failed to load doubts", err);
     } finally {

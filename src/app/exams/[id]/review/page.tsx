@@ -164,7 +164,7 @@ export default function ReviewExamPage({ params }: PageProps) {
             const examResults = await getDocuments<ExamResult>("exam_results", [
               where("examId", "==", id),
             ]);
-            const matched = examResults.find((a: any) => {
+            const matched = examResults.data.find((a: any) => {
               const normEmail = email.toLowerCase().trim();
               return (
                 (uid && a.studentId === uid) ||

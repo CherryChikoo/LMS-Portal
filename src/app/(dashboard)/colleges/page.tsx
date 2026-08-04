@@ -141,6 +141,8 @@ export default function CollegesPage() {
     setCardImportProgress(null);
 
     const allRows: CSVStudentRow[] = [];
+    let hasUnsupportedExcel = false;
+    
     for (const file of files) {
       const name = file.name.toLowerCase();
       if (name.endsWith(".csv") || name.endsWith(".txt") || name.endsWith(".json") || !name.includes(".")) {
@@ -150,7 +152,15 @@ export default function CollegesPage() {
           if (!r.college || r.college === "Unassigned") r.college = selectedCollegeForAction.name;
         });
         allRows.push(...rows);
+      } else if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
+        hasUnsupportedExcel = true;
+        toast.error(`Excel files (.xlsx, .xls) are no longer supported due to security updates. Please convert your file to .csv format and try again.`);
       }
+    }
+
+    if (hasUnsupportedExcel && allRows.length === 0) {
+      setCardImporting(false);
+      return;
     }
 
     if (allRows.length === 0) {
@@ -241,25 +251,6 @@ export default function CollegesPage() {
 
           // 2. Instant client-side Firestore document deletion
           await deleteCollege(col.id);
-
-          // 3. Server API cleanup for student auth accounts (awaited so errors surface)
-          const auth = getAuth();
-          const token = await auth.currentUser?.getIdToken();
-          if (token) {
-            try {
-              const resp = await fetch("/api/admin/delete-college", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ id: col.id, collegeName: col.name, adminIdToken: token }),
-              });
-              if (!resp.ok) {
-                const data = await resp.json().catch(() => ({}));
-                console.error("Server delete-college error:", data.error || resp.statusText);
-              }
-            } catch (err) {
-              console.error("Background college delete cleanup error:", err);
-            }
-          }
         } catch (err: unknown) {
           console.error("Failed to delete college:", err);
           toast.error(err instanceof Error ? err.message : "Failed to delete college");
@@ -780,8 +771,8 @@ export default function CollegesPage() {
                                 where("collegeId", "==", col.id),
                                 where("role", "==", "college_admin")
                               ]);
-                              if (userDocs.length > 0) {
-                                const activeUser = userDocs[0];
+                              if (userDocs.data.length > 0) {
+                                const activeUser = userDocs.data[0];
                                 if (activeUser.email) setEditAdminEmail(activeUser.email);
                                 if (activeUser.initialPassword) setEditInitialPassword(activeUser.initialPassword);
                               }
@@ -840,13 +831,6 @@ export default function CollegesPage() {
                         className="px-2.5 py-1 rounded-lg bg-brand/10 hover:bg-brand/20 text-brand font-bold text-[11px] flex items-center gap-1 transition-all"
                       >
                         <Plus className="w-3 h-3" /> Enroll
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleOpenImportForCollege(col)}
-                        className="px-2.5 py-1 rounded-lg bg-accent hover:bg-accent/80 text-foreground font-bold text-[11px] flex items-center gap-1 transition-all border border-border/50"
-                      >
-                        <Upload className="w-3 h-3 text-brand" /> Import CSV
                       </button>
                     </div>
                     <Link
@@ -1012,13 +996,6 @@ export default function CollegesPage() {
                         className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 font-bold text-[11px] flex items-center gap-1 transition-all border border-amber-500/20"
                       >
                         <Plus className="w-3 h-3" /> Enroll
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleOpenImportForCollege(col)}
-                        className="px-2.5 py-1 rounded-lg bg-accent hover:bg-accent/80 text-foreground font-bold text-[11px] flex items-center gap-1 transition-all border border-border/50"
-                      >
-                        <Upload className="w-3 h-3 text-amber-500" /> Import CSV
                       </button>
                     </div>
                     <Link

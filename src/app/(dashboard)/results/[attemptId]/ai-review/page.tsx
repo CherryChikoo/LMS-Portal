@@ -114,7 +114,7 @@ export default function AIReviewPage({ params }: { params: Promise<{ attemptId: 
       <div className="space-y-6">
         {exam.questions?.map((q, idx) => {
           const ai = q.aiExplanation;
-          const studentAns = attempt.answers[q.id];
+          const studentAns = attempt.answers?.[q.id];
           let isCorrect = false;
           if (Array.isArray(q.correctAnswer) && Array.isArray(studentAns)) {
             isCorrect = q.correctAnswer.length === studentAns.length && q.correctAnswer.every(v => (studentAns as string[]).includes(v));

@@ -1,0 +1,84 @@
+import 'server-only';
+import { getErrorMessage } from '@/lib/utils/error';
+import { NextRequest, NextResponse } from "next/server";
+import { getAdminAuth, getAdminApp } from "@/lib/firebase/admin";
+import { getFirestore } from "firebase-admin/firestore";
+import { z } from "zod";
+import { bulkDeleteByQuery, deleteDocumentAdmin } from '@/lib/services/cleanup-service';
+
+const DeleteExamSchema = z.object({
+  id: z.string().min(1, "Exam ID is required."),
+}).strict();
+
+export async function POST(request: NextRequest) {
+  let stage = "parseRequest";
+  try {
+    const authHeader = request.headers.get("authorization");
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return NextResponse.json({ success: false, stage, errorCode: "unauthenticated", message: "Missing or invalid authorization token." }, { status: 401 });
+    }
+    const adminIdToken = authHeader.split("Bearer ")[1];
+
+    stage = "verifyAdminToken";
+    const auth = getAdminAuth();
+    let decodedToken;
+    try {
+      decodedToken = await auth.verifyIdToken(adminIdToken);
+    } catch (err: unknown) {
+      return NextResponse.json({ success: false, stage, errorCode: "invalid-token", message: "Invalid or expired admin session." }, { status: 401 });
+    }
+
+    const requesterUid = decodedToken.uid;
+    const db = getFirestore(getAdminApp());
+
+    stage = "verifyAdminRole";
+    const requesterDoc = await db.collection("users").doc(requesterUid).get();
+    const requesterRole = requesterDoc.exists ? requesterDoc.data()?.role : undefined;
+    
+    if (requesterRole !== "main_admin" && requesterRole !== "admin" && requesterRole !== "college_admin" && requesterRole !== "trainer") {
+      return NextResponse.json({ success: false, stage, errorCode: "permission-denied", message: "Permission denied." }, { status: 403 });
+    }
+
+    stage = "validatePayload";
+    const body = await request.json().catch(() => ({}));
+    const parseResult = await DeleteExamSchema.safeParseAsync(body);
+    if (!parseResult.success) {
+      return NextResponse.json({ success: false, stage, errorCode: "invalid-argument", message: parseResult.error.issues[0].message }, { status: 400 });
+    }
+    const { id: examId } = parseResult.data;
+
+    stage = "fetchExam";
+    const examDoc = await db.collection("exams").doc(examId).get();
+    if (!examDoc.exists) {
+      return NextResponse.json({ success: false, stage, errorCode: "not-found", message: "Exam not found." }, { status: 404 });
+    }
+
+    // BOLA Check: If college_admin, ensure they only delete their own college's exams
+    if (requesterRole === "college_admin") {
+      const examData = examDoc.data();
+      const requesterCollegeId = requesterDoc.data()?.collegeId;
+      if (examData?.collegeId !== requesterCollegeId) {
+        return NextResponse.json({ success: false, stage, errorCode: "permission-denied", message: "You can only delete exams belonging to your college." }, { status: 403 });
+      }
+    }
+
+    stage = "cascadingDelete";
+    // Delete all questions for this exam
+    const deletedQuestions = await bulkDeleteByQuery("questions", "examId", "==", examId);
+    
+    // Delete all exam results for this exam
+    const deletedResults = await bulkDeleteByQuery("exam_results", "examId", "==", examId);
+
+    // Delete the exam document itself
+    await deleteDocumentAdmin("exams", examId);
+
+    return NextResponse.json({ 
+      success: true, 
+      message: "Exam completely deleted.",
+      details: { deletedQuestions, deletedResults }
+    });
+  } catch (err: unknown) {
+    const message = process.env.NODE_ENV === "production" ? "Internal server error." : getErrorMessage(err);
+    return NextResponse.json({ success: false, stage, message, retryable: true }, { status: 500 });
+  }
+}

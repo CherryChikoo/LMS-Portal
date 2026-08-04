@@ -9,6 +9,7 @@ import {
   type QueryOptions,
   type PaginatedResult,
 } from "@/lib/firebase/firestore";
+import { auth } from "@/lib/firebase/config";
 import type { Resource, Student } from "@/types";
 import { isAssignedToStudent } from "./assignment-engine";
 
@@ -39,7 +40,23 @@ export async function updateResource(id: string, data: Partial<Resource>): Promi
 }
 
 export async function deleteResource(id: string): Promise<void> {
-  return deleteDocument(COLLECTION_NAME, id);
+  const user = auth.currentUser;
+  if (!user) throw new Error("Must be logged in to delete resource");
+  
+  const token = await user.getIdToken();
+  const res = await fetch("/api/admin/delete-resource", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({ id })
+  });
+
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.message || "Failed to delete resource via Admin API");
+  }
 }
 
 /**

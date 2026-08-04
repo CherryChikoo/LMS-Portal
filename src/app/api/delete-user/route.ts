@@ -3,8 +3,8 @@ import { getErrorMessage } from '@/lib/utils/error';
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminApp, getAdminAuth } from "@/lib/firebase/admin";
 import { getFirestore } from "firebase-admin/firestore";
-import { getStorage } from "firebase-admin/storage";
 import { z } from "zod";
+import { deleteStorageDirectory } from '@/lib/services/cleanup-service';
 
 const DeleteUserSchema = z.object({
   uid: z.string().min(1, "User ID (uid) is required."),
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     const parseResult = await DeleteUserSchema.safeParseAsync(body);
     if (!parseResult.success) {
-      return NextResponse.json({ success: false, stage, errorCode: "invalid-argument", message: parseResult.error.errors[0].message }, { status: 400 });
+      return NextResponse.json({ success: false, stage, errorCode: "invalid-argument", message: parseResult.error.issues[0].message }, { status: 400 });
     }
     const { uid } = parseResult.data;
 
@@ -90,6 +90,24 @@ export async function POST(request: NextRequest) {
       console.warn("Failed to fetch exam_results for deletion.");
     }
 
+    // 2. Fetch trainer notes
+    stage = "fetchTrainerNotes";
+    try {
+      const notesSnap = await db.collection("trainer_notes").where("studentId", "==", uid).get();
+      notesSnap.docs.forEach((docSnap) => refsToDelete.push(docSnap.ref));
+    } catch (err) {
+      console.warn("Failed to fetch trainer_notes for deletion.");
+    }
+
+    // 3. Fetch doubts (if student created any)
+    stage = "fetchDoubts";
+    try {
+      const doubtsSnap = await db.collection("doubts").where("studentId", "==", uid).get();
+      doubtsSnap.docs.forEach((docSnap) => refsToDelete.push(docSnap.ref));
+    } catch (err) {
+      console.warn("Failed to fetch doubts for deletion.");
+    }
+
     // Delete any additional documents matching targetEmail
     stage = "fetchDuplicates";
     if (targetEmail) {
@@ -114,7 +132,7 @@ export async function POST(request: NextRequest) {
       await auth.deleteUser(uid);
     } catch (err: unknown) {
       if ((err as any)?.code !== "auth/user-not-found") {
-        authDeletionErrors.push("Failed to delete Auth user by UID.");
+        authDeletionErrors.push(`UID: ${(err as any)?.message}`);
       }
     }
 
@@ -127,24 +145,18 @@ export async function POST(request: NextRequest) {
         }
       } catch (err: unknown) {
         if ((err as any)?.code !== "auth/user-not-found") {
-          authDeletionErrors.push("Failed to delete Auth user by email.");
+          authDeletionErrors.push(`Email: ${(err as any)?.message}`);
         }
       }
     }
 
     if (authDeletionErrors.length > 0) {
-      return NextResponse.json({ success: false, stage, errorCode: "auth/deletion-failed", message: "Some Firebase Auth accounts could not be deleted", retryable: true }, { status: 500 });
+      console.warn(`[DeleteUser] Non-fatal Auth deletion errors:`, authDeletionErrors.join(" | "));
+      // We DO NOT return a 500 error here. We must continue to delete the Firestore data.
     }
 
     stage = "deleteStorageFiles";
-    try {
-      const bucket = getStorage(getAdminApp()).bucket();
-      if (bucket) {
-        await bucket.deleteFiles({ prefix: `users/${uid}/` }).catch(() => {});
-      }
-    } catch (err) {
-      console.warn("Storage deletion error ignored.");
-    }
+    await deleteStorageDirectory(`users/${uid}/`);
 
     stage = "deleteFirestoreDocuments";
     const uniqueRefs = Array.from(new Set(refsToDelete.map(r => r.path))).map(path => db.doc(path));

@@ -127,6 +127,37 @@ export async function updateCollege(
     updateData.name = updateData.name.trim().toLowerCase();
   }
 
+  // Auth Execution Lock: Update Firebase Auth via API if adminEmail or name changed
+  if (data.adminEmail || data.name) {
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      throw new Error("Cannot update college authentication: Session token expired. Please sign in again.");
+    }
+    const adminIdToken = await currentUser.getIdToken(true);
+    const payload: Record<string, unknown> = {
+      collegeId: id,
+    };
+
+    if (data.adminEmail) payload.adminEmail = data.adminEmail;
+    if (data.name) payload.collegeName = data.name;
+
+    const response = await fetch("/api/admin/update-college-auth", {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${adminIdToken}`
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.error || "Update failed: Could not update College Admin Auth account.");
+    }
+  }
+
+  // Update remaining fields in Firestore directly if there are any other fields, 
+  // or if the API already updated name/adminEmail, it's safe to merge again.
   await setDoc(
     docRef,
     {
@@ -152,8 +183,11 @@ export async function deleteCollege(id: string): Promise<void> {
 
   const response = await fetch("/api/admin/delete-college", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id, adminIdToken }),
+    headers: { 
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${adminIdToken}`
+    },
+    body: JSON.stringify({ id }),
   });
 
   const data = await response.json();

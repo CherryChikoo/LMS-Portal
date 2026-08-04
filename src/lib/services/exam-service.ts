@@ -10,6 +10,7 @@ import {
   type QueryOptions,
   type PaginatedResult,
 } from "@/lib/firebase/firestore";
+import { auth } from "@/lib/firebase/config";
 import type { Exam, ExamResult, Student, ExamStatus, ExamAttempt } from "@/types";
 import { isAssignedToStudent } from "./assignment-engine";
 import { toMillis } from "@/lib/utils/date";
@@ -104,13 +105,23 @@ export async function updateExam(id: string, data: Partial<Exam>): Promise<void>
 }
 
 export async function deleteExam(id: string): Promise<void> {
-  // Hard delete the exam and all associated results
-  const resultsResult = await getResultsByExam(id);
-  const results = resultsResult.data;
-  if (results.length > 0) {
-    await Promise.all(results.map(r => deleteDocument(RESULTS_COLLECTION, r.id)));
+  const user = auth.currentUser;
+  if (!user) throw new Error("Must be logged in to delete exam");
+  
+  const token = await user.getIdToken();
+  const res = await fetch("/api/admin/delete-exam", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({ id })
+  });
+
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.message || "Failed to delete exam via Admin API");
   }
-  return deleteDocument(EXAMS_COLLECTION, id);
 }
 
 export async function expireExam(id: string): Promise<void> {
@@ -150,14 +161,16 @@ export async function getResultsByExam(examId: string, options?: QueryOptions): 
 }
 
 export async function getResultsByStudent(studentId: string): Promise<ExamResult[]> {
-  return getDocuments<ExamResult>(RESULTS_COLLECTION, [where("studentId", "==", studentId)]);
+  const res = await getDocuments<ExamResult>(RESULTS_COLLECTION, [where("studentId", "==", studentId)]);
+  return res.data;
 }
 
 export async function getStudentAttempts(studentId?: string): Promise<ExamResult[]> {
   if (studentId) {
     return getResultsByStudent(studentId);
   }
-  return getDocuments<ExamResult>(RESULTS_COLLECTION);
+  const res = await getDocuments<ExamResult>(RESULTS_COLLECTION);
+  return res.data;
 }
 
 export async function getStudentAttemptsForCurrentUser(
@@ -171,7 +184,7 @@ export async function getStudentAttemptsForCurrentUser(
     const byStudentId = await getDocuments<ExamResult>(RESULTS_COLLECTION, [
       where("studentId", "==", uid),
     ]);
-    byStudentId.forEach((a) => attempts.set(a.id, a));
+    byStudentId.data.forEach((a) => attempts.set(a.id, a));
   } catch (err) {
     console.error("[Firestore Index / Query Failure - Check Console Link]:", err);
   }
@@ -193,7 +206,7 @@ export async function deleteResultById(id: string): Promise<void> {
 
 export async function clearAllResults(): Promise<void> {
   const results = await getDocuments<ExamResult>(RESULTS_COLLECTION);
-  await Promise.all(results.map((r) => deleteDocument(RESULTS_COLLECTION, r.id)));
+  await Promise.all(results.data.map((r) => deleteDocument(RESULTS_COLLECTION, r.id)));
 }
 
 /**

@@ -104,6 +104,7 @@ function LeaderboardContent() {
         target.count += 1;
       } else {
         const virtualStud: Student = {
+          status: "active" as const,
           id: att.studentId || "unknown",
           name: att.studentName || (att as any).studentEmail || "Student",
           email: (att as any).studentEmail || "",

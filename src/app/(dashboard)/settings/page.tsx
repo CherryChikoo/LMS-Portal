@@ -183,7 +183,7 @@ function StudentAccountSettings() {
           const results = await getDocuments("exam_results", [where("studentId", "==", primaryId)]);
           await Promise.all(
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            results.map((r: any) =>
+            results.data.map((r: any) =>
               setDoc(doc(db, "exam_results", r.id), { studentName: name, updatedAt: new Date() }, { merge: true })
             )
           );
@@ -200,13 +200,13 @@ function StudentAccountSettings() {
         // record cannot be detected client-side without a mail service or Admin SDK.
         const existingStudents = await getDocuments("students", [where("email", "==", cleanEmail)]);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if (existingStudents.some((sDoc: any) => sDoc.id !== primaryId)) {
+        if (existingStudents.data.some((sDoc: any) => sDoc.id !== primaryId)) {
           throw new Error("This email address is already registered to another student.");
         }
 
         const existingUsers = await getDocuments("users", [where("email", "==", cleanEmail)]);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if (existingUsers.some((uDoc: any) => uDoc.id !== primaryId)) {
+        if (existingUsers.data.some((uDoc: any) => uDoc.id !== primaryId)) {
           throw new Error("This email address is already registered to another account.");
         }
 
@@ -217,13 +217,13 @@ function StudentAccountSettings() {
 
           // Delete old duplicate records that still reference the previous email
           const oldStudents = await getDocuments("students", [where("email", "==", oldEmail)]);
-          for (const sDoc of oldStudents) {
+          for (const sDoc of oldStudents.data) {
             if (sDoc.id !== primaryId) {
               await deleteDocument("students", sDoc.id);
             }
           }
           const oldUsers = await getDocuments("users", [where("email", "==", oldEmail)]);
-          for (const uDoc of oldUsers) {
+          for (const uDoc of oldUsers.data) {
             if (uDoc.id !== primaryId) {
               await deleteDocument("users", uDoc.id);
             }
@@ -363,13 +363,13 @@ function StudentAccountSettings() {
       const targetEmail = (u.email || email).toLowerCase().trim();
       if (targetEmail) {
         const matchingStudents = await getDocuments("students", [where("email", "==", targetEmail)]);
-        for (const sDoc of matchingStudents) {
+        for (const sDoc of matchingStudents.data) {
           if (sDoc.id !== primaryId) {
             await deleteDocument("students", sDoc.id);
           }
         }
         const matchingUsers = await getDocuments("users", [where("email", "==", targetEmail)]);
-        for (const uDoc of matchingUsers) {
+        for (const uDoc of matchingUsers.data) {
           if (uDoc.id !== primaryId) {
             await deleteDocument("users", uDoc.id);
           }
@@ -389,8 +389,8 @@ function StudentAccountSettings() {
       pwdSuccessTimeoutRef.current = setTimeout(() => setPwdSuccess(false), 3000);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: unknown) {
-      const code = err?.code || "";
-      const msg = err?.message || "";
+      const code = (err as any)?.code || "";
+      const msg = (err as any)?.message || "";
 
       if (code === "auth/wrong-password" || code === "auth/invalid-credential") {
         setPwdError("Current password is incorrect.");

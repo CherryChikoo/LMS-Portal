@@ -185,7 +185,6 @@ function StudentsContent() {
       const colName = selectedColObj ? selectedColObj.name : (editCollegeId === "UNASSIGNED" ? "Unassigned" : "");
       const payload: Partial<Student> = {
         name: editName.trim(),
-        email: editEmail.toLowerCase().trim(),
         collegeId: editCollegeId,
         collegeName: colName,
         department: editDepartment.trim(),
@@ -193,6 +192,12 @@ function StudentsContent() {
         section: editSection.trim(),
         batchIds: [editBatch],
       };
+
+      const newEmail = editEmail.toLowerCase().trim();
+      if (newEmail !== editingStudent.email?.toLowerCase().trim()) {
+        payload.email = newEmail;
+      }
+
       if (editPassword && editPassword.trim() !== "") {
         if (editPassword.trim().length < 6) {
           toast.error("Password must be at least 6 characters.");
@@ -234,13 +239,23 @@ function StudentsContent() {
     setImportProgress(null);
 
     const allRows: CSVStudentRow[] = [];
+    let hasUnsupportedExcel = false;
+    
     for (const file of files) {
       const name = file.name.toLowerCase();
       if (name.endsWith(".csv") || name.endsWith(".txt") || name.endsWith(".json") || !name.includes(".")) {
         const text = await file.text();
         const rows = parseStudentsCSV(text);
         allRows.push(...rows);
+      } else if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
+        hasUnsupportedExcel = true;
+        toast.error(`Excel files (.xlsx, .xls) are no longer supported due to security updates. Please convert your file to .csv format and try again.`);
       }
+    }
+
+    if (hasUnsupportedExcel && allRows.length === 0) {
+      setImporting(false);
+      return;
     }
 
     if (allRows.length === 0) {
@@ -430,7 +445,7 @@ function StudentsContent() {
     setConfirmConfig({
       isOpen: true,
       title: "Delete Selected Student Accounts",
-      message: `This will permanently delete ${selectedIds.length} selected student account(s) from Firebase Auth and the database. The student will lose all access and must create a new account. Exam results will remain and be marked as "Student Deleted Data". This action cannot be undone.`,
+      message: `This will permanently delete ${selectedIds.length} selected student account(s) from the system. The student will lose all access and must create a new account. Exam results will remain and be marked as "Student Deleted Data". This action cannot be undone.`,
       variant: "destructive",
       onConfirm: async () => {
         try {
@@ -492,7 +507,7 @@ function StudentsContent() {
     setConfirmConfig({
       isOpen: true,
       title: "Delete Student Account",
-      message: `This will permanently remove ${student.name} (${student.email}) from Firebase Auth and the database. The student will no longer have access and must create a new account to regain access. Exam results will remain and be labelled "Student Deleted Data".`,
+      message: `This will permanently remove ${student.name} (${student.email}) from the system. The student will no longer have access and must create a new account to regain access. Exam results will remain and be labelled "Student Deleted Data".`,
       variant: "destructive",
       onConfirm: async () => {
         // Optimistic UI update
@@ -886,7 +901,7 @@ function StudentsContent() {
                           <span>Select CSV / Data File(s)</span>
                           <input
                             type="file"
-                            accept=".csv,.txt,.json,text/csv,text/plain,application/json,*"
+                            accept=".csv,.txt,.json,.xls,.xlsx,text/csv,text/plain,application/json,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                             multiple
                             onChange={handleFileUpload}
                             disabled={importing}
