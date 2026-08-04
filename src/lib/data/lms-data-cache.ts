@@ -198,7 +198,9 @@ function recomputeScopedData() {
   let fColleges = collegesData.filter((c) => isActive(c) && !isCollegeDeleted(c.id, c.name));
   let fBatches = batchesData.filter(isActive);
   const fStudents = studentsData.filter((s) => isActive(s) && !isCollegeDeleted(s.collegeId, s.collegeName));
-  const fExams = examsData.filter((e) => {
+  
+  // Filter exams: Check for deleted colleges AND apply college-scoping for college admins
+  let fExams = examsData.filter((e) => {
     if (!isActive(e)) return false;
     const eColId = e.collegeId || e.targets?.[0]?.collegeId;
     const eColName = e.collegeName || e.targets?.[0]?.collegeName;
@@ -207,7 +209,8 @@ function recomputeScopedData() {
     }
     return true;
   });
-  const fResources = resourcesData.filter((r) => {
+  
+  let fResources = resourcesData.filter((r) => {
     if (!isActive(r as any)) return false;
     const rColId = r.collegeId || r.targets?.[0]?.collegeId;
     const rColName = r.collegeName || r.targets?.[0]?.collegeName;
@@ -232,6 +235,103 @@ function recomputeScopedData() {
         if (matched.length > 0) {
           fColleges = matched;
         }
+        
+        // Filter exams for college admins and students
+        // Include exams that are:
+        // 1. Assigned to their college (collegeId matches)
+        // 2. Global exams (collegeId === "global" or "GLOBAL" or targets includes "global")
+        // 3. Exams with targets array that includes their college
+        const userCollegeId = parsed.collegeId;
+        const userCollegeName = parsed.collegeName;
+        
+        // Filter exams for college admins and students
+        // Include exams that are:
+        // 1. Assigned to their college (collegeId matches)
+        // 2. Global exams (collegeId === "global" or "GLOBAL")
+        // 3. Exams with targets array that includes their college or "global"
+        fExams = fExams.filter((exam) => {
+          const tCol = (exam as any).collegeId || exam.targets?.[0]?.collegeId;
+          const isGlobal = !tCol || tCol === "global" || tCol === "GLOBAL" || tCol === "all" || tCol === "ALL";
+          
+          if (isGlobal) return true;
+          
+          // Direct college match
+          if (tCol === userCollegeId) return true;
+          
+          // Check targets array
+          if (exam.targets && Array.isArray(exam.targets)) {
+            // Global target
+            if (exam.targets.some(t => 
+              t.ids?.includes("global") || 
+              t.ids?.includes("GLOBAL") ||
+              t.names?.includes("global") ||
+              t.names?.includes("GLOBAL") ||
+              t.collegeId === "global" || t.collegeId === "GLOBAL" || t.collegeId === "all" || t.collegeId === "ALL"
+            )) return true;
+            
+            // College-specific target
+            if (exam.targets.some(t => 
+              t.collegeId === userCollegeId ||
+              t.ids?.includes(userCollegeId) ||
+              (t.names && userCollegeName && t.names.some(n => 
+                n.toLowerCase() === userCollegeName.toLowerCase()
+              ))
+            )) return true;
+          }
+          
+          return false;
+        });
+        
+        // Filter resources for college admins and students (same logic as exams)
+        // Include resources that are:
+        // 1. Assigned to their college (collegeId matches)
+        // 2. Global resources (collegeId === "global" or "GLOBAL")
+        // 3. Resources with sharedWith/targets that includes their college or "global"
+        fResources = fResources.filter((resource) => {
+          const tCol = resource.collegeId || resource.targets?.[0]?.collegeId;
+          const isGlobal = !tCol || tCol === "global" || tCol === "GLOBAL" || tCol === "all" || tCol === "ALL";
+          
+          if (isGlobal) return true;
+          
+          if (tCol === userCollegeId) return true;
+          
+          // Check sharedWith array (legacy field)
+          if (resource.sharedWith && Array.isArray(resource.sharedWith)) {
+            if (resource.sharedWith.includes("global") || 
+                resource.sharedWith.includes("GLOBAL") ||
+                resource.sharedWith.includes("all") ||
+                resource.sharedWith.includes("*")) return true;
+                
+            if (resource.sharedWith.includes(userCollegeId)) return true;
+            
+            if (userCollegeName && resource.sharedWith.some(s => 
+              s.toLowerCase() === userCollegeName.toLowerCase()
+            )) return true;
+          }
+          
+          // Check targets array (same as exams)
+          if (resource.targets && Array.isArray(resource.targets)) {
+            // Global target
+            if (resource.targets.some(t => 
+              t.ids?.includes("global") || 
+              t.ids?.includes("GLOBAL") ||
+              t.names?.includes("global") ||
+              t.names?.includes("GLOBAL") ||
+              t.collegeId === "global" || t.collegeId === "GLOBAL" || t.collegeId === "all" || t.collegeId === "ALL"
+            )) return true;
+            
+            // College-specific target
+            if (resource.targets.some(t => 
+              t.collegeId === userCollegeId ||
+              t.ids?.includes(userCollegeId) ||
+              (t.names && userCollegeName && t.names.some(n => 
+                n.toLowerCase() === userCollegeName.toLowerCase()
+              ))
+            )) return true;
+          }
+          
+          return false;
+        });
       }
     }
   } catch (_) {}
@@ -358,15 +458,20 @@ async function fetchAllData() {
         : Promise.resolve({ data: [], lastDoc: null }),
 
       // Exams: scope by college for non-admins
+      // College admins need exams that are:
+      // 1. Directly assigned to their college (collegeId === their college)
+      // 2. Global exams (collegeId === "global")
+      // 3. Exams with targets array that includes their college
       (isStudent || isCollegeAdmin) && collegeId
-        ? getDocuments<Exam>("exams", [where("collegeId", "==", collegeId)], false, { pageSize: 1000 })
+        ? getAllExams({ pageSize: 2000 }) // Fetch all, filter client-side for college admins
         : isMainAdmin
         ? getAllExams({ pageSize: 2000 })
         : Promise.resolve({ data: [], lastDoc: null }),
 
-      // Resources: scope by college for non-admins
+      // Resources: Fetch all resources for college admins/students, filter client-side
+      // This allows global resources and college-specific resources to be shown
       (isCollegeAdmin || isStudent) && collegeId
-        ? getDocuments<Resource>("resources", [where("collegeId", "==", collegeId)], false, { pageSize: 1000 })
+        ? getAllResources({ pageSize: 2000 }) // Fetch all, filter client-side
         : isMainAdmin
         ? getAllResources({ pageSize: 2000 })
         : Promise.resolve({ data: [], lastDoc: null }),

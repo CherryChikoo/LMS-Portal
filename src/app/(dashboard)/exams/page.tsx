@@ -5,7 +5,7 @@ import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { useErrorHandler } from "@/providers/error-provider";
-import { ClipboardList, Plus, FileCode, Play, Eye, Edit3, Trash2, Target, Clock, CheckCircle2, ArrowLeft, ArrowRight, Sparkles, Send, Search, Calendar, Building2, Ban, Zap, Globe } from "lucide-react";
+import { ClipboardList, Plus, FileCode, Play, Eye, Edit3, Trash2, Target, Clock, CheckCircle2, ArrowLeft, ArrowRight, Sparkles, Send, Search, Calendar, Building2, Ban, Zap, Globe, Loader2 } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
@@ -18,6 +18,7 @@ import { getCurrentUser } from "@/lib/utils/auth-session";
 import { generateFallbackExplanation } from "@/lib/utils/ai-explanation-fallback";
 import { toDate, toMillis } from "@/lib/utils/date";
 import { useLMSData } from "@/lib/data/use-lms-data";
+import { refreshCache } from "@/lib/data/lms-store";
 import { useEntityResolution } from "@/lib/data/use-entity-resolution";
 import { formatAuthError } from "@/lib/services/auth-service";
 import { getAuth } from "firebase/auth";
@@ -122,7 +123,9 @@ export default function ExamsPage() {
   const [startTimeStr, setStartTimeStr] = useState("");
   const [endTimeStr, setEndTimeStr] = useState("");
 
-  // Questions working state
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // New Creation Flow State
   const [questions, setQuestions] = useState<Question[]>([]);
   const [mdText, setMdText] = useState("# Question 1\nWhat is Java?\nA. Language\nB. Database\nC. Browser\nD. Operating System\nAnswer: A\nMarks: 2\n\n# Question 2\nWhat is 2 + 2?\nA. 3\nB. 4\nC. 5\nD. 6\nAnswer: B\nMarks: 2");
 
@@ -358,6 +361,8 @@ export default function ExamsPage() {
         questionIds: finalQuestions.map((q) => q.id),
         questions: finalQuestions,
         targets: [compositeTarget],
+        collegeId: compositeTarget.collegeId,
+        collegeName: compositeTarget.collegeName,
         status: initialStatus,
         settings: {
           shuffleQuestions: true,
@@ -376,6 +381,7 @@ export default function ExamsPage() {
       if (startDt) examData.scheduledAt = startDt;
 
       const newExamId = await createExam(examData as Omit<Exam, "id">);
+      await refreshCache();
 
       toast.success("Assessment & AI Explanations created successfully!");
 
@@ -452,11 +458,15 @@ export default function ExamsPage() {
       variant: "destructive",
       onConfirm: async () => {
         try {
+          setDeletingId(exam.id);
           await deleteExam(exam.id);
+          await refreshCache();
           toast.success("Assessment deleted successfully");
         } catch (err) {
           console.error("Failed to delete exam:", err);
           showError(err);
+        } finally {
+          setDeletingId(null);
         }
       }
     });
@@ -574,8 +584,8 @@ export default function ExamsPage() {
       {/* Search & Powerful Hierarchy Filter Bar for Exams */}
       {!loading && exams.length > 0 && (
         <div className="flex flex-col gap-3.5 bg-card/95 p-4 rounded-2xl border border-border/80 shadow-sm" suppressHydrationWarning>
-          <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
-            <div className="relative w-full sm:w-80">
+          <div className="flex flex-col sm:flex-row gap-3 items-center justify-between" suppressHydrationWarning>
+            <div className="relative w-full sm:w-80" suppressHydrationWarning>
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <input
                 type="text"
@@ -1143,19 +1153,21 @@ export default function ExamsPage() {
                           </button>
                           <button
                             onClick={() => handleDeleteExam(exam)}
-                            disabled={userRole === "college_admin" && isGlobalAssignment}
+                            disabled={deletingId === exam.id || (userRole === "college_admin" && isGlobalAssignment)}
                             className={`p-2 rounded-lg transition-all duration-200 border ${
-                              userRole === "college_admin" && isGlobalAssignment
+                              deletingId === exam.id || (userRole === "college_admin" && isGlobalAssignment)
                                 ? "opacity-40 cursor-not-allowed bg-gray-100 text-gray-400 border-gray-200 dark:bg-gray-800 dark:text-gray-600 dark:border-gray-700"
                                 : "bg-transparent text-gray-500 border-gray-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200 dark:text-gray-400 dark:hover:bg-red-900/20 dark:hover:text-red-400 dark:hover:border-red-900/50"
                             }`}
                             title={
-                              userRole === "college_admin" && isGlobalAssignment
+                              deletingId === exam.id 
+                                ? "Deleting..." 
+                                : userRole === "college_admin" && isGlobalAssignment
                                 ? "Global assignments cannot be deleted by College Admins"
                                 : "Delete Assessment"
                             }
                           >
-                            <Trash2 className="w-4 h-4" />
+                            {deletingId === exam.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                           </button>
                         </div>
                       </div>
@@ -1603,6 +1615,7 @@ Marks: 1`}
                 <AcademicHierarchyFilters
                   layout="grid-2"
                   showInstitution
+                  showBatchToggle={true}
                   levels={["institution", "department", "academicYear", "section", "batch"]}
                   filters={examFilters}
                   onChange={setExamFilters}

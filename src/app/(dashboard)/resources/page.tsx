@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { FolderOpen, Upload, Link as LinkIcon, FileText, FileSpreadsheet, Video, Image as ImageIcon, Download, Eye, ExternalLink, Trash2, Search, CheckCircle2, Target, Loader2, File, CalendarDays, User, Plus, X } from "lucide-react";
+import { FolderOpen, Upload, Link as LinkIcon, FileText, FileSpreadsheet, Video, Image as ImageIcon, Download, Eye, ExternalLink, Trash2, Search, CheckCircle2, Target, Loader2, File, CalendarDays, User, Plus, X, Globe } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
@@ -14,20 +14,23 @@ import { getAllResources, createResource, deleteResource, filterResourcesForStud
 import { getCurrentUser } from "@/lib/utils/auth-session";
 import { formatTimestamp } from "@/lib/utils/date";
 import { useLMSData } from "@/lib/data/use-lms-data";
+import { refreshCache } from "@/lib/data/lms-store";
 import { ResourcePreviewModal, isPreviewable } from "@/components/resources/resource-preview-modal";
 import { useEntityResolution } from "@/lib/data/use-entity-resolution";
 import type { Resource, ResourceType, AssignmentTarget, Student } from "@/types";
 
 export default function ResourcesPage() {
   const { filteredResources: resources, loading } = useLMSData();
-  const [userRole, setUserRole] = useState<string>(() => {
-    if (typeof window === "undefined") return "student";
+  const [userRole, setUserRole] = useState<string>("student");
+  const [mounted, setMounted] = useState(false);
+  
+  useEffect(() => {
+    setMounted(true);
     try {
       const role = localStorage.getItem("lms_role");
-      if (role) return role.toLowerCase();
+      if (role) setUserRole(role.toLowerCase());
     } catch {}
-    return "student";
-  });
+  }, []);
   const [currentUser, setCurrentUser] = useState<{ uid: string; email: string; profile: Record<string, unknown> } | null>(null);
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm?: () => void; isAlert?: boolean; variant?: "destructive" | "warning" | "info" | "success" } | null>(null);
 
@@ -38,6 +41,7 @@ export default function ResourcesPage() {
   const [desc, setDesc] = useState("");
   const [links, setLinks] = useState<string[]>([""]);
   const [creating, setCreating] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [resourceSearch, setResourceSearch] = useState("");
   const { resolveInstitution } = useEntityResolution();
 
@@ -99,9 +103,12 @@ export default function ResourcesPage() {
         tags: ["LINK", "Shared Resource"],
         sharedWith: ["all"],
         targets: [compositeTarget],
+        collegeId: target.collegeId,
+        collegeName: target.collegeName,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
+      await refreshCache();
       setShowUploadModal(false);
       setTitle("");
       setLinks([""]);
@@ -122,9 +129,13 @@ export default function ResourcesPage() {
       variant: "destructive",
       onConfirm: async () => {
         try {
+          setDeletingId(id);
           await deleteResource(id);
+          await refreshCache();
         } catch (err) {
           console.error("Failed to delete", err);
+        } finally {
+          setDeletingId(null);
         }
       }
     });
@@ -149,6 +160,12 @@ export default function ResourcesPage() {
     if (userRole !== "student") {
       return (resources as Resource[]).filter((res: Resource) => {
         const t = res.targets?.[0];
+        const tCol = res.collegeId || t?.collegeId;
+        const isGlobal = !tCol || tCol === "global" || tCol === "GLOBAL" || tCol === "all" || tCol === "ALL";
+        
+        // Global resources always show in the admin dashboard regardless of the local filter
+        if (isGlobal) return true;
+
         if (resourceFilters.collegeId && t?.collegeId !== resourceFilters.collegeId) return false;
         if (resourceFilters.department && t?.department !== resourceFilters.department) return false;
         if (resourceFilters.academicYear && t?.academicYear !== resourceFilters.academicYear) return false;
@@ -189,6 +206,8 @@ export default function ResourcesPage() {
     resourceFilters.batchId,
   ]);
 
+  if (!mounted) return null;
+
   return (
     <motion.div initial="hidden" animate="visible" variants={fadeInUp} className="space-y-6">
       <PageHeader
@@ -208,7 +227,7 @@ export default function ResourcesPage() {
 
       {/* Search & Filter Bar for Resources */}
       {!loading && resources.length > 0 && (
-        <div className="flex flex-col gap-3 bg-card p-4 rounded-xl border border-border">
+        <div className="flex flex-col gap-3 bg-card p-4 rounded-xl border border-border" suppressHydrationWarning>
           <div className="relative w-full">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <input
@@ -265,6 +284,9 @@ export default function ResourcesPage() {
             .map((res) => {
               const parsedLinks = res.type === "link" && res.url ? res.url.split(",").filter(Boolean) : [res.url].filter(Boolean);
               
+              const tCol = res.collegeId || res.targets?.[0]?.collegeId;
+              const isGlobal = !tCol || tCol === "global" || tCol === "GLOBAL" || tCol === "all" || tCol === "ALL";
+
               return (
                 <motion.div
                   key={res.id}
@@ -276,9 +298,22 @@ export default function ResourcesPage() {
                       <div className="w-12 h-12 shrink-0 rounded-2xl bg-brand/10 border border-brand/20 flex items-center justify-center text-brand">
                         {getIconForType(res.type)}
                       </div>
-                      <span className="px-3 py-1 rounded-full bg-secondary text-[10px] font-bold uppercase tracking-widest text-foreground shadow-sm">
-                        {res.category}
-                      </span>
+                      <div className="flex flex-col items-end gap-2">
+                        <span className="px-3 py-1 rounded-full bg-secondary text-[10px] font-bold uppercase tracking-widest text-foreground shadow-sm">
+                          {res.category}
+                        </span>
+                        {(() => {
+                          if (isGlobal) {
+                            return (
+                              <span className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/10 text-blue-500 text-[10px] font-bold uppercase tracking-widest border border-blue-500/20 shadow-sm">
+                                <Globe className="w-3 h-3" />
+                                Global
+                              </span>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </div>
                     </div>
 
                     <div className="space-y-2">
@@ -350,6 +385,8 @@ export default function ResourcesPage() {
                         </span>
                         <span className="font-medium text-foreground leading-relaxed truncate">
                           {(() => {
+                            if (isGlobal) return "Global Assignment (All Colleges)";
+
                             const t = res.targets?.[0];
                             if (!t) return "All Students";
                             if (t.type === "composite") {
@@ -374,13 +411,14 @@ export default function ResourcesPage() {
                     )}
 
                     <div className="flex justify-end gap-2 pt-2">
-                      {userRole !== "student" && (
+                      {userRole !== "student" && (userRole !== "college_admin" || !isGlobal) && (
                         <button
                           onClick={() => handleDelete(res.id)}
-                          className="px-4 py-2 rounded-xl bg-destructive/10 hover:bg-destructive/20 text-destructive text-sm font-semibold transition-colors flex items-center gap-2"
+                          disabled={deletingId === res.id}
+                          className="px-4 py-2 rounded-xl bg-destructive/10 hover:bg-destructive/20 text-destructive text-sm font-semibold transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          <Trash2 className="w-4 h-4" />
-                          Delete
+                          {deletingId === res.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                          {deletingId === res.id ? "Deleting..." : "Delete"}
                         </button>
                       )}
                     </div>
@@ -495,6 +533,7 @@ export default function ResourcesPage() {
                   <AcademicHierarchyFilters
                     layout="grid-2"
                     showInstitution={userRole !== "college_admin"}
+                    showBatchToggle={true}
                     levels={userRole === "college_admin" ? ["department", "academicYear", "section", "batch"] : ["institution", "department", "academicYear", "section", "batch"]}
                     filters={resourceFilters}
                     onChange={setResourceFilters}

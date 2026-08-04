@@ -40,6 +40,7 @@ export interface AcademicHierarchyFiltersProps {
   disabled?: boolean;
   layout?: AcademicHierarchyLayout;
   showInstitution?: boolean;
+  showBatchToggle?: boolean;
   appendContent?: React.ReactNode;
 }
 
@@ -180,6 +181,7 @@ export function AcademicHierarchyFilters({
   disabled,
   layout = "responsive",
   showInstitution = false,
+  showBatchToggle = false,
   appendContent,
 }: AcademicHierarchyFiltersProps) {
   const baseId = useId();
@@ -219,7 +221,7 @@ export function AcademicHierarchyFilters({
 
   return (
     <div className="space-y-4 w-full">
-      {hasBatchLevel && (
+      {hasBatchLevel && showBatchToggle && (
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 py-3 text-sm font-medium text-foreground">
           <div className="flex items-center gap-2 shrink-0">
             <span className="w-2 h-2 rounded-full bg-brand animate-pulse" />

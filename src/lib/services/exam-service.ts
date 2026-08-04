@@ -165,8 +165,12 @@ export function filterExamsForStudent(exams: Exam[], student: Student): Exam[] {
 }
 
 // Results
-export async function getResultsByExam(examId: string, options?: QueryOptions): Promise<PaginatedResult<ExamResult>> {
-  return getDocuments<ExamResult>(RESULTS_COLLECTION, [where("examId", "==", examId)], false, options);
+export async function getResultsByExam(examId: string, options?: QueryOptions, collegeId?: string): Promise<PaginatedResult<ExamResult>> {
+  const constraints = [where("examId", "==", examId)];
+  if (collegeId && collegeId !== "ALL" && collegeId !== "global") {
+    constraints.push(where("collegeId", "==", collegeId));
+  }
+  return getDocuments<ExamResult>(RESULTS_COLLECTION, constraints, false, options);
 }
 
 export async function getResultsByStudent(studentId: string): Promise<ExamResult[]> {

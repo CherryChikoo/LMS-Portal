@@ -554,14 +554,16 @@ function StudentAccountSettings() {
 }
 
 export default function SettingsPage() {
-  const [userRole, setUserRole] = useState<string>(() => {
-    if (typeof window === "undefined") return "student";
+  const [userRole, setUserRole] = useState<string>("student");
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
     try {
       const role = localStorage.getItem("lms_role");
-      if (role) return role.toLowerCase();
+      if (role) setUserRole(role.toLowerCase());
     } catch {}
-    return "student";
-  });
+  }, []);
   const [activeTab, setActiveTab] = useState<"profile" | "security" | "branding">("profile");
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm?: () => void; isAlert?: boolean; variant?: "destructive" | "warning" | "info" | "success" } | null>(null);
 
@@ -945,6 +947,8 @@ export default function SettingsPage() {
   if (userRole === "student") {
     return <StudentAccountSettings />;
   }
+
+  if (!mounted) return null;
 
   return (
     <motion.div initial="hidden" animate="visible" variants={staggerContainer} className="space-y-6 sm:space-y-8 font-sans pb-12">

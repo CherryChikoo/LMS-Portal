@@ -143,6 +143,15 @@ export async function studentGoogleLogin(): Promise<
 
   await setDoc(doc(db, USERS_COLLECTION, uid), cleanProfile, { merge: true });
 
+  if (cleanProfile.collegeName) {
+    // Asynchronously ensure the college is registered globally
+    fetch("/api/auth/register-college", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ collegeName: cleanProfile.collegeName })
+    }).catch(() => {});
+  }
+
   const sessionUser = {
     id: uid,
     name: profile.displayName,
@@ -352,6 +361,13 @@ export async function studentRegister(
     batch.set(doc(db, STUDENTS_COLLECTION, uid), studentDoc);
     await batch.commit();
 
+    // Asynchronously ensure the college is registered globally
+    fetch("/api/auth/register-college", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ collegeName })
+    }).catch(() => {});
+
     return { user: credential.user };
   } catch (firestoreErr) {
     // ATOMIC ROLLBACK: Delete Firebase Auth user if Firestore document creation fails
@@ -439,6 +455,15 @@ export async function completeStudentAcademicDetails(
   batch.set(doc(db, USERS_COLLECTION, uid), userDoc, { merge: true });
   batch.set(doc(db, STUDENTS_COLLECTION, uid), studentDoc, { merge: true });
   await batch.commit();
+
+  if (resolvedCollegeName) {
+    // Asynchronously ensure the college is registered globally
+    fetch("/api/auth/register-college", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ collegeName: resolvedCollegeName })
+    }).catch(() => {});
+  }
   
   return { resolvedCollegeId, resolvedCollegeName };
 }

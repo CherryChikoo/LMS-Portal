@@ -307,14 +307,15 @@ export default function ExamDetailsPage({ params }: PageProps) {
   
   const [exam, setExam] = useState<Exam | null>(null);
   const [loading, setLoading] = useState(true);
-  const [actualRole] = useState<string>(() => {
-    if (typeof window === "undefined") return "admin";
+  const [actualRole, setActualRole] = useState<string>("admin");
+  const [mounted, setMounted] = useState(false);
+  
+  useEffect(() => {
+    setMounted(true);
     try {
-      return resolveRoleFromStorage();
-    } catch {
-      return "admin";
-    }
-  });
+      setActualRole(resolveRoleFromStorage());
+    } catch {}
+  }, []);
   const [studentUser, setStudentUser] = useState<Student | null>(null);
   const [studentChecked, setStudentChecked] = useState(false);
   const [nowMs] = useState<number | null>(() => {
@@ -369,7 +370,15 @@ export default function ExamDetailsPage({ params }: PageProps) {
             }
           }
         } else {
-          const attData = await getResultsByExam(id);
+          let userColId = undefined;
+          try {
+            const currentRole = resolveRoleFromStorage();
+            if (currentRole === "college_admin") {
+              const u = JSON.parse(localStorage.getItem("lms_user") || "{}");
+              userColId = u.collegeId;
+            }
+          } catch {}
+          const attData = await getResultsByExam(id, undefined, userColId);
           setAttempts(attData?.data || []);
         }
       } catch (err) {
@@ -415,6 +424,8 @@ export default function ExamDetailsPage({ params }: PageProps) {
       />
     );
   }
+
+  if (!mounted) return null;
 
   return (
     <TrainerExamDetails
