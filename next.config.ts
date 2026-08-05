@@ -17,8 +17,6 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  // Enable Turbopack explicitly (Next.js 16 default)
-  turbopack: {},
   async headers() {
     return [
       {
