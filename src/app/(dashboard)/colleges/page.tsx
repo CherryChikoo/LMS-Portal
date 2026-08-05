@@ -17,6 +17,8 @@ import { refreshCache } from "@/lib/data/lms-data-cache";
 import { markCollegeAsDeleted } from "@/lib/hierarchy/hierarchy-data";
 import { getAuth } from "firebase/auth";
 import { getDocuments, where } from "@/lib/firebase/firestore";
+import { doc, setDoc, Timestamp } from "firebase/firestore";
+import { db } from "@/lib/firebase/config";
 import type { College, Student, CSVStudentRow, CSVImportSummary } from "@/types";
 import { useErrorHandler } from "@/providers/error-provider";
 
@@ -341,7 +343,7 @@ export default function CollegesPage() {
     });
   };
 
-  const handleDeleteExternalCollege = (extName: string) => {
+  const handleDeleteExternalCollege = (extName: string, extId?: string) => {
     const studentsToDelete = allStudents.filter(
       (s) => s.collegeName === extName || s.collegeId === extName || s.collegeName?.toLowerCase() === extName.toLowerCase()
     );
@@ -358,6 +360,15 @@ export default function CollegesPage() {
           toast.success(`Outside institution "${extName}" deleted.`);
 
           await Promise.all(studentsToDelete.map((s) => deleteStudentProfile(s.id)));
+          
+          if (extId) {
+            try {
+              await deleteCollege(extId);
+            } catch (e) {
+              console.error("Non-fatal: could not delete Firestore external college document.", e);
+            }
+          }
+          
           await refreshCache(); // Immediate UI update
         } catch (err) {
           console.error("Failed to delete outside institution:", err);
@@ -673,9 +684,51 @@ export default function CollegesPage() {
     } catch (err) {
       console.error("Failed to update outside institution", err);
       toast.error("Failed to update outside institution.");
+      toast.error("Failed to update outside institution.");
     } finally {
       setUpdatingExternal(false);
     }
+  };
+
+  const handleRegisterExternalCollege = (extName: string, extDepartments: string[]) => {
+    setConfirmConfig({
+      isOpen: true,
+      title: "Register as Official College",
+      message: `Are you sure you want to register "${extName}" as an official college? This will allow you to assign exams and resources to it.`,
+      confirmText: "Register",
+      onConfirm: async () => {
+        try {
+          const slug = extName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+          const lowerName = extName.trim().toLowerCase();
+          
+          if (!slug) {
+            toast.error("Invalid institution name");
+            return;
+          }
+
+          // 1. Create the official college document
+          const collegeRef = doc(db, "colleges", slug);
+          await setDoc(collegeRef, {
+            id: slug,
+            name: lowerName,
+            departments: ["General", ...extDepartments],
+            status: "active",
+            createdAt: Timestamp.now(),
+            updatedAt: Timestamp.now(),
+          }, { merge: true });
+
+          // 2. Migrate existing students to explicitly point to this slug
+          await renameCollegeAndMigrate(slug, extName, lowerName, true);
+
+          // 3. Refresh cache so UI instantly updates
+          await refreshCache();
+          toast.success(`Registered "${extName}" as an official college.`);
+        } catch (err) {
+          console.error("Failed to register outside institution:", err);
+          toast.error("Failed to register institution.");
+        }
+      }
+    });
   };
 
   return (
@@ -975,7 +1028,7 @@ export default function CollegesPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleDeleteExternalCollege(col.name)}
+                          onClick={() => handleDeleteExternalCollege(col.name, col.id)}
                           disabled={deletingIds.includes(col.name)}
                           className="h-8 w-8 p-0 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10 rounded-lg cursor-pointer disabled:opacity-50"
                           title="Delete Institution"
@@ -1013,7 +1066,14 @@ export default function CollegesPage() {
                   </div>
 
                   <div className="pt-2.5 border-t border-border flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground mt-4">
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => handleRegisterExternalCollege(col.name, col.departments || [])}
+                        className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 font-bold text-[11px] flex items-center gap-1 transition-all shadow-sm"
+                      >
+                        <Plus className="w-3 h-3" /> Register Official
+                      </button>
                       <button
                         type="button"
                         onClick={() => handleOpenEnrollForCollege(col)}

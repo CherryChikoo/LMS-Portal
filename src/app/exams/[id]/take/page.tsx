@@ -122,7 +122,7 @@ export default function TakeExamPage({ params }: { params: Promise<{ id: string 
             // We allow access if they are assigned OR if they already have an attempt (e.g. they started it, then got removed from the batch).
             let isEligible = filterExamsForStudent([data], studentProfile).length > 0;
 
-            let existing: ExamResult | undefined;
+            let existing: ExamAttempt | undefined;
             try {
               const attempts = await getStudentAttemptsForCurrentUser(sId, sEmail);
               existing = attempts.find((a) => a.examId === resolvedParams.id);

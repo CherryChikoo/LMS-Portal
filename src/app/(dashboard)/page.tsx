@@ -273,7 +273,9 @@ export function StudentPortalDashboard({
             </div>
 
             <div className="space-y-3">
-              {myAttempts.length === 0 ? (
+              {!mounted ? (
+                <div className="text-center py-8 text-muted-foreground text-sm">Loading your completed tests...</div>
+              ) : myAttempts.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground text-sm">No tests completed yet. Launch your first assessment above!</div>
               ) : (
                 myAttempts.slice(0, 4).map((att) => (
@@ -488,21 +490,23 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto shrink-0">
-          <Button
-            variant="ghost"
-            onClick={() => router.push("/students")}
-            className="h-11 px-5 rounded-xl border border-border bg-transparent text-foreground hover:bg-accent font-semibold transition-all flex items-center justify-center gap-2 w-full sm:w-auto"
-          >
-            <GraduationCap className="w-4 h-4 shrink-0" />
-            <span className="whitespace-nowrap">Students</span>
-          </Button>
-          <Button
-            onClick={() => router.push("/exams")}
-            className="h-11 px-5 rounded-xl bg-brand hover:bg-brand/90 text-primary-foreground font-bold transition-all flex items-center justify-center gap-2 shadow-sm border border-white/20 dark:border-black/10 w-full sm:w-auto"
-          >
-            <Plus className="w-4 h-4 stroke-[3] shrink-0" />
-            <span className="whitespace-nowrap">Create Assessment</span>
-          </Button>
+          <Link href="/students" passHref>
+            <Button
+              variant="ghost"
+              className="h-11 px-5 rounded-xl border border-border bg-transparent text-foreground hover:bg-accent font-semibold transition-all flex items-center justify-center gap-2 w-full sm:w-auto"
+            >
+              <GraduationCap className="w-4 h-4 shrink-0" />
+              <span className="whitespace-nowrap">Students</span>
+            </Button>
+          </Link>
+          <Link href="/admin/exams" passHref>
+            <Button
+              className="h-11 px-5 rounded-xl bg-brand hover:bg-brand/90 text-primary-foreground font-bold transition-all flex items-center justify-center gap-2 shadow-sm border border-white/20 dark:border-black/10 w-full sm:w-auto"
+            >
+              <Plus className="w-4 h-4 stroke-[3] shrink-0" />
+              <span className="whitespace-nowrap">Create Assessment</span>
+            </Button>
+          </Link>
         </div>
       </motion.div>
 
@@ -511,7 +515,8 @@ export default function DashboardPage() {
         className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"
       >
         <motion.div variants={staggerItem}>
-          <GlassCard className="p-6 flex flex-col justify-between h-36 hover:border-emerald-500/50 transition-colors cursor-pointer group" onClick={() => router.push("/admin/exams")}>
+          <Link href="/admin/exams" className="block">
+            <GlassCard className="p-6 flex flex-col justify-between h-36 hover:border-emerald-500/50 transition-colors cursor-pointer group">
             <div className="flex justify-between items-start mb-2">
               <span className="text-[11px] font-bold tracking-wider text-muted-foreground uppercase">My Assessments</span>
               <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
@@ -526,10 +531,12 @@ export default function DashboardPage() {
               </div>
             </div>
           </GlassCard>
+          </Link>
         </motion.div>
 
         <motion.div variants={staggerItem}>
-          <GlassCard className="p-6 flex flex-col justify-between h-36 hover:border-muted-foreground/50 transition-colors cursor-pointer group" onClick={() => router.push("/admin/students")}>
+          <Link href="/admin/students" className="block">
+            <GlassCard className="p-6 flex flex-col justify-between h-36 hover:border-muted-foreground/50 transition-colors cursor-pointer group">
             <div className="flex justify-between items-start mb-2">
               <span className="text-[11px] font-bold tracking-wider text-muted-foreground uppercase">Students</span>
               <div className="w-9 h-9 rounded-xl bg-secondary text-muted-foreground flex items-center justify-center border border-border/50">
@@ -546,10 +553,12 @@ export default function DashboardPage() {
               </div>
             </div>
           </GlassCard>
+          </Link>
         </motion.div>
 
         <motion.div variants={staggerItem}>
-          <GlassCard className="p-6 flex flex-col justify-between h-36 hover:border-muted-foreground/50 transition-colors cursor-pointer group" onClick={() => router.push("/admin/exams")}>
+          <Link href="/admin/exams" className="block">
+            <GlassCard className="p-6 flex flex-col justify-between h-36 hover:border-muted-foreground/50 transition-colors cursor-pointer group">
             <div className="flex justify-between items-start mb-2">
               <span className="text-[11px] font-bold tracking-wider text-muted-foreground uppercase">Active Assignments</span>
               <div className="w-9 h-9 rounded-xl bg-secondary text-muted-foreground flex items-center justify-center border border-border/50">
@@ -564,10 +573,12 @@ export default function DashboardPage() {
               </div>
             </div>
           </GlassCard>
+          </Link>
         </motion.div>
 
         <motion.div variants={staggerItem}>
-          <GlassCard className="p-6 flex flex-col justify-between h-36 hover:border-muted-foreground/50 transition-colors cursor-pointer group" onClick={() => router.push("/admin/resources")}>
+          <Link href="/admin/resources" className="block">
+            <GlassCard className="p-6 flex flex-col justify-between h-36 hover:border-muted-foreground/50 transition-colors cursor-pointer group">
             <div className="flex justify-between items-start mb-2">
               <span className="text-[11px] font-bold tracking-wider text-muted-foreground uppercase">Shared Resources</span>
               <div className="w-9 h-9 rounded-xl bg-secondary text-muted-foreground flex items-center justify-center border border-border/50">
@@ -582,6 +593,7 @@ export default function DashboardPage() {
               </div>
             </div>
           </GlassCard>
+          </Link>
         </motion.div>
       </motion.div>
 
@@ -593,35 +605,35 @@ export default function DashboardPage() {
           <div className="rounded-2xl border border-border bg-card/50 shadow-sm p-6 h-full flex flex-col">
             <h2 className="text-xl font-bold font-heading mb-6">Quick Actions</h2>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 flex-1">
-            <div 
-              className="p-6 h-36 rounded-2xl bg-purple-500/5 border border-purple-500/20 flex flex-col justify-between cursor-pointer hover:bg-purple-500/10 transition-colors group"
-              onClick={() => router.push("/admin/exams")}
+            <Link 
+              href="/admin/exams"
+              className="p-6 h-36 rounded-2xl bg-purple-500/5 border border-purple-500/20 flex flex-col justify-between cursor-pointer hover:bg-purple-500/10 transition-colors group block"
             >
               <div className="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-500 flex items-center justify-center group-hover:scale-110 transition-transform">
                 <FileText className="w-5 h-5" />
               </div>
               <span className="font-bold text-sm text-foreground">Create Assessment</span>
-            </div>
+            </Link>
 
-            <div 
-              className="p-6 h-36 rounded-2xl bg-blue-500/5 border border-blue-500/20 flex flex-col justify-between cursor-pointer hover:bg-blue-500/10 transition-colors group"
-              onClick={() => router.push("/admin/resources")}
+            <Link 
+              href="/admin/resources"
+              className="p-6 h-36 rounded-2xl bg-blue-500/5 border border-blue-500/20 flex flex-col justify-between cursor-pointer hover:bg-blue-500/10 transition-colors group block"
             >
               <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-500 flex items-center justify-center group-hover:scale-110 transition-transform">
                 <FolderOpen className="w-5 h-5" />
               </div>
               <span className="font-bold text-sm text-foreground">Share Resources</span>
-            </div>
+            </Link>
 
-            <div 
-              className="p-6 h-36 rounded-2xl bg-emerald-500/5 border border-emerald-500/20 flex flex-col justify-between cursor-pointer hover:bg-emerald-500/10 transition-colors group"
-              onClick={() => router.push("/admin/students")}
+            <Link 
+              href="/admin/students"
+              className="p-6 h-36 rounded-2xl bg-emerald-500/5 border border-emerald-500/20 flex flex-col justify-between cursor-pointer hover:bg-emerald-500/10 transition-colors group block"
             >
               <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center group-hover:scale-110 transition-transform">
                 <GraduationCap className="w-5 h-5" />
               </div>
               <span className="font-bold text-sm text-foreground">View Students</span>
-            </div>
+            </Link>
           </div>
           </div>
         </motion.div>

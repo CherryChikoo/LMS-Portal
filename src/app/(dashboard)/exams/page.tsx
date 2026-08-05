@@ -83,12 +83,16 @@ export default function ExamsPage() {
   const pathname = usePathname();
   const [studentUser, setStudentUser] = useState<Student | null>(null);
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm?: () => void; isAlert?: boolean; variant?: "destructive" | "warning" | "info" | "success" } | null>(null);
-  const [userRole, setUserRole] = useState<string>(() => {
-    if (pathname?.includes("/admin") || pathname?.includes("/trainer") || pathname?.includes("/college_admin")) {
-      return "admin";
+  const [userRole, setUserRole] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("lms_role")?.toLowerCase() || "student";
     }
     return "student";
   });
+  
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+  
   const [studentTab, setStudentTab] = useState<"available" | "results">("available");
   const [adminTab, setAdminTab] = useState<"live" | "expired">("live");
   const [examSearch, setExamSearch] = useState("");
@@ -591,7 +595,9 @@ export default function ExamsPage() {
       )}
 
       {/* Search & Powerful Hierarchy Filter Bar for Exams */}
-      {!loading && exams.length > 0 && (
+      {(!mounted || loading) ? (
+        <div className="flex flex-col gap-3.5 bg-card/95 p-4 rounded-2xl border border-border/80 shadow-sm animate-pulse h-20" />
+      ) : exams.length > 0 && (
         <div className="flex flex-col gap-3.5 bg-card/95 p-4 rounded-2xl border border-border/80 shadow-sm" suppressHydrationWarning>
           <div className="flex flex-col sm:flex-row gap-3 items-center justify-between" suppressHydrationWarning>
             <div className="relative w-full sm:w-80" suppressHydrationWarning>
@@ -652,10 +658,9 @@ export default function ExamsPage() {
         </div>
       )}
 
-      {loading ? (
-        <div className="p-12 text-center text-sm text-muted-foreground flex flex-col items-center justify-center gap-3">
-          <div className="w-8 h-8 rounded-full border-2 border-brand border-t-transparent animate-spin" />
-          <span>Loading examinations...</span>
+      {(!mounted || loading) ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {[1, 2, 3].map(i => <div key={i} className="h-64 rounded-2xl bg-card/60 animate-pulse border border-border/60" />)}
         </div>
       ) : exams.length === 0 ? (
         <EmptyState

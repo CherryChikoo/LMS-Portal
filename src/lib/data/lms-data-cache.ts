@@ -256,7 +256,8 @@ function recomputeScopedData() {
           if (isGlobal) return true;
           
           // Direct college match
-          if (tCol === userCollegeId) return true;
+          if (userCollegeId && tCol === userCollegeId) return true;
+          if (userCollegeName && tCol.toLowerCase() === userCollegeName.toLowerCase()) return true;
           
           // Check targets array
           if (exam.targets && Array.isArray(exam.targets)) {
@@ -270,30 +271,28 @@ function recomputeScopedData() {
             )) return true;
             
             // College-specific target
-            if (exam.targets.some(t => 
-              t.collegeId === userCollegeId ||
-              t.ids?.includes(userCollegeId) ||
-              (t.names && userCollegeName && t.names.some(n => 
-                n.toLowerCase() === userCollegeName.toLowerCase()
-              ))
-            )) return true;
+            if (exam.targets.some(t => {
+              if (userCollegeId && t.collegeId === userCollegeId) return true;
+              if (userCollegeName && t.collegeId?.toLowerCase() === userCollegeName.toLowerCase()) return true;
+              if (userCollegeId && t.ids?.includes(userCollegeId)) return true;
+              if (userCollegeName && t.ids?.some(id => id.toLowerCase() === userCollegeName.toLowerCase())) return true;
+              if (userCollegeName && t.names?.some(n => n.toLowerCase() === userCollegeName.toLowerCase())) return true;
+              return false;
+            })) return true;
           }
           
           return false;
         });
         
         // Filter resources for college admins and students (same logic as exams)
-        // Include resources that are:
-        // 1. Assigned to their college (collegeId matches)
-        // 2. Global resources (collegeId === "global" or "GLOBAL")
-        // 3. Resources with sharedWith/targets that includes their college or "global"
         fResources = fResources.filter((resource) => {
           const tCol = resource.collegeId || resource.targets?.[0]?.collegeId;
           const isGlobal = !tCol || tCol === "global" || tCol === "GLOBAL" || tCol === "all" || tCol === "ALL";
           
           if (isGlobal) return true;
           
-          if (tCol === userCollegeId) return true;
+          if (userCollegeId && tCol === userCollegeId) return true;
+          if (userCollegeName && tCol.toLowerCase() === userCollegeName.toLowerCase()) return true;
           
           // Check sharedWith array (legacy field)
           if (resource.sharedWith && Array.isArray(resource.sharedWith)) {
@@ -302,11 +301,8 @@ function recomputeScopedData() {
                 resource.sharedWith.includes("all") ||
                 resource.sharedWith.includes("*")) return true;
                 
-            if (resource.sharedWith.includes(userCollegeId)) return true;
-            
-            if (userCollegeName && resource.sharedWith.some(s => 
-              s.toLowerCase() === userCollegeName.toLowerCase()
-            )) return true;
+            if (userCollegeId && resource.sharedWith.includes(userCollegeId)) return true;
+            if (userCollegeName && resource.sharedWith.some(s => s.toLowerCase() === userCollegeName.toLowerCase())) return true;
           }
           
           // Check targets array (same as exams)
@@ -321,13 +317,14 @@ function recomputeScopedData() {
             )) return true;
             
             // College-specific target
-            if (resource.targets.some(t => 
-              t.collegeId === userCollegeId ||
-              t.ids?.includes(userCollegeId) ||
-              (t.names && userCollegeName && t.names.some(n => 
-                n.toLowerCase() === userCollegeName.toLowerCase()
-              ))
-            )) return true;
+            if (resource.targets.some(t => {
+              if (userCollegeId && t.collegeId === userCollegeId) return true;
+              if (userCollegeName && t.collegeId?.toLowerCase() === userCollegeName.toLowerCase()) return true;
+              if (userCollegeId && t.ids?.includes(userCollegeId)) return true;
+              if (userCollegeName && t.ids?.some(id => id.toLowerCase() === userCollegeName.toLowerCase())) return true;
+              if (userCollegeName && t.names?.some(n => n.toLowerCase() === userCollegeName.toLowerCase())) return true;
+              return false;
+            })) return true;
           }
           
           return false;
@@ -347,13 +344,15 @@ function recomputeScopedData() {
     studentCount: fStudents.filter((s) => s.batchIds?.includes(b.id)).length,
   }));
 
-  cache.filteredColleges = fColleges;
+  // Exclude external colleges from the main filteredColleges list used by the UI
+  cache.filteredColleges = fColleges.filter(c => c.type !== "external");
   cache.filteredBatches = fBatches;
   cache.filteredStudents = fStudents;
   cache.filteredExams = fExams;
   cache.filteredResources = fResources;
   cache.filteredAttempts = fAttempts;
 
+  // Include ALL colleges in hierarchy so computeExportedState can properly split them
   cache.hierarchy = buildHierarchy(fColleges, fBatches, fStudents);
 
   if (cache.colleges || cache.students || cache.exams || cache.resources || cache.batches || cache.attempts) {
@@ -618,9 +617,30 @@ function computeExportedState() {
   const colleges = hierarchy?.colleges || [];
   const students = hierarchy?.students || [];
 
-  const externals = getExternalInstitutions(students, colleges);
+  // Colleges with type === "external" are real Firestore docs but represent outside institutions
+  const officialFirestoreColleges = colleges.filter((c) => c.type !== "external");
+  const externalFirestoreColleges = colleges.filter((c) => c.type === "external");
 
-  const officialInstitutions: Institution[] = colleges.map((c) => ({
+  // Also include the legacy dynamically computed external institutions
+  const dynamicExternals = getExternalInstitutions(students, officialFirestoreColleges);
+
+  // Merge Firestore external colleges with dynamic external institutions, avoiding duplicates
+  const externals: Institution[] = [
+    ...externalFirestoreColleges.map((c) => ({
+       id: c.id,
+       name: safeDisplayName(c.name ? c.name.toLowerCase() : "", c.id, "Unknown Institution").toLowerCase(),
+       type: "external" as const,
+       code: c.code,
+       departments: c.departments || [],
+       isDeleted: c.isDeleted,
+       studentCount: students.filter((s) => isStudentInCollege(s, c)).length,
+    })),
+    ...dynamicExternals.filter(dyn => !externalFirestoreColleges.some(extC => 
+         extC.id === dyn.id || extC.name.toLowerCase() === dyn.name.toLowerCase()
+    ))
+  ];
+
+  const officialInstitutions: Institution[] = officialFirestoreColleges.map((c) => ({
     id: c.id,
     name: safeDisplayName(c.name ? c.name.toLowerCase() : "", c.id, "Unknown Institution").toLowerCase(),
     type: "official",

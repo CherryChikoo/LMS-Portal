@@ -28,10 +28,11 @@ export async function POST(request: NextRequest) {
       await collegeRef.set({
         id: slug,
         name: lowerName,
+        type: "external",
         createdAt: new Date(),
         updatedAt: new Date()
       });
-      console.log(`[API] register-college: Created new college doc for ${slug}`);
+      console.log(`[API] register-college: Created new external college doc for ${slug}`);
     }
 
     return NextResponse.json({ success: true, slug, lowerName });

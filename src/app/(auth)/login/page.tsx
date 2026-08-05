@@ -11,6 +11,7 @@ import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { GlobalAlert } from "@/components/shared/global-alert";
 import { unifiedLogin, unifiedGoogleLogin, formatAuthError } from "@/lib/services/auth-service";
 import { setAuthSession } from "@/lib/utils/auth-session";
+import { toMillis } from "@/lib/utils/date";
 import { UserRole } from "@/types";
 import { useBranding } from "@/providers/branding-provider";
 
@@ -106,6 +107,7 @@ function LoginContent() {
         academicYear: res.profile?.academicYear,
         section: res.profile?.section,
         batchIds: res.profile?.batchIds,
+        createdAt: toMillis(res.profile?.createdAt) || Date.now(),
       };
       
       await setAuthSession(uObj, res.role as UserRole);

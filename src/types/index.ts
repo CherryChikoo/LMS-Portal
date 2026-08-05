@@ -48,6 +48,7 @@ export interface CollegeBranding {
 export interface College {
   id: string;
   name: string;
+  type?: "official" | "external";
   code: string;
   departments: string[];
   location?: string;

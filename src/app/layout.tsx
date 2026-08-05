@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Script from "next/script";
+
 import { AppProviders } from "@/providers/app-providers";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";

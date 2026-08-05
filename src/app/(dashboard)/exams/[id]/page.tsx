@@ -457,6 +457,7 @@ interface StudentDetailsProps {
 
 function StudentExamDetails({ exam, studentUser, studentChecked, nowMs }: StudentDetailsProps) {
   const router = useRouter();
+  const { attempts } = useLMSData();
 
   const isAssigned = useMemo(() => {
     if (!studentChecked) return true;
