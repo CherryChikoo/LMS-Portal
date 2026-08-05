@@ -184,7 +184,7 @@ export async function deleteCollege(id: string, onProgress?: (msg: string) => vo
     if (onProgress) {
        onProgress(`Processing deletion stage: ${step}...`);
     }
-    const response = await fetch("/api/admin/delete-college", {
+    const res = await fetch("/api/admin/delete-college", {
       method: "POST",
       headers: { 
         "Content-Type": "application/json",
@@ -193,22 +193,22 @@ export async function deleteCollege(id: string, onProgress?: (msg: string) => vo
       body: JSON.stringify({ id, step, cursor }),
     });
 
-    const data = await response.json();
+    const result = await res.json();
 
-    if (!response.ok || !data.success) {
+    if (!res.ok || !result.success) {
       throw new Error(
-        data.error ||
-        data.message ||
-        `Failed to delete college: ${response.status} ${response.statusText}`
+        result.error ||
+        result.message ||
+        `Failed to delete college: ${res.status} ${res.statusText}`
       );
     }
 
-    if (data.done) {
+    if (result.done) {
        break;
     }
 
-    step = data.nextStep;
-    cursor = data.cursor;
+    step = result.nextStep;
+    cursor = result.cursor;
   }
 }
 
