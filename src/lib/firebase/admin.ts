@@ -14,13 +14,18 @@ export function getAdminApp(): App {
 
   if (getApps().length === 0) {
     if (projectId && clientEmail && privateKey) {
-      return initializeApp({
-        credential: cert({
-          projectId,
-          clientEmail,
-          privateKey,
-        }),
-      });
+      try {
+        return initializeApp({
+          credential: cert({
+            projectId,
+            clientEmail,
+            privateKey,
+          }),
+        });
+      } catch (err: any) {
+        console.error("FATAL: Failed to initialize Firebase Admin SDK. Check your FIREBASE_ADMIN_PRIVATE_KEY format.", err);
+        throw new Error("Firebase Admin SDK failed to initialize: " + err.message);
+      }
     } else {
       console.warn("Initializing Firebase Admin SDK without explicit credentials. (Missing FIREBASE_ADMIN_CLIENT_EMAIL or FIREBASE_ADMIN_PRIVATE_KEY)");
       return initializeApp({
