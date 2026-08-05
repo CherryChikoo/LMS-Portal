@@ -63,12 +63,7 @@ export async function POST(request: NextRequest) {
 
     // STEP: AUTH - Delete Firebase Auth accounts for students/college_admins
     if (step === "auth") {
-      // For auth deletion, we'll chunk by students collection
-      let query = db.collection("students").where("collegeId", "==", collegeId).orderBy("__name__").limit(CHUNK_SIZE);
-      if (cursor) {
-        const cursorDoc = await db.collection("students").doc(cursor).get();
-        if (cursorDoc.exists) query = query.startAfter(cursorDoc);
-      }
+      let query = db.collection("students").where("collegeId", "==", collegeId).limit(CHUNK_SIZE);
       
       const snap = await query.get();
       if (snap.empty) {
@@ -78,26 +73,27 @@ export async function POST(request: NextRequest) {
            const adminEmail = collegeDoc.data()?.adminEmail;
            if (adminEmail) {
              try {
-                const u = await auth.getUserByEmail(adminEmail.toLowerCase().trim());
-                const userDoc = await db.collection("users").doc(u.uid).get();
-                if (userDoc.exists && userDoc.data()?.role === "college_admin") {
-                  await auth.deleteUser(u.uid);
-                }
+               const adminUser = await auth.getUserByEmail(adminEmail);
+               await auth.deleteUser(adminUser.uid);
+               await db.collection("users").doc(adminUser.uid).delete();
              } catch(e) {}
            }
         }
         return NextResponse.json({ success: true, nextStep: "content", cursor: undefined });
       }
 
+      const batchWrites = db.batch();
       const uids = snap.docs.map(d => d.id);
-      try {
-        await auth.deleteUsers(uids);
-      } catch (err) {
-        console.warn("[DeleteCollege] Auth deletion chunk failed/partial", err);
+      
+      await Promise.all(uids.map(uid => auth.deleteUser(uid).catch(() => {})));
+      
+      for (const doc of snap.docs) {
+        batchWrites.delete(doc.ref);
+        batchWrites.delete(db.collection("users").doc(doc.id));
       }
+      await batchWrites.commit();
 
-      const nextCursor = snap.docs[snap.docs.length - 1].id;
-      return NextResponse.json({ success: true, nextStep: "auth", cursor: nextCursor });
+      return NextResponse.json({ success: true, nextStep: "auth", cursor: undefined });
     }
 
     // STEP: CONTENT - Delete users, students, resources, doubts, trainer_notes
@@ -107,8 +103,6 @@ export async function POST(request: NextRequest) {
       
       const bulkWriter = db.bulkWriter();
       for (const col of collections) {
-         // Because we can't easily cursor across multiple collections in one request reliably under 10s,
-         // we just delete the first CHUNK_SIZE of whatever we find. Next request will delete more.
          const snap = await db.collection(col).where("collegeId", "==", collegeId).limit(CHUNK_SIZE).get();
          if (!snap.empty) {
             hasMoreAnywhere = true;
@@ -126,7 +120,6 @@ export async function POST(request: NextRequest) {
 
     // STEP: EXAMS - Delete exams, results, questions
     if (step === "exams") {
-       // We fetch ONE exam at a time, delete its results and questions, then delete the exam.
        const examsSnap = await db.collection("exams").where("collegeId", "==", collegeId).limit(1).get();
        
        if (examsSnap.empty) {
@@ -136,7 +129,6 @@ export async function POST(request: NextRequest) {
        const exam = examsSnap.docs[0];
        const bulkWriter = db.bulkWriter();
        
-       // Delete max 400 results/questions for this exam to stay under limit
        const [resSnap, qSnap] = await Promise.all([
           db.collection("exam_results").where("examId", "==", exam.id).limit(250).get(),
           db.collection("questions").where("examId", "==", exam.id).limit(250).get()
@@ -145,21 +137,19 @@ export async function POST(request: NextRequest) {
        resSnap.docs.forEach(d => bulkWriter.delete(d.ref));
        qSnap.docs.forEach(d => bulkWriter.delete(d.ref));
 
-       // If there are no more results/questions, delete the exam document itself
        if (resSnap.empty && qSnap.empty) {
           bulkWriter.delete(exam.ref);
        }
+       
        await bulkWriter.close();
-
-       // Keep repeating exams step until all exams and their sub-data are gone
        return NextResponse.json({ success: true, nextStep: "exams", cursor: undefined });
     }
 
-    // STEP: FINALIZE
+    // STEP: FINALIZE - Delete files and college doc
     if (step === "finalize") {
-      await deleteDocumentAdmin("colleges", collegeId);
-      await deleteStorageDirectory(`colleges/${collegeId}/`);
-      return NextResponse.json({ success: true, done: true, message: "College deleted successfully." });
+       await deleteStorageDirectory(`colleges/${collegeId}/`);
+       await db.collection("colleges").doc(collegeId).delete();
+       return NextResponse.json({ success: true, done: true, message: "College deleted successfully." });
     }
 
     return NextResponse.json({ success: true });
