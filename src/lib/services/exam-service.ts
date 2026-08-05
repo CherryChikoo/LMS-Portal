@@ -234,41 +234,20 @@ export async function deleteResultById(id: string): Promise<void> {
 }
 
 export async function clearAllResults(): Promise<void> {
-  // OPTIMIZATION: Use pagination to avoid loading all results into memory at once
-  // This prevents timeouts and memory issues with large datasets (10,000+ results)
-  const BATCH_SIZE = 500;
-  let hasMore = true;
-  let deletedCount = 0;
-  
-  while (hasMore) {
-    // Fetch next batch of results
-    const results = await getDocuments<ExamResult>(
-      RESULTS_COLLECTION, 
-      [], 
-      false, 
-      { pageSize: BATCH_SIZE }
-    );
-    
-    if (results.data.length === 0) {
-      hasMore = false;
-      break;
-    }
-    
-    // Delete current batch in parallel
-    await Promise.all(
-      results.data.map(r => deleteDocument(RESULTS_COLLECTION, r.id))
-    );
-    
-    deletedCount += results.data.length;
-    console.log(`[ClearAllResults] Deleted ${deletedCount} results so far...`);
-    
-    // If we got fewer results than the batch size, we're done
-    if (results.data.length < BATCH_SIZE) {
-      hasMore = false;
-    }
+  const token = await auth.currentUser?.getIdToken();
+  if (!token) throw new Error("Unauthorized");
+
+  const res = await fetch("/api/admin/clear-all-results", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    const data = await res.json();
+    throw new Error(data.error || "Failed to clear results");
   }
-  
-  console.log(`[ClearAllResults] Completed. Total deleted: ${deletedCount} results`);
 }
 
 /**

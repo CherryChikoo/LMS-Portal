@@ -59,8 +59,8 @@ export interface LMSDataCacheState {
 // ─── Configuration ───────────────────────────────────────────────────────────
 
 const CACHE_STORAGE_KEY = "lms_data_cache_v4";
-/** How often to poll Firestore for fresh data (in ms). 30 seconds for responsive updates. */
-const POLL_INTERVAL_MS = 30 * 1000; // 30 seconds (was 5 minutes)
+/** Base fallback poll interval */
+const DEFAULT_POLL_INTERVAL_MS = 60 * 1000;
 
 // ─── localStorage Persistence ────────────────────────────────────────────────
 
@@ -333,15 +333,37 @@ function recomputeScopedData() {
     }
   } catch (_) {}
 
+  // Pre-compute student counts to avoid O(N*M) filtering
+  const filteredStudentCountByColId = new Map<string, number>();
+  const filteredStudentCountByColName = new Map<string, number>();
+  const filteredStudentCountByBatchId = new Map<string, number>();
+
+  fStudents.forEach((s) => {
+    if (s.collegeId) {
+      const id = s.collegeId.toLowerCase();
+      filteredStudentCountByColId.set(id, (filteredStudentCountByColId.get(id) || 0) + 1);
+    }
+    if (s.collegeName) {
+      const name = s.collegeName.toLowerCase();
+      filteredStudentCountByColName.set(name, (filteredStudentCountByColName.get(name) || 0) + 1);
+    }
+    if (s.batchIds && Array.isArray(s.batchIds)) {
+      s.batchIds.forEach(bId => {
+        filteredStudentCountByBatchId.set(bId, (filteredStudentCountByBatchId.get(bId) || 0) + 1);
+      });
+    }
+  });
+
   // Dynamically compute accurate student counts for colleges and batches
-  fColleges = fColleges.map((c) => ({
-    ...c,
-    studentCount: fStudents.filter((s) => isStudentInCollege(s, c)).length,
-  }));
+  fColleges = fColleges.map((c) => {
+    const byId = c.id ? filteredStudentCountByColId.get(c.id.toLowerCase()) || 0 : 0;
+    const byName = c.name ? filteredStudentCountByColName.get(c.name.toLowerCase()) || 0 : 0;
+    return { ...c, studentCount: Math.max(byId, byName) };
+  });
 
   fBatches = fBatches.map((b) => ({
     ...b,
-    studentCount: fStudents.filter((s) => s.batchIds?.includes(b.id)).length,
+    studentCount: filteredStudentCountByBatchId.get(b.id) || 0,
   }));
 
   // Exclude external colleges from the main filteredColleges list used by the UI
@@ -353,7 +375,12 @@ function recomputeScopedData() {
   cache.filteredAttempts = fAttempts;
 
   // Include ALL colleges in hierarchy so computeExportedState can properly split them
-  cache.hierarchy = buildHierarchy(fColleges, fBatches, fStudents);
+  // Only rebuild hierarchy if the inputs actually changed (using lengths as a fast heuristic)
+  const hKey = `${fColleges.length}-${fBatches.length}-${fStudents.length}`;
+  if (!cache.hierarchy || (cache as any)._lastHierarchyKey !== hKey) {
+    cache.hierarchy = buildHierarchy(fColleges, fBatches, fStudents);
+    (cache as any)._lastHierarchyKey = hKey;
+  }
 
   if (cache.colleges || cache.students || cache.exams || cache.resources || cache.batches || cache.attempts) {
     cache.loading = false;
@@ -457,32 +484,45 @@ async function fetchAllData() {
         : Promise.resolve({ data: [], lastDoc: null }),
 
       // Exams: scope by college for non-admins
-      // College admins need exams that are:
-      // 1. Directly assigned to their college (collegeId === their college)
-      // 2. Global exams (collegeId === "global")
-      // 3. Exams with targets array that includes their college
+      // For college admins/students, we fetch their specific college + global exams
+      // We still rely on the client-side filter for advanced 'targets' array filtering
       (isStudent || isCollegeAdmin) && collegeId
-        ? getAllExams({ pageSize: 2000 }) // Fetch all, filter client-side for college admins
+        ? Promise.all([
+            getDocuments<Exam>("exams", [where("collegeId", "==", collegeId)], false, { pageSize: 500 }),
+            getDocuments<Exam>("exams", [where("collegeId", "in", ["global", "GLOBAL", "all", "ALL", ""])], false, { pageSize: 100 })
+          ]).then(([r1, r2]) => {
+            // Deduplicate in case of overlap
+            const unique = new Map();
+            [...r1.data, ...r2.data].forEach(e => unique.set(e.id, e));
+            return { data: Array.from(unique.values()), lastDoc: null };
+          })
         : isMainAdmin
         ? getAllExams({ pageSize: 2000 })
         : Promise.resolve({ data: [], lastDoc: null }),
 
-      // Resources: Fetch all resources for college admins/students, filter client-side
-      // This allows global resources and college-specific resources to be shown
+      // Resources: scope by college for non-admins
       (isCollegeAdmin || isStudent) && collegeId
-        ? getAllResources({ pageSize: 2000 }) // Fetch all, filter client-side
+        ? Promise.all([
+            getDocuments<Resource>("resources", [where("collegeId", "==", collegeId)], false, { pageSize: 500 }),
+            getDocuments<Resource>("resources", [where("collegeId", "in", ["global", "GLOBAL", "all", "ALL", ""])], false, { pageSize: 100 })
+          ]).then(([r1, r2]) => {
+            const unique = new Map();
+            [...r1.data, ...r2.data].forEach(r => unique.set(r.id, r));
+            return { data: Array.from(unique.values()), lastDoc: null };
+          })
         : isMainAdmin
         ? getAllResources({ pageSize: 2000 })
         : Promise.resolve({ data: [], lastDoc: null }),
 
       // Attempts: scope by student or college
       // Students need to see attempts for their college to populate the leaderboard
+      // Admins load on-demand on the results page to save massive reads here
       isStudent && collegeId
         ? getDocuments<ExamAttempt>("exam_results", [where("collegeId", "==", collegeId)], false, { pageSize: 500 })
         : isCollegeAdmin && collegeId
-        ? getDocuments<ExamAttempt>("exam_results", [where("collegeId", "==", collegeId)], false, { pageSize: 2000 })
+        ? getDocuments<ExamAttempt>("exam_results", [where("collegeId", "==", collegeId)], false, { pageSize: 500 }) // Cap at 500 for caching, more on-demand
         : isMainAdmin
-        ? getDocuments<ExamAttempt>("exam_results", [], false, { pageSize: 5000 })
+        ? Promise.resolve({ data: [], lastDoc: null }) // Admins fetch on-demand instead of polling ALL results
         : Promise.resolve({ data: [], lastDoc: null }),
     ]);
 
@@ -588,9 +628,10 @@ function startPolling() {
 
         // Start polling interval
         if (!pollTimer) {
+          const pollInterval = isMainAdmin || role === "college_admin" ? 60 * 1000 : 120 * 1000;
           pollTimer = setInterval(() => {
             fetchAllData();
-          }, POLL_INTERVAL_MS);
+          }, pollInterval);
         }
       });
 
@@ -624,6 +665,27 @@ function computeExportedState() {
   // Also include the legacy dynamically computed external institutions
   const dynamicExternals = getExternalInstitutions(students, officialFirestoreColleges);
 
+  // Pre-compute student counts for official and external colleges to avoid O(N*M) filtering
+  const studentCountByColId = new Map<string, number>();
+  const studentCountByColName = new Map<string, number>();
+  
+  students.forEach((s) => {
+    if (s.collegeId) {
+      const id = s.collegeId.toLowerCase();
+      studentCountByColId.set(id, (studentCountByColId.get(id) || 0) + 1);
+    }
+    if (s.collegeName) {
+      const name = s.collegeName.toLowerCase();
+      studentCountByColName.set(name, (studentCountByColName.get(name) || 0) + 1);
+    }
+  });
+
+  const getStudentCount = (c: College) => {
+    const byId = c.id ? studentCountByColId.get(c.id.toLowerCase()) || 0 : 0;
+    const byName = c.name ? studentCountByColName.get(c.name.toLowerCase()) || 0 : 0;
+    return Math.max(byId, byName);
+  };
+
   // Merge Firestore external colleges with dynamic external institutions, avoiding duplicates
   const externals: Institution[] = [
     ...externalFirestoreColleges.map((c) => ({
@@ -633,7 +695,7 @@ function computeExportedState() {
        code: c.code,
        departments: c.departments || [],
        isDeleted: c.isDeleted,
-       studentCount: students.filter((s) => isStudentInCollege(s, c)).length,
+       studentCount: getStudentCount(c),
     })),
     ...dynamicExternals.filter(dyn => !externalFirestoreColleges.some(extC => 
          extC.id === dyn.id || extC.name.toLowerCase() === dyn.name.toLowerCase()
@@ -647,7 +709,7 @@ function computeExportedState() {
     code: c.code,
     departments: c.departments,
     isDeleted: c.isDeleted,
-    studentCount: students.filter((s) => isStudentInCollege(s, c)).length,
+    studentCount: getStudentCount(c),
   }));
 
   const institutions: Institution[] = [
@@ -700,9 +762,17 @@ export function getLMSCache() {
  * Force an immediate refresh of all cached data from Firestore.
  * Call this after mutations (create/update/delete) to get fresh data without
  * waiting for the next poll interval.
+ * Debounced to prevent multiple immediate calls from triggering parallel fetches.
  */
+let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 export async function refreshCache(): Promise<void> {
-  await fetchAllData();
+  return new Promise((resolve) => {
+    if (refreshTimer) clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(async () => {
+      await fetchAllData();
+      resolve();
+    }, 100);
+  });
 }
 
 // ─── Optimistic Updates ──────────────────────────────────────────────────────

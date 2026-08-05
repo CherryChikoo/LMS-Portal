@@ -34,7 +34,7 @@ import { staggerContainer, staggerItem } from "@/lib/animations";
 import { getAllExamsIncludingDeleted, getAllStudents, getAllColleges, getAllResources, getEffectiveExamStatus, getStudentAttempts, filterResourcesForStudent, filterExamsForStudent, getAllBatches, isAttemptOwnedByStudent } from "@/lib/services";
 import { toDate } from "@/lib/utils/date";
 import type { Exam, Student, College, Resource, ExamAttempt, Batch, AssignmentTarget } from "@/types";
-import { useLMSData } from "@/lib/data/use-lms-data";
+import { useLMSData, useLMSDataSelector } from "@/lib/data/use-lms-data";
 import { useBranding } from "@/providers/branding-provider";
 
 export function StudentPortalDashboard({
@@ -301,15 +301,13 @@ export function StudentPortalDashboard({
 
 export default function DashboardPage() {
   const router = useRouter();
-  const {
-    filteredExams: exams,
-    filteredStudents: students,
-    filteredColleges: colleges,
-    filteredResources: resources,
-    filteredAttempts: attempts,
-    filteredBatches: batches,
-    loading,
-  } = useLMSData();
+  const exams = useLMSDataSelector((s) => s.filteredExams);
+  const students = useLMSDataSelector((s) => s.filteredStudents);
+  const colleges = useLMSDataSelector((s) => s.filteredColleges);
+  const resources = useLMSDataSelector((s) => s.filteredResources);
+  const attempts = useLMSDataSelector((s) => s.filteredAttempts);
+  const batches = useLMSDataSelector((s) => s.filteredBatches);
+  const loading = useLMSDataSelector((s) => s.loading);
 
   const activeStudents = useMemo(() => (students as Student[]).filter((s: Student) => !s.isDeleted), [students]);
 

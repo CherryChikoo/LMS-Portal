@@ -297,117 +297,157 @@ export async function renameCollegeAndMigrate(
     });
   }
 
-  // Fetch all students to ensure clean slug match captures every single student
-  const allStudentsSnap = await getDocs(collection(db, "students"));
-  allStudentsSnap.docs.forEach((studentDoc) => {
-    const sData = studentDoc.data();
-    const sColId = sData?.collegeId || "";
-    const sColName = sData?.collegeName || "";
-    const slugId = cleanSlug(sColId);
-    const slugName = cleanSlug(sColName);
+  // Fetch students specific to this college (by ID or exact old name)
+  const studentQueries = [query(collection(db, "students"), where("collegeId", "==", collegeId))];
+  if (oldName) studentQueries.push(query(collection(db, "students"), where("collegeName", "==", oldName)));
+  
+  const studentSnaps = await Promise.all(studentQueries.map(q => getDocs(q)));
+  const processedStudentIds = new Set<string>();
 
-    const matches =
-      sColId === collegeId ||
-      sColName === oldName ||
-      sColId === oldName ||
-      sColName === collegeId ||
-      (targetOldSlugId && slugId === targetOldSlugId) ||
-      (targetOldSlugId && slugName === targetOldSlugId) ||
-      (targetOldSlugName && slugId === targetOldSlugName) ||
-      (targetOldSlugName && slugName === targetOldSlugName);
+  studentSnaps.forEach(snap => {
+    snap.docs.forEach((studentDoc) => {
+      if (processedStudentIds.has(studentDoc.id)) return;
+      processedStudentIds.add(studentDoc.id);
+      
+      const sData = studentDoc.data();
+      const sColId = sData?.collegeId || "";
+      const sColName = sData?.collegeName || "";
+      const slugId = cleanSlug(sColId);
+      const slugName = cleanSlug(sColName);
 
-    if (matches) {
-      batch.update(studentDoc.ref, {
-        collegeId: isExternal ? normalizedNewName : (sColId || collegeId),
-        collegeName: normalizedNewName,
-        updatedAt: Timestamp.now(),
-      });
-    }
+      const matches =
+        sColId === collegeId ||
+        sColName === oldName ||
+        sColId === oldName ||
+        sColName === collegeId ||
+        (targetOldSlugId && slugId === targetOldSlugId) ||
+        (targetOldSlugId && slugName === targetOldSlugId) ||
+        (targetOldSlugName && slugId === targetOldSlugName) ||
+        (targetOldSlugName && slugName === targetOldSlugName);
+
+      if (matches) {
+        batch.update(studentDoc.ref, {
+          collegeId: isExternal ? normalizedNewName : (sColId || collegeId),
+          collegeName: normalizedNewName,
+          updatedAt: Timestamp.now(),
+        });
+      }
+    });
   });
 
-  // Fetch all users in users collection (including college_admin accounts)
-  const allUsersSnap = await getDocs(collection(db, "users"));
-  allUsersSnap.docs.forEach((uDoc) => {
-    const uData = uDoc.data();
-    const uColId = uData?.collegeId || "";
-    const uColName = uData?.collegeName || "";
-    const slugId = cleanSlug(uColId);
-    const slugName = cleanSlug(uColName);
+  // Fetch users specific to this college
+  const userQueries = [query(collection(db, "users"), where("collegeId", "==", collegeId))];
+  if (oldName) userQueries.push(query(collection(db, "users"), where("collegeName", "==", oldName)));
+  
+  const userSnaps = await Promise.all(userQueries.map(q => getDocs(q)));
+  const processedUserIds = new Set<string>();
 
-    const matches =
-      uColId === collegeId ||
-      uColName === oldName ||
-      uColId === oldName ||
-      uColName === collegeId ||
-      (targetOldSlugId && slugId === targetOldSlugId) ||
-      (targetOldSlugId && slugName === targetOldSlugId) ||
-      (targetOldSlugName && slugId === targetOldSlugName) ||
-      (targetOldSlugName && slugName === targetOldSlugName);
+  userSnaps.forEach(snap => {
+    snap.docs.forEach((uDoc) => {
+      if (processedUserIds.has(uDoc.id)) return;
+      processedUserIds.add(uDoc.id);
+      
+      const uData = uDoc.data();
+      const uColId = uData?.collegeId || "";
+      const uColName = uData?.collegeName || "";
+      const slugId = cleanSlug(uColId);
+      const slugName = cleanSlug(uColName);
 
-    if (matches) {
-      batch.update(uDoc.ref, {
-        collegeId: isExternal ? normalizedNewName : (uColId || collegeId),
-        collegeName: normalizedNewName,
-        displayName: uData.role === "college_admin" ? `${normalizedNewName} admin` : (uData.displayName || "User"),
-        updatedAt: Timestamp.now(),
-      });
-    }
+      const matches =
+        uColId === collegeId ||
+        uColName === oldName ||
+        uColId === oldName ||
+        uColName === collegeId ||
+        (targetOldSlugId && slugId === targetOldSlugId) ||
+        (targetOldSlugId && slugName === targetOldSlugId) ||
+        (targetOldSlugName && slugId === targetOldSlugName) ||
+        (targetOldSlugName && slugName === targetOldSlugName);
+
+      if (matches) {
+        batch.update(uDoc.ref, {
+          collegeId: isExternal ? normalizedNewName : (uColId || collegeId),
+          collegeName: normalizedNewName,
+          displayName: uData.role === "college_admin" ? `${normalizedNewName} admin` : (uData.displayName || "User"),
+          updatedAt: Timestamp.now(),
+        });
+      }
+    });
   });
 
   // Update exams for this college
-  const examsSnap = await getDocs(collection(db, "exams"));
-  examsSnap.docs.forEach((exDoc) => {
-    const eData = exDoc.data();
-    const eColId = eData?.collegeId || "";
-    const eColName = eData?.collegeName || "";
-    const slugId = cleanSlug(eColId);
-    const slugName = cleanSlug(eColName);
+  const examQueries = [query(collection(db, "exams"), where("collegeId", "==", collegeId))];
+  if (oldName) examQueries.push(query(collection(db, "exams"), where("collegeName", "==", oldName)));
+  
+  const examSnaps = await Promise.all(examQueries.map(q => getDocs(q)));
+  const processedExamIds = new Set<string>();
 
-    const matches =
-      eColId === collegeId ||
-      eColName === oldName ||
-      eColId === oldName ||
-      eColName === collegeId ||
-      (targetOldSlugId && slugId === targetOldSlugId) ||
-      (targetOldSlugId && slugName === targetOldSlugId) ||
-      (targetOldSlugName && slugId === targetOldSlugName) ||
-      (targetOldSlugName && slugName === targetOldSlugName);
+  examSnaps.forEach(snap => {
+    snap.docs.forEach((exDoc) => {
+      if (processedExamIds.has(exDoc.id)) return;
+      processedExamIds.add(exDoc.id);
+      
+      const eData = exDoc.data();
+      const eColId = eData?.collegeId || "";
+      const eColName = eData?.collegeName || "";
+      const slugId = cleanSlug(eColId);
+      const slugName = cleanSlug(eColName);
 
-    if (matches) {
-      batch.update(exDoc.ref, {
-        collegeName: normalizedNewName,
-        collegeId: isExternal ? normalizedNewName : (eColId || collegeId),
-        updatedAt: Timestamp.now(),
-      });
-    }
+      const matches =
+        eColId === collegeId ||
+        eColName === oldName ||
+        eColId === oldName ||
+        eColName === collegeId ||
+        (targetOldSlugId && slugId === targetOldSlugId) ||
+        (targetOldSlugId && slugName === targetOldSlugId) ||
+        (targetOldSlugName && slugId === targetOldSlugName) ||
+        (targetOldSlugName && slugName === targetOldSlugName);
+
+      if (matches) {
+        batch.update(exDoc.ref, {
+          collegeName: normalizedNewName,
+          collegeId: isExternal ? normalizedNewName : (eColId || collegeId),
+          updatedAt: Timestamp.now(),
+        });
+      }
+    });
   });
 
   // Update resources for this college
-  const resourcesSnap = await getDocs(collection(db, "resources"));
-  resourcesSnap.docs.forEach((resDoc) => {
-    const rData = resDoc.data();
-    const rColId = rData?.collegeId || "";
-    const rColName = rData?.collegeName || "";
-    const slugId = cleanSlug(rColId);
-    const slugName = cleanSlug(rColName);
+  const resourceQueries = [query(collection(db, "resources"), where("collegeId", "==", collegeId))];
+  if (oldName) resourceQueries.push(query(collection(db, "resources"), where("collegeName", "==", oldName)));
+  
+  const resourceSnaps = await Promise.all(resourceQueries.map(q => getDocs(q)));
+  const processedResourceIds = new Set<string>();
 
-    const matches =
-      rColId === collegeId ||
-      rColName === oldName ||
-      rColId === oldName ||
-      rColName === collegeId ||
-      (targetOldSlugId && slugId === targetOldSlugId) ||
-      (targetOldSlugId && slugName === targetOldSlugId) ||
-      (targetOldSlugName && slugId === targetOldSlugName) ||
-      (targetOldSlugName && slugName === targetOldSlugName);
+  resourceSnaps.forEach(snap => {
+    snap.docs.forEach((resDoc) => {
+      if (processedResourceIds.has(resDoc.id)) return;
+      processedResourceIds.add(resDoc.id);
+      
+      const rData = resDoc.data();
+      const rColId = rData?.collegeId || "";
+      const rColName = rData?.collegeName || "";
+      const slugId = cleanSlug(rColId);
+      const slugName = cleanSlug(rColName);
 
-    if (matches) {
-      batch.update(resDoc.ref, {
-        collegeName: normalizedNewName,
-        collegeId: isExternal ? normalizedNewName : (rColId || collegeId),
-        updatedAt: Timestamp.now(),
-      });
-    }
+      const matches =
+        rColId === collegeId ||
+        rColName === oldName ||
+        rColId === oldName ||
+        rColName === collegeId ||
+        (targetOldSlugId && slugId === targetOldSlugId) ||
+        (targetOldSlugId && slugName === targetOldSlugId) ||
+        (targetOldSlugName && slugId === targetOldSlugName) ||
+        (targetOldSlugName && slugName === targetOldSlugName);
+
+      if (matches) {
+        batch.update(resDoc.ref, {
+          collegeName: normalizedNewName,
+          collegeId: isExternal ? normalizedNewName : (rColId || collegeId),
+          updatedAt: Timestamp.now(),
+        });
+      }
+    });
   });
 
   await batch.commit();
