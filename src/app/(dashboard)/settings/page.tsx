@@ -47,7 +47,7 @@ import {
   reauthenticateWithCredential,
   getIdToken,
 } from "firebase/auth";
-import { setDoc, doc, getDoc, onSnapshot, getDocuments, where, deleteDocument, serverTimestamp } from "@/lib/firebase/firestore";
+import { setDoc, doc, getDoc, onSnapshot, getDocuments, where, deleteDocument, serverTimestamp, writeBatch } from "@/lib/firebase/firestore";
 import { deleteField } from "firebase/firestore";
 import { subscribeToCompanyBranding, updateCompanyBranding, type CompanyBranding } from "@/lib/services/branding-service";
 import { getCollegeById, updateCollege } from "@/lib/services/college-service";
@@ -164,8 +164,10 @@ function StudentAccountSettings() {
         updatedAt: new Date().toISOString()
       };
 
-      await setDoc(doc(db, "students", primaryId), baseUpdateData, { merge: true });
-      await setDoc(doc(db, "users", primaryId), baseUpdateData, { merge: true });
+      const batch = writeBatch(db);
+      batch.set(doc(db, "students", primaryId), baseUpdateData, { merge: true });
+      batch.set(doc(db, "users", primaryId), baseUpdateData, { merge: true });
+      await batch.commit();
 
       // 2. Update Firebase Auth display name when name changes
       if (auth.currentUser && name !== u.name) {
@@ -181,12 +183,11 @@ function StudentAccountSettings() {
       if (name !== u.name && primaryId) {
         try {
           const results = await getDocuments("exam_results", [where("studentId", "==", primaryId)]);
-          await Promise.all(
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            results.data.map((r: any) =>
-              setDoc(doc(db, "exam_results", r.id), { studentName: name, updatedAt: new Date() }, { merge: true })
-            )
+          const resultsBatch = writeBatch(db);
+          results.data.forEach((r: any) =>
+            resultsBatch.set(doc(db, "exam_results", r.id), { studentName: name, updatedAt: new Date() }, { merge: true })
           );
+          await resultsBatch.commit();
            
         } catch (syncErr: unknown) {
           console.warn("Could not sync name to past results:", syncErr);
@@ -212,8 +213,10 @@ function StudentAccountSettings() {
 
         if (!auth.currentUser) {
           // Demo / fallback user without a live Firebase Auth session: update Firestore only.
-          await setDoc(doc(db, "students", primaryId), { email: cleanEmail }, { merge: true });
-          await setDoc(doc(db, "users", primaryId), { email: cleanEmail }, { merge: true });
+          const fallbackBatch = writeBatch(db);
+          fallbackBatch.set(doc(db, "students", primaryId), { email: cleanEmail }, { merge: true });
+          fallbackBatch.set(doc(db, "users", primaryId), { email: cleanEmail }, { merge: true });
+          await fallbackBatch.commit();
 
           // Delete old duplicate records that still reference the previous email
           const oldStudents = await getDocuments("students", [where("email", "==", oldEmail)]);
@@ -272,8 +275,10 @@ function StudentAccountSettings() {
           }
 
           // Update Firestore records safely with merge.
-          await setDoc(doc(db, "students", primaryId), { email: cleanEmail }, { merge: true });
-          await setDoc(doc(db, "users", primaryId), { email: cleanEmail }, { merge: true });
+          const secureBatch = writeBatch(db);
+          secureBatch.set(doc(db, "students", primaryId), { email: cleanEmail }, { merge: true });
+          secureBatch.set(doc(db, "users", primaryId), { email: cleanEmail }, { merge: true });
+          await secureBatch.commit();
 
           const updated = { ...u, name, email: cleanEmail, department, rollNumber, college, phone };
           localStorage.setItem("lms_user", JSON.stringify(updated));
@@ -357,8 +362,10 @@ function StudentAccountSettings() {
         updatedAt: new Date().toISOString()
       };
 
-      await setDoc(doc(db, "students", primaryId), pwdUpdateData, { merge: true });
-      await setDoc(doc(db, "users", primaryId), pwdUpdateData, { merge: true });
+      const pwdBatch = writeBatch(db);
+      pwdBatch.set(doc(db, "students", primaryId), pwdUpdateData, { merge: true });
+      pwdBatch.set(doc(db, "users", primaryId), pwdUpdateData, { merge: true });
+      await pwdBatch.commit();
 
       const targetEmail = (u.email || email).toLowerCase().trim();
       if (targetEmail) {

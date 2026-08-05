@@ -252,16 +252,18 @@ export async function updateFirstLoginPassword(newPassword: string): Promise<voi
   // Clear mustChangePassword flag in Firestore profile if present
   const profile = await getDocument<ExtendedUser>(USERS_COLLECTION, currentUser.uid);
   if (profile) {
-    await setDoc(
+    const firstLoginBatch = writeBatch(db);
+    firstLoginBatch.set(
       doc(db, USERS_COLLECTION, currentUser.uid),
       { ...profile, mustChangePassword: false, updatedAt: new Date() },
       { merge: true }
     );
-    await setDoc(
+    firstLoginBatch.set(
       doc(db, STUDENTS_COLLECTION, currentUser.uid),
       { mustChangePassword: false, updatedAt: new Date() },
       { merge: true }
     );
+    await firstLoginBatch.commit();
   }
 }
 

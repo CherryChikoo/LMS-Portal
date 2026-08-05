@@ -11,9 +11,7 @@ const nextConfig: NextConfig = {
     optimizePackageImports: ['lucide-react', 'motion', 'recharts'],
   },
   serverExternalPackages: ['firebase-admin'],
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
+
   typescript: {
     ignoreBuildErrors: true,
   },

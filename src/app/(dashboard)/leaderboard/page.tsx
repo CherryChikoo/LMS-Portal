@@ -26,7 +26,7 @@ interface StudentRank {
 }
 
 function LeaderboardContent() {
-  const { students, attempts, colleges, loading } = useLMSData();
+  const { filteredStudents: students, filteredAttempts: attempts, filteredColleges: colleges, loading } = useLMSData();
   const { resolveInstitution } = useEntityResolution();
   const [userRole, setUserRole] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -102,30 +102,6 @@ function LeaderboardContent() {
         target.score += (att.score || 0);
         target.max += (att.totalMarks || 0);
         target.count += 1;
-      } else {
-        const virtualStud: Student = {
-          status: "active" as const,
-          id: att.studentId || "unknown",
-          name: att.studentName || (att as any).studentEmail || "Student",
-          email: (att as any).studentEmail || "",
-          department: "",
-          collegeId: (att as any).collegeId || "",
-          semester: 1,
-          section: "A",
-          rollNumber: "",
-          batchIds: [],
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        };
-        const newStat: StudentStats = {
-          student: virtualStud,
-          score: att.score || 0,
-          max: att.totalMarks || 0,
-          count: 1,
-        };
-        studentStatsList.push(newStat);
-        if (attId) statsMap.set(attId, newStat);
-        if (attEmail) statsMap.set(attEmail, newStat);
       }
     });
 
