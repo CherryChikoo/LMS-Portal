@@ -103,11 +103,12 @@ export async function createStudentAuthProfile(
         };
       }
       if (response.status === 400 || response.status === 409) {
-        throw new Error(body.error || "Failed to create student account.");
+        throw new Error(body.message || body.error || "Failed to create student account.");
       }
     } catch (err: unknown) {
-      const msg = getErrorMessage(err);
-      if (msg && (msg.includes("already exists") || msg.includes("valid"))) {
+      const msg = getErrorMessage(err).toLowerCase();
+      // If the error message clearly indicates a validation or duplication error, throw it.
+      if (msg && (msg.includes("already exists") || msg.includes("valid") || msg.includes("email"))) {
         throw err;
       }
       console.warn("Server API student creation failed, executing resilient Firestore fallback:", err);
