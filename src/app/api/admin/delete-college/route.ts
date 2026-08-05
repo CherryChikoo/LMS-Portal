@@ -4,118 +4,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth, getAdminApp } from "@/lib/firebase/admin";
 import { getFirestore } from "firebase-admin/firestore";
 import { z } from "zod";
-import { bulkDeleteByQuery, deleteDocumentAdmin, deleteStorageDirectory } from '@/lib/services/cleanup-service';
+import { deleteDocumentAdmin, deleteStorageDirectory } from '@/lib/services/cleanup-service';
+
+export const dynamic = "force-dynamic";
 
 const DeleteCollegeSchema = z.object({
   id: z.string().min(1, "College ID is required."),
   collegeName: z.string().optional(),
+  step: z.enum(["init", "auth", "content", "exams", "finalize"]).optional().default("init"),
+  cursor: z.string().optional(),
 }).strict();
-
-/**
- * Helper function to delete ALL documents (exams/resources) related to a college.
- * Checks multiple fields:
- * 1. Direct collegeId field
- * 2. Direct collegeName field  
- * 3. targets array (targets[0].collegeId or targets[0].collegeName)
- * 
- * Processes in batches to avoid memory issues.
- */
-async function deleteAllCollegeContent(
-  db: ReturnType<typeof getFirestore>,
-  collectionName: string,
-  collegeId: string,
-  collegeName?: string
-): Promise<number> {
-  let deletedCount = 0;
-  const BATCH_SIZE = 500;
-  
-  console.log(`[DeleteCollege] Scanning ${collectionName} for college ${collegeId} (${collegeName})...`);
-  
-  // Fetch ALL documents in batches and check them
-  let lastDoc: any = null;
-  let hasMore = true;
-
-  while (hasMore) {
-    let query = db.collection(collectionName)
-      .orderBy('__name__')
-      .limit(BATCH_SIZE);
-    
-    if (lastDoc) {
-      query = query.startAfter(lastDoc);
-    }
-
-    const snapshot = await query.get();
-    if (snapshot.empty) {
-      hasMore = false;
-      break;
-    }
-
-    const bulkWriter = db.bulkWriter();
-    bulkWriter.onWriteError((error) => {
-      if (error.failedAttempts < 3) return true;
-      console.error(`[DeleteCollege] BulkWriter error for ${collectionName}:`, error);
-      return false;
-    });
-
-    // Check each document
-    snapshot.docs.forEach(doc => {
-      const data = doc.data();
-      let shouldDelete = false;
-      
-      // Check 1: Direct collegeId match
-      if (data.collegeId === collegeId) {
-        shouldDelete = true;
-      }
-      
-      // Check 2: Direct collegeName match
-      if (!shouldDelete && collegeName && data.collegeName) {
-        const normalizedName = String(data.collegeName).toLowerCase().trim();
-        const normalizedTarget = collegeName.toLowerCase().trim();
-        if (normalizedName === normalizedTarget) {
-          shouldDelete = true;
-        }
-      }
-      
-      // Check 3: targets array (targets[0].collegeId or targets[0].collegeName)
-      if (!shouldDelete && Array.isArray(data.targets) && data.targets.length > 0) {
-        const hasCollegeInTargets = data.targets.some((t: any) => {
-          // Check collegeId in targets
-          if (t && typeof t === 'object' && t.collegeId === collegeId) {
-            return true;
-          }
-          // Check collegeName in targets
-          if (t && typeof t === 'object' && collegeName && t.collegeName) {
-            const tName = String(t.collegeName).toLowerCase().trim();
-            const targetName = collegeName.toLowerCase().trim();
-            return tName === targetName;
-          }
-          // Check if target is just a string (collegeId)
-          if (typeof t === 'string' && t === collegeId) {
-            return true;
-          }
-          return false;
-        });
-        
-        if (hasCollegeInTargets) {
-          shouldDelete = true;
-        }
-      }
-      
-      if (shouldDelete) {
-        bulkWriter.delete(doc.ref);
-        deletedCount++;
-      }
-    });
-
-    await bulkWriter.close();
-
-    lastDoc = snapshot.docs[snapshot.docs.length - 1];
-    hasMore = snapshot.docs.length === BATCH_SIZE;
-  }
-
-  console.log(`[DeleteCollege] ✅ Deleted ${deletedCount} ${collectionName} documents for college ${collegeId}`);
-  return deletedCount;
-}
 
 export async function POST(request: NextRequest) {
   let stage = "parseRequest";
@@ -152,179 +50,120 @@ export async function POST(request: NextRequest) {
     if (!parseResult.success) {
       return NextResponse.json({ success: false, stage, errorCode: "invalid-argument", message: parseResult.error.issues[0].message }, { status: 400 });
     }
-    const { id: collegeId } = parseResult.data;
+    
+    const { id: collegeId, step, cursor } = parseResult.data;
+    const CHUNK_SIZE = 50;
 
-    stage = "gatherAuthUids";
-    const authUidsToDelete = new Set<string>();
-    
-    // OPTIMIZATION: Parallelize independent queries
-    const [collegeDoc, usersSnap, studentsSnap] = await Promise.all([
-      db.collection("colleges").doc(collegeId).get(),
-      db.collection("users").where("collegeId", "==", collegeId).get(),
-      db.collection("students").where("collegeId", "==", collegeId).get()
-    ]);
-    
-    // Add college admin emails (from the college doc)
-    // CRITICAL: Only delete if role is college_admin
-    if (collegeDoc.exists) {
-      const adminEmail = collegeDoc.data()?.adminEmail;
-      if (adminEmail) {
-        try {
-          const u = await auth.getUserByEmail(adminEmail.toLowerCase().trim());
-          // Check role before deleting
-          const userDoc = await db.collection("users").doc(u.uid).get();
-          const userRole = userDoc.exists ? userDoc.data()?.role : null;
-          
-          // ONLY delete college_admin, never delete main_admin/admin/trainer/superadmin
-          if (userRole === 'college_admin') {
-            authUidsToDelete.add(u.uid);
-          } else {
-            console.log(`[DeleteCollege] Skipping deletion of protected role: ${userRole} (${adminEmail})`);
-          }
-        } catch (_) {
-          // Admin email not found in Auth - skip
+    console.log(`[DeleteCollege] Step: ${step}, Cursor: ${cursor || 'none'}`);
+
+    // STEP: INIT - Setup and begin
+    if (step === "init") {
+      return NextResponse.json({ success: true, nextStep: "auth", cursor: undefined });
+    }
+
+    // STEP: AUTH - Delete Firebase Auth accounts for students/college_admins
+    if (step === "auth") {
+      // For auth deletion, we'll chunk by students collection
+      let query = db.collection("students").where("collegeId", "==", collegeId).orderBy("__name__").limit(CHUNK_SIZE);
+      if (cursor) {
+        const cursorDoc = await db.collection("students").doc(cursor).get();
+        if (cursorDoc.exists) query = query.startAfter(cursorDoc);
+      }
+      
+      const snap = await query.get();
+      if (snap.empty) {
+        // Also delete college admin auth if we're done with students
+        const collegeDoc = await db.collection("colleges").doc(collegeId).get();
+        if (collegeDoc.exists) {
+           const adminEmail = collegeDoc.data()?.adminEmail;
+           if (adminEmail) {
+             try {
+                const u = await auth.getUserByEmail(adminEmail.toLowerCase().trim());
+                const userDoc = await db.collection("users").doc(u.uid).get();
+                if (userDoc.exists && userDoc.data()?.role === "college_admin") {
+                  await auth.deleteUser(u.uid);
+                }
+             } catch(e) {}
+           }
         }
+        return NextResponse.json({ success: true, nextStep: "content", cursor: undefined });
       }
-    }
 
-    // Gather user UIDs - ONLY college_admin and student roles
-    // CRITICAL: Never delete main_admin/admin/trainer/superadmin accounts
-    usersSnap.docs.forEach(doc => {
-      const data = doc.data();
-      const role = data?.role;
-      
-      // Only delete non-protected roles
-      if (role === 'college_admin' || role === 'student' || !role) {
-        authUidsToDelete.add(doc.id);
-      } else {
-        console.log(`[DeleteCollege] Skipping deletion of protected role: ${role} (${doc.id})`);
-      }
-    });
-    
-    // Students are always safe to delete
-    studentsSnap.docs.forEach(doc => authUidsToDelete.add(doc.id));
-
-    stage = "deleteAuthAccounts";
-    const uidsArray = Array.from(authUidsToDelete);
-    if (uidsArray.length > 0) {
+      const uids = snap.docs.map(d => d.id);
       try {
-        await auth.deleteUsers(uidsArray);
-      } catch (err: any) {
-        console.warn(`[CleanupService] Some Auth accounts failed to delete: ${err.message}`);
+        await auth.deleteUsers(uids);
+      } catch (err) {
+        console.warn("[DeleteCollege] Auth deletion chunk failed/partial", err);
+      }
+
+      const nextCursor = snap.docs[snap.docs.length - 1].id;
+      return NextResponse.json({ success: true, nextStep: "auth", cursor: nextCursor });
+    }
+
+    // STEP: CONTENT - Delete users, students, resources, doubts, trainer_notes
+    if (step === "content") {
+      const collections = ["users", "students", "resources", "doubts", "trainer_notes", "batches", "departments", "courses"];
+      let hasMoreAnywhere = false;
+      
+      const bulkWriter = db.bulkWriter();
+      for (const col of collections) {
+         // Because we can't easily cursor across multiple collections in one request reliably under 10s,
+         // we just delete the first CHUNK_SIZE of whatever we find. Next request will delete more.
+         const snap = await db.collection(col).where("collegeId", "==", collegeId).limit(CHUNK_SIZE).get();
+         if (!snap.empty) {
+            hasMoreAnywhere = true;
+            snap.docs.forEach(d => bulkWriter.delete(d.ref));
+         }
+      }
+      await bulkWriter.close();
+
+      if (hasMoreAnywhere) {
+         return NextResponse.json({ success: true, nextStep: "content", cursor: undefined });
+      } else {
+         return NextResponse.json({ success: true, nextStep: "exams", cursor: undefined });
       }
     }
 
-    stage = "fetchExamAndStudentDependencies";
-    const examsSnap = await db.collection("exams").where("collegeId", "==", collegeId).get();
-    const examIds = examsSnap.docs.map(doc => doc.id);
+    // STEP: EXAMS - Delete exams, results, questions
+    if (step === "exams") {
+       // We fetch ONE exam at a time, delete its results and questions, then delete the exam.
+       const examsSnap = await db.collection("exams").where("collegeId", "==", collegeId).limit(1).get();
+       
+       if (examsSnap.empty) {
+          return NextResponse.json({ success: true, nextStep: "finalize", cursor: undefined });
+       }
 
-    stage = "cascadingDelete";
-    
-    // Delete exam-related data first (results and questions)
-    const bulkWriter = db.bulkWriter();
-    bulkWriter.onWriteError((error) => {
-      if (error.failedAttempts < 3) return true;
-      console.error(`[DeleteCollege] BulkWriter failed after retries:`, error);
-      return false;
-    });
+       const exam = examsSnap.docs[0];
+       const bulkWriter = db.bulkWriter();
+       
+       // Delete max 400 results/questions for this exam to stay under limit
+       const [resSnap, qSnap] = await Promise.all([
+          db.collection("exam_results").where("examId", "==", exam.id).limit(250).get(),
+          db.collection("questions").where("examId", "==", exam.id).limit(250).get()
+       ]);
 
-    // Parallelize exam results and questions deletion
-    const examDeletionPromises = examIds.map(async (eId) => {
-      const [eResSnap, qSnap] = await Promise.all([
-        db.collection("exam_results").where("examId", "==", eId).get(),
-        db.collection("questions").where("examId", "==", eId).get()
-      ]);
-      eResSnap.docs.forEach(doc => bulkWriter.delete(doc.ref));
-      qSnap.docs.forEach(doc => bulkWriter.delete(doc.ref));
-    });
+       resSnap.docs.forEach(d => bulkWriter.delete(d.ref));
+       qSnap.docs.forEach(d => bulkWriter.delete(d.ref));
 
-    await Promise.all(examDeletionPromises);
-    
-    // Delete all exam_results for students in this college (chunked 'in' queries)
-    if (uidsArray.length > 0) {
-      const CHUNK_SIZE = 10;
-      const studentResultPromises: Promise<void>[] = [];
-      
-      for (let i = 0; i < uidsArray.length; i += CHUNK_SIZE) {
-        const chunk = uidsArray.slice(i, i + CHUNK_SIZE);
-        const promise = db.collection("exam_results")
-          .where("studentId", "in", chunk)
-          .get()
-          .then(chunkResSnap => {
-            chunkResSnap.docs.forEach(doc => bulkWriter.delete(doc.ref));
-          });
-        studentResultPromises.push(promise);
-      }
-      
-      await Promise.all(studentResultPromises);
-    }
-    
-    await bulkWriter.close();
+       // If there are no more results/questions, delete the exam document itself
+       if (resSnap.empty && qSnap.empty) {
+          bulkWriter.delete(exam.ref);
+       }
+       await bulkWriter.close();
 
-    // Get college name for comprehensive deletion
-    let collegeName = parseResult.data.collegeName;
-    if (!collegeName && collegeDoc.exists) {
-      collegeName = collegeDoc.data()?.name;
+       // Keep repeating exams step until all exams and their sub-data are gone
+       return NextResponse.json({ success: true, nextStep: "exams", cursor: undefined });
     }
 
-    // COMPREHENSIVE DELETION: Delete ALL content related to this college
-    // This handles: direct collegeId, collegeName, and targets array
-    stage = "deleteAllCollegeContent";
-    console.log(`[DeleteCollege] Starting comprehensive deletion for ${collegeId} (${collegeName})...`);
-    
-    await Promise.all([
-      deleteAllCollegeContent(db, "students", collegeId, collegeName),
-      deleteAllCollegeContent(db, "users", collegeId, collegeName),
-      deleteAllCollegeContent(db, "exams", collegeId, collegeName),
-      deleteAllCollegeContent(db, "batches", collegeId, collegeName),
-      deleteAllCollegeContent(db, "departments", collegeId, collegeName),
-      deleteAllCollegeContent(db, "resources", collegeId, collegeName),
-      deleteAllCollegeContent(db, "courses", collegeId, collegeName)
-    ]);
-    
-    // Wipe nested student data (Dual Sweep) - OPTIMIZED with parallelization
-    if (uidsArray.length > 0) {
-      const studentBulkWriter = db.bulkWriter();
-      studentBulkWriter.onWriteError((error) => {
-        if (error.failedAttempts < 3) return true;
-        console.error(`[DeleteCollege] StudentBulkWriter failed:`, error);
-        return false;
-      });
-
-      const CHUNK_SIZE = 10;
-      const nestedDataPromises: Promise<void>[] = [];
-      
-      for (let i = 0; i < uidsArray.length; i += CHUNK_SIZE) {
-        const chunk = uidsArray.slice(i, i + CHUNK_SIZE);
-        
-        // Parallelize trainer_notes and doubts queries
-        const promise = Promise.all([
-          db.collection("trainer_notes").where("studentId", "in", chunk).get(),
-          db.collection("doubts").where("studentId", "in", chunk).get()
-        ]).then(([notesSnap, doubtsSnap]) => {
-          notesSnap.docs.forEach(doc => studentBulkWriter.delete(doc.ref));
-          doubtsSnap.docs.forEach(doc => studentBulkWriter.delete(doc.ref));
-        });
-        
-        nestedDataPromises.push(promise);
-      }
-      
-      await Promise.all(nestedDataPromises);
-      await studentBulkWriter.close();
+    // STEP: FINALIZE
+    if (step === "finalize") {
+      await deleteDocumentAdmin("colleges", collegeId);
+      await deleteStorageDirectory(`colleges/${collegeId}/`);
+      return NextResponse.json({ success: true, done: true, message: "College deleted successfully." });
     }
-    
-    // 4. Delete college document itself
-    await deleteDocumentAdmin("colleges", collegeId);
 
-    // 5. Cloud Storage Garbage Collection
-    stage = "deleteStorageFiles";
-    await deleteStorageDirectory(`colleges/${collegeId}/`);
+    return NextResponse.json({ success: true });
 
-    return NextResponse.json({ 
-      success: true, 
-      message: "College and all associated data completely deleted.",
-      purgedAuthAccounts: uidsArray.length
-    });
   } catch (err: unknown) {
     const message = process.env.NODE_ENV === "production" ? "Internal server error." : getErrorMessage(err);
     return NextResponse.json({ success: false, stage, message, retryable: true }, { status: 500 });

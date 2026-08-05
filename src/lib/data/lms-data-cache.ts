@@ -474,13 +474,14 @@ async function fetchAllData() {
         ? getAllBatches({ pageSize: 500 })
         : Promise.resolve({ data: [], lastDoc: null }),
 
-      // Students: scope by college for non-admins
-      isStudent && collegeId
-        ? getStudentsByCollege(collegeId, { pageSize: 1000 })
+      // Students: scope by college/batch for non-admins
+      // Admins load on-demand on the students page to save massive reads
+      (isStudent && batchIds.length > 0)
+        ? getDocuments<Student>("students", [where("batchId", "in", batchIds)], false, { pageSize: 500 })
         : isCollegeAdmin && collegeId
         ? getStudentsByCollege(collegeId, { pageSize: 2000 })
         : isMainAdmin
-        ? getAllStudents({ pageSize: 5000 })
+        ? Promise.resolve({ data: [], lastDoc: null })
         : Promise.resolve({ data: [], lastDoc: null }),
 
       // Exams: scope by college for non-admins

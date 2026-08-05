@@ -169,11 +169,7 @@ export async function updateCollege(
   );
 }
 
-/**
- * ⚠️ CRITICAL FIX: Delete college with proper error handling
- * NO SILENT FAILURES - All errors propagate to caller
- */
-export async function deleteCollege(id: string): Promise<void> {
+export async function deleteCollege(id: string, onProgress?: (msg: string) => void): Promise<void> {
   const currentUser = auth.currentUser;
   if (!currentUser) {
     throw new Error("User must be authenticated to delete colleges");
@@ -181,23 +177,38 @@ export async function deleteCollege(id: string): Promise<void> {
 
   const adminIdToken = await currentUser.getIdToken(true);
 
-  const response = await fetch("/api/admin/delete-college", {
-    method: "POST",
-    headers: { 
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${adminIdToken}`
-    },
-    body: JSON.stringify({ id }),
-  });
+  let step = "init";
+  let cursor: string | undefined = undefined;
 
-  const data = await response.json();
+  while (true) {
+    if (onProgress) {
+       onProgress(`Processing deletion stage: ${step}...`);
+    }
+    const response = await fetch("/api/admin/delete-college", {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${adminIdToken}`
+      },
+      body: JSON.stringify({ id, step, cursor }),
+    });
 
-  if (!response.ok || !data.success) {
-    throw new Error(
-      data.error ||
-      data.message ||
-      `Failed to delete college: ${response.status} ${response.statusText}`
-    );
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      throw new Error(
+        data.error ||
+        data.message ||
+        `Failed to delete college: ${response.status} ${response.statusText}`
+      );
+    }
+
+    if (data.done) {
+       break;
+    }
+
+    step = data.nextStep;
+    cursor = data.cursor;
   }
 }
 
