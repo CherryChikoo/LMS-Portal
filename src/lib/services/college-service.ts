@@ -184,7 +184,7 @@ export async function deleteCollege(id: string, onProgress?: (msg: string) => vo
     if (onProgress) {
        onProgress(`Processing deletion stage: ${step}...`);
     }
-    const res = await fetch("/api/admin/delete-college", {
+    const res: Response = await fetch("/api/admin/delete-college", {
       method: "POST",
       headers: { 
         "Content-Type": "application/json",
