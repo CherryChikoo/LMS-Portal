@@ -33,7 +33,18 @@ Correct Answer: ${q.correctAnswer}
 Respond ONLY with the raw JSON array. Do not include markdown code blocks.`;
 
   try {
-    const result = await model.generateContent(prompt);
+    let result;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        result = await model.generateContent(prompt);
+        break; // Success
+      } catch (apiErr) {
+        if (attempt === 3) throw apiErr;
+        console.log(`[GEMINI.TS] Gemini API busy (attempt ${attempt}/3). Retrying in 5 seconds...`);
+        await new Promise(r => setTimeout(r, 5000));
+      }
+    }
+
     const response = await result.response;
     let text = response.text();
     
@@ -65,7 +76,17 @@ ${questions.map(q => `- ${q.text}`).join("\n")}
 Please format your response in professional, structured Markdown.`;
 
   try {
-    const result = await model.generateContent(prompt);
+    let result;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        result = await model.generateContent(prompt);
+        break;
+      } catch (apiErr) {
+        if (attempt === 3) throw apiErr;
+        console.log(`[GEMINI.TS Summary] API busy (attempt ${attempt}/3). Retrying in 5s...`);
+        await new Promise(r => setTimeout(r, 5000));
+      }
+    }
     const response = await result.response;
     return response.text();
   } catch (error: unknown) {
@@ -96,7 +117,17 @@ Your review should:
 Format the output strictly as a professional Markdown document.`;
 
   try {
-    const result = await model.generateContent(prompt);
+    let result;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        result = await model.generateContent(prompt);
+        break;
+      } catch (apiErr) {
+        if (attempt === 3) throw apiErr;
+        console.log(`[GEMINI.TS Review] API busy (attempt ${attempt}/3). Retrying in 5s...`);
+        await new Promise(r => setTimeout(r, 5000));
+      }
+    }
     const response = await result.response;
     return response.text();
   } catch (error: unknown) {

@@ -118,13 +118,23 @@ Do NOT wrap the output in markdown code blocks like \`\`\`json. Return RAW valid
     for (const chunk of chunks) {
       try {
         const prompt = `${systemPrompt}\n\nQuestions:\n${JSON.stringify(chunk, null, 2)}`;
-        const result = await model.generateContent({
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.2,
-            responseMimeType: "application/json",
-          },
-        });
+        let result;
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            result = await model.generateContent({
+              contents: [{ role: "user", parts: [{ text: prompt }] }],
+              generationConfig: {
+                temperature: 0.2,
+                responseMimeType: "application/json",
+              },
+            });
+            break; // Success
+          } catch (apiErr) {
+            if (attempt === 3) throw apiErr;
+            console.log(`[AI-ROUTE] Gemini API busy (attempt ${attempt}/3). Retrying in 5 seconds...`);
+            await new Promise(r => setTimeout(r, 5000));
+          }
+        }
 
         const response = await result.response;
         let textResponse = response.text().trim();
