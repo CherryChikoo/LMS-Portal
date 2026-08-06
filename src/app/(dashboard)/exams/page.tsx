@@ -931,7 +931,7 @@ export default function ExamsPage() {
                           {exam.title}
                         </h3>
                         <p className="text-xs text-muted-foreground line-clamp-1 leading-relaxed font-normal">
-                          Expired on {exam.endTime ? formatSafeDate(exam.endTime) : "N/A"}
+                          Expired on {exam.endTime ? formatSafeDate(exam.endTime) : (exam.updatedAt ? formatSafeDate(exam.updatedAt) : "N/A")}
                         </p>
                       </div>
                     </div>

@@ -208,6 +208,7 @@ function recomputeScopedData() {
   let fColleges = collegesData.filter((c) => isActive(c) && !isCollegeDeleted(c.id, c.name));
   let fBatches = batchesData.filter(isActive);
   const fStudents = studentsData.filter((s) => isActive(s) && !isCollegeDeleted(s.collegeId, s.collegeName));
+  const activeStudentIds = new Set(fStudents.map((s) => s.id));
   
   // Filter exams: Check for deleted colleges AND apply college-scoping for college admins
   let fExams = examsData.filter((e) => {
@@ -229,7 +230,9 @@ function recomputeScopedData() {
     }
     return true;
   });
-  const fAttempts = attemptsData.filter(isActive);
+  
+  // Aggressively filter out attempts belonging to deleted students or ghost data
+  const fAttempts = attemptsData.filter((att) => isActive(att as any) && activeStudentIds.has(att.studentId));
 
   try {
     const uStr = typeof window !== "undefined" ? localStorage.getItem("lms_user") || localStorage.getItem("user") : null;
