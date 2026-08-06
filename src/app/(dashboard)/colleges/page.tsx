@@ -983,7 +983,7 @@ export default function CollegesPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {externalColleges.map((col) => {
               const isSelected = selectedExternalIds.includes(col.name);
-              const badgeLabel = "Deleted / Self-Registered";
+              const badgeLabel = "Outside Institution";
 
               return (
                 <motion.div

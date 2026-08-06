@@ -198,6 +198,9 @@ function recomputeScopedData() {
   }
 
   const isCollegeDeleted = (colId?: string, colName?: string) => {
+    if (colId && (colId.toLowerCase().trim() === "global" || colId.toLowerCase().trim() === "unassigned")) return false;
+    if (colName && (colName.toLowerCase().trim() === "global" || colName.toLowerCase().trim() === "unassigned")) return false;
+    
     if (colId && deletedCollegesSet.has(colId.toLowerCase().trim())) return true;
     if (colName && deletedCollegesSet.has(colName.toLowerCase().trim())) return true;
     return false;
