@@ -140,7 +140,13 @@ Do NOT wrap the output in markdown code blocks like \`\`\`json. Return RAW valid
 
         const response = await result.response;
         let textResponse = response.text().trim();
-        textResponse = textResponse.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/\s*```$/i, "").trim();
+        // Robust JSON extraction in case model adds conversational text or markdown
+        const match = textResponse.match(/\[[\s\S]*\]/);
+        if (match) {
+          textResponse = match[0];
+        } else {
+          textResponse = textResponse.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/\s*```$/i, "").trim();
+        }
 
         if (!textResponse) {
           failedCount += chunk.length;
@@ -151,12 +157,15 @@ Do NOT wrap the output in markdown code blocks like \`\`\`json. Return RAW valid
         const parsedArray = Array.isArray(parsed) ? parsed : (parsed.questions || parsed.data || []);
 
         // Update questions in the array
-        updatedQuestions = updatedQuestions.map((q, qIdx) => {
+        updatedQuestions = updatedQuestions.map((q) => {
+          // If this question is NOT in the current chunk, leave it unchanged
           const chunkIdx = chunk.findIndex((cq) => cq.id === q.id);
+          if (chunkIdx === -1) return q;
+
+          // Find the generated explanation by ID or fallback to the same index in the chunk
           const generated =
             parsedArray.find((p: any) => p.id === q.id || String(p.id).trim() === String(q.id).trim()) ||
-            (chunkIdx !== -1 ? parsedArray[chunkIdx] : null) ||
-            parsedArray[qIdx];
+            parsedArray[chunkIdx];
 
           if (generated) {
             const raw = generated.aiExplanation || generated;

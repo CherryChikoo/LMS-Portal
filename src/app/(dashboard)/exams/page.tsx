@@ -416,6 +416,13 @@ export default function ExamsPage() {
               const text = await res.text();
               console.error("[BACKGROUND AI PIPELINE] Server Error:", res.status, text);
               toast.error("AI Generation failed: " + text);
+          } else {
+              const data = await res.json();
+              if (data.failedCount > 0) {
+                  toast.warning(`AI generated ${data.generatedCount} explanations, but fell back to basic templates for ${data.failedCount} due to Gemini API limits.`);
+              } else {
+                  console.log("[BACKGROUND AI PIPELINE] Success:", data);
+              }
           }
       }).catch((err) => {
           console.error("[BACKGROUND AI PIPELINE] Fetch error:", err);
