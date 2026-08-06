@@ -72,7 +72,8 @@ export async function POST(req: Request) {
     });
 
     if (examId) {
-      await updateExam(examId, { questions: updatedQuestions });
+      const db = getAdminFirestore();
+      await db.collection('exams').doc(examId).update({ questions: updatedQuestions });
     }
 
     // Process chunks with Gemini API
