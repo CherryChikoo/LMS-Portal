@@ -15,7 +15,7 @@ const AIExplanationSchema = z.object({
 export const maxDuration = 60; // Max allowed for Vercel Hobby tier
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
-const MODEL_NAME = "gemini-1.5-flash";
+const MODEL_NAME = "gemini-2.5-flash";
 
 const CHUNK_SIZE = 5; // Process 5 questions per Gemini API call to avoid timeouts/token limits
 

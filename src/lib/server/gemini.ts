@@ -5,7 +5,7 @@ import { Question } from "@/types";
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
-const MODEL_NAME = "gemini-1.5-flash"; // Recommended fast model
+const MODEL_NAME = "gemini-2.5-flash"; // Recommended fast model
 
 export async function generateAIExplanations(questions: Question[]): Promise<Array<{ id: string; text: string; error?: string }>> {
   if (!GEMINI_API_KEY) {

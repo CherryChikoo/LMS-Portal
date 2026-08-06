@@ -9,7 +9,7 @@ import { z } from "zod";
 export const maxDuration = 60; // Max allowed for Vercel Hobby tier
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
-const MODEL_NAME = "gemini-1.5-flash"; // Recommended fast model
+const MODEL_NAME = "gemini-2.5-flash"; // Recommended fast model
 
 const AISummarySchema = z.object({
   resultId: z.string().min(1, "Result ID is required"),
