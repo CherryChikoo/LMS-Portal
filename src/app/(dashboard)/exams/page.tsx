@@ -411,7 +411,16 @@ export default function ExamsPage() {
           ...(token ? { "Authorization": `Bearer ${token}` } : {})
         },
         body: JSON.stringify({ examId: newExamId }),
-      }).catch((err) => console.error("[BACKGROUND AI PIPELINE] Fetch error:", err));
+      }).then(async res => {
+          if (!res.ok) {
+              const text = await res.text();
+              console.error("[BACKGROUND AI PIPELINE] Server Error:", res.status, text);
+              toast.error("AI Generation failed: " + text);
+          }
+      }).catch((err) => {
+          console.error("[BACKGROUND AI PIPELINE] Fetch error:", err);
+          toast.error("AI Generation failed: " + err.message);
+      });
 
       if (userRole !== "student") {
         router.push("/admin/exams");

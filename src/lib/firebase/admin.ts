@@ -41,6 +41,11 @@ export function getAdminAuth() {
   return getAuth(getAdminApp());
 }
 
+let adminDb: FirebaseFirestore.Firestore;
 export function getAdminFirestore() {
-  return getFirestore(getAdminApp());
+  if (!adminDb) {
+    adminDb = getFirestore(getAdminApp());
+    adminDb.settings({ ignoreUndefinedProperties: true });
+  }
+  return adminDb;
 }
