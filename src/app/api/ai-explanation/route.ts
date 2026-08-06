@@ -1,8 +1,7 @@
 import { z } from 'zod';
-import { getAdminAuth } from '@/lib/firebase/admin';
+import { getAdminAuth, getAdminFirestore } from '@/lib/firebase/admin';
 import { getErrorMessage } from '@/lib/utils/error';
 import { NextResponse } from "next/server";
-import { getExamById, updateExam } from "@/lib/services/exam-service";
 import type { AIExplanation, Question } from "@/types";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { generateFallbackExplanation } from "@/lib/utils/ai-explanation-fallback";
@@ -36,7 +35,9 @@ export async function POST(req: Request) {
     if (inputQuestions && Array.isArray(inputQuestions) && inputQuestions.length > 0) {
       existingQuestions = inputQuestions;
     } else if (examId) {
-      const exam = await getExamById(examId);
+      const db = getAdminFirestore();
+      const examDoc = await db.collection('exams').doc(examId).get();
+      const exam = examDoc.exists ? examDoc.data() as Exam : null;
       if (!exam || !exam.questions || exam.questions.length === 0) {
         return NextResponse.json({ error: "Exam or questions not found" }, { status: 404 });
       }
@@ -208,7 +209,8 @@ Do NOT wrap the output in markdown code blocks like \`\`\`json. Return RAW valid
 
     // If examId exists in DB, update DB
     if (examId) {
-      await updateExam(examId, { questions: updatedQuestions });
+      const db = getAdminFirestore();
+      await db.collection('exams').doc(examId).update({ questions: updatedQuestions });
     }
 
     return NextResponse.json({
