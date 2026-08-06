@@ -350,7 +350,7 @@ export default function ExamsPage() {
           return {
             ...q,
             aiExplanation: generateFallbackExplanation(q),
-            aiExplanationStatus: "generated" as const,
+            aiExplanationStatus: "pending" as const,
           };
         }
         return q;
