@@ -67,7 +67,7 @@ export const StudentRow = memo(function StudentRow({
       <td className="py-3.5 px-4 font-medium text-foreground text-xs">
         {(() => {
           const cId = student.collegeId ? student.collegeId.trim() : "";
-          const cName = resolveInstitution(student.collegeId) || \"\";
+          const cName = resolveInstitution(student.collegeId) || "";
           const resolvedName = resolveInstitution(cId);
 
           const isInvalid = (val?: string | null) => {
