@@ -64,8 +64,13 @@ export async function POST(request: NextRequest) {
     // STEP: AUTH - Delete Firebase Auth accounts for students/college_admins
     if (step === "auth") {
       let query = db.collection("students").where("collegeId", "==", collegeId).limit(CHUNK_SIZE);
+      let snap = await query.get();
       
-      const snap = await query.get();
+      // Fallback for external colleges (legacy structure)
+      if (snap.empty) {
+         snap = await db.collection("students").where("collegeName", "==", collegeId).limit(CHUNK_SIZE).get();
+      }
+
       if (snap.empty) {
         // Also delete college admin auth if we're done with students
         const collegeDoc = await db.collection("colleges").doc(collegeId).get();
@@ -103,7 +108,11 @@ export async function POST(request: NextRequest) {
       
       const bulkWriter = db.bulkWriter();
       for (const col of collections) {
-         const snap = await db.collection(col).where("collegeId", "==", collegeId).limit(CHUNK_SIZE).get();
+         let snap = await db.collection(col).where("collegeId", "==", collegeId).limit(CHUNK_SIZE).get();
+         if (snap.empty) {
+            snap = await db.collection(col).where("collegeName", "==", collegeId).limit(CHUNK_SIZE).get();
+         }
+         
          if (!snap.empty) {
             hasMoreAnywhere = true;
             snap.docs.forEach(d => bulkWriter.delete(d.ref));
@@ -120,7 +129,10 @@ export async function POST(request: NextRequest) {
 
     // STEP: EXAMS - Delete exams, results, questions
     if (step === "exams") {
-       const examsSnap = await db.collection("exams").where("collegeId", "==", collegeId).limit(1).get();
+       let examsSnap = await db.collection("exams").where("collegeId", "==", collegeId).limit(1).get();
+       if (examsSnap.empty) {
+          examsSnap = await db.collection("exams").where("collegeName", "==", collegeId).limit(1).get();
+       }
        
        if (examsSnap.empty) {
           return NextResponse.json({ success: true, nextStep: "finalize", cursor: undefined });

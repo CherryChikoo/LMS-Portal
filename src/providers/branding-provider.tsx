@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from "react
 import { usePathname } from "next/navigation";
 import { doc, onSnapshot, getDoc, getDocuments, where } from "@/lib/firebase/firestore";
 import { db, auth } from "@/lib/firebase/config";
-import { CompanyBranding, subscribeToCompanyBranding } from "@/lib/services/branding-service";
+import { CompanyBranding, subscribeToCompanyBranding, getCompanyBranding } from "@/lib/services/branding-service";
 import { getCurrentUser } from "@/lib/utils/auth-session";
 
 export interface BrandingContextType {
