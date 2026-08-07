@@ -238,33 +238,14 @@ export default function CollegesPage() {
           // 1. Instant optimistic local deletion (for immediate UI feedback)
           optimisticDeleteCollege(col.id);
           setSelectedAdminIds((prev) => prev.filter((id) => id !== col.id));
-          toast.success(`College "${col.name}" deleted successfully.`);
+          toast.success(`Deleting college "${col.name}" in the background...`);
 
-          // 2. Instant client-side Firestore college document deletion
+          // 2. Server-side cascading deletion (handles all chunks until completion)
           await deleteCollege(col.id);
 
-          // 3. CRITICAL: Server-side cascading deletion (students, exams, resources, auth, etc.)
-          const auth = getAuth();
-          const token = await auth.currentUser?.getIdToken();
-          if (token) {
-            await fetch("/api/admin/delete-college", {
-              method: "POST",
-              headers: { 
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${token}`
-              },
-              body: JSON.stringify({ 
-                id: col.id, 
-                collegeName: col.name 
-              }),
-            }).catch((err) => {
-              console.error("College cascading delete error:", err);
-              toast.error("Warning: Some associated data may not have been deleted. Please contact support.");
-            });
-          }
-
-          // 4. Immediate cache refresh for instant UI update
+          // Immediate cache refresh
           await refreshCache();
+          toast.success(`College "${col.name}" deleted successfully.`);
         } catch (err: unknown) {
           console.error("Failed to delete college:", err);
           toast.error(err instanceof Error ? err.message : "Failed to delete college");
@@ -311,27 +292,8 @@ export default function CollegesPage() {
           setSelectedAdminIds([]);
           toast.success("Selected colleges deleted successfully.");
 
-          // Instant Firestore document deletion for each college
+          // Instant Firestore document deletion for each college (this properly calls the API until completion)
           await Promise.all(idsToDelete.map((id) => deleteCollege(id)));
-
-          // Server API cleanup (awaited)
-          const auth = getAuth();
-          const token = await auth.currentUser?.getIdToken();
-          if (token) {
-            await Promise.all(
-              idsToDelete.map((id) => {
-                const col = colleges.find((c) => c.id === id);
-                return fetch("/api/admin/delete-college", {
-                  method: "POST",
-                  headers: { 
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${token}`
-                  },
-                  body: JSON.stringify({ id, collegeName: col?.name || "" }),
-                }).catch((err) => console.error("College delete cleanup error:", err));
-              })
-            );
-          }
 
           // Immediate cache refresh
           await refreshCache();
@@ -343,7 +305,7 @@ export default function CollegesPage() {
     });
   };
 
-  const handleDeleteExternalCollege = (extName: string, extId?: string) => {
+  const handleDeleteExternalCollege = (extName: string) => {
     const studentsToDelete = allStudents.filter(
       (s) => s.collegeName === extName || s.collegeId === extName || s.collegeName?.toLowerCase() === extName.toLowerCase()
     );
@@ -357,19 +319,13 @@ export default function CollegesPage() {
           setDeletingIds((prev) => [...prev, extName]);
           optimisticDeleteCollege(extName);
           setSelectedExternalIds((prev) => prev.filter((id) => id !== extName));
-          toast.success(`Outside institution "${extName}" deleted.`);
+          toast.success(`Deleting outside institution "${extName}"...`);
 
-          await Promise.all(studentsToDelete.map((s) => deleteStudentProfile(s.id)));
-          
-          if (extId) {
-            try {
-              await deleteCollege(extId);
-            } catch (e) {
-              console.error("Non-fatal: could not delete Firestore external college document.", e);
-            }
-          }
+          // Call the unified deleteCollege API which handles external colleges and batch deletes everything efficiently
+          await deleteCollege(extName);
           
           await refreshCache(); // Immediate UI update
+          toast.success(`Outside institution "${extName}" deleted successfully.`);
         } catch (err) {
           console.error("Failed to delete outside institution:", err);
           toast.error("Failed to delete outside institution.");
