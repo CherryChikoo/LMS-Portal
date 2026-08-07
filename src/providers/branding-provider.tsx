@@ -44,8 +44,6 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
   });
 
   useEffect(() => {
-    let unsubCollege: (() => void) | null = null;
-    let unsubMaster: (() => void) | null = null;
     let isCancelled = false;
 
     const initBranding = async () => {
@@ -53,16 +51,18 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
         await getCurrentUser(); // Ensure Firebase Auth is fully initialized to prevent permission errors
         
         if (!auth.currentUser) {
-          // If we are not authenticated with Firebase Auth, any Firestore read will fail with missing permissions.
-          // Fallback to master branding only.
-          unsubMaster = subscribeToCompanyBranding((b) => {
-            if (!isCancelled) {
-              setMasterBranding(b);
-              setLoading(false);
-            }
-          });
+          const mBrand = await getCompanyBranding();
+          if (!isCancelled) {
+            setMasterBranding(mBrand);
+            setLoading(false);
+          }
           return;
         }
+
+        // Fetch master branding in parallel
+        getCompanyBranding().then(mBrand => {
+          if (!isCancelled) setMasterBranding(mBrand);
+        });
 
         const storedUser = localStorage.getItem("lms_user") || localStorage.getItem("user");
         const userRole = localStorage.getItem("lms_role");
@@ -71,11 +71,11 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
           const profile = JSON.parse(storedUser);
           const collegeId = profile.collegeId;
 
-          // Resolve exact college document ID and subscribe to colleges/{targetColId}
-          // Rely on lms-data-cache to populate collegeId in localStorage.
+          // Resolve exact college document ID
           if (collegeId && collegeId !== "global") {
             const colRef = doc(db, "colleges", collegeId);
-            unsubCollege = onSnapshot(colRef, (snap) => {
+            try {
+              const snap = await getDoc(colRef);
               if (isCancelled) return;
               if (snap.exists()) {
                 const data = snap.data();
@@ -95,31 +95,13 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
                   logoBase64: "",
                 });
               }
-              setLoading(false);
-            }, (err) => {
-              console.error("College branding subscription error:", err);
-              if (!isCancelled) setLoading(false);
-            });
-
-            return;
+            } catch (err) {
+              console.error("College branding fetch error:", err);
+            }
           }
         }
 
-        // ONLY for Super Admin / Global user (no collegeId or collegeId === "global")
-        if (userRole === "admin" || userRole === "trainer") {
-          unsubMaster = subscribeToCompanyBranding((data) => {
-            if (!isCancelled) {
-              setMasterBranding({
-                companyName: data.companyName || "Enterprise LMS",
-                companySubtitle: data.companySubtitle || "Master Admin",
-                logoBase64: data.logoBase64 || "",
-              });
-              setLoading(false);
-            }
-          });
-        } else {
-          if (!isCancelled) setLoading(false);
-        }
+        if (!isCancelled) setLoading(false);
       } catch (err) {
         console.error("BrandingProvider error:", err);
         if (!isCancelled) setLoading(false);
@@ -136,8 +118,6 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
 
     return () => {
       isCancelled = true;
-      if (unsubCollege) unsubCollege();
-      if (unsubMaster) unsubMaster();
       window.removeEventListener("storage", handleStorageChange);
     };
   }, []);

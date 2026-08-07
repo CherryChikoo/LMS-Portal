@@ -3,6 +3,10 @@ import {
   doc,
   getDoc,
   getDocs,
+  getDocsFromCache,
+  getDocsFromServer,
+  getDocFromCache,
+  getDocFromServer,
   addDoc,
   setDoc,
   updateDoc,
@@ -24,6 +28,7 @@ import { db } from "./config";
 export interface QueryOptions {
   pageSize?: number;
   lastDoc?: DocumentSnapshot | null;
+  source?: 'default' | 'cache' | 'server';
 }
 
 /**
@@ -84,7 +89,24 @@ export async function getDocuments<T extends DocumentData & { isDeleted?: boolea
   }
   
   const q = query(collection(db, collectionName), ...finalConstraints);
-  const querySnapshot = await getDocs(q);
+  let querySnapshot;
+  try {
+    if (options?.source === 'cache') {
+      querySnapshot = await getDocsFromCache(q);
+    } else if (options?.source === 'server') {
+      querySnapshot = await getDocsFromServer(q);
+    } else {
+      querySnapshot = await getDocs(q);
+    }
+  } catch (err: any) {
+    if (options?.source === 'cache' && err.code === 'unavailable') {
+      console.warn(`Cache unavailable for ${collectionName}, falling back to default`);
+      querySnapshot = await getDocs(q);
+    } else {
+      throw err;
+    }
+  }
+
   const mapped = mapDocs<T>(querySnapshot.docs);
   
   return {
@@ -172,14 +194,33 @@ export async function getPaginatedDocuments<T extends DocumentData & { isDeleted
   pageSize: number,
   lastDoc?: DocumentSnapshot,
   constraints: QueryConstraint[] = [],
-  includeDeleted: boolean = false
+  includeDeleted: boolean = false,
+  options?: QueryOptions
 ): Promise<{ data: T[]; lastDoc: DocumentSnapshot | null }> {
   const baseConstraints = [...constraints, orderBy("createdAt", "desc"), limit(pageSize)];
   if (lastDoc) {
     baseConstraints.push(startAfter(lastDoc));
   }
   const q = query(collection(db, collectionName), ...baseConstraints);
-  const querySnapshot = await getDocs(q);
+  
+  let querySnapshot;
+  try {
+    if (options?.source === 'cache') {
+      querySnapshot = await getDocsFromCache(q);
+    } else if (options?.source === 'server') {
+      querySnapshot = await getDocsFromServer(q);
+    } else {
+      querySnapshot = await getDocs(q);
+    }
+  } catch (err: any) {
+    if (options?.source === 'cache' && err.code === 'unavailable') {
+      console.warn(`Cache unavailable for ${collectionName}, falling back to default`);
+      querySnapshot = await getDocs(q);
+    } else {
+      throw err;
+    }
+  }
+
   const mapped = mapDocs<T>(querySnapshot.docs);
   const data = mapped.filter((d) => includeDeleted || (!d.isDeleted && !d.deletedAt && d.status !== "deleted"));
   const last = querySnapshot.docs[querySnapshot.docs.length - 1] || null;

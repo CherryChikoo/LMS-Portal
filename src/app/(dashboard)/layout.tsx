@@ -128,9 +128,10 @@ export default function DashboardLayout({
           if (!user) return;
 
           if (parsedUser.role === "student") {
-            import("firebase/firestore").then(({ doc, onSnapshot }) => {
-              import("@/lib/firebase/config").then(({ db }) => {
-                const unsubId = onSnapshot(doc(db, "students", parsedUser.id), (docSnap) => {
+            import("firebase/firestore").then(({ doc, getDoc }) => {
+              import("@/lib/firebase/config").then(async ({ db }) => {
+                try {
+                  const docSnap = await getDoc(doc(db, "students", parsedUser.id));
                   if (!docSnap.exists() || docSnap.data()?.status === "deleted" || docSnap.data()?.isDeleted) {
                     import("@/lib/utils/auth-session").then(({ clearAuthSession }) => {
                       clearAuthSession("/login?error=account_deleted");
@@ -151,7 +152,6 @@ export default function DashboardLayout({
                       email: s.email || parsedUser.email,
                       department: s.department || parsedUser.department,
                       collegeId: s.collegeId || parsedUser.collegeId,
-                      collegeName: s.collegeName || parsedUser.collegeName,
                       academicYear: s.academicYear || parsedUser.academicYear,
                       section: s.section || parsedUser.section,
                       batchIds: s.batchIds || parsedUser.batchIds,
@@ -161,21 +161,21 @@ export default function DashboardLayout({
                       "email",
                       "department",
                       "collegeId",
-                      "collegeName",
                       "academicYear",
                       "section",
                       "batchIds",
                     ]);
                   }
-                });
-                syncUnsubs.push(unsubId);
-                unsubs.push(unsubId);
+                } catch (e) {
+                  console.error("Profile sync error", e);
+                }
               });
             });
           } else {
-            import("firebase/firestore").then(({ doc, onSnapshot }) => {
-              import("@/lib/firebase/config").then(({ db }) => {
-                const unsubUser = onSnapshot(doc(db, "users", parsedUser.id), (docSnap) => {
+            import("firebase/firestore").then(({ doc, getDoc }) => {
+              import("@/lib/firebase/config").then(async ({ db }) => {
+                try {
+                  const docSnap = await getDoc(doc(db, "users", parsedUser.id));
                   if (!docSnap.exists()) {
                     import("@/lib/utils/auth-session").then(({ clearAuthSession }) => {
                       clearAuthSession("/login?error=account_deleted");
@@ -189,13 +189,12 @@ export default function DashboardLayout({
                       name: u.displayName || parsedUser.name,
                       email: u.email || parsedUser.email,
                       collegeId: u.collegeId || parsedUser.collegeId,
-                      collegeName: u.collegeName || parsedUser.collegeName,
                     };
-                    commitIfChanged(updated, ["name", "email", "collegeId", "collegeName"]);
+                    commitIfChanged(updated, ["name", "email", "collegeId"]);
                   }
-                });
-                syncUnsubs.push(unsubUser);
-                unsubs.push(unsubUser);
+                } catch (e) {
+                  console.error("User sync error", e);
+                }
               });
             });
           }

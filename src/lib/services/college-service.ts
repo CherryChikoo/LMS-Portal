@@ -308,9 +308,9 @@ export async function renameCollegeAndMigrate(
     });
   }
 
-  // Fetch students specific to this college (by ID or exact old name)
-  const studentQueries = [query(collection(db, "students"), where("collegeId", "==", collegeId))];
-  if (oldName) studentQueries.push(query(collection(db, "students"), where("collegeName", "==", oldName)));
+  // Fetch students specific to this college
+  const studentConstraints = oldName ? where("collegeId", "in", [collegeId, oldName]) : where("collegeId", "==", collegeId);
+  const studentQueries = [query(collection(db, "students"), studentConstraints)];
   
   const studentSnaps = await Promise.all(studentQueries.map(q => getDocs(q)));
   const processedStudentIds = new Set<string>();
@@ -347,8 +347,8 @@ export async function renameCollegeAndMigrate(
   });
 
   // Fetch users specific to this college
-  const userQueries = [query(collection(db, "users"), where("collegeId", "==", collegeId))];
-  if (oldName) userQueries.push(query(collection(db, "users"), where("collegeName", "==", oldName)));
+  const userConstraints = oldName ? where("collegeId", "in", [collegeId, oldName]) : where("collegeId", "==", collegeId);
+  const userQueries = [query(collection(db, "users"), userConstraints)];
   
   const userSnaps = await Promise.all(userQueries.map(q => getDocs(q)));
   const processedUserIds = new Set<string>();
@@ -386,8 +386,8 @@ export async function renameCollegeAndMigrate(
   });
 
   // Update exams for this college
-  const examQueries = [query(collection(db, "exams"), where("collegeId", "==", collegeId))];
-  if (oldName) examQueries.push(query(collection(db, "exams"), where("collegeName", "==", oldName)));
+  const examConstraints = oldName ? where("collegeId", "in", [collegeId, oldName]) : where("collegeId", "==", collegeId);
+  const examQueries = [query(collection(db, "exams"), examConstraints)];
   
   const examSnaps = await Promise.all(examQueries.map(q => getDocs(q)));
   const processedExamIds = new Set<string>();
@@ -424,8 +424,8 @@ export async function renameCollegeAndMigrate(
   });
 
   // Update resources for this college
-  const resourceQueries = [query(collection(db, "resources"), where("collegeId", "==", collegeId))];
-  if (oldName) resourceQueries.push(query(collection(db, "resources"), where("collegeName", "==", oldName)));
+  const resourceConstraints = oldName ? where("collegeId", "in", [collegeId, oldName]) : where("collegeId", "==", collegeId);
+  const resourceQueries = [query(collection(db, "resources"), resourceConstraints)];
   
   const resourceSnaps = await Promise.all(resourceQueries.map(q => getDocs(q)));
   const processedResourceIds = new Set<string>();
