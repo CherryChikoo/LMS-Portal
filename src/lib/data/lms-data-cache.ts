@@ -468,7 +468,7 @@ export async function refreshCache() {
   return Promise.resolve();
 }
 
-async function startSubscriptions(source: 'cache' | 'default' | 'server' = 'cache') {
+async function startSubscriptions() {
   if (!currentUserInfo) return;
   const { role, collegeId, parsed } = currentUserInfo;
   const isMainAdmin = role === "main_admin" || role === "admin" || role === "superadmin" || role === "trainer";
@@ -476,54 +476,52 @@ async function startSubscriptions(source: 'cache' | 'default' | 'server' = 'cach
   const isStudent = role === "student" && parsed?.id;
 
   try {
-    const { getDocuments, where } = await import("@/lib/firebase/firestore");
+    const { subscribeToDocuments, where } = await import("@/lib/firebase/firestore");
+    
+    stopPolling(); // Clear existing listeners before starting new ones
 
     // 1. Colleges
-    const collegesRes = await getDocuments<College>("colleges", [], false, { pageSize: 200, source });
-    cache.colleges = { data: collegesRes.data, updatedAt: Date.now() };
-    recomputeAndNotify();
+    cache.unsubscribers.push(subscribeToDocuments<College>("colleges", (data) => {
+      cache.colleges = { data, updatedAt: Date.now() };
+      debouncedRecomputeAndNotify();
+    }, [], false, { pageSize: 200 }));
 
     // 2. Batches
     const batchesConstraints = (isCollegeAdmin || isStudent) && collegeId ? [where("collegeId", "==", collegeId)] : [];
-    const batchesRes = await getDocuments<Batch>("batches", batchesConstraints, false, { pageSize: 500, source });
-    cache.batches = { data: batchesRes.data, updatedAt: Date.now() };
-    recomputeAndNotify();
+    cache.unsubscribers.push(subscribeToDocuments<Batch>("batches", (data) => {
+      cache.batches = { data, updatedAt: Date.now() };
+      debouncedRecomputeAndNotify();
+    }, batchesConstraints, false, { pageSize: 500 }));
 
     // 3. Students
     const studentsConstraints = isStudent && collegeId ? [where("collegeId", "==", collegeId)] 
       : isCollegeAdmin && collegeId ? [where("collegeId", "==", collegeId)] : [];
-    const studentsRes = await getDocuments<Student>("students", studentsConstraints, false, { pageSize: isStudent ? 1000 : (isCollegeAdmin ? 2000 : 5000), source });
-    cache.students = { data: studentsRes.data, updatedAt: Date.now() };
-    recomputeAndNotify();
+    cache.unsubscribers.push(subscribeToDocuments<Student>("students", (data) => {
+      cache.students = { data, updatedAt: Date.now() };
+      debouncedRecomputeAndNotify();
+    }, studentsConstraints, false, { pageSize: isStudent ? 1000 : (isCollegeAdmin ? 2000 : 5000) }));
 
     // 4. Exams
-    const examsRes = await getDocuments<Exam>("exams", [], false, { pageSize: 2000, source });
-    cache.exams = { data: examsRes.data, updatedAt: Date.now() };
-    recomputeAndNotify();
+    cache.unsubscribers.push(subscribeToDocuments<Exam>("exams", (data) => {
+      cache.exams = { data, updatedAt: Date.now() };
+      debouncedRecomputeAndNotify();
+    }, [], false, { pageSize: 2000 }));
 
     // 5. Resources
-    const resRes = await getDocuments<Resource>("resources", [], false, { pageSize: 2000, source });
-    cache.resources = { data: resRes.data, updatedAt: Date.now() };
-    recomputeAndNotify();
+    cache.unsubscribers.push(subscribeToDocuments<Resource>("resources", (data) => {
+      cache.resources = { data, updatedAt: Date.now() };
+      debouncedRecomputeAndNotify();
+    }, [], false, { pageSize: 2000 }));
 
     // 6. Attempts
     const attemptsConstraints = (isStudent || isCollegeAdmin) && collegeId ? [where("collegeId", "==", collegeId)] : [];
-    const attemptsRes = await getDocuments<ExamAttempt>("exam_results", attemptsConstraints, false, { pageSize: (isStudent || isCollegeAdmin) ? 500 : 2000, source });
-    cache.attempts = { data: attemptsRes.data, updatedAt: Date.now() };
-    recomputeAndNotify();
+    cache.unsubscribers.push(subscribeToDocuments<ExamAttempt>("exam_results", (data) => {
+      cache.attempts = { data, updatedAt: Date.now() };
+      debouncedRecomputeAndNotify();
+    }, attemptsConstraints, false, { pageSize: (isStudent || isCollegeAdmin) ? 500 : 2000 }));
 
-    cache.loading = false;
-    
-    // Background Server Fetch (if cache was used)
-    if (source === 'cache') {
-      setTimeout(() => startSubscriptions('default'), 2000);
-    }
   } catch (error) {
     console.error("Failed to fetch LMS Data", error);
-    if (source === 'cache') {
-      // If cache failed, try server
-      startSubscriptions('default');
-    }
   }
 }
 
