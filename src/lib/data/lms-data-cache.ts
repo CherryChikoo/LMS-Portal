@@ -61,6 +61,14 @@ export interface LMSDataCacheState {
 const CACHE_STORAGE_KEY = "lms_data_cache_v4";
 /** Base fallback poll interval */
 const DEFAULT_POLL_INTERVAL_MS = 60 * 1000;
+const CACHE_STORAGE_LIMITS = {
+  colleges: 500,
+  batches: 2000,
+  students: 5000,
+  exams: 2000,
+  resources: 2000,
+  attempts: 5000,
+} as const;
 
 // ─── localStorage Persistence ────────────────────────────────────────────────
 
@@ -71,12 +79,12 @@ function persistCacheToStorage() {
   saveTimer = setTimeout(() => {
     try {
       const payload = {
-        colleges: cache.colleges?.data || [],
-        batches: cache.batches?.data || [],
-        students: cache.students?.data || [],
-        exams: cache.exams?.data || [],
-        resources: cache.resources?.data || [],
-        attempts: cache.attempts?.data || [],
+        colleges: (cache.colleges?.data || []).slice(0, CACHE_STORAGE_LIMITS.colleges),
+        batches: (cache.batches?.data || []).slice(0, CACHE_STORAGE_LIMITS.batches),
+        students: (cache.students?.data || []).slice(0, CACHE_STORAGE_LIMITS.students),
+        exams: (cache.exams?.data || []).slice(0, CACHE_STORAGE_LIMITS.exams),
+        resources: (cache.resources?.data || []).slice(0, CACHE_STORAGE_LIMITS.resources),
+        attempts: (cache.attempts?.data || []).slice(0, CACHE_STORAGE_LIMITS.attempts),
       };
       const serialized = JSON.stringify(payload);
       localStorage.setItem(CACHE_STORAGE_KEY, serialized);
@@ -461,6 +469,57 @@ export function subscribeToLMSCache(callback: () => void): () => void {
 // ─── Subscription Engine (replaces getDocs polling) ─────────────────────────
 
 let currentUserInfo: { uid: string; role: string; collegeId?: string; parsed: any } | null = null;
+let cacheHydrationStartAt: number | null = null;
+let hasLoggedHydration = false;
+const subscriptionLatencySamples = new Map<string, number[]>();
+
+function computeP95(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = Math.max(0, Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1));
+  return sorted[idx];
+}
+
+function pushLatencySample(name: string, durationMs: number) {
+  const values = subscriptionLatencySamples.get(name) || [];
+  values.push(durationMs);
+  if (values.length > 40) values.shift();
+  subscriptionLatencySamples.set(name, values);
+}
+
+function maybeLogHydrationMetrics() {
+  if (hasLoggedHydration || cacheHydrationStartAt === null) return;
+  if (!cache.colleges || !cache.batches || !cache.students || !cache.exams || !cache.resources || !cache.attempts) return;
+  const totalMs = Date.now() - cacheHydrationStartAt;
+  hasLoggedHydration = true;
+  console.info(
+    `[perf][lms-cache] hydration=${totalMs}ms counts colleges=${cache.colleges.data.length} batches=${cache.batches.data.length} students=${cache.students.data.length} exams=${cache.exams.data.length} resources=${cache.resources.data.length} attempts=${cache.attempts.data.length}`
+  );
+}
+
+function updateCacheSlice<K extends keyof Pick<LMSDataCacheState, "colleges" | "batches" | "students" | "exams" | "resources" | "attempts">>(
+  key: K,
+  data: NonNullable<LMSDataCacheState[K]>["data"],
+  metricsLabel: string,
+  startedAt: number
+) {
+  const prev = cache[key]?.data as typeof data | undefined;
+  if (prev && prev.length === data.length) {
+    const sameIds = prev.every((item: any, index: number) => item?.id === (data[index] as any)?.id);
+    if (sameIds) {
+      pushLatencySample(metricsLabel, Date.now() - startedAt);
+      return;
+    }
+  }
+
+  cache[key] = { data, updatedAt: Date.now() } as LMSDataCacheState[K];
+  const latencyMs = Date.now() - startedAt;
+  pushLatencySample(metricsLabel, latencyMs);
+  const p95 = Math.round(computeP95(subscriptionLatencySamples.get(metricsLabel) || []));
+  console.info(`[perf][lms-cache] ${metricsLabel} snapshot=${latencyMs}ms p95=${p95}ms rows=${data.length}`);
+  maybeLogHydrationMetrics();
+  debouncedRecomputeAndNotify();
+}
 
 export async function refreshCache() {
   // Data is now kept perfectly in sync via native Firestore onSnapshot listeners.
@@ -474,51 +533,113 @@ async function startSubscriptions() {
   const isMainAdmin = role === "main_admin" || role === "admin" || role === "superadmin" || role === "trainer";
   const isCollegeAdmin = role === "college_admin" && collegeId;
   const isStudent = role === "student" && parsed?.id;
+  const userCollegeId = collegeId || parsed?.collegeId;
 
   try {
     const { subscribeToDocuments, where } = await import("@/lib/firebase/firestore");
-    
+
     stopPolling(); // Clear existing listeners before starting new ones
+    cacheHydrationStartAt = Date.now();
+    hasLoggedHydration = false;
+    subscriptionLatencySamples.clear();
+
+    const subscribeMergedByKey = <T extends { id: string }>(
+      collectionName: string,
+      constraintsList: Array<any[]>,
+      pageSize: number,
+      onMerged: (rows: T[]) => void
+    ) => {
+      const merged = new Map<string, T>();
+      const unsubs: Array<() => void> = [];
+      const applyMerge = () => onMerged(Array.from(merged.values()));
+
+      constraintsList.forEach((constraints, idx) => {
+        const startedAt = Date.now();
+        const unsub = subscribeToDocuments<T>(
+          collectionName,
+          (rows) => {
+            // Clear only entries associated with this lane by rebuilding merged map.
+            const lanePrefix = `lane-${idx}-`;
+            Array.from(merged.keys())
+              .filter((key) => key.startsWith(lanePrefix))
+              .forEach((key) => merged.delete(key));
+            rows.forEach((row) => merged.set(`${lanePrefix}${row.id}`, row));
+            pushLatencySample(`${collectionName}[lane-${idx}]`, Date.now() - startedAt);
+            applyMerge();
+          },
+          constraints,
+          false,
+          { pageSize }
+        );
+        unsubs.push(unsub);
+      });
+
+      return () => unsubs.forEach((u) => u());
+    };
 
     // 1. Colleges
     cache.unsubscribers.push(subscribeToDocuments<College>("colleges", (data) => {
-      cache.colleges = { data, updatedAt: Date.now() };
-      debouncedRecomputeAndNotify();
-    }, [], false, { pageSize: 200 }));
+      updateCacheSlice("colleges", data, "colleges", Date.now());
+    }, [], false, { pageSize: 300 }));
 
     // 2. Batches
-    const batchesConstraints = (isCollegeAdmin || isStudent) && collegeId ? [where("collegeId", "==", collegeId)] : [];
+    const batchesConstraints = (isCollegeAdmin || isStudent) && userCollegeId ? [where("collegeId", "==", userCollegeId)] : [];
     cache.unsubscribers.push(subscribeToDocuments<Batch>("batches", (data) => {
-      cache.batches = { data, updatedAt: Date.now() };
-      debouncedRecomputeAndNotify();
-    }, batchesConstraints, false, { pageSize: 500 }));
+      updateCacheSlice("batches", data, "batches", Date.now());
+    }, batchesConstraints, false, { pageSize: isMainAdmin ? 1500 : 1000 }));
 
     // 3. Students
-    const studentsConstraints = isStudent && collegeId ? [where("collegeId", "==", collegeId)] 
-      : isCollegeAdmin && collegeId ? [where("collegeId", "==", collegeId)] : [];
+    const studentsConstraints = isStudent && userCollegeId ? [where("collegeId", "==", userCollegeId)]
+      : isCollegeAdmin && userCollegeId ? [where("collegeId", "==", userCollegeId)] : [];
     cache.unsubscribers.push(subscribeToDocuments<Student>("students", (data) => {
-      cache.students = { data, updatedAt: Date.now() };
-      debouncedRecomputeAndNotify();
-    }, studentsConstraints, false, { pageSize: isStudent ? 1000 : (isCollegeAdmin ? 2000 : 5000) }));
+      updateCacheSlice("students", data, "students", Date.now());
+    }, studentsConstraints, false, { pageSize: isMainAdmin ? 3000 : 1500 }));
 
-    // 4. Exams
-    cache.unsubscribers.push(subscribeToDocuments<Exam>("exams", (data) => {
-      cache.exams = { data, updatedAt: Date.now() };
-      debouncedRecomputeAndNotify();
-    }, [], false, { pageSize: 2000 }));
+    // 4. Exams: scoped multi-query for college admins/students (college + global lane)
+    if ((isCollegeAdmin || isStudent) && userCollegeId) {
+      cache.unsubscribers.push(
+        subscribeMergedByKey<Exam>(
+          "exams",
+          [
+            [where("collegeId", "==", userCollegeId)],
+            [where("collegeId", "in", ["global", "GLOBAL", "all", "ALL"])],
+          ],
+          1500,
+          (data) => updateCacheSlice("exams", data, "exams-scoped", Date.now())
+        )
+      );
+    } else {
+      cache.unsubscribers.push(subscribeToDocuments<Exam>("exams", (data) => {
+        updateCacheSlice("exams", data, "exams-all", Date.now());
+      }, [], false, { pageSize: 2500 }));
+    }
 
-    // 5. Resources
-    cache.unsubscribers.push(subscribeToDocuments<Resource>("resources", (data) => {
-      cache.resources = { data, updatedAt: Date.now() };
-      debouncedRecomputeAndNotify();
-    }, [], false, { pageSize: 2000 }));
+    // 5. Resources: scoped multi-query for college admins/students
+    if ((isCollegeAdmin || isStudent) && userCollegeId) {
+      cache.unsubscribers.push(
+        subscribeMergedByKey<Resource>(
+          "resources",
+          [
+            [where("collegeId", "==", userCollegeId)],
+            [where("collegeId", "in", ["global", "GLOBAL", "all", "ALL"])],
+          ],
+          1500,
+          (data) => updateCacheSlice("resources", data, "resources-scoped", Date.now())
+        )
+      );
+    } else {
+      cache.unsubscribers.push(subscribeToDocuments<Resource>("resources", (data) => {
+        updateCacheSlice("resources", data, "resources-all", Date.now());
+      }, [], false, { pageSize: 2500 }));
+    }
 
     // 6. Attempts
-    const attemptsConstraints = (isStudent || isCollegeAdmin) && collegeId ? [where("collegeId", "==", collegeId)] : [];
+    const attemptsConstraints = isStudent && parsed?.id
+      ? [where("studentId", "==", parsed.id)]
+      : (isCollegeAdmin && userCollegeId ? [where("collegeId", "==", userCollegeId)] : []);
     cache.unsubscribers.push(subscribeToDocuments<ExamAttempt>("exam_results", (data) => {
-      cache.attempts = { data, updatedAt: Date.now() };
-      debouncedRecomputeAndNotify();
-    }, attemptsConstraints, false, { pageSize: (isStudent || isCollegeAdmin) ? 500 : 2000 }));
+      updateCacheSlice("attempts", data, "attempts", Date.now());
+    }, attemptsConstraints, false, { pageSize: isMainAdmin ? 2500 : 1200 }));
 
   } catch (error) {
     console.error("Failed to fetch LMS Data", error);

@@ -2,6 +2,7 @@ import { getErrorMessage } from '@/lib/utils/error';
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminApp } from "@/lib/firebase/admin";
 import { getFirestore } from "firebase-admin/firestore";
+import { lookupEmailDocuments } from "@/lib/server/email-uniqueness";
 
 export async function POST(request: NextRequest) {
   try {
@@ -17,16 +18,13 @@ export async function POST(request: NextRequest) {
     const normalizedEmail = email.toLowerCase().trim();
     const db = getFirestore(getAdminApp());
 
-    // Query users, students, and colleges collections in parallel via Admin SDK (bypasses security rules)
-    const [usersSnap, studentsSnap, collegesSnap] = await Promise.all([
-      db.collection("users").where("email", "==", normalizedEmail).limit(1).get(),
-      db.collection("students").where("email", "==", normalizedEmail).limit(1).get(),
-      db.collection("colleges").where("adminEmail", "==", normalizedEmail).limit(1).get(),
-    ]);
+    const lookupStart = Date.now();
+    const emailDocs = await lookupEmailDocuments(db, normalizedEmail, { limitPerCollection: 1 });
+    console.info(`[perf][verify-email] lookup took ${Date.now() - lookupStart}ms`);
 
-    const userDoc = !usersSnap.empty ? { id: usersSnap.docs[0].id, ...usersSnap.docs[0].data() } : null;
-    const studentDoc = !studentsSnap.empty ? { id: studentsSnap.docs[0].id, ...studentsSnap.docs[0].data() } : null;
-    const collegeDoc = !collegesSnap.empty ? { id: collegesSnap.docs[0].id, ...collegesSnap.docs[0].data() } : null;
+    const userDoc = emailDocs.userDocs.length > 0 ? { id: emailDocs.userDocs[0].id, ...emailDocs.userDocs[0].data() } : null;
+    const studentDoc = emailDocs.studentDocs.length > 0 ? { id: emailDocs.studentDocs[0].id, ...emailDocs.studentDocs[0].data() } : null;
+    const collegeDoc = emailDocs.collegeDocs.length > 0 ? { id: emailDocs.collegeDocs[0].id, ...emailDocs.collegeDocs[0].data() } : null;
 
     const exists = Boolean(userDoc || studentDoc || collegeDoc);
 

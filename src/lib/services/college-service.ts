@@ -53,7 +53,12 @@ export function ensureGeneralDepartment(departments: string[]): string[] {
  * Fetch all colleges from Firestore
  */
 export async function fetchColleges(options?: QueryOptions): Promise<PaginatedResult<College>> {
-  return getDocuments<College>("colleges", [orderBy("createdAt", "desc")], false, options);
+  return getDocuments<College>(
+    "colleges",
+    [orderBy("createdAt", "desc")],
+    false,
+    { pageSize: options?.pageSize ?? 500, ...options }
+  );
 }
 
 /**

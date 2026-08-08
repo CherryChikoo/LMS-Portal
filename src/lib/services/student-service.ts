@@ -13,7 +13,7 @@ import {
 
 import { auth, db } from "@/lib/firebase/config";
 
-import { doc, writeBatch } from "firebase/firestore";
+import { doc, writeBatch, orderBy } from "firebase/firestore";
 
 import { firestoreDiagnostics } from "@/lib/firebase/diagnostics";
 
@@ -167,7 +167,12 @@ export async function createStudentAuthProfile(
 }
 
 export async function getAllStudents(options?: QueryOptions): Promise<PaginatedResult<Student>> {
-  return getDocuments<Student>(COLLECTION_NAME, [], false, options);
+  return getDocuments<Student>(
+    COLLECTION_NAME,
+    [orderBy("createdAt", "desc")],
+    false,
+    { pageSize: options?.pageSize ?? 1000, ...options }
+  );
 }
 
 export function subscribeToAllStudents(callback: (students: Student[]) => void, options?: QueryOptions): () => void {

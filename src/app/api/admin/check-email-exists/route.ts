@@ -2,6 +2,7 @@ import { getErrorMessage } from '@/lib/utils/error';
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth } from "@/lib/firebase/admin";
 import { getFirestore } from "firebase-admin/firestore";
+import { lookupEmailDocuments } from "@/lib/server/email-uniqueness";
 
 export async function POST(request: NextRequest) {
   try {
@@ -25,16 +26,13 @@ export async function POST(request: NextRequest) {
 
     const normalizedEmail = email.toLowerCase().trim();
 
-    // Check if email exists in Firestore (only active records)
     const db = getFirestore();
-    
-    // Check for active users
-    const existingUsersSnapshot = await db.collection("users")
-      .where("email", "==", normalizedEmail)
-      .get();
-    
+    const firestoreLookupStart = Date.now();
+    const emailDocs = await lookupEmailDocuments(db, normalizedEmail, { limitPerCollection: 5 });
+    console.info(`[perf][check-email-exists] firestore lookup took ${Date.now() - firestoreLookupStart}ms`);
+
     // Filter for truly active users
-    const activeUsers = existingUsersSnapshot.docs.filter(doc => {
+    const activeUsers = emailDocs.userDocs.filter(doc => {
       const data = doc.data();
       return data.isActive !== false && data.isDeleted !== true;
     });
@@ -49,11 +47,7 @@ export async function POST(request: NextRequest) {
     }
     
     // Check for active colleges with this admin email
-    const existingCollegesSnapshot = await db.collection("colleges")
-      .where("adminEmail", "==", normalizedEmail)
-      .get();
-      
-    const activeColleges = existingCollegesSnapshot.docs.filter(doc => {
+    const activeColleges = emailDocs.collegeDocs.filter(doc => {
       const data = doc.data();
       return data.isDeleted !== true && data.status !== 'deleted';
     });
@@ -68,11 +62,7 @@ export async function POST(request: NextRequest) {
     }
     
     // Check for active students
-    const existingStudentsSnapshot = await db.collection("students")
-      .where("email", "==", normalizedEmail)
-      .get();
-      
-    const activeStudents = existingStudentsSnapshot.docs.filter(doc => {
+    const activeStudents = emailDocs.studentDocs.filter(doc => {
       const data = doc.data();
       return data.isActive !== false && data.isDeleted !== true;
     });

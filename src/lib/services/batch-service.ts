@@ -19,7 +19,12 @@ import type { Batch } from "@/types";
  * Get all batches
  */
 export async function getAllBatches(options?: QueryOptions): Promise<PaginatedResult<Batch>> {
-  return getDocuments<Batch>("batches", [orderBy("createdAt", "desc")], false, options);
+  return getDocuments<Batch>(
+    "batches",
+    [orderBy("createdAt", "desc")],
+    false,
+    { pageSize: options?.pageSize ?? 1000, ...options }
+  );
 }
 
 /**

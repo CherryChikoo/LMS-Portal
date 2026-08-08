@@ -2,6 +2,7 @@ import { getErrorMessage } from '@/lib/utils/error';
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth } from "@/lib/firebase/admin";
 import { getFirestore } from "firebase-admin/firestore";
+import { isEmailInUse } from "@/lib/server/email-uniqueness";
 
 export async function POST(request: NextRequest) {
   try {
@@ -83,17 +84,13 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Invalid email format." }, { status: 400 });
       }
 
-      // Check for email uniqueness in Firestore collections
-      const emailQuerySnap = await db.collection("users").where("email", "==", normalizedEmail).get();
-      const emailStudentsSnap = await db.collection("students").where("email", "==", normalizedEmail).get();
-      const emailCollegesSnap = await db.collection("colleges").where("adminEmail", "==", normalizedEmail).get();
-
-      const isOtherUser = (doc: any) => doc.id !== collegeAdminUid;
-      const isOtherCollege = (doc: any) => doc.id !== collegeId;
-      
-      const emailExists = emailQuerySnap.docs.some(isOtherUser) || 
-                          emailStudentsSnap.docs.some(isOtherUser) || 
-                          emailCollegesSnap.docs.some(isOtherCollege);
+      const emailCheckStart = Date.now();
+      const emailExists = await isEmailInUse(db, normalizedEmail, {
+        excludeUserIds: collegeAdminUid ? [collegeAdminUid] : [],
+        excludeCollegeIds: [collegeId],
+        limitPerCollection: 3,
+      });
+      console.info(`[perf][update-college-auth] email uniqueness check took ${Date.now() - emailCheckStart}ms`);
 
       if (emailExists) {
         return NextResponse.json(

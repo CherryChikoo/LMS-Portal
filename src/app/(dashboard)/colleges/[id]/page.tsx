@@ -14,7 +14,7 @@ import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
 import { uniqueOptions } from "@/lib/utils/array";
-import { getCollegeById, updateCollege, createCollege, getAllStudents, createStudentProfile, createStudentAuthProfile, getAllBatches, deleteStudentProfile, getStudentByEmail, getStudentsByCollege, updateStudentProfile, deleteDepartmentAndMigrate, renameDepartmentAndMigrate, PREDEFINED_DEPARTMENTS, ensureGeneralDepartment, importStudentsCSV, parseStudentsCSV, generateCredentialsCSV, formatAuthError } from "@/lib/services";
+import { getCollegeById, updateCollege, createCollege, createStudentProfile, createStudentAuthProfile, getBatchesByCollege, deleteStudentProfile, getStudentByEmail, getStudentsByCollege, updateStudentProfile, deleteDepartmentAndMigrate, renameDepartmentAndMigrate, PREDEFINED_DEPARTMENTS, ensureGeneralDepartment, importStudentsCSV, parseStudentsCSV, generateCredentialsCSV, formatAuthError } from "@/lib/services";
 import { getDocuments, where } from "@/lib/firebase/firestore";
 import { matchesYearFilter } from "@/lib/hierarchy/hierarchy-data";
 import type { College, Student, Batch, CSVStudentRow, CSVImportSummary } from "@/types";
@@ -203,80 +203,87 @@ function getYearBadgeStyle(year?: string) {
     document.body.removeChild(link);
   };
 
+  const fetchCollegeDetails = async () => {
+    const decodedId = decodeURIComponent(collegeId);
+    const normalizedId = decodedId.trim().toLowerCase();
+
+    let colData = await getCollegeById(collegeId);
+    if (!colData && decodedId !== collegeId) {
+      colData = await getCollegeById(decodedId);
+    }
+    if (!colData) {
+      const byName = await getDocuments<College>("colleges", [where("name", "==", normalizedId)], false, { pageSize: 10 });
+      colData = byName.data[0] || null;
+    }
+
+    if (colData) {
+      const [studentsRes, batchesRes] = await Promise.all([
+        getStudentsByCollege(colData.id, { pageSize: 2000 }),
+        getBatchesByCollege(colData.id, { pageSize: 1000 }),
+      ]);
+      return {
+        college: colData,
+        students: studentsRes.data,
+        batches: batchesRes.data,
+        isExternalCollege: false,
+      };
+    }
+
+    const [studentsByCollegeId, studentsByCollegeName, batchesByCollegeId] = await Promise.all([
+      getDocuments<Student>("students", [where("collegeId", "==", decodedId)], false, { pageSize: 2000 }),
+      getDocuments<Student>("students", [where("collegeName", "==", normalizedId)], false, { pageSize: 2000 }),
+      getDocuments<Batch>("batches", [where("collegeId", "==", decodedId)], false, { pageSize: 1000 }),
+    ]);
+
+    const mergedStudentsMap = new Map<string, Student>();
+    studentsByCollegeId.data.forEach((student) => mergedStudentsMap.set(student.id, student));
+    studentsByCollegeName.data.forEach((student) => mergedStudentsMap.set(student.id, student));
+    const extStuds = Array.from(mergedStudentsMap.values());
+
+    if (extStuds.length === 0) {
+      return {
+        college: null,
+        students: [],
+        batches: batchesByCollegeId.data,
+        isExternalCollege: false,
+      };
+    }
+
+    const extDepts = Array.from(new Set(extStuds.map((s) => s.department).filter(Boolean)));
+    const externalCollege = {
+      id: decodedId,
+      name: decodedId,
+      code: decodedId.slice(0, 6).toUpperCase(),
+      departments: extDepts.length > 0 ? extDepts : ["General"],
+      studentCount: extStuds.length,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as College;
+
+    return {
+      college: externalCollege,
+      students: extStuds,
+      batches: batchesByCollegeId.data,
+      isExternalCollege: true,
+    };
+  };
+
+  const applyCollegeData = (payload: { college: College | null; students: Student[]; batches: Batch[]; isExternalCollege: boolean }) => {
+    setIsExternal(payload.isExternalCollege);
+    setCollege(payload.college);
+    setBatches(payload.batches);
+    setStudents(payload.students);
+    if (!studDept && payload.college?.departments && payload.college.departments.length > 0) {
+      setStudDept(payload.college.departments[0]);
+    }
+  };
+
   useEffect(() => {
     const loadCollege = async () => {
       setLoading(true);
       try {
-        const decodedId = decodeURIComponent(collegeId);
-        
-        // OPTIMIZATION: Load college doc directly first
-        let colData = await getCollegeById(collegeId);
-        let external = false;
-        
-        if (!colData) {
-          // Try alternate lookup for external colleges
-          const allColsResult = await getDocuments<College>("colleges", [], false, { pageSize: 100 });
-          const cleanSlug = (v?: string) => (v ? String(v).trim().toLowerCase().replace(/[^a-z0-9]+/g, "") : "");
-          const targetSlug = cleanSlug(decodedId);
-          colData = allColsResult.data.find((c) => c.id === decodedId || cleanSlug(c.id) === targetSlug || cleanSlug(c.name) === targetSlug) || null;
-        }
-
-        // OPTIMIZATION: Use scoped queries instead of loading ALL students/batches
-        let allStuds: Student[] = [];
-        let allBatches: Batch[] = [];
-        
-        if (colData) {
-          // Load only students for this specific college
-          const studentsRes = await getStudentsByCollege(colData.id);
-          allStuds = studentsRes.data;
-          
-          // Load only batches for this college (or all batches with limit for backward compat)
-          const batchesRes = await getAllBatches({ pageSize: 500 });
-          allBatches = batchesRes.data;
-        } else {
-          // Fallback: try to find students by name match for external colleges
-          const allStudsRes = await getAllStudents({ pageSize: 5000 });
-          allStuds = allStudsRes.data;
-          
-          const extStuds = allStuds.filter(
-            (s) => s.collegeId === decodedId || s.collegeName?.toLowerCase() === decodedId.toLowerCase()
-          );
-          
-          if (extStuds.length > 0) {
-            external = true;
-            const extDepts = Array.from(new Set(extStuds.map((s) => s.department).filter(Boolean)));
-            colData = {
-              id: decodedId,
-              name: decodedId,
-              code: decodedId.slice(0, 6).toUpperCase(),
-              departments: extDepts.length > 0 ? extDepts : ["General"],
-              studentCount: extStuds.length,
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            } as College;
-            allStuds = extStuds;
-          }
-          
-          const batchesRes = await getAllBatches({ pageSize: 500 });
-          allBatches = batchesRes.data;
-        }
-
-        setIsExternal(external);
-        setCollege(colData);
-        setBatches(allBatches);
-        if (colData) {
-          // Filter students belonging to this college
-          const colStuds = allStuds.filter(
-            (s) =>
-              s.collegeId === collegeId ||
-              s.collegeId === decodedId ||
-              s.collegeName?.toLowerCase() === colData.name.toLowerCase()
-          );
-          setStudents(colStuds);
-          if (!studDept && colData.departments && colData.departments.length > 0) {
-            setStudDept(colData.departments[0]);
-          }
-        }
+        const payload = await fetchCollegeDetails();
+        applyCollegeData(payload);
       } catch (err) {
         console.error("Failed to load college details", err);
       } finally {
@@ -289,70 +296,8 @@ function getYearBadgeStyle(year?: string) {
 
   const refreshData = async () => {
     try {
-      const decodedId = decodeURIComponent(collegeId);
-      
-      // OPTIMIZATION: Load college doc directly first
-      let colData = await getCollegeById(collegeId);
-      let external = isExternal;
-      
-      if (!colData) {
-        const allColsResult = await getDocuments<College>("colleges", [], false, { pageSize: 100 });
-        const cleanSlug = (v?: string) => (v ? String(v).trim().toLowerCase().replace(/[^a-z0-9]+/g, "") : "");
-        const targetSlug = cleanSlug(decodedId);
-        colData = allColsResult.data.find((c) => c.id === decodedId || cleanSlug(c.id) === targetSlug || cleanSlug(c.name) === targetSlug) || null;
-      }
-
-      // OPTIMIZATION: Use scoped queries
-      let allStuds: Student[] = [];
-      let allBatches: Batch[] = [];
-      
-      if (colData) {
-        const studentsRes = await getStudentsByCollege(colData.id);
-        allStuds = studentsRes.data;
-        const batchesRes = await getAllBatches({ pageSize: 500 });
-        allBatches = batchesRes.data;
-      } else {
-        const allStudsRes = await getAllStudents({ pageSize: 5000 });
-        allStuds = allStudsRes.data;
-        
-        const extStuds = allStuds.filter(
-          (s) => s.collegeId === decodedId || s.collegeName?.toLowerCase() === decodedId.toLowerCase()
-        );
-        
-        if (extStuds.length > 0) {
-          external = true;
-          const extDepts = Array.from(new Set(extStuds.map((s) => s.department).filter(Boolean)));
-          colData = {
-            id: decodedId,
-            name: decodedId,
-            code: decodedId.slice(0, 6).toUpperCase(),
-            departments: extDepts.length > 0 ? extDepts : ["General"],
-            studentCount: extStuds.length,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          } as College;
-          allStuds = extStuds;
-        }
-        
-        const batchesRes = await getAllBatches({ pageSize: 500 });
-        allBatches = batchesRes.data;
-      }
-
-      setIsExternal(external);
-      setCollege(colData);
-      setBatches(allBatches);
-      if (colData) {
-        const colStuds = allStuds.filter(
-          (s) =>
-            s.collegeId === collegeId ||
-            s.collegeId === decodedId ||
-            s.collegeName?.toLowerCase() === colData.name.toLowerCase()
-        );
-        setStudents(colStuds);
-        if (!studDept && colData.departments && colData.departments.length > 0) {
-          setStudDept(colData.departments[0]);
-        }
-      }
+      const payload = await fetchCollegeDetails();
+      applyCollegeData(payload);
     } catch (err) {
       console.error("Failed to refresh college details", err);
     }

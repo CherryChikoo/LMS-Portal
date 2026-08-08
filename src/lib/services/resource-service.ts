@@ -12,6 +12,7 @@ import {
 import { auth } from "@/lib/firebase/config";
 import type { Resource, Student } from "@/types";
 import { isAssignedToStudent } from "./assignment-engine";
+import { orderBy } from "firebase/firestore";
 
 const COLLECTION_NAME = "resources";
 
@@ -24,7 +25,12 @@ export function subscribeToResourcesByCollege(collegeId: string, callback: (reso
 }
 
 export async function getAllResources(options?: QueryOptions): Promise<PaginatedResult<Resource>> {
-  return getDocuments<Resource>(COLLECTION_NAME, [], false, options);
+  return getDocuments<Resource>(
+    COLLECTION_NAME,
+    [orderBy("createdAt", "desc")],
+    false,
+    { pageSize: options?.pageSize ?? 1000, ...options }
+  );
 }
 
 export async function getResourceById(id: string): Promise<Resource | null> {

@@ -11,6 +11,7 @@ import {
   type PaginatedResult,
 } from "@/lib/firebase/firestore";
 import { auth } from "@/lib/firebase/config";
+import { orderBy } from "firebase/firestore";
 import type { Exam, ExamResult, Student, ExamStatus, ExamAttempt } from "@/types";
 import { isAssignedToStudent } from "./assignment-engine";
 import { toMillis } from "@/lib/utils/date";
@@ -92,11 +93,21 @@ export function subscribeToLeaderboardAttempts(
 }
 
 export async function getAllExams(options?: QueryOptions): Promise<PaginatedResult<Exam>> {
-  return getDocuments<Exam>(EXAMS_COLLECTION, [], false, options);
+  return getDocuments<Exam>(
+    EXAMS_COLLECTION,
+    [orderBy("createdAt", "desc")],
+    false,
+    { pageSize: options?.pageSize ?? 1000, ...options }
+  );
 }
 
 export async function getAllExamsIncludingDeleted(options?: QueryOptions): Promise<PaginatedResult<Exam>> {
-  return getDocuments<Exam>(EXAMS_COLLECTION, [], true, options);
+  return getDocuments<Exam>(
+    EXAMS_COLLECTION,
+    [orderBy("createdAt", "desc")],
+    true,
+    { pageSize: options?.pageSize ?? 1000, ...options }
+  );
 }
 
 export async function getExamById(id: string): Promise<Exam | null> {
