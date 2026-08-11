@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
     }
     const adminIdToken = authHeader.split("Bearer ")[1];
 
-    const { collegeId, adminEmail, collegeName } = await request.json();
+    const { collegeId, adminEmail, collegeName, password } = await request.json();
 
     if (!collegeId || typeof collegeId !== "string") {
       return NextResponse.json({ error: "College ID is required." }, { status: 400 });
@@ -38,9 +38,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Only admins or trainers can update college authentication details." }, { status: 403 });
     }
 
-    if (!adminEmail && !collegeName) {
+    if (!adminEmail && !collegeName && !password) {
       return NextResponse.json(
-        { error: "At least one update parameter (adminEmail, collegeName) must be provided." },
+        { error: "At least one update parameter (adminEmail, collegeName, password) must be provided." },
         { status: 400 }
       );
     }
@@ -117,6 +117,9 @@ export async function POST(request: NextRequest) {
     if (collegeName) {
       authUpdateFields.displayName = `${(collegeName as string).trim()} Admin`;
     }
+    if (password) {
+      authUpdateFields.password = password as string;
+    }
 
     // If an existing admin account exists, UPDATE it
     if (collegeAdminUid && Object.keys(authUpdateFields).length > 0) {
@@ -139,7 +142,7 @@ export async function POST(request: NextRequest) {
     // If NO existing admin account, CREATE a new Firebase Auth user for this college
     if (!collegeAdminUid && adminEmail) {
       const normalizedEmail = (adminEmail as string).toLowerCase().trim();
-      const defaultPassword = `College@${collegeId.slice(0, 6)}2024`;
+      const defaultPassword = password || `College@${collegeId.slice(0, 6)}2024`;
       
       try {
         // Check if email already exists in Firebase Auth

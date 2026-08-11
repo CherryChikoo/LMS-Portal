@@ -169,6 +169,7 @@ export async function updateCollege(
 
     if (data.adminEmail) payload.adminEmail = data.adminEmail;
     if (data.name) payload.collegeName = data.name;
+    if (data.initialPassword) payload.password = data.initialPassword;
 
     const response = await fetch("/api/admin/update-college-auth", {
       method: "POST",
