@@ -32,6 +32,7 @@ export default function CollegesPage() {
   const [selectedAdminIds, setSelectedAdminIds] = useState<string[]>([]);
   const [selectedExternalIds, setSelectedExternalIds] = useState<string[]>([]);
   const [deletingIds, setDeletingIds] = useState<string[]>([]);
+  const [isGlobalDeleting, setIsGlobalDeleting] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; confirmText?: string; onConfirm: () => void } | null>(null);
@@ -233,24 +234,29 @@ export default function CollegesPage() {
       message: `Are you sure you want to permanently delete "${col.name}"? This action will also delete all students, departments, and associated data. This cannot be undone.`,
       onConfirm: async () => {
         try {
-          setDeletingIds((prev) => [...prev, col.id]);
+          setIsGlobalDeleting(true);
 
-          // 1. Instant optimistic local deletion (for immediate UI feedback)
-          optimisticDeleteCollege(col.id);
-          setSelectedAdminIds((prev) => prev.filter((id) => id !== col.id));
-          toast.success(`Deleting college "${col.name}" in the background...`);
-
-          // 2. Server-side cascading deletion (handles all chunks until completion)
+          // Server-side cascading deletion
           await deleteCollege(col.id);
 
           // Immediate cache refresh
           await refreshCache();
-          toast.success(`College "${col.name}" deleted successfully.`);
+          
+          setIsGlobalDeleting(false);
+          
+          // Show alert when done
+          setConfirmConfig({
+            isOpen: true,
+            title: "Success",
+            message: `College "${col.name}" deleted successfully.`,
+            isAlert: true,
+            variant: "success",
+            onConfirm: () => setConfirmConfig(null)
+          });
         } catch (err: unknown) {
+          setIsGlobalDeleting(false);
           console.error("Failed to delete college:", err);
           toast.error(err instanceof Error ? err.message : "Failed to delete college");
-        } finally {
-          setDeletingIds((prev) => prev.filter((id) => id !== col.id));
         }
       }
     });
@@ -288,16 +294,27 @@ export default function CollegesPage() {
       onConfirm: async () => {
         try {
           const idsToDelete = [...selectedAdminIds];
-          idsToDelete.forEach((id) => optimisticDeleteCollege(id));
-          setSelectedAdminIds([]);
-          toast.success("Selected colleges deleted successfully.");
+          setIsGlobalDeleting(true);
 
           // Instant Firestore document deletion for each college (this properly calls the API until completion)
           await Promise.all(idsToDelete.map((id) => deleteCollege(id)));
 
           // Immediate cache refresh
           await refreshCache();
+          
+          setIsGlobalDeleting(false);
+          setSelectedAdminIds([]);
+          
+          setConfirmConfig({
+            isOpen: true,
+            title: "Success",
+            message: "Selected colleges deleted successfully.",
+            isAlert: true,
+            variant: "success",
+            onConfirm: () => setConfirmConfig(null)
+          });
         } catch (err: unknown) {
+          setIsGlobalDeleting(false);
           console.error("Failed to delete selected colleges:", err);
           toast.error(err instanceof Error ? err.message : "Failed to delete selected colleges");
         }
@@ -1645,8 +1662,29 @@ export default function CollegesPage() {
         title={confirmConfig?.title || ""}
         message={confirmConfig?.message || ""}
         confirmText={confirmConfig?.confirmText || "Confirm"}
-        variant="destructive"
+        variant={confirmConfig?.variant || "destructive"}
+        isAlert={confirmConfig?.isAlert}
       />
+
+      <AnimatePresence>
+        {isGlobalDeleting && (
+          <div className="fixed inset-0 z-[99999] flex flex-col items-center justify-center bg-black/60 backdrop-blur-md">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="flex flex-col items-center gap-6 p-8 rounded-2xl bg-card border border-border shadow-2xl max-w-sm text-center relative overflow-hidden"
+            >
+              <div className="absolute inset-0 bg-brand/5 animate-pulse" />
+              <Loader2 className="w-12 h-12 text-brand animate-spin relative z-10" />
+              <div className="relative z-10 space-y-2">
+                <h3 className="text-lg font-bold text-foreground">Deleting Partner Institution</h3>
+                <p className="text-sm text-muted-foreground">This may take a few moments. Please do not close this window or navigate away.</p>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
