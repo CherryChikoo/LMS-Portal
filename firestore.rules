@@ -16,14 +16,22 @@ service cloud.firestore {
 
     // Optimized: Check token first (no Firestore read), fallback to doc
     function getRole() {
-      return isAuthenticated() && request.auth.token.keys().hasAll(['role'])
-        ? request.auth.token.role
-        : 'student'; // Default to most restrictive
+      return isAuthenticated()
+        ? (request.auth.token.keys().hasAll(['role']) 
+           ? request.auth.token.role 
+           : (exists(/databases/$(database)/documents/users/$(request.auth.uid))
+              ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
+              : 'student'))
+        : 'student';
     }
 
     function getUserCollege() {
-      return isAuthenticated() && request.auth.token.keys().hasAll(['collegeId'])
-        ? request.auth.token.collegeId
+      return isAuthenticated()
+        ? (request.auth.token.keys().hasAll(['collegeId']) 
+           ? request.auth.token.collegeId 
+           : (exists(/databases/$(database)/documents/users/$(request.auth.uid))
+              ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('collegeId', '')
+              : ''))
         : '';
     }
 
@@ -143,12 +151,8 @@ service cloud.firestore {
     // ============================================================================
     
     match /colleges/{collegeId} {
-      // Read: Only if user belongs to that college or is admin
-      // SECURITY FIX: Prevents students from seeing all colleges
-      allow read: if isAuthenticated() && (
-        isMainAdmin() || 
-        belongsToSameCollege(collegeId)
-      );
+      // Read: Any authenticated user can read colleges for dropdowns
+      allow read: if isAuthenticated();
       
       // Create/Delete: Main admins only
       allow create, delete: if isMainAdmin();
