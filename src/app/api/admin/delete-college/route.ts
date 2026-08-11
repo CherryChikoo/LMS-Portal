@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     }
     
     const { id: collegeId, step, cursor } = parseResult.data;
-    const CHUNK_SIZE = 50;
+    const CHUNK_SIZE = 250;
 
     console.log(`[DeleteCollege] Step: ${step}, Cursor: ${cursor || 'none'}`);
 
@@ -90,7 +90,13 @@ export async function POST(request: NextRequest) {
       const batchWrites = db.batch();
       const uids = snap.docs.map(d => d.id);
       
-      await Promise.all(uids.map(uid => auth.deleteUser(uid).catch(() => {})));
+      try {
+        if (uids.length > 0) {
+          await auth.deleteUsers(uids); // Firebase Admin SDK bulk delete (up to 1000)
+        }
+      } catch (err) {
+        console.error(`[DeleteCollege] Failed bulk auth delete:`, err);
+      }
       
       for (const doc of snap.docs) {
         batchWrites.delete(doc.ref);
