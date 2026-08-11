@@ -4,15 +4,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth, getAdminApp } from "@/lib/firebase/admin";
 import { getFirestore } from "firebase-admin/firestore";
 import { z } from "zod";
-import { deleteDocumentAdmin, deleteStorageDirectory } from '@/lib/services/cleanup-service';
+import { bulkDeleteByQuery, deleteStorageDirectory } from '@/lib/services/cleanup-service';
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60; // Allow up to 60 seconds for bulk deletion on Vercel
 
 const DeleteCollegeSchema = z.object({
-  id: z.string().min(1, "College ID is required."),
-  collegeName: z.string().optional(),
-  step: z.enum(["init", "auth", "content", "exams", "finalize"]).optional().default("init"),
-  cursor: z.string().optional(),
+  id: z.string().min(1, "College ID is required.")
 }).strict();
 
 export async function POST(request: NextRequest) {
@@ -51,149 +49,89 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, stage, errorCode: "invalid-argument", message: parseResult.error.issues[0].message }, { status: 400 });
     }
     
-    const { id: collegeId, step, cursor } = parseResult.data;
-    const CHUNK_SIZE = 250;
+    const { id: collegeId } = parseResult.data;
 
-    console.log(`[DeleteCollege] Step: ${step}, Cursor: ${cursor || 'none'}`);
+    console.log(`[DeleteCollege] Starting full cascade deletion for college: ${collegeId}`);
 
-    // STEP: INIT - Setup and begin
-    if (step === "init") {
-      return NextResponse.json({ success: true, nextStep: "auth", cursor: undefined });
+    // STEP 1: Delete Firebase Auth accounts for students and college admin
+    stage = "deleteAuthUsers";
+    let studentsSnap = await db.collection("students").where("collegeId", "==", collegeId).get();
+    if (studentsSnap.empty) {
+      studentsSnap = await db.collection("students").where("collegeName", "==", collegeId).get();
     }
 
-    // STEP: AUTH - Delete Firebase Auth accounts for students/college_admins
-    if (step === "auth") {
-      let query = db.collection("students").where("collegeId", "==", collegeId).limit(CHUNK_SIZE);
-      let snap = await query.get();
-      
-      // Fallback for external colleges (legacy structure)
-      if (snap.empty) {
-         snap = await db.collection("students").where("collegeName", "==", collegeId).limit(CHUNK_SIZE).get();
-      }
-
-      if (snap.empty) {
-        // Also delete college admin auth if we're done with students
-        const collegeDoc = await db.collection("colleges").doc(collegeId).get();
-        if (collegeDoc.exists) {
-           const adminEmail = collegeDoc.data()?.adminEmail;
-           if (adminEmail) {
-             try {
-               const adminUser = await auth.getUserByEmail(adminEmail);
-               await auth.deleteUser(adminUser.uid);
-               await db.collection("users").doc(adminUser.uid).delete();
-             } catch(e) {}
-           }
-        }
-        return NextResponse.json({ success: true, nextStep: "content", cursor: undefined });
-      }
-
-      const batchWrites = db.batch();
-      const uids = snap.docs.map(d => d.id);
-      
+    const studentUids = studentsSnap.docs.map(d => d.id);
+    console.log(`[DeleteCollege] Found ${studentUids.length} students to delete from Auth`);
+    
+    // Chunk Auth deletes in batches of 1000 (Firebase Admin limit)
+    for (let i = 0; i < studentUids.length; i += 1000) {
+      const chunk = studentUids.slice(i, i + 1000);
       try {
-        if (uids.length > 0) {
-          await auth.deleteUsers(uids); // Firebase Admin SDK bulk delete (up to 1000)
-        }
+        await auth.deleteUsers(chunk);
       } catch (err) {
-        console.error(`[DeleteCollege] Failed bulk auth delete:`, err);
-      }
-      
-      for (const doc of snap.docs) {
-        batchWrites.delete(doc.ref);
-        batchWrites.delete(db.collection("users").doc(doc.id));
-      }
-      await batchWrites.commit();
-
-      return NextResponse.json({ success: true, nextStep: "auth", cursor: undefined });
-    }
-
-    // STEP: CONTENT - Delete users, students, resources, doubts, trainer_notes
-    if (step === "content") {
-      const collections = ["users", "students", "resources", "doubts", "trainer_notes", "batches", "departments", "courses"];
-      let hasMoreAnywhere = false;
-      
-      const bulkWriter = db.bulkWriter();
-      for (const col of collections) {
-         let snap = await db.collection(col).where("collegeId", "==", collegeId).limit(CHUNK_SIZE).get();
-         if (snap.empty) {
-            snap = await db.collection(col).where("collegeName", "==", collegeId).limit(CHUNK_SIZE).get();
-         }
-         
-         if (!snap.empty) {
-            hasMoreAnywhere = true;
-            snap.docs.forEach(d => bulkWriter.delete(d.ref));
-         }
-      }
-      await bulkWriter.close();
-
-      if (hasMoreAnywhere) {
-         return NextResponse.json({ success: true, nextStep: "content", cursor: undefined });
-      } else {
-         return NextResponse.json({ success: true, nextStep: "exams", cursor: undefined });
+        console.error(`[DeleteCollege] Warning: Failed to delete some auth users in chunk:`, err);
       }
     }
 
-    // STEP: EXAMS - Delete exams, results, questions
-    if (step === "exams") {
-       let examsSnap = await db.collection("exams").where("collegeId", "==", collegeId).limit(1).get();
-       if (examsSnap.empty) {
-          examsSnap = await db.collection("exams").where("collegeName", "==", collegeId).limit(1).get();
-       }
-       
-       if (examsSnap.empty) {
-          return NextResponse.json({ success: true, nextStep: "finalize", cursor: undefined, deletedCount: 0 });
-       }
-
-       const exam = examsSnap.docs[0];
-       const bulkWriter = db.bulkWriter();
-       
-       const [resSnap, qSnap] = await Promise.all([
-          db.collection("exam_results").where("examId", "==", exam.id).limit(250).get(),
-          db.collection("questions").where("examId", "==", exam.id).limit(250).get()
-       ]);
-
-       resSnap.docs.forEach(d => bulkWriter.delete(d.ref));
-       qSnap.docs.forEach(d => bulkWriter.delete(d.ref));
-       
-       if (resSnap.empty && qSnap.empty) {
-          bulkWriter.delete(exam.ref);
-          await bulkWriter.close();
-          return NextResponse.json({ success: true, nextStep: "exams", cursor: undefined, deletedCount: 1 }); // 1 exam deleted
-       }
-       
-       await bulkWriter.close();
-       return NextResponse.json({ success: true, nextStep: "exams", cursor: undefined, deletedCount: resSnap.size + qSnap.size });
+    // Delete college admin auth
+    const collegeDoc = await db.collection("colleges").doc(collegeId).get();
+    if (collegeDoc.exists) {
+      const adminEmail = collegeDoc.data()?.adminEmail;
+      if (adminEmail) {
+        try {
+          const adminUser = await auth.getUserByEmail(adminEmail);
+          await auth.deleteUser(adminUser.uid);
+          await db.collection("users").doc(adminUser.uid).delete();
+        } catch (e) {
+          // Ignore if admin user doesn't exist in auth
+        }
+      }
     }
 
-    // STEP: FINALIZE - Delete files and college doc
-    if (step === "finalize") {
-       await deleteStorageDirectory(`colleges/${collegeId}/`);
-       const bulkWriter = db.bulkWriter();
-       const colRef = db.collection("colleges").doc(collegeId);
-       
-       const colDoc = await colRef.get();
-       let deletedCount = 0;
-       
-       if (colDoc.exists) {
-          bulkWriter.delete(colRef);
-          deletedCount = 1;
-       }
-       
-       // Cleanup any leftover external college docs with name=collegeId
-       const extSnap = await db.collection("colleges").where("name", "==", collegeId).get();
-       extSnap.docs.forEach(d => {
-          bulkWriter.delete(d.ref);
-          deletedCount++;
-       });
-       
-       await bulkWriter.close();
-       
-       return NextResponse.json({ success: true, done: true, message: "College deleted successfully.", deletedCount });
+    // STEP 2: Bulk Delete Collections directly associated with the college
+    stage = "deleteCollections";
+    const collections = ["users", "students", "resources", "doubts", "trainer_notes", "batches", "departments", "courses"];
+    
+    for (const col of collections) {
+      await bulkDeleteByQuery(col, "collegeId", "==", collegeId);
+      // Fallback for older schemas
+      await bulkDeleteByQuery(col, "collegeName", "==", collegeId);
     }
 
-    return NextResponse.json({ success: true });
+    // STEP 3: Delete Exams and their nested results/questions
+    stage = "deleteExams";
+    let examsSnap = await db.collection("exams").where("collegeId", "==", collegeId).get();
+    if (examsSnap.empty) {
+      examsSnap = await db.collection("exams").where("collegeName", "==", collegeId).get();
+    }
+
+    console.log(`[DeleteCollege] Found ${examsSnap.size} exams to delete`);
+    const bulkWriter = db.bulkWriter();
+    
+    for (const examDoc of examsSnap.docs) {
+      await bulkDeleteByQuery("exam_results", "examId", "==", examDoc.id);
+      await bulkDeleteByQuery("questions", "examId", "==", examDoc.id);
+      bulkWriter.delete(examDoc.ref);
+    }
+    await bulkWriter.close();
+
+    // STEP 4: Delete College Storage Directory
+    stage = "deleteStorage";
+    await deleteStorageDirectory(`colleges/${collegeId}/`);
+
+    // STEP 5: Delete College Document
+    stage = "deleteCollegeDoc";
+    if (collegeDoc.exists) {
+      await db.collection("colleges").doc(collegeId).delete();
+    }
+    // Cleanup any fallback docs
+    await bulkDeleteByQuery("colleges", "name", "==", collegeId);
+
+    console.log(`[DeleteCollege] Completed deletion successfully for: ${collegeId}`);
+    return NextResponse.json({ success: true, done: true, message: "College deleted successfully." });
 
   } catch (err: unknown) {
+    console.error(`[DeleteCollege] Failed at stage ${stage}:`, err);
     const message = process.env.NODE_ENV === "production" ? "Internal server error." : getErrorMessage(err);
     return NextResponse.json({ success: false, stage, message, retryable: true }, { status: 500 });
   }

@@ -64,7 +64,6 @@ function StudentsContent() {
   const batches = useLMSDataSelector((s) => s.filteredBatches);
   const lmsLoading = useLMSDataSelector((s) => s.loading);
   const { resolveInstitution, resolveBatch } = useEntityResolution();
-  const [loading, setLoading] = useState(true);
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm?: () => void; isAlert?: boolean; variant?: "destructive" | "warning" | "info" | "success" } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchRaw, setSearchRaw] = useState("");
@@ -137,7 +136,9 @@ function StudentsContent() {
   const [editPassword, setEditPassword] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
 
-  // Sync loading state and handle initialCollegeId
+  // Fix initial loading flash by directly using derived state instead of useState
+  const loading = hierarchyLoading || lmsLoading;
+
   useEffect(() => {
     if (userRole === "college_admin" && colleges.length > 0) {
       // ⚠️ CRITICAL FIX: College Admins must default to their assigned college, otherwise created students get 'GLOBAL' ID and disappear
@@ -145,7 +146,6 @@ function StudentsContent() {
     } else if (initialCollegeId && colleges.find((c) => c.id === initialCollegeId)) {
       setNewCollegeId(initialCollegeId);
     }
-    setLoading(hierarchyLoading || lmsLoading);
   }, [hierarchyLoading, lmsLoading, initialCollegeId, colleges, userRole]);
 
   useEffect(() => {

@@ -209,38 +209,27 @@ export async function deleteCollege(id: string, onProgress?: (msg: string) => vo
 
   const adminIdToken = await currentUser.getIdToken(true);
 
-  let step = "init";
-  let cursor: string | undefined = undefined;
+  if (onProgress) {
+     onProgress("Deleting college and associated data...");
+  }
 
-  while (true) {
-    if (onProgress) {
-       onProgress(`Processing deletion stage: ${step}...`);
-    }
-    const res: Response = await fetch("/api/admin/delete-college", {
-      method: "POST",
-      headers: { 
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${adminIdToken}`
-      },
-      body: JSON.stringify({ id, step, cursor }),
-    });
+  const res: Response = await fetch("/api/admin/delete-college", {
+    method: "POST",
+    headers: { 
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${adminIdToken}`
+    },
+    body: JSON.stringify({ id }),
+  });
 
-    const result = await res.json();
+  const result = await res.json();
 
-    if (!res.ok || !result.success) {
-      throw new Error(
-        result.error ||
-        result.message ||
-        `Failed to delete college: ${res.status} ${res.statusText}`
-      );
-    }
-
-    if (result.done) {
-       break;
-    }
-
-    step = result.nextStep;
-    cursor = result.cursor;
+  if (!res.ok || !result.success) {
+    throw new Error(
+      result.error ||
+      result.message ||
+      `Failed to delete college: ${res.status} ${res.statusText}`
+    );
   }
 }
 
