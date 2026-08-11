@@ -221,7 +221,7 @@ function getYearBadgeStyle(year?: string) {
       let allBatches: Batch[] = [];
       
       if (colData) {
-        if (colData.type === "external") {
+        if (colData.type === "external" || colData.id.startsWith("ext-")) {
           external = true;
           // For external colleges in Firestore, we still need to query by name because 
           // most students only have collegeName populated during self-registration.
@@ -325,6 +325,7 @@ function getYearBadgeStyle(year?: string) {
           departments: college.departments || ["General"],
           studentCount: college.studentCount || students.length,
           status: "active",
+          type: "external",
           isDeleted: false,
           updatedAt: Timestamp.now(),
           branding: {

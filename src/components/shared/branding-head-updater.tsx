@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useBranding } from "@/providers/branding-provider";
 import { APP_NAME } from "@/lib/constants";
 
 export function BrandingHeadUpdater() {
   const { branding, loading } = useBranding();
+  const pathname = usePathname();
 
   const [userRole, setUserRole] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
@@ -75,7 +77,7 @@ export function BrandingHeadUpdater() {
     } else {
       link.href = "/favicon.ico"; // Fallback to default
     }
-  }, [branding, loading, userRole, userCollegeId, userCollegeName]);
+  }, [branding, loading, userRole, userCollegeId, userCollegeName, pathname]);
 
   return null;
 }
