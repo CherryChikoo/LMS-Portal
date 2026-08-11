@@ -85,7 +85,7 @@ service cloud.firestore {
     function canChangeCollege() {
       return isMainAdmin() || 
              (!request.resource.data.keys().hasAny(['collegeId']) || 
-              request.resource.data.collegeId == resource.data.collegeId);
+              request.resource.data.get('collegeId', '') == resource.data.get('collegeId', ''));
     }
 
     // ============================================================================
@@ -98,22 +98,22 @@ service cloud.firestore {
         isOwner(userId) || 
         (getUserEmail() != '' && resource.data.email == getUserEmail()) ||
         isMainAdmin() || 
-        (isCollegeAdmin() && resource.data.collegeId == getUserCollege())
+        (isCollegeAdmin() && resource.data.get('collegeId', '') == getUserCollege())
       );
       
       // Create: Self-registration, or admin creating in their college
       allow create: if isAuthenticated() && (
         isOwner(userId) || 
         isMainAdmin() || 
-        (isCollegeAdmin() && request.resource.data.collegeId == getUserCollege())
+        (isCollegeAdmin() && request.resource.data.get('collegeId', '') == getUserCollege())
       );
       
       // Update: Admins or self (but can't change role/college)
       allow update: if isAuthenticated() && (
         isMainAdmin() || 
         (isCollegeAdmin() && 
-         resource.data.collegeId == getUserCollege() && 
-         request.resource.data.collegeId == getUserCollege()) || 
+         resource.data.get('collegeId', '') == getUserCollege() && 
+         request.resource.data.get('collegeId', '') == getUserCollege()) || 
         (isOwner(userId) && 
          request.resource.data.role == resource.data.role && 
          canChangeCollege())
@@ -121,7 +121,7 @@ service cloud.firestore {
       
       // Delete: Admins only
       allow delete: if isMainAdmin() || 
-                       (isCollegeAdmin() && resource.data.collegeId == getUserCollege());
+                       (isCollegeAdmin() && resource.data.get('collegeId', '') == getUserCollege());
     }
 
     match /students/{studentId} {
@@ -130,22 +130,22 @@ service cloud.firestore {
         isOwner(studentId) || 
         (getUserEmail() != '' && resource.data.email == getUserEmail()) ||
         isMainAdmin() || 
-        (isCollegeAdmin() && resource.data.collegeId == getUserCollege())
+        (isCollegeAdmin() && resource.data.get('collegeId', '') == getUserCollege())
       );
       
       allow create: if isAuthenticated() && (
         isMainAdmin() || 
-        (isCollegeAdmin() && request.resource.data.collegeId == getUserCollege())
+        (isCollegeAdmin() && request.resource.data.get('collegeId', '') == getUserCollege())
       );
       
       allow update: if isMainAdmin() || 
                        (isCollegeAdmin() && 
-                        resource.data.collegeId == getUserCollege() && 
-                        request.resource.data.collegeId == getUserCollege()) ||
+                        resource.data.get('collegeId', '') == getUserCollege() && 
+                        request.resource.data.get('collegeId', '') == getUserCollege()) ||
                        (isOwner(studentId) && canChangeCollege());
       
       allow delete: if isMainAdmin() || 
-                       (isCollegeAdmin() && resource.data.collegeId == getUserCollege());
+                       (isCollegeAdmin() && resource.data.get('collegeId', '') == getUserCollege());
     }
 
     // ============================================================================
@@ -169,11 +169,11 @@ service cloud.firestore {
     // ============================================================================
     
     match /departments/{departmentId} {
-      allow read: if isAuthenticated() && belongsToSameCollege(resource.data.collegeId);
+      allow read: if isAuthenticated() && belongsToSameCollege(resource.data.get('collegeId', ''));
       allow create: if isMainAdmin() || 
-                       (isCollegeAdmin() && belongsToSameCollege(request.resource.data.collegeId));
+                       (isCollegeAdmin() && belongsToSameCollege(request.resource.data.get('collegeId', '')));
       allow update, delete: if isMainAdmin() || 
-                               (isCollegeAdmin() && belongsToSameCollege(resource.data.collegeId));
+                               (isCollegeAdmin() && belongsToSameCollege(resource.data.get('collegeId', '')));
     }
 
     // ============================================================================
@@ -181,11 +181,11 @@ service cloud.firestore {
     // ============================================================================
     
     match /batches/{batchId} {
-      allow read: if isAuthenticated() && belongsToSameCollege(resource.data.collegeId);
+      allow read: if isAuthenticated() && belongsToSameCollege(resource.data.get('collegeId', ''));
       allow create: if isMainAdmin() || 
-                       (isCollegeAdmin() && belongsToSameCollege(request.resource.data.collegeId));
+                       (isCollegeAdmin() && belongsToSameCollege(request.resource.data.get('collegeId', '')));
       allow update, delete: if isMainAdmin() || 
-                               (isCollegeAdmin() && belongsToSameCollege(resource.data.collegeId));
+                               (isCollegeAdmin() && belongsToSameCollege(resource.data.get('collegeId', '')));
     }
 
     // ============================================================================
@@ -198,21 +198,21 @@ service cloud.firestore {
       allow read: if isAuthenticated() && (
         isMainAdmin() ||
         (resource.data.keys().hasAll(['sharedWith']) && isSharedWithUser(resource.data.sharedWith)) ||
-        belongsToSameCollege(resource.data.collegeId) ||
+        belongsToSameCollege(resource.data.get('collegeId', '')) ||
         (isCollegeAdmin() && (
-           resource.data.collegeId == 'global' || 
-           resource.data.collegeId == 'GLOBAL' || 
-           resource.data.collegeId == 'all' || 
-           resource.data.collegeId == 'ALL' ||
-           resource.data.collegeId == ''
+           resource.data.get('collegeId', '') == 'global' || 
+           resource.data.get('collegeId', '') == 'GLOBAL' || 
+           resource.data.get('collegeId', '') == 'all' || 
+           resource.data.get('collegeId', '') == 'ALL' ||
+           resource.data.get('collegeId', '') == ''
         ))
       );
       
       allow create: if isMainAdmin() || 
-                       (isCollegeAdmin() && belongsToSameCollege(request.resource.data.collegeId));
+                       (isCollegeAdmin() && belongsToSameCollege(request.resource.data.get('collegeId', '')));
       
       allow update, delete: if isMainAdmin() || 
-                               (isCollegeAdmin() && belongsToSameCollege(resource.data.collegeId));
+                               (isCollegeAdmin() && belongsToSameCollege(resource.data.get('collegeId', '')));
     }
 
     // ============================================================================
@@ -222,14 +222,14 @@ service cloud.firestore {
     match /questions/{questionId} {
       allow read: if isAuthenticated() && (
         isMainAdmin() ||
-        belongsToSameCollege(resource.data.collegeId)
+        belongsToSameCollege(resource.data.get('collegeId', ''))
       );
       
       allow create: if isMainAdmin() || 
-                       (isCollegeAdmin() && belongsToSameCollege(request.resource.data.collegeId));
+                       (isCollegeAdmin() && belongsToSameCollege(request.resource.data.get('collegeId', '')));
       
       allow update, delete: if isMainAdmin() || 
-                               (isCollegeAdmin() && belongsToSameCollege(resource.data.collegeId));
+                               (isCollegeAdmin() && belongsToSameCollege(resource.data.get('collegeId', '')));
     }
 
     // ============================================================================
@@ -241,25 +241,25 @@ service cloud.firestore {
       allow read: if isAuthenticated() && (
         isMainAdmin() ||
         (isCollegeAdmin() && (
-           belongsToSameCollege(resource.data.collegeId) ||
-           resource.data.collegeId == 'global' || 
-           resource.data.collegeId == 'GLOBAL' || 
-           resource.data.collegeId == 'all' || 
-           resource.data.collegeId == 'ALL' ||
-           resource.data.collegeId == ''
+           belongsToSameCollege(resource.data.get('collegeId', '')) ||
+           resource.data.get('collegeId', '') == 'global' || 
+           resource.data.get('collegeId', '') == 'GLOBAL' || 
+           resource.data.get('collegeId', '') == 'all' || 
+           resource.data.get('collegeId', '') == 'ALL' ||
+           resource.data.get('collegeId', '') == ''
         )) ||
         (isStudent() && 
          resource.data.status != 'draft' && 
-         (belongsToSameCollege(resource.data.collegeId) ||
+         (belongsToSameCollege(resource.data.get('collegeId', '')) ||
           (resource.data.keys().hasAll(['targets']) && 
            canAccessTarget(resource.data.targets))))
       );
       
       allow create: if isMainAdmin() || 
-                       (isCollegeAdmin() && belongsToSameCollege(request.resource.data.collegeId));
+                       (isCollegeAdmin() && belongsToSameCollege(request.resource.data.get('collegeId', '')));
       
       allow update, delete: if isMainAdmin() || 
-                               (isCollegeAdmin() && belongsToSameCollege(resource.data.collegeId));
+                               (isCollegeAdmin() && belongsToSameCollege(resource.data.get('collegeId', '')));
     }
 
     // ============================================================================
@@ -276,12 +276,12 @@ service cloud.firestore {
         isOwner(resource.data.studentId) || 
         (getUserEmail() != '' && resource.data.studentEmail == getUserEmail()) ||
         isMainAdmin() || 
-        (isCollegeAdmin() && belongsToSameCollege(resource.data.collegeId))
+        (isCollegeAdmin() && belongsToSameCollege(resource.data.get('collegeId', '')))
       );
       
       // Update/Delete: Admins only
       allow update, delete: if isMainAdmin() || 
-                               (isCollegeAdmin() && belongsToSameCollege(resource.data.collegeId));
+                               (isCollegeAdmin() && belongsToSameCollege(resource.data.get('collegeId', '')));
     }
 
     // ============================================================================
@@ -296,20 +296,20 @@ service cloud.firestore {
       allow read: if isAuthenticated() && (
         isOwner(resource.data.studentId) ||
         isMainAdmin() ||
-        (isCollegeAdmin() && belongsToSameCollege(resource.data.collegeId)) ||
-        (isStudent() && belongsToSameCollege(resource.data.collegeId))
+        (isCollegeAdmin() && belongsToSameCollege(resource.data.get('collegeId', ''))) ||
+        (isStudent() && belongsToSameCollege(resource.data.get('collegeId', '')))
       );
       
       // Update: Owner or admins (for replies)
       allow update: if isAuthenticated() && (
         isOwner(resource.data.studentId) ||
         isMainAdmin() ||
-        (isCollegeAdmin() && belongsToSameCollege(resource.data.collegeId))
+        (isCollegeAdmin() && belongsToSameCollege(resource.data.get('collegeId', '')))
       );
       
       // Delete: Admins only
       allow delete: if isMainAdmin() || 
-                       (isCollegeAdmin() && belongsToSameCollege(resource.data.collegeId));
+                       (isCollegeAdmin() && belongsToSameCollege(resource.data.get('collegeId', '')));
     }
 
     // ============================================================================
@@ -319,7 +319,7 @@ service cloud.firestore {
     match /trainer_notes/{noteId} {
       // Only admins can create/read/update trainer notes
       allow read, write: if isMainAdmin() || 
-                            (isCollegeAdmin() && belongsToSameCollege(resource.data.collegeId));
+                            (isCollegeAdmin() && belongsToSameCollege(resource.data.get('collegeId', '')));
     }
 
     // ============================================================================
