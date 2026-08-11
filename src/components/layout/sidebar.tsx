@@ -30,18 +30,25 @@ export function Sidebar() {
   const mounted = useMounted();
   const [showBrandModal, setShowBrandModal] = useState(false);
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [userCollegeId, setUserCollegeId] = useState<string | null>(null);
+  const [userCollegeName, setUserCollegeName] = useState<string | null>(null);
 
   useEffect(() => {
     try {
       const role = localStorage.getItem("lms_role") || localStorage.getItem("role");
+      let parsed = null;
+      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      if (uStr) parsed = JSON.parse(uStr);
+      
       if (role) {
         setUserRole(role.toLowerCase());
-      } else {
-        const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-        if (uStr) {
-          const parsed = JSON.parse(uStr);
-          if (parsed.role) setUserRole(parsed.role.toLowerCase());
-        }
+      } else if (parsed && parsed.role) {
+        setUserRole(parsed.role.toLowerCase());
+      }
+
+      if (parsed) {
+        setUserCollegeId(parsed.collegeId || null);
+        setUserCollegeName(parsed.collegeName || null);
       }
     } catch {
       setUserRole("student");
@@ -153,7 +160,9 @@ export function Sidebar() {
             ) : (
               <>
                 <span className="font-bold text-base text-brand tracking-tight truncate">
-                  {branding.companyName || (userRole === "admin" || userRole === "trainer" ? "Enterprise LMS" : "College Admin Portal")}
+                  {(userRole === "college_admin" || userRole === "student") && userCollegeId && !userCollegeId.startsWith("ext-") && userCollegeName 
+                    ? userCollegeName 
+                    : (branding.companyName || (userRole === "admin" || userRole === "trainer" ? "Enterprise LMS" : "College Admin Portal"))}
                 </span>
                 <span className="text-[9px] font-bold text-brand/60 uppercase tracking-widest truncate">
                   {branding.companySubtitle || (userRole === "admin" || userRole === "trainer" ? "Master Admin" : userRole === "student" ? "Student Portal" : "College Admin Portal")}
