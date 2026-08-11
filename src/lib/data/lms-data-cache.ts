@@ -297,12 +297,14 @@ function recomputeScopedData() {
           
           // For college admin:
           const tCol = (exam as any).collegeId || exam.targets?.[0]?.collegeId;
+          const tColName = (exam as any).collegeName || exam.targets?.[0]?.collegeName;
           const isGlobal = !tCol || tCol === "global" || tCol === "GLOBAL" || tCol === "all" || tCol === "ALL";
           
           if (isGlobal) return true;
           
           if (userCollegeId && tCol === userCollegeId) return true;
           if (userCollegeName && String(tCol).toLowerCase() === String(userCollegeName).toLowerCase()) return true;
+          if (userCollegeName && tColName && String(tColName).toLowerCase() === String(userCollegeName).toLowerCase()) return true;
           
           if (exam.targets && Array.isArray(exam.targets)) {
             if (exam.targets.some(t => 
@@ -314,6 +316,7 @@ function recomputeScopedData() {
             if (exam.targets.some(t => {
               if (userCollegeId && t.collegeId === userCollegeId) return true;
               if (userCollegeName && String(t.collegeId || "").toLowerCase() === String(userCollegeName).toLowerCase()) return true;
+              if (userCollegeName && String(t.collegeName || "").toLowerCase() === String(userCollegeName).toLowerCase()) return true;
               if (userCollegeId && t.ids?.includes(userCollegeId)) return true;
               if (userCollegeName && t.ids?.some(id => String(id).toLowerCase() === String(userCollegeName).toLowerCase())) return true;
               if (userCollegeName && t.names?.some(n => String(n).toLowerCase() === String(userCollegeName).toLowerCase())) return true;
@@ -331,12 +334,14 @@ function recomputeScopedData() {
           }
           
           const tCol = resource.collegeId || resource.targets?.[0]?.collegeId;
+          const tColName = resource.collegeName || resource.targets?.[0]?.collegeName;
           const isGlobal = !tCol || tCol === "global" || tCol === "GLOBAL" || tCol === "all" || tCol === "ALL";
           
           if (isGlobal) return true;
           
           if (userCollegeId && tCol === userCollegeId) return true;
           if (userCollegeName && String(tCol).toLowerCase() === String(userCollegeName).toLowerCase()) return true;
+          if (userCollegeName && tColName && String(tColName).toLowerCase() === String(userCollegeName).toLowerCase()) return true;
           
           if (resource.sharedWith && Array.isArray(resource.sharedWith)) {
             if (resource.sharedWith.includes("global") || 
@@ -358,6 +363,7 @@ function recomputeScopedData() {
             if (resource.targets.some(t => {
               if (userCollegeId && t.collegeId === userCollegeId) return true;
               if (userCollegeName && String(t.collegeId || "").toLowerCase() === String(userCollegeName).toLowerCase()) return true;
+              if (userCollegeName && String(t.collegeName || "").toLowerCase() === String(userCollegeName).toLowerCase()) return true;
               if (userCollegeId && t.ids?.includes(userCollegeId)) return true;
               if (userCollegeName && t.ids?.some(id => String(id).toLowerCase() === String(userCollegeName).toLowerCase())) return true;
               if (userCollegeName && t.names?.some(n => String(n).toLowerCase() === String(userCollegeName).toLowerCase())) return true;
