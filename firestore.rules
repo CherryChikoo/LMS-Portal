@@ -75,8 +75,10 @@ service cloud.firestore {
 
     // Check if resource is shared with user
     function isSharedWithUser(sharedWith) {
-      return sharedWith.hasAny(['all', '*']) || 
-             (getUserCollege() != '' && sharedWith.hasAny([getUserCollege()]));
+      return sharedWith != null && (
+             sharedWith.hasAny(['all', '*']) || 
+             (getUserCollege() != '' && sharedWith.hasAny([getUserCollege()]))
+      );
     }
 
     // Validate college change (prevent privilege escalation)
@@ -195,7 +197,7 @@ service cloud.firestore {
       // OPTIMIZATION: Check sharedWith array for 'all' or specific college
       allow read: if isAuthenticated() && (
         isMainAdmin() ||
-        isSharedWithUser(resource.data.sharedWith) ||
+        (resource.data.keys().hasAll(['sharedWith']) && isSharedWithUser(resource.data.sharedWith)) ||
         belongsToSameCollege(resource.data.collegeId) ||
         (isCollegeAdmin() && (
            resource.data.collegeId == 'global' || 
