@@ -225,12 +225,12 @@ function recomputeScopedData() {
     }
   }
 
-  const isCollegeDeleted = (colId?: string, colName?: string) => {
-    if (colId && (colId.toLowerCase().trim() === "global" || colId.toLowerCase().trim() === "unassigned")) return false;
-    if (colName && (colName.toLowerCase().trim() === "global" || colName.toLowerCase().trim() === "unassigned")) return false;
+  const isCollegeDeleted = (colId?: any, colName?: any) => {
+    if (colId && (String(colId).toLowerCase().trim() === "global" || String(colId).toLowerCase().trim() === "unassigned")) return false;
+    if (colName && (String(colName).toLowerCase().trim() === "global" || String(colName).toLowerCase().trim() === "unassigned")) return false;
     
-    if (colId && deletedCollegesSet.has(colId.toLowerCase().trim())) return true;
-    if (colName && deletedCollegesSet.has(colName.toLowerCase().trim())) return true;
+    if (colId && deletedCollegesSet.has(String(colId).toLowerCase().trim())) return true;
+    if (colName && deletedCollegesSet.has(String(colName).toLowerCase().trim())) return true;
     return false;
   };
 
@@ -378,11 +378,11 @@ function recomputeScopedData() {
 
   fStudents.forEach((s) => {
     if (s.collegeId) {
-      const id = s.collegeId.toLowerCase();
+      const id = String(s.collegeId).toLowerCase();
       filteredStudentCountByColId.set(id, (filteredStudentCountByColId.get(id) || 0) + 1);
     }
     if (s.collegeName) {
-      const name = s.collegeName.toLowerCase();
+      const name = String(s.collegeName).toLowerCase();
       filteredStudentCountByColName.set(name, (filteredStudentCountByColName.get(name) || 0) + 1);
     }
     if (s.batchIds && Array.isArray(s.batchIds)) {
@@ -394,8 +394,8 @@ function recomputeScopedData() {
 
   // Dynamically compute accurate student counts for colleges and batches
   fColleges = fColleges.map((c) => {
-    const byId = c.id ? filteredStudentCountByColId.get(c.id.toLowerCase()) || 0 : 0;
-    const byName = c.name ? filteredStudentCountByColName.get(c.name.toLowerCase()) || 0 : 0;
+    const byId = c.id ? filteredStudentCountByColId.get(String(c.id).toLowerCase()) || 0 : 0;
+    const byName = c.name ? filteredStudentCountByColName.get(String(c.name).toLowerCase()) || 0 : 0;
     return { ...c, studentCount: Math.max(byId, byName) };
   });
 
@@ -627,6 +627,14 @@ function startAuthListener() {
           if (userDoc.exists()) {
             parsed = { id: user.uid, ...userDoc.data() };
             role = parsed.role?.toLowerCase() || "admin";
+            
+            // BACKFILL: Existing students might have an incomplete users doc that lacks college info
+            if (role === "student" && (!parsed.collegeId || !parsed.collegeName)) {
+              const studentDoc = await getDoc(doc(db, "students", user.uid));
+              if (studentDoc.exists()) {
+                parsed = { ...studentDoc.data(), ...parsed }; // users doc overrides, but students doc fills in missing fields
+              }
+            }
           } else {
             const studentDoc = await getDoc(doc(db, "students", user.uid));
             if (studentDoc.exists()) {

@@ -337,6 +337,8 @@ export async function studentRegister(
       email: collegeEmail.toLowerCase(),
       displayName: fullName,
       role: "student",
+      collegeName: collegeName,
+      collegeId: collegeName.toLowerCase().trim().replace(/[^a-z0-9]+/g, ""),
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -346,7 +348,7 @@ export async function studentRegister(
       name: fullName,
       email: collegeEmail.toLowerCase(),
       collegeName: collegeName,
-      collegeId: collegeName,
+      collegeId: collegeName.toLowerCase().trim().replace(/[^a-z0-9]+/g, ""),
       department: department || "Computer Science & Engineering",
       academicYear: "1st Year",
       semester: 1,
