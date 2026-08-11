@@ -39,8 +39,28 @@ export function MobileSidebar() {
     } catch {}
     return "student";
   });
-  const [userCollegeId, setUserCollegeId] = useState<string | null>(null);
-  const [userCollegeName, setUserCollegeName] = useState<string | null>(null);
+  const [userCollegeId, setUserCollegeId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      if (uStr) {
+        const parsed = JSON.parse(uStr);
+        return parsed.collegeId || null;
+      }
+    } catch {}
+    return null;
+  });
+  const [userCollegeName, setUserCollegeName] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      if (uStr) {
+        const parsed = JSON.parse(uStr);
+        return parsed.collegeName || null;
+      }
+    } catch {}
+    return null;
+  });
   const { branding, loading } = useBranding();
 
   useEffect(() => {

@@ -29,9 +29,41 @@ export function Sidebar() {
   const { branding, loading } = useBranding();
   const mounted = useMounted();
   const [showBrandModal, setShowBrandModal] = useState(false);
-  const [userRole, setUserRole] = useState<string | null>(null);
-  const [userCollegeId, setUserCollegeId] = useState<string | null>(null);
-  const [userCollegeName, setUserCollegeName] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const role = localStorage.getItem("lms_role") || localStorage.getItem("role");
+      if (role) return role.toLowerCase();
+      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      if (uStr) {
+        const parsed = JSON.parse(uStr);
+        if (parsed.role) return parsed.role.toLowerCase();
+      }
+    } catch {}
+    return "student";
+  });
+  const [userCollegeId, setUserCollegeId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      if (uStr) {
+        const parsed = JSON.parse(uStr);
+        return parsed.collegeId || null;
+      }
+    } catch {}
+    return null;
+  });
+  const [userCollegeName, setUserCollegeName] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      if (uStr) {
+        const parsed = JSON.parse(uStr);
+        return parsed.collegeName || null;
+      }
+    } catch {}
+    return null;
+  });
 
   useEffect(() => {
     try {
