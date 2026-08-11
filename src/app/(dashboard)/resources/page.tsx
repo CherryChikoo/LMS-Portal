@@ -303,7 +303,7 @@ export default function ResourcesPage() {
                           {res.category}
                         </span>
                         {(() => {
-                          if (isGlobal) {
+                          if (isGlobal && userRole !== "student") {
                             return (
                               <span className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/10 text-blue-500 text-[10px] font-bold uppercase tracking-widest border border-blue-500/20 shadow-sm">
                                 <Globe className="w-3 h-3" />
