@@ -557,7 +557,11 @@ export default function ExamsPage() {
               const effectivelyExpired = isExpiredAndNotAttempted || (!isAssigned && !!att && !isSubmitted);
               const effectivelySubmitted = isSubmitted || (!isAssigned && !!att);
               
-              // No longer hiding past exams for new students
+              const examCreatedMillis = toMillis(e.createdAt) ?? 0;
+              const studentCreatedMillis = studentUser ? toMillis(studentUser.createdAt) ?? 0 : 0;
+              const wasCreatedBeforeStudent = examCreatedMillis > 0 && studentCreatedMillis > 0 && examCreatedMillis < studentCreatedMillis;
+              
+              if (effectivelyExpired && wasCreatedBeforeStudent) return false;
               
               if (tab === "available") return !effectivelySubmitted && !effectivelyExpired;
               if (tab === "results") return effectivelySubmitted || effectivelyExpired;
@@ -727,7 +731,14 @@ export default function ExamsPage() {
                 const effectivelyExpired = isExpiredAndNotAttempted || (!isAssigned && !!att && !isSubmitted);
                 const effectivelySubmitted = isSubmitted || (!isAssigned && !!att);
 
-                // No longer hiding past exams for new students
+                const examCreatedMillis = toMillis(exam.createdAt) ?? 0;
+                const studentCreatedMillis = studentUser ? toMillis(studentUser.createdAt) ?? 0 : 0;
+                const wasCreatedBeforeStudent = examCreatedMillis > 0 && studentCreatedMillis > 0 && examCreatedMillis < studentCreatedMillis;
+                
+                const tCol = (exam as any).collegeId || exam.targets?.[0]?.collegeId;
+                const isGlobal = !tCol || tCol === "global" || tCol === "GLOBAL" || tCol === "all" || tCol === "ALL";
+
+                if (wasCreatedBeforeStudent && isGlobal) return false;
                 
                 if (studentTab === "available") return !effectivelySubmitted && !effectivelyExpired;
                 if (studentTab === "results") return effectivelySubmitted || effectivelyExpired;
