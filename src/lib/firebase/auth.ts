@@ -10,6 +10,7 @@ import {
   getRedirectResult,
   updateProfile,
   onAuthStateChanged,
+  linkWithCredential,
   type User,
 } from "firebase/auth";
 import { auth } from "./config";
@@ -39,7 +40,7 @@ export async function resetPassword(email: string) {
   return sendPasswordResetEmail(auth, email);
 }
 
-export { signInWithPopup, signInWithRedirect, getRedirectResult };
+export { signInWithPopup, signInWithRedirect, getRedirectResult, linkWithCredential, GoogleAuthProvider };
 
 export async function signInWithGoogle() {
   try {

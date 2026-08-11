@@ -9,6 +9,8 @@ import {
   signInWithPopup,
   getIdToken,
   fetchSignInMethodsForEmail,
+  GoogleAuthProvider,
+  linkWithCredential,
   type User as FirebaseUser,
 } from "firebase/auth";
 import { auth } from "@/lib/firebase/config";
@@ -174,7 +176,19 @@ export async function studentGoogleLogin(): Promise<
  * Sign up Student via Google SSO popup.
  */
 export async function studentGoogleSignUp(): Promise<{ user: FirebaseUser; isNewUser: boolean }> {
-  const credential = await signInWithGoogle();
+  let credential;
+  try {
+    credential = await signInWithGoogle();
+  } catch (error: any) {
+    if (error.code === 'auth/account-exists-with-different-credential') {
+      const email = error.customData?.email;
+      const pendingCred = GoogleAuthProvider.credentialFromError(error);
+      if (email && pendingCred) {
+        throw new Error(`LINK_REQUIRED:${email}:${JSON.stringify(pendingCred.toJSON())}`);
+      }
+    }
+    throw error;
+  }
   const email = (credential.user.email || "").toLowerCase().trim();
 
   const verifyResult = await verifyEmailRegistration(email);
@@ -721,7 +735,19 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
  * Unified Google Sign-In
  */
 export async function unifiedGoogleLogin(): Promise<{ success: true; role: UserRole | string; user: FirebaseUser; profile: User }> {
-  const credential = await signInWithGoogle();
+  let credential;
+  try {
+    credential = await signInWithGoogle();
+  } catch (error: any) {
+    if (error.code === 'auth/account-exists-with-different-credential') {
+      const email = error.customData?.email;
+      const pendingCred = GoogleAuthProvider.credentialFromError(error);
+      if (email && pendingCred) {
+        throw new Error(`LINK_REQUIRED:${email}:${JSON.stringify(pendingCred.toJSON())}`);
+      }
+    }
+    throw error;
+  }
   if (!credential || !credential.user) {
     throw new Error("Google Sign-In was cancelled.");
   }

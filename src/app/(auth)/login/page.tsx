@@ -37,6 +37,10 @@ function LoginContent() {
     message: "",
     type: "error",
   });
+  const [linkModalOpen, setLinkModalOpen] = useState(false);
+  const [linkEmail, setLinkEmail] = useState("");
+  const [linkPassword, setLinkPassword] = useState("");
+  const [linkCredentialJson, setLinkCredentialJson] = useState("");
 
   useEffect(() => {
     if (searchParams.get("error") === "restricted") {
@@ -73,7 +77,14 @@ function LoginContent() {
       window.location.assign(target);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("RESTRICTED_ACCOUNT") || msg.toLowerCase().includes("restricted")) {
+      if (msg.startsWith("LINK_REQUIRED:")) {
+        const parts = msg.split(":");
+        const email = parts[1];
+        const credJson = parts.slice(2).join(":");
+        setLinkEmail(email);
+        setLinkCredentialJson(credJson);
+        setLinkModalOpen(true);
+      } else if (msg.includes("RESTRICTED_ACCOUNT") || msg.toLowerCase().includes("restricted")) {
         setRestrictedModalOpen(true);
       } else {
         const title = msg.toLowerCase().includes("access denied") ? "Access Denied" : "Authentication Failed";
@@ -135,6 +146,57 @@ function LoginContent() {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleLinkSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setLinkModalOpen(false);
+    try {
+      const res = await unifiedLogin(linkEmail, linkPassword);
+      const { GoogleAuthProvider, linkWithCredential } = await import("firebase/auth");
+      const parsedCred = JSON.parse(linkCredentialJson);
+      const cred = GoogleAuthProvider.credential(parsedCred.idToken, parsedCred.accessToken);
+      if (cred) {
+        await linkWithCredential(res.user, cred);
+      }
+      
+      const uObj = {
+        id: res.user.uid,
+        name: res.profile?.displayName || res.user.displayName || linkEmail.split("@")[0] || "User",
+        email: res.profile?.email || res.user.email || linkEmail,
+        role: res.role,
+        department: res.profile?.department || "General",
+        collegeId: res.profile?.collegeId || "",
+        collegeName: res.profile?.collegeName || "",
+        academicYear: res.profile?.academicYear,
+        section: res.profile?.section,
+        batchIds: res.profile?.batchIds,
+        createdAt: toMillis(res.profile?.createdAt) || Date.now(),
+      };
+      
+      await setAuthSession(uObj, res.role as UserRole);
+
+      if (res.role === "student") {
+        window.location.assign("/student");
+      } else if (res.role === "college_admin") {
+        window.location.assign("/");
+      } else {
+        window.location.assign("/admin");
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("RESTRICTED_ACCOUNT") || msg.toLowerCase().includes("restricted")) {
+        setRestrictedModalOpen(true);
+      } else {
+        const title = msg.toLowerCase().includes("access denied") ? "Access Denied" : "Authentication Failed";
+        const message = formatAuthError(err, "Invalid password for linking account.");
+        setAlertConfig({ isOpen: true, title, message, type: "error" });
+      }
+    } finally {
+      setLoading(false);
+      setLinkPassword("");
     }
   };
 
@@ -313,6 +375,58 @@ function LoginContent() {
         confirmText="Understood"
         variant="warning"
       />
+
+      <AnimatePresence>
+        {linkModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              onClick={() => setLinkModalOpen(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative w-full max-w-md bg-[#0a0a0c] border border-white/10 rounded-2xl p-6 shadow-2xl overflow-hidden"
+            >
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-brand to-brand/50" />
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-12 h-12 rounded-xl bg-brand/10 flex items-center justify-center text-brand shrink-0">
+                  <ShieldAlert className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">Link Account</h3>
+                  <p className="text-xs text-white/60 mt-1">An account with {linkEmail} already exists.</p>
+                </div>
+              </div>
+              <form onSubmit={handleLinkSubmit} className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-white/70">Enter your password to link your Google account:</label>
+                  <input
+                    type="password"
+                    value={linkPassword}
+                    onChange={(e) => setLinkPassword(e.target.value)}
+                    required
+                    className="w-full h-11 px-4 rounded-xl border border-white/10 bg-white/5 text-sm text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-brand/50"
+                    placeholder="••••••••"
+                  />
+                </div>
+                <div className="flex justify-end gap-3 pt-2">
+                  <Button type="button" variant="ghost" onClick={() => setLinkModalOpen(false)} className="text-white/60 hover:text-white">
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={loading} className="bg-brand hover:bg-brand/90 text-white">
+                    {loading ? "Linking..." : "Link & Sign In"}
+                  </Button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       <GlobalAlert
         isOpen={alertConfig.isOpen}
