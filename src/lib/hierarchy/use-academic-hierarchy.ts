@@ -390,13 +390,18 @@ export function useAcademicHierarchy(options: UseAcademicHierarchyOptions = {}):
       type: "composite", 
       ids: ["composite"] 
     };
-    if (collegeId) target.collegeId = collegeId;
-    if (collegeName) target.collegeName = collegeName;
-    if (dept) target.department = dept;
-    if (year) target.academicYear = year;
-    if (sec) target.section = sec;
-    if (batchId) target.batchId = batchId;
-    if (batch?.name) target.batchName = batch.name;
+    if (filters.batchOnlyMode) {
+      if (batchId) target.batchId = batchId;
+      if (batch?.name) target.batchName = batch.name;
+    } else {
+      if (collegeId) target.collegeId = collegeId;
+      if (collegeName) target.collegeName = collegeName;
+      if (dept) target.department = dept;
+      if (year) target.academicYear = year;
+      if (sec) target.section = sec;
+      if (batchId) target.batchId = batchId;
+      if (batch?.name) target.batchName = batch.name;
+    }
     if (studentId) target.studentId = studentId;
     if (student?.name) target.studentName = student.name;
     return target;
@@ -406,6 +411,7 @@ export function useAcademicHierarchy(options: UseAcademicHierarchyOptions = {}):
     filters.academicYear,
     filters.section,
     filters.batchId,
+    filters.batchOnlyMode,
     filters.studentId,
     hierarchy,
   ]);

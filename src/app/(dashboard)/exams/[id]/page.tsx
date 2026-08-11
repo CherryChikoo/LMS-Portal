@@ -133,7 +133,7 @@ function computeStats(exam: Exam, attempts: ExamResult[], students: Student[]): 
   if (!exam.targets || exam.targets.length === 0) {
     totalAssigned = students.length;
   } else {
-    totalAssigned = students.filter((s) => isAssignedToStudent(exam.targets, s)).length;
+    totalAssigned = students.filter((s) => isAssignedToStudent(exam.targets, s, (exam as any).sharedWith)).length;
   }
 
   const totalAttempted = submittedAttempts.length;
@@ -639,7 +639,7 @@ function StudentExamDetails({ exam, studentUser, studentChecked, nowMs }: Studen
 
 function filterExamsForStudentLocal(exam: Exam, student: Student): boolean {
   if (!exam.targets || exam.targets.length === 0) return true;
-  return isAssignedToStudent(exam.targets, student);
+  return isAssignedToStudent(exam.targets, student, (exam as any).sharedWith);
 }
 
 function buildDisabledReason(
