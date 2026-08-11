@@ -221,8 +221,20 @@ function getYearBadgeStyle(year?: string) {
       let allBatches: Batch[] = [];
       
       if (colData) {
-        const studentsRes = await getStudentsByCollege(colData.id);
-        allStuds = studentsRes.data;
+        if (colData.type === "external") {
+          external = true;
+          // For external colleges in Firestore, we still need to query by name because 
+          // most students only have collegeName populated during self-registration.
+          let extStudsRes = await getDocuments<Student>("students", [where("collegeName", "==", colData.name)], false, { pageSize: 1000 });
+          let extStudsRes2 = await getDocuments<Student>("students", [where("collegeId", "==", colData.id)], false, { pageSize: 1000 });
+          
+          const uniqueMap = new Map();
+          [...extStudsRes.data, ...extStudsRes2.data].forEach(s => uniqueMap.set(s.id, s));
+          allStuds = Array.from(uniqueMap.values());
+        } else {
+          const studentsRes = await getStudentsByCollege(colData.id);
+          allStuds = studentsRes.data;
+        }
         const batchesRes = await getAllBatches({ pageSize: 500 });
         allBatches = batchesRes.data;
       } else {
@@ -577,7 +589,7 @@ function getYearBadgeStyle(year?: string) {
           title="College Not Found"
           description="The requested institution could not be located in your system."
           actionLabel="Return to College Hub"
-          onAction={() => window.location.assign("/colleges")}
+          onAction={() => router.push("/colleges")}
         />
       </div>
     );
