@@ -543,70 +543,19 @@ async function fetchLMSData(force = false) {
     errors.push(`Students: ${err?.message || "Unknown error"}`);
   }
 
-  // 4. Exams — isolated
+  // 4. Exams
   try {
-    if ((isCollegeAdmin || isStudent) && collegeId) {
-      // Fetch scoped + global exams in parallel; if global fails, still keep scoped
-      let scopedData: Exam[] = [];
-      let globalData: Exam[] = [];
-      
-      try {
-        const scoped = await getDocuments<Exam>("exams", [where("collegeId", "==", collegeId)], false, { pageSize: 100 });
-        scopedData = scoped.data;
-      } catch (e: any) {
-        console.error("[FETCH] Scoped exams failed:", e?.message);
-        errors.push(`Scoped Exams: ${e?.message || "Unknown error"}`);
-      }
-      
-      try {
-        const globalEx = await getDocuments<Exam>("exams", [where("collegeId", "in", ["global", "GLOBAL", "all", "ALL", ""])], false, { pageSize: 100 });
-        globalData = globalEx.data;
-      } catch (e: any) {
-        console.error("[FETCH] Global exams failed:", e?.message);
-        errors.push(`Global Exams: ${e?.message || "Unknown error"}`);
-      }
-      
-      const merged = [...scopedData, ...globalData];
-      const unique = Array.from(new Map(merged.map(e => [e.id, e])).values());
-      cache.exams = { data: unique, updatedAt: now };
-    } else {
-      const examsRes = await getDocuments<Exam>("exams", [], false, { pageSize: 200 });
-      cache.exams = { data: examsRes.data, updatedAt: now };
-    }
+    const examsRes = await getDocuments<Exam>("exams", [], false, { pageSize: 500 });
+    cache.exams = { data: examsRes.data, updatedAt: now };
   } catch (err: any) {
     console.error("[FETCH] Exams failed:", err?.message || err);
     errors.push(`Exams: ${err?.message || "Unknown error"}`);
   }
 
-  // 5. Resources — isolated
+  // 5. Resources
   try {
-    if ((isCollegeAdmin || isStudent) && collegeId) {
-      let scopedData: Resource[] = [];
-      let globalData: Resource[] = [];
-      
-      try {
-        const scoped = await getDocuments<Resource>("resources", [where("collegeId", "==", collegeId)], false, { pageSize: 100 });
-        scopedData = scoped.data;
-      } catch (e: any) {
-        console.error("[FETCH] Scoped resources failed:", e?.message);
-        errors.push(`Scoped Resources: ${e?.message || "Unknown error"}`);
-      }
-      
-      try {
-        const globalRes = await getDocuments<Resource>("resources", [where("collegeId", "in", ["global", "GLOBAL", "all", "ALL", ""])], false, { pageSize: 100 });
-        globalData = globalRes.data;
-      } catch (e: any) {
-        console.error("[FETCH] Global resources failed:", e?.message);
-        errors.push(`Global Resources: ${e?.message || "Unknown error"}`);
-      }
-      
-      const merged = [...scopedData, ...globalData];
-      const unique = Array.from(new Map(merged.map(r => [r.id, r])).values());
-      cache.resources = { data: unique, updatedAt: now };
-    } else {
-      const resourcesRes = await getDocuments<Resource>("resources", [], false, { pageSize: 200 });
-      cache.resources = { data: resourcesRes.data, updatedAt: now };
-    }
+    const resourcesRes = await getDocuments<Resource>("resources", [], false, { pageSize: 500 });
+    cache.resources = { data: resourcesRes.data, updatedAt: now };
   } catch (err: any) {
     console.error("[FETCH] Resources failed:", err?.message || err);
     errors.push(`Resources: ${err?.message || "Unknown error"}`);
