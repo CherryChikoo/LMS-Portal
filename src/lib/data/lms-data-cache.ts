@@ -492,73 +492,149 @@ async function fetchLMSData(force = false) {
   }
 
   cache.loading = true;
+  cache.error = null;
   notifyListeners();
 
   const isMainAdmin = role === "main_admin" || role === "admin" || role === "superadmin" || role === "trainer";
   const isCollegeAdmin = role === "college_admin" && collegeId;
   const isStudent = role === "student" && parsed?.id;
 
+  const { getDocuments, where } = await import("@/lib/firebase/firestore");
+  console.time("[Firestore] Fetch LMS Data (getDocs)");
+  
+  const errors: string[] = [];
+
+  // 1. Colleges — isolated
   try {
-    const { getDocuments, where } = await import("@/lib/firebase/firestore");
-    console.time("[Firestore] Fetch LMS Data (getDocs)");
-
-    // 1. Colleges
-    const collegesRes = await getDocuments<College>("colleges", [], false, { pageSize: 500 });
+    const collegesRes = await getDocuments<College>("colleges", [], false, { pageSize: 100 });
     cache.colleges = { data: collegesRes.data, updatedAt: now };
+  } catch (err: any) {
+    console.error("[FETCH] Colleges failed:", err?.message || err);
+    errors.push(`Colleges: ${err?.message || "Unknown error"}`);
+  }
 
-    // 2. Batches
+  // 2. Batches — isolated
+  try {
     const batchesConstraints = (isCollegeAdmin || isStudent) && collegeId ? [where("collegeId", "==", collegeId)] : [];
-    const batchesRes = await getDocuments<Batch>("batches", batchesConstraints, false, { pageSize: 500 });
+    const batchesRes = await getDocuments<Batch>("batches", batchesConstraints, false, { pageSize: 100 });
     cache.batches = { data: batchesRes.data, updatedAt: now };
+  } catch (err: any) {
+    console.error("[FETCH] Batches failed:", err?.message || err);
+    errors.push(`Batches: ${err?.message || "Unknown error"}`);
+  }
 
-    // 3. Students
-    const studentsConstraints = isStudent && collegeId ? [where("collegeId", "==", collegeId)] 
-      : isCollegeAdmin && collegeId ? [where("collegeId", "==", collegeId)] : [];
-    const studentsRes = await getDocuments<Student>("students", studentsConstraints, false, { pageSize: isStudent ? 1000 : (isCollegeAdmin ? 2000 : 5000) });
+  // 3. Students — isolated
+  try {
+    const studentsConstraints = (isStudent || isCollegeAdmin) && collegeId ? [where("collegeId", "==", collegeId)] : [];
+    const studentsRes = await getDocuments<Student>("students", studentsConstraints, false, { pageSize: isStudent ? 200 : (isCollegeAdmin ? 500 : 500) });
     cache.students = { data: studentsRes.data, updatedAt: now };
+  } catch (err: any) {
+    console.error("[FETCH] Students failed:", err?.message || err);
+    errors.push(`Students: ${err?.message || "Unknown error"}`);
+  }
 
-    // 4. Exams
+  // 4. Exams — isolated
+  try {
     if ((isCollegeAdmin || isStudent) && collegeId) {
-      const [scoped, globalEx] = await Promise.all([
-        getDocuments<Exam>("exams", [where("collegeId", "==", collegeId)], false, { pageSize: 500 }),
-        getDocuments<Exam>("exams", [where("collegeId", "in", ["global", "GLOBAL", "all", "ALL", ""])], false, { pageSize: 500 })
-      ]);
-      const merged = [...scoped.data, ...globalEx.data];
+      // Fetch scoped + global exams in parallel; if global fails, still keep scoped
+      let scopedData: Exam[] = [];
+      let globalData: Exam[] = [];
+      
+      try {
+        const scoped = await getDocuments<Exam>("exams", [where("collegeId", "==", collegeId)], false, { pageSize: 100 });
+        scopedData = scoped.data;
+      } catch (e: any) {
+        console.error("[FETCH] Scoped exams failed:", e?.message);
+        errors.push(`Scoped Exams: ${e?.message || "Unknown error"}`);
+      }
+      
+      try {
+        const globalEx = await getDocuments<Exam>("exams", [where("collegeId", "in", ["global", "GLOBAL", "all", "ALL", ""])], false, { pageSize: 100 });
+        globalData = globalEx.data;
+      } catch (e: any) {
+        console.error("[FETCH] Global exams failed:", e?.message);
+        errors.push(`Global Exams: ${e?.message || "Unknown error"}`);
+      }
+      
+      const merged = [...scopedData, ...globalData];
       const unique = Array.from(new Map(merged.map(e => [e.id, e])).values());
       cache.exams = { data: unique, updatedAt: now };
     } else {
-      const examsRes = await getDocuments<Exam>("exams", [], false, { pageSize: 1000 });
+      const examsRes = await getDocuments<Exam>("exams", [], false, { pageSize: 200 });
       cache.exams = { data: examsRes.data, updatedAt: now };
     }
+  } catch (err: any) {
+    console.error("[FETCH] Exams failed:", err?.message || err);
+    errors.push(`Exams: ${err?.message || "Unknown error"}`);
+  }
 
-    // 5. Resources
+  // 5. Resources — isolated
+  try {
     if ((isCollegeAdmin || isStudent) && collegeId) {
-      const [scoped, globalRes] = await Promise.all([
-        getDocuments<Resource>("resources", [where("collegeId", "==", collegeId)], false, { pageSize: 500 }),
-        getDocuments<Resource>("resources", [where("collegeId", "in", ["global", "GLOBAL", "all", "ALL", ""])], false, { pageSize: 500 })
-      ]);
-      const merged = [...scoped.data, ...globalRes.data];
+      let scopedData: Resource[] = [];
+      let globalData: Resource[] = [];
+      
+      try {
+        const scoped = await getDocuments<Resource>("resources", [where("collegeId", "==", collegeId)], false, { pageSize: 100 });
+        scopedData = scoped.data;
+      } catch (e: any) {
+        console.error("[FETCH] Scoped resources failed:", e?.message);
+        errors.push(`Scoped Resources: ${e?.message || "Unknown error"}`);
+      }
+      
+      try {
+        const globalRes = await getDocuments<Resource>("resources", [where("collegeId", "in", ["global", "GLOBAL", "all", "ALL", ""])], false, { pageSize: 100 });
+        globalData = globalRes.data;
+      } catch (e: any) {
+        console.error("[FETCH] Global resources failed:", e?.message);
+        errors.push(`Global Resources: ${e?.message || "Unknown error"}`);
+      }
+      
+      const merged = [...scopedData, ...globalData];
       const unique = Array.from(new Map(merged.map(r => [r.id, r])).values());
       cache.resources = { data: unique, updatedAt: now };
     } else {
-      const resourcesRes = await getDocuments<Resource>("resources", [], false, { pageSize: 1000 });
+      const resourcesRes = await getDocuments<Resource>("resources", [], false, { pageSize: 200 });
       cache.resources = { data: resourcesRes.data, updatedAt: now };
     }
-
-    // 6. Attempts
-    const attemptsConstraints = (isStudent || isCollegeAdmin) && collegeId ? [where("collegeId", "==", collegeId)] : [];
-    const attemptsRes = await getDocuments<ExamAttempt>("exam_results", attemptsConstraints, false, { pageSize: (isStudent || isCollegeAdmin) ? 500 : 2000 });
-    cache.attempts = { data: attemptsRes.data, updatedAt: now };
-
-    console.timeEnd("[Firestore] Fetch LMS Data (getDocs)");
-  } catch (error) {
-    console.error("Failed to fetch LMS Data", error);
-  } finally {
-    cache.loading = false;
-    recomputeScopedData();
-    notifyListeners();
+  } catch (err: any) {
+    console.error("[FETCH] Resources failed:", err?.message || err);
+    errors.push(`Resources: ${err?.message || "Unknown error"}`);
   }
+
+  // 6. Attempts — isolated
+  try {
+    const attemptsConstraints = (isStudent || isCollegeAdmin) && collegeId ? [where("collegeId", "==", collegeId)] : [];
+    const attemptsRes = await getDocuments<ExamAttempt>("exam_results", attemptsConstraints, false, { pageSize: (isStudent || isCollegeAdmin) ? 100 : 200 });
+    cache.attempts = { data: attemptsRes.data, updatedAt: now };
+  } catch (err: any) {
+    console.error("[FETCH] Attempts failed:", err?.message || err);
+    errors.push(`Attempts: ${err?.message || "Unknown error"}`);
+  }
+
+  console.timeEnd("[Firestore] Fetch LMS Data (getDocs)");
+
+  // Surface errors to UI only if ALL collections failed
+  if (errors.length > 0) {
+    console.warn(`[FETCH] ${errors.length} collection(s) had errors:`, errors);
+    if (errors.length >= 6) {
+      // Total failure — likely a permissions or network issue
+      const firstError = errors[0];
+      if (firstError.includes("Missing or insufficient permissions") || firstError.includes("permission-denied")) {
+        cache.error = new Error("Access Denied: You do not have permission to read this data. Please log out and log back in.");
+      } else if (firstError.includes("Quota exceeded") || firstError.includes("resource-exhausted")) {
+        cache.error = new Error("Firebase Quota Exceeded. The daily read limit has been reached.");
+      } else {
+        cache.error = new Error(`Data sync partially failed: ${errors.join("; ")}`);
+      }
+    }
+  }
+
+  cache.loading = false;
+  recomputeScopedData();
+  notifyListeners();
 }
+
 
 function recomputeAndNotify() {
   recomputeScopedData();

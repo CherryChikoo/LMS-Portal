@@ -2,10 +2,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ============================================================================
-    // HELPER FUNCTIONS (Optimized for Performance)
-    // ============================================================================
-    
+    // --- Safe Helper Functions ---
     function isAuthenticated() { 
       return request.auth != null; 
     }
@@ -14,342 +11,173 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId; 
     }
 
-    // Optimized: Check token first (no Firestore read), fallback to doc
+    function hasUserDoc() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function getUserData() {
+      return hasUserDoc() 
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data 
+        : {};
+    }
+
     function getRole() {
-      return isAuthenticated()
-        ? (request.auth.token.keys().hasAll(['role']) 
-           ? request.auth.token.role 
-           : (exists(/databases/$(database)/documents/users/$(request.auth.uid))
-              ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
-              : 'student'))
-        : 'student';
+      return isAuthenticated() && request.auth.token.keys().hasAll(['role'])
+        ? request.auth.token.role
+        : getUserData().get('role', 'student');
     }
 
     function getUserCollege() {
-      return isAuthenticated()
-        ? (request.auth.token.keys().hasAll(['collegeId']) 
-           ? request.auth.token.collegeId 
-           : (exists(/databases/$(database)/documents/users/$(request.auth.uid))
-              ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('collegeId', '')
-              : ''))
-        : '';
+      return isAuthenticated() && request.auth.token.keys().hasAll(['collegeId'])
+        ? request.auth.token.collegeId
+        : getUserData().get('collegeId', '');
     }
 
-    function getUserEmail() {
-      return isAuthenticated() && request.auth.token.keys().hasAll(['email'])
-        ? request.auth.token.email
-        : '';
-    }
-
-    // Admin Roles
     function isMainAdmin() {
       let role = getRole();
       return role == 'main_admin' || role == 'admin' || role == 'superadmin' || role == 'trainer';
     }
 
     function isCollegeAdmin() {
-      return getRole() == 'college_admin';
+      return isMainAdmin() || getRole() == 'college_admin';
     }
 
     function isStudent() {
       return getRole() == 'student';
     }
 
-    function isAnyAdmin() {
-      return isMainAdmin() || isCollegeAdmin();
-    }
-
-    // College Membership Check
     function belongsToSameCollege(collegeId) {
       return isMainAdmin() || (getUserCollege() != '' && getUserCollege() == collegeId);
     }
 
-    // Check if user can access resource based on targets array
-    function canAccessTarget(targets) {
-      return isMainAdmin() ||
-             // Check if targets include user's college
-             (getUserCollege() != '' && 
-              targets.hasAny([getUserCollege()]) || 
-              targets.hasAny(['all', '*', 'GLOBAL']));
+    // Check if a collegeId value represents "global" content accessible to everyone
+    function isGlobalCollegeId(collegeId) {
+      return collegeId == null 
+          || collegeId == '' 
+          || collegeId == 'global' 
+          || collegeId == 'GLOBAL' 
+          || collegeId == 'all' 
+          || collegeId == 'ALL';
     }
 
-    // Check if resource is shared with user
-    function isSharedWithUser(sharedWith) {
-      return sharedWith != null && (
-             sharedWith.hasAny(['all', '*']) || 
-             (getUserCollege() != '' && sharedWith.hasAny([getUserCollege()]))
-      );
-    }
-
-    // Validate college change (prevent privilege escalation)
-    function canChangeCollege() {
-      return isMainAdmin() || 
-             (!request.resource.data.keys().hasAny(['collegeId']) || 
-              request.resource.data.get('collegeId', '') == resource.data.get('collegeId', ''));
-    }
-
-    // ============================================================================
-    // USERS & STUDENTS
-    // ============================================================================
-    
+    // --- Users & Students ---
     match /users/{userId} {
-      // Read: Own profile, email match, or admin access
       allow read: if isAuthenticated() && (
         isOwner(userId) || 
-        (getUserEmail() != '' && resource.data.get('email', '') == getUserEmail()) ||
+        (request.auth.token.email != null && resource.data.email == request.auth.token.email) ||
         isMainAdmin() || 
-        (isCollegeAdmin() && resource.data.get('collegeId', '') == getUserCollege())
+        (isCollegeAdmin() && resource.data.collegeId == getUserCollege())
       );
-      
-      // Create: Self-registration, or admin creating in their college
-      allow create: if isAuthenticated() && (
-        isOwner(userId) || 
-        isMainAdmin() || 
-        (isCollegeAdmin() && request.resource.data.get('collegeId', '') == getUserCollege())
-      );
-      
-      // Update: Admins or self (but can't change role/college)
-      allow update: if isAuthenticated() && (
-        isMainAdmin() || 
-        (isCollegeAdmin() && 
-         resource.data.get('collegeId', '') == getUserCollege() && 
-         request.resource.data.get('collegeId', '') == getUserCollege()) || 
-        (isOwner(userId) && 
-         request.resource.data.get('role', '') == resource.data.get('role', '') && 
-         canChangeCollege())
-      );
-      
-      // Delete: Admins only
-      allow delete: if isMainAdmin() || 
-                       (isCollegeAdmin() && resource.data.get('collegeId', '') == getUserCollege());
+      allow create: if isAuthenticated() && (isOwner(userId) || isMainAdmin() || (isCollegeAdmin() && request.resource.data.collegeId == getUserCollege()));
+      allow update: if isMainAdmin() || 
+                    (isCollegeAdmin() && resource.data.collegeId == getUserCollege() && request.resource.data.collegeId == getUserCollege()) || 
+                    (isOwner(userId) && request.resource.data.role == resource.data.role && request.resource.data.collegeId == resource.data.collegeId);
+      allow delete: if isMainAdmin() || (isCollegeAdmin() && resource.data.collegeId == getUserCollege());
     }
 
     match /students/{studentId} {
-      // Similar to users but stricter
       allow read: if isAuthenticated() && (
         isOwner(studentId) || 
-        (getUserEmail() != '' && resource.data.get('email', '') == getUserEmail()) ||
+        (request.auth.token.email != null && resource.data.email == request.auth.token.email) ||
         isMainAdmin() || 
-        (isCollegeAdmin() && resource.data.get('collegeId', '') == getUserCollege())
+        (isCollegeAdmin() && resource.data.collegeId == getUserCollege())
       );
-      
-      allow create: if isAuthenticated() && (
-        isMainAdmin() || 
-        (isCollegeAdmin() && request.resource.data.get('collegeId', '') == getUserCollege())
-      );
-      
+      allow create: if isAuthenticated() && (isOwner(studentId) || isMainAdmin() || (isCollegeAdmin() && request.resource.data.collegeId == getUserCollege()));
       allow update: if isMainAdmin() || 
-                       (isCollegeAdmin() && 
-                        resource.data.get('collegeId', '') == getUserCollege() && 
-                        request.resource.data.get('collegeId', '') == getUserCollege()) ||
-                       (isOwner(studentId) && canChangeCollege());
-      
-      allow delete: if isMainAdmin() || 
-                       (isCollegeAdmin() && resource.data.get('collegeId', '') == getUserCollege());
+                    (isCollegeAdmin() && resource.data.collegeId == getUserCollege() && request.resource.data.collegeId == getUserCollege()) ||
+                    (isOwner(studentId) && request.resource.data.collegeId == resource.data.collegeId);
+      allow delete: if isMainAdmin() || (isCollegeAdmin() && resource.data.collegeId == getUserCollege());
     }
 
-    // ============================================================================
-    // COLLEGES
-    // ============================================================================
-    
+    // --- Colleges ---
     match /colleges/{collegeId} {
-      // Read: Any authenticated user can read colleges for dropdowns
       allow read: if isAuthenticated();
-      
-      // Create/Delete: Main admins only
       allow create, delete: if isMainAdmin();
-      
-      // Update: Main admins or college admin of that specific college
-      allow update: if isMainAdmin() || 
-                       (isCollegeAdmin() && belongsToSameCollege(collegeId));
+      allow update: if isMainAdmin() || (isCollegeAdmin() && belongsToSameCollege(collegeId));
     }
 
-    // ============================================================================
-    // DEPARTMENTS
-    // ============================================================================
-    
+    // --- Departments ---
     match /departments/{departmentId} {
-      allow read: if isAuthenticated() && belongsToSameCollege(resource.data.get('collegeId', ''));
-      allow create: if isMainAdmin() || 
-                       (isCollegeAdmin() && belongsToSameCollege(request.resource.data.get('collegeId', '')));
-      allow update, delete: if isMainAdmin() || 
-                               (isCollegeAdmin() && belongsToSameCollege(resource.data.get('collegeId', '')));
-    }
-
-    // ============================================================================
-    // BATCHES
-    // ============================================================================
-    
-    match /batches/{batchId} {
-      allow read: if isAuthenticated() && belongsToSameCollege(resource.data.get('collegeId', ''));
-      allow create: if isMainAdmin() || 
-                       (isCollegeAdmin() && belongsToSameCollege(request.resource.data.get('collegeId', '')));
-      allow update, delete: if isMainAdmin() || 
-                               (isCollegeAdmin() && belongsToSameCollege(resource.data.get('collegeId', '')));
-    }
-
-    // ============================================================================
-    // RESOURCES (with sharing support)
-    // ============================================================================
-    
-    match /resources/{resourceId} {
-      // Read: If shared with user's college or user is admin
-      // OPTIMIZATION: Check sharedWith array for 'all' or specific college
       allow read: if isAuthenticated() && (
-        isMainAdmin() ||
-        (resource.data.keys().hasAll(['sharedWith']) && isSharedWithUser(resource.data.sharedWith)) ||
-        belongsToSameCollege(resource.data.get('collegeId', '')) ||
-        (isCollegeAdmin() && (
-           resource.data.get('collegeId', '') == 'global' || 
-           resource.data.get('collegeId', '') == 'GLOBAL' || 
-           resource.data.get('collegeId', '') == 'all' || 
-           resource.data.get('collegeId', '') == 'ALL' ||
-           resource.data.get('collegeId', '') == ''
-        ))
+        isMainAdmin() || 
+        belongsToSameCollege(resource.data.collegeId) ||
+        isGlobalCollegeId(resource.data.collegeId)
       );
-      
-      allow create: if isMainAdmin() || 
-                       (isCollegeAdmin() && belongsToSameCollege(request.resource.data.get('collegeId', '')));
-      
-      allow update, delete: if isMainAdmin() || 
-                               (isCollegeAdmin() && belongsToSameCollege(resource.data.get('collegeId', '')));
+      allow create: if isMainAdmin() || (isCollegeAdmin() && belongsToSameCollege(request.resource.data.collegeId));
+      allow update, delete: if isMainAdmin() || (isCollegeAdmin() && belongsToSameCollege(resource.data.collegeId));
     }
 
-    // ============================================================================
-    // QUESTIONS
-    // ============================================================================
-    
+    // --- Academic Entities ---
+    match /courses/{courseId} {
+      allow read: if isAuthenticated() && (
+        isMainAdmin() || 
+        belongsToSameCollege(resource.data.collegeId) ||
+        isGlobalCollegeId(resource.data.collegeId)
+      );
+      allow create: if isMainAdmin() || (isCollegeAdmin() && belongsToSameCollege(request.resource.data.collegeId));
+      allow update, delete: if isMainAdmin() || (isCollegeAdmin() && belongsToSameCollege(resource.data.collegeId));
+    }
+
+    match /resources/{resourceId} {
+      // Allow reading global resources OR resources belonging to user's college
+      allow read: if isAuthenticated() && (
+        isMainAdmin() || 
+        belongsToSameCollege(resource.data.collegeId) ||
+        isGlobalCollegeId(resource.data.collegeId)
+      );
+      allow create: if isMainAdmin() || (isCollegeAdmin() && (belongsToSameCollege(request.resource.data.collegeId) || isGlobalCollegeId(request.resource.data.collegeId)));
+      allow update, delete: if isMainAdmin() || (isCollegeAdmin() && belongsToSameCollege(resource.data.collegeId));
+    }
+
+    match /batches/{batchId} {
+      allow read: if isAuthenticated() && (
+        isMainAdmin() || 
+        belongsToSameCollege(resource.data.collegeId) ||
+        isGlobalCollegeId(resource.data.collegeId)
+      );
+      allow create: if isMainAdmin() || (isCollegeAdmin() && belongsToSameCollege(request.resource.data.collegeId));
+      allow update, delete: if isMainAdmin() || (isCollegeAdmin() && belongsToSameCollege(resource.data.collegeId));
+    }
+
     match /questions/{questionId} {
       allow read: if isAuthenticated() && (
-        isMainAdmin() ||
-        belongsToSameCollege(resource.data.get('collegeId', ''))
-      );
-      
-      allow create: if isMainAdmin() || 
-                       (isCollegeAdmin() && belongsToSameCollege(request.resource.data.get('collegeId', '')));
-      
-      allow update, delete: if isMainAdmin() || 
-                               (isCollegeAdmin() && belongsToSameCollege(resource.data.get('collegeId', '')));
-    }
-
-    // ============================================================================
-    // EXAMS (with targets support)
-    // ============================================================================
-    
-    match /exams/{examId} {
-      // Read: Admins, or students if exam is active/published and targeted to them
-      allow read: if isAuthenticated() && (
-        isMainAdmin() ||
-        (isCollegeAdmin() && (
-           belongsToSameCollege(resource.data.get('collegeId', '')) ||
-           resource.data.get('collegeId', '') == 'global' || 
-           resource.data.get('collegeId', '') == 'GLOBAL' || 
-           resource.data.get('collegeId', '') == 'all' || 
-           resource.data.get('collegeId', '') == 'ALL' ||
-           resource.data.get('collegeId', '') == ''
-        )) ||
-        (isStudent() && 
-         resource.data.get('status', '') != 'draft' && 
-         (belongsToSameCollege(resource.data.get('collegeId', '')) ||
-          (resource.data.keys().hasAll(['targets']) && 
-           canAccessTarget(resource.data.targets))))
-      );
-      
-      allow create: if isMainAdmin() || 
-                       (isCollegeAdmin() && belongsToSameCollege(request.resource.data.get('collegeId', '')));
-      
-      allow update, delete: if isMainAdmin() || 
-                               (isCollegeAdmin() && belongsToSameCollege(resource.data.get('collegeId', '')));
-    }
-
-    // ============================================================================
-    // EXAM RESULTS
-    // ============================================================================
-    
-    match /exam_results/{resultId} {
-      // Create: Students can create their own results
-      allow create: if isStudent() && 
-                       request.resource.data.get('studentId', '') == request.auth.uid;
-      
-      // Read: Own results, or admin access
-      allow read: if isAuthenticated() && (
-        isOwner(resource.data.get('studentId', '')) || 
-        (getUserEmail() != '' && resource.data.get('studentEmail', '') == getUserEmail()) ||
         isMainAdmin() || 
-        (isCollegeAdmin() && belongsToSameCollege(resource.data.get('collegeId', '')))
+        belongsToSameCollege(resource.data.collegeId) ||
+        isGlobalCollegeId(resource.data.collegeId)
       );
-      
-      // Update/Delete: Admins only
-      allow update, delete: if isMainAdmin() || 
-                               (isCollegeAdmin() && belongsToSameCollege(resource.data.get('collegeId', '')));
+      allow create: if isMainAdmin() || (isCollegeAdmin() && belongsToSameCollege(request.resource.data.collegeId));
+      allow update, delete: if isMainAdmin() || (isCollegeAdmin() && belongsToSameCollege(resource.data.collegeId));
     }
 
-    // ============================================================================
-    // DOUBTS / DISCUSSIONS
-    // ============================================================================
-    
-    match /doubts/{doubtId} {
-      // Students can create doubts
-      allow create: if isStudent() && request.resource.data.get('studentId', '') == request.auth.uid;
-      
-      // Read: Own doubts, or admins, or students in same college
+    // --- Exams & Results ---
+    match /exams/{examId} {
       allow read: if isAuthenticated() && (
-        isOwner(resource.data.get('studentId', '')) ||
-        isMainAdmin() ||
-        (isCollegeAdmin() && belongsToSameCollege(resource.data.get('collegeId', ''))) ||
-        (isStudent() && belongsToSameCollege(resource.data.get('collegeId', '')))
+        isMainAdmin() || 
+        belongsToSameCollege(resource.data.collegeId) ||
+        isGlobalCollegeId(resource.data.collegeId)
       );
-      
-      // Update: Owner or admins (for replies)
-      allow update: if isAuthenticated() && (
-        isOwner(resource.data.get('studentId', '')) ||
-        isMainAdmin() ||
-        (isCollegeAdmin() && belongsToSameCollege(resource.data.get('collegeId', '')))
+      allow create: if isMainAdmin() || (isCollegeAdmin() && (belongsToSameCollege(request.resource.data.collegeId) || isGlobalCollegeId(request.resource.data.collegeId)));
+      allow update, delete: if isMainAdmin() || (isCollegeAdmin() && belongsToSameCollege(resource.data.collegeId));
+    }
+
+    match /exam_results/{resultId} {
+      allow create: if isAuthenticated() && request.resource.data.studentId == request.auth.uid;
+      allow read: if isAuthenticated() && (
+        isOwner(resource.data.studentId) || 
+        isMainAdmin() || 
+        (isCollegeAdmin() && belongsToSameCollege(resource.data.collegeId)) ||
+        isGlobalCollegeId(resource.data.collegeId)
       );
-      
-      // Delete: Admins only
-      allow delete: if isMainAdmin() || 
-                       (isCollegeAdmin() && belongsToSameCollege(resource.data.get('collegeId', '')));
+      allow update, delete: if isMainAdmin() || (isCollegeAdmin() && belongsToSameCollege(resource.data.collegeId));
     }
 
-    // ============================================================================
-    // TRAINER NOTES
-    // ============================================================================
-    
-    match /trainer_notes/{noteId} {
-      // Only admins can create/read/update trainer notes
-      allow read, write: if isMainAdmin() || 
-                            (isCollegeAdmin() && belongsToSameCollege(resource.data.get('collegeId', '')));
-    }
-
-    // ============================================================================
-    // ANNOUNCEMENTS
-    // ============================================================================
-    
-    match /announcements/{announcementId} {
-      // Everyone can read announcements
-      allow read: if isAuthenticated();
-      
-      // Only admins can create/update/delete
-      allow create, update, delete: if isAnyAdmin();
-    }
-
-    // ============================================================================
-    // GLOBAL SETTINGS
-    // ============================================================================
-    
+    // --- Global Settings ---
     match /settings/{document} {
-      // Read: Everyone
       allow read: if true;
-      
-      // Write: Main admins only
       allow write: if isMainAdmin();
     }
 
-    // ============================================================================
-    // DEFAULT DENY ALL (Security Fallback)
-    // ============================================================================
-    
+    // Default Fallback Lockdown
     match /{document=**} {
       allow read, write: if false;
     }

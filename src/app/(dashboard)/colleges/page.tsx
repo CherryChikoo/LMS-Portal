@@ -244,15 +244,10 @@ export default function CollegesPage() {
           
           setIsGlobalDeleting(false);
           
-          // Show alert when done
-          setConfirmConfig({
-            isOpen: true,
-            title: "Success",
-            message: `College "${col.name}" deleted successfully.`,
-            isAlert: true,
-            variant: "success",
-            onConfirm: () => setConfirmConfig(null)
-          });
+          // Show native browser alert as requested
+          setTimeout(() => {
+            alert(`College "${col.name}" deleted successfully.`);
+          }, 100);
         } catch (err: unknown) {
           setIsGlobalDeleting(false);
           console.error("Failed to delete college:", err);
@@ -305,14 +300,10 @@ export default function CollegesPage() {
           setIsGlobalDeleting(false);
           setSelectedAdminIds([]);
           
-          setConfirmConfig({
-            isOpen: true,
-            title: "Success",
-            message: "Selected colleges deleted successfully.",
-            isAlert: true,
-            variant: "success",
-            onConfirm: () => setConfirmConfig(null)
-          });
+          // Show native browser alert
+          setTimeout(() => {
+            alert("Selected colleges deleted successfully.");
+          }, 100);
         } catch (err: unknown) {
           setIsGlobalDeleting(false);
           console.error("Failed to delete selected colleges:", err);
@@ -332,18 +323,24 @@ export default function CollegesPage() {
       message: `Are you sure you want to delete outside institution "${extName}" along with its ${studentsToDelete.length} enrolled student profile(s)?`,
       onConfirm: async () => {
         try {
+          setIsGlobalDeleting(true);
           markCollegeAsDeleted(extName);
           setDeletingIds((prev) => [...prev, extName]);
           optimisticDeleteCollege(extName);
           setSelectedExternalIds((prev) => prev.filter((id) => id !== extName));
-          toast.success(`Deleting outside institution "${extName}"...`);
 
           // Call the unified deleteCollege API which handles external colleges and batch deletes everything efficiently
           await deleteCollege(extName);
           
           await refreshCache(); // Immediate UI update
-          toast.success(`Outside institution "${extName}" deleted successfully.`);
+          
+          setIsGlobalDeleting(false);
+          
+          setTimeout(() => {
+            alert(`Outside institution "${extName}" deleted successfully.`);
+          }, 100);
         } catch (err) {
+          setIsGlobalDeleting(false);
           console.error("Failed to delete outside institution:", err);
           toast.error("Failed to delete outside institution.");
         } finally {
@@ -367,17 +364,24 @@ export default function CollegesPage() {
       message: `Are you sure you want to delete ${selectedExternalIds.length} selected outside institution(s) along with ${studentsToDelete.length} enrolled student profile(s)?`,
       onConfirm: async () => {
         try {
+          setIsGlobalDeleting(true);
           const namesToDelete = [...selectedExternalIds];
           namesToDelete.forEach((extName) => {
             markCollegeAsDeleted(extName);
             optimisticDeleteCollege(extName);
           });
           setSelectedExternalIds([]);
-          toast.success("Selected outside institutions deleted.");
 
           await Promise.all(studentsToDelete.map((s) => deleteStudentProfile(s.id)));
           await refreshCache(); // Immediate UI update
+          
+          setIsGlobalDeleting(false);
+          
+          setTimeout(() => {
+            alert("Selected outside institutions deleted.");
+          }, 100);
         } catch (err) {
+          setIsGlobalDeleting(false);
           console.error("Failed to delete selected outside institutions:", err);
           toast.error("Failed to delete selected outside institutions.");
         }
@@ -400,16 +404,23 @@ export default function CollegesPage() {
       message: `Are you sure you want to permanently delete ALL ${externalColleges.length} outside institutions along with their ${studentsToDelete.length} student profile(s)?`,
       onConfirm: async () => {
         try {
+          setIsGlobalDeleting(true);
           allExternalNames.forEach((extName) => {
             markCollegeAsDeleted(extName);
             optimisticDeleteCollege(extName);
           });
           setSelectedExternalIds([]);
-          toast.success("All outside institutions deleted.");
 
           await Promise.all(studentsToDelete.map((s) => deleteStudentProfile(s.id)));
           await refreshCache(); // Immediate UI update
+          
+          setIsGlobalDeleting(false);
+          
+          setTimeout(() => {
+            alert("All outside institutions deleted.");
+          }, 100);
         } catch (err) {
+          setIsGlobalDeleting(false);
           console.error("Failed to delete all outside institutions:", err);
           toast.error("Failed to delete all outside institutions.");
         }
