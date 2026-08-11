@@ -32,7 +32,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useMounted } from "@/hooks/use-mounted";
 import { staggerContainer, staggerItem } from "@/lib/animations";
 import { getAllExamsIncludingDeleted, getAllStudents, getAllColleges, getAllResources, getEffectiveExamStatus, getStudentAttempts, filterResourcesForStudent, filterExamsForStudent, getAllBatches, isAttemptOwnedByStudent } from "@/lib/services";
-import { toDate } from "@/lib/utils/date";
+import { toDate, toMillis } from "@/lib/utils/date";
 import type { Exam, Student, College, Resource, ExamAttempt, Batch, AssignmentTarget } from "@/types";
 import { useLMSData, useLMSDataSelector } from "@/lib/data/use-lms-data";
 import { useBranding } from "@/providers/branding-provider";
