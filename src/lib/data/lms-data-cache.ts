@@ -192,7 +192,7 @@ function recomputeScopedData() {
   // it was re-created after being deleted. Remove it from the blacklist.
   // Uses slug-based fuzzy matching to handle format variations
   if (deletedCollegesSet.size > 0) {
-    const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const slugify = (s: any) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, '');
     
     const liveSlugs = new Set<string>();
     collegesData.forEach((c) => {
@@ -302,7 +302,7 @@ function recomputeScopedData() {
           if (isGlobal) return true;
           
           if (userCollegeId && tCol === userCollegeId) return true;
-          if (userCollegeName && tCol.toLowerCase() === userCollegeName.toLowerCase()) return true;
+          if (userCollegeName && String(tCol).toLowerCase() === String(userCollegeName).toLowerCase()) return true;
           
           if (exam.targets && Array.isArray(exam.targets)) {
             if (exam.targets.some(t => 
@@ -313,10 +313,10 @@ function recomputeScopedData() {
             
             if (exam.targets.some(t => {
               if (userCollegeId && t.collegeId === userCollegeId) return true;
-              if (userCollegeName && t.collegeId?.toLowerCase() === userCollegeName.toLowerCase()) return true;
+              if (userCollegeName && String(t.collegeId || "").toLowerCase() === String(userCollegeName).toLowerCase()) return true;
               if (userCollegeId && t.ids?.includes(userCollegeId)) return true;
-              if (userCollegeName && t.ids?.some(id => id.toLowerCase() === userCollegeName.toLowerCase())) return true;
-              if (userCollegeName && t.names?.some(n => n.toLowerCase() === userCollegeName.toLowerCase())) return true;
+              if (userCollegeName && t.ids?.some(id => String(id).toLowerCase() === String(userCollegeName).toLowerCase())) return true;
+              if (userCollegeName && t.names?.some(n => String(n).toLowerCase() === String(userCollegeName).toLowerCase())) return true;
               return false;
             })) return true;
           }
@@ -336,7 +336,7 @@ function recomputeScopedData() {
           if (isGlobal) return true;
           
           if (userCollegeId && tCol === userCollegeId) return true;
-          if (userCollegeName && tCol.toLowerCase() === userCollegeName.toLowerCase()) return true;
+          if (userCollegeName && String(tCol).toLowerCase() === String(userCollegeName).toLowerCase()) return true;
           
           if (resource.sharedWith && Array.isArray(resource.sharedWith)) {
             if (resource.sharedWith.includes("global") || 
@@ -345,7 +345,7 @@ function recomputeScopedData() {
                 resource.sharedWith.includes("*")) return true;
                 
             if (userCollegeId && resource.sharedWith.includes(userCollegeId)) return true;
-            if (userCollegeName && resource.sharedWith.some(s => s.toLowerCase() === userCollegeName.toLowerCase())) return true;
+            if (userCollegeName && resource.sharedWith.some(s => String(s).toLowerCase() === String(userCollegeName).toLowerCase())) return true;
           }
           
           if (resource.targets && Array.isArray(resource.targets)) {
@@ -357,10 +357,10 @@ function recomputeScopedData() {
             
             if (resource.targets.some(t => {
               if (userCollegeId && t.collegeId === userCollegeId) return true;
-              if (userCollegeName && t.collegeId?.toLowerCase() === userCollegeName.toLowerCase()) return true;
+              if (userCollegeName && String(t.collegeId || "").toLowerCase() === String(userCollegeName).toLowerCase()) return true;
               if (userCollegeId && t.ids?.includes(userCollegeId)) return true;
-              if (userCollegeName && t.ids?.some(id => id.toLowerCase() === userCollegeName.toLowerCase())) return true;
-              if (userCollegeName && t.names?.some(n => n.toLowerCase() === userCollegeName.toLowerCase())) return true;
+              if (userCollegeName && t.ids?.some(id => String(id).toLowerCase() === String(userCollegeName).toLowerCase())) return true;
+              if (userCollegeName && t.names?.some(n => String(n).toLowerCase() === String(userCollegeName).toLowerCase())) return true;
               return false;
             })) return true;
           }
@@ -679,7 +679,7 @@ function startAuthListener() {
         }
 
         // AUTH READINESS GUARD: Prevent race condition where queries fire before collegeId resolves
-        if (!isMainAdmin && !parsed?.collegeId) {
+        if (role === "college_admin" && !parsed?.collegeId) {
           return;
         }
 
