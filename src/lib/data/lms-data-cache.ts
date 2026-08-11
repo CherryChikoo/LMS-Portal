@@ -70,16 +70,23 @@ function persistCacheToStorage() {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     try {
-      const payload = {
-        colleges: cache.colleges?.data || [],
-        batches: cache.batches?.data || [],
-        students: cache.students?.data || [],
-        exams: cache.exams?.data || [],
-        resources: cache.resources?.data || [],
-        attempts: cache.attempts?.data || [],
-      };
-      const serialized = JSON.stringify(payload);
-      localStorage.setItem(CACHE_STORAGE_KEY, serialized);
+      // CRITICAL: Only persist if we actually have data. Never save empty arrays
+      // because that poisons the cache and causes zero-data on next page load.
+      const colleges = cache.colleges?.data || [];
+      const batches = cache.batches?.data || [];
+      const students = cache.students?.data || [];
+      const exams = cache.exams?.data || [];
+      const resources = cache.resources?.data || [];
+      const attempts = cache.attempts?.data || [];
+      
+      const hasAnyData = colleges.length > 0 || students.length > 0 || exams.length > 0 || resources.length > 0;
+      if (!hasAnyData) {
+        console.warn("[CACHE] Skipping localStorage save — all collections empty (would poison cache)");
+        return;
+      }
+      
+      const payload = { colleges, batches, students, exams, resources, attempts };
+      localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(payload));
     } catch (_) {}
   }, 300);
 }
@@ -92,13 +99,16 @@ function hydrateCacheFromStorage() {
     const parsed = JSON.parse(raw);
     const isActive = (d: { isDeleted?: boolean; deletedAt?: Date; status?: string }) => !d.isDeleted && !d.deletedAt && d.status !== "deleted" && d.status !== "inactive";
     if (parsed && typeof parsed === "object") {
-      const now = Date.now();
-      if (Array.isArray(parsed.colleges) && parsed.colleges.length > 0) cache.colleges = { data: parsed.colleges.filter(isActive), updatedAt: now };
-      if (Array.isArray(parsed.batches) && parsed.batches.length > 0) cache.batches = { data: parsed.batches.filter(isActive), updatedAt: now };
-      if (Array.isArray(parsed.students) && parsed.students.length > 0) cache.students = { data: parsed.students.filter(isActive), updatedAt: now };
-      if (Array.isArray(parsed.exams) && parsed.exams.length > 0) cache.exams = { data: parsed.exams.filter(isActive), updatedAt: now };
-      if (Array.isArray(parsed.resources) && parsed.resources.length > 0) cache.resources = { data: parsed.resources.filter(isActive), updatedAt: now };
-      if (Array.isArray(parsed.attempts) && parsed.attempts.length > 0) cache.attempts = { data: parsed.attempts.filter(isActive), updatedAt: now };
+      // CRITICAL: Set updatedAt to 0 (not Date.now()) so that the TTL check in
+      // fetchLMSData always allows a fresh Firestore fetch on page load.
+      // The hydrated data is shown as a fast placeholder while the real fetch runs.
+      const STALE_TIMESTAMP = 0;
+      if (Array.isArray(parsed.colleges) && parsed.colleges.length > 0) cache.colleges = { data: parsed.colleges.filter(isActive), updatedAt: STALE_TIMESTAMP };
+      if (Array.isArray(parsed.batches) && parsed.batches.length > 0) cache.batches = { data: parsed.batches.filter(isActive), updatedAt: STALE_TIMESTAMP };
+      if (Array.isArray(parsed.students) && parsed.students.length > 0) cache.students = { data: parsed.students.filter(isActive), updatedAt: STALE_TIMESTAMP };
+      if (Array.isArray(parsed.exams) && parsed.exams.length > 0) cache.exams = { data: parsed.exams.filter(isActive), updatedAt: STALE_TIMESTAMP };
+      if (Array.isArray(parsed.resources) && parsed.resources.length > 0) cache.resources = { data: parsed.resources.filter(isActive), updatedAt: STALE_TIMESTAMP };
+      if (Array.isArray(parsed.attempts) && parsed.attempts.length > 0) cache.attempts = { data: parsed.attempts.filter(isActive), updatedAt: STALE_TIMESTAMP };
 
       if (cache.colleges || cache.students || cache.batches || cache.exams || cache.resources || cache.attempts) {
         cache.loading = false;
@@ -655,9 +665,11 @@ function startAuthListener() {
       
       globalAuthUnsub = onAuthStateChanged(auth, async (user) => {
         if (!user) {
-          cache.loading = false;
+          // CRITICAL FIX: Do NOT set cache.loading = false or call notifyListeners() here.
+          // On page refresh, onAuthStateChanged fires with null FIRST (while restoring session),
+          // then fires again with the real user. If we push empty state to the UI here,
+          // it causes a flash of "zero data" before the real data loads.
           currentUserInfo = null;
-          notifyListeners();
           return;
         }
 
