@@ -166,7 +166,13 @@ export default function ResourcesPage() {
         // Global resources always show in the admin dashboard regardless of the local filter
         if (isGlobal) return true;
 
-        if (resourceFilters.collegeId && t?.collegeId !== resourceFilters.collegeId) return false;
+        if (resourceFilters.collegeId) {
+          const matchesCollege = res.targets?.some(target => 
+            target.collegeId === resourceFilters.collegeId || 
+            target.ids?.includes(resourceFilters.collegeId)
+          );
+          if (!matchesCollege) return false;
+        }
         if (resourceFilters.department && t?.department !== resourceFilters.department) return false;
         if (resourceFilters.academicYear && t?.academicYear !== resourceFilters.academicYear) return false;
         if (resourceFilters.section && t?.section !== resourceFilters.section) return false;

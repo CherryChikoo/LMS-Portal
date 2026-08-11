@@ -23,6 +23,7 @@ import {
 import type { College, Batch, Student, SelectOption, Exam, Resource, ExamAttempt } from "@/types";
 import { setLMSStoreState } from "./lms-store";
 import { logger } from "@/lib/utils/logger";
+import { isAssignedToStudent } from "@/lib/services/assignment-engine";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -284,36 +285,32 @@ function recomputeScopedData() {
         // 1. Assigned to their college (collegeId matches)
         // 2. Global exams (collegeId === "global" or "GLOBAL" or targets includes "global")
         // 3. Exams with targets array that includes their college
+        const currentUserAsStudent = { ...parsed, id: parsed.id || parsed.uid || "" } as Student;
         const userCollegeId = parsed.collegeId;
         const userCollegeName = parsed.collegeName;
         
         // Filter exams for college admins and students
-        // Include exams that are:
-        // 1. Assigned to their college (collegeId matches)
-        // 2. Global exams (collegeId === "global" or "GLOBAL")
-        // 3. Exams with targets array that includes their college or "global"
         fExams = fExams.filter((exam) => {
+          if (r === "student") {
+            return isAssignedToStudent(exam.targets, currentUserAsStudent, (exam as any).sharedWith);
+          }
+          
+          // For college admin:
           const tCol = (exam as any).collegeId || exam.targets?.[0]?.collegeId;
           const isGlobal = !tCol || tCol === "global" || tCol === "GLOBAL" || tCol === "all" || tCol === "ALL";
           
           if (isGlobal) return true;
           
-          // Direct college match
           if (userCollegeId && tCol === userCollegeId) return true;
           if (userCollegeName && tCol.toLowerCase() === userCollegeName.toLowerCase()) return true;
           
-          // Check targets array
           if (exam.targets && Array.isArray(exam.targets)) {
-            // Global target
             if (exam.targets.some(t => 
-              t.ids?.includes("global") || 
-              t.ids?.includes("GLOBAL") ||
-              t.names?.includes("global") ||
-              t.names?.includes("GLOBAL") ||
+              t.ids?.includes("global") || t.ids?.includes("GLOBAL") ||
+              t.names?.includes("global") || t.names?.includes("GLOBAL") ||
               t.collegeId === "global" || t.collegeId === "GLOBAL" || t.collegeId === "all" || t.collegeId === "ALL"
             )) return true;
             
-            // College-specific target
             if (exam.targets.some(t => {
               if (userCollegeId && t.collegeId === userCollegeId) return true;
               if (userCollegeName && t.collegeId?.toLowerCase() === userCollegeName.toLowerCase()) return true;
@@ -327,8 +324,12 @@ function recomputeScopedData() {
           return false;
         });
         
-        // Filter resources for college admins and students (same logic as exams)
+        // Filter resources for college admins and students
         fResources = fResources.filter((resource) => {
+          if (r === "student") {
+            return isAssignedToStudent(resource.targets, currentUserAsStudent, resource.sharedWith);
+          }
+          
           const tCol = resource.collegeId || resource.targets?.[0]?.collegeId;
           const isGlobal = !tCol || tCol === "global" || tCol === "GLOBAL" || tCol === "all" || tCol === "ALL";
           
@@ -337,7 +338,6 @@ function recomputeScopedData() {
           if (userCollegeId && tCol === userCollegeId) return true;
           if (userCollegeName && tCol.toLowerCase() === userCollegeName.toLowerCase()) return true;
           
-          // Check sharedWith array (legacy field)
           if (resource.sharedWith && Array.isArray(resource.sharedWith)) {
             if (resource.sharedWith.includes("global") || 
                 resource.sharedWith.includes("GLOBAL") ||
@@ -348,18 +348,13 @@ function recomputeScopedData() {
             if (userCollegeName && resource.sharedWith.some(s => s.toLowerCase() === userCollegeName.toLowerCase())) return true;
           }
           
-          // Check targets array (same as exams)
           if (resource.targets && Array.isArray(resource.targets)) {
-            // Global target
             if (resource.targets.some(t => 
-              t.ids?.includes("global") || 
-              t.ids?.includes("GLOBAL") ||
-              t.names?.includes("global") ||
-              t.names?.includes("GLOBAL") ||
+              t.ids?.includes("global") || t.ids?.includes("GLOBAL") ||
+              t.names?.includes("global") || t.names?.includes("GLOBAL") ||
               t.collegeId === "global" || t.collegeId === "GLOBAL" || t.collegeId === "all" || t.collegeId === "ALL"
             )) return true;
             
-            // College-specific target
             if (resource.targets.some(t => {
               if (userCollegeId && t.collegeId === userCollegeId) return true;
               if (userCollegeName && t.collegeId?.toLowerCase() === userCollegeName.toLowerCase()) return true;
