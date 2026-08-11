@@ -665,6 +665,11 @@ function startAuthListener() {
 
         const isMainAdmin = role === "main_admin" || role === "admin" || role === "superadmin" || role === "trainer";
 
+        // Derive collegeId if missing but collegeName is present (for self-registered external colleges)
+        if (parsed && !parsed.collegeId && parsed.collegeName) {
+          parsed.collegeId = parsed.collegeName.toLowerCase().trim().replace(/[^a-z0-9]+/g, "");
+        }
+
         // AUTH READINESS GUARD: Prevent race condition where queries fire before collegeId resolves
         if (!isMainAdmin && !parsed?.collegeId) {
           return;

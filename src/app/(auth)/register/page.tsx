@@ -231,6 +231,7 @@ export default function RegisterPage() {
         role: "student",
         department: department.trim(),
         collegeName: collegeName.trim(),
+        collegeId: collegeName.toLowerCase().trim().replace(/[^a-z0-9]+/g, ""),
         section: section.trim() || "A"
       };
       isSubmittedRef.current = true;
