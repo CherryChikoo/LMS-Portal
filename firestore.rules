@@ -197,7 +197,8 @@ service cloud.firestore {
            resource.data.collegeId == 'global' || 
            resource.data.collegeId == 'GLOBAL' || 
            resource.data.collegeId == 'all' || 
-           resource.data.collegeId == 'ALL'
+           resource.data.collegeId == 'ALL' ||
+           resource.data.collegeId == ''
         ))
       );
       
@@ -238,7 +239,8 @@ service cloud.firestore {
            resource.data.collegeId == 'global' || 
            resource.data.collegeId == 'GLOBAL' || 
            resource.data.collegeId == 'all' || 
-           resource.data.collegeId == 'ALL'
+           resource.data.collegeId == 'ALL' ||
+           resource.data.collegeId == ''
         )) ||
         (isStudent() && 
          resource.data.status != 'draft' && 
