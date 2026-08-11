@@ -246,7 +246,7 @@ export default function CollegesPage() {
           
           // Show native browser alert as requested
           setTimeout(() => {
-            alert(`College "${col.name}" deleted successfully.`);
+            toast.success(`College "${col.name}" deleted successfully.`);
           }, 100);
         } catch (err: unknown) {
           setIsGlobalDeleting(false);
@@ -302,7 +302,7 @@ export default function CollegesPage() {
           
           // Show native browser alert
           setTimeout(() => {
-            alert("Selected colleges deleted successfully.");
+            toast.success("Selected colleges deleted successfully.");
           }, 100);
         } catch (err: unknown) {
           setIsGlobalDeleting(false);
@@ -337,7 +337,7 @@ export default function CollegesPage() {
           setIsGlobalDeleting(false);
           
           setTimeout(() => {
-            alert(`Outside institution "${extName}" deleted successfully.`);
+            toast.success(`Outside institution "${extName}" deleted successfully.`);
           }, 100);
         } catch (err) {
           setIsGlobalDeleting(false);
@@ -378,7 +378,7 @@ export default function CollegesPage() {
           setIsGlobalDeleting(false);
           
           setTimeout(() => {
-            alert("Selected outside institutions deleted.");
+            toast.success("Selected outside institutions deleted.");
           }, 100);
         } catch (err) {
           setIsGlobalDeleting(false);
@@ -417,7 +417,7 @@ export default function CollegesPage() {
           setIsGlobalDeleting(false);
           
           setTimeout(() => {
-            alert("All outside institutions deleted.");
+            toast.success("All outside institutions deleted.");
           }, 100);
         } catch (err) {
           setIsGlobalDeleting(false);
