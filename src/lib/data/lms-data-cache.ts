@@ -721,18 +721,18 @@ function computeExportedState() {
   
   students.forEach((s) => {
     if (s.collegeId) {
-      const id = s.collegeId.toLowerCase();
+      const id = String(s.collegeId).toLowerCase();
       studentCountByColId.set(id, (studentCountByColId.get(id) || 0) + 1);
     }
     if (s.collegeName) {
-      const name = s.collegeName.toLowerCase();
+      const name = String(s.collegeName).toLowerCase();
       studentCountByColName.set(name, (studentCountByColName.get(name) || 0) + 1);
     }
   });
 
   const getStudentCount = (c: College) => {
-    const byId = c.id ? studentCountByColId.get(c.id.toLowerCase()) || 0 : 0;
-    const byName = c.name ? studentCountByColName.get(c.name.toLowerCase()) || 0 : 0;
+    const byId = c.id ? studentCountByColId.get(String(c.id).toLowerCase()) || 0 : 0;
+    const byName = c.name ? studentCountByColName.get(String(c.name).toLowerCase()) || 0 : 0;
     return Math.max(byId, byName);
   };
 
@@ -740,7 +740,7 @@ function computeExportedState() {
   const externals: Institution[] = [
     ...externalFirestoreColleges.map((c) => ({
        id: c.id,
-       name: safeDisplayName(c.name ? c.name.toLowerCase() : "", c.id, "Unknown Institution").toLowerCase(),
+       name: safeDisplayName(c.name ? String(c.name).toLowerCase() : "", c.id, "Unknown Institution").toLowerCase(),
        type: "external" as const,
        code: c.code,
        departments: c.departments || [],
@@ -748,13 +748,13 @@ function computeExportedState() {
        studentCount: getStudentCount(c),
     })),
     ...dynamicExternals.filter(dyn => !externalFirestoreColleges.some(extC => 
-         extC.id === dyn.id || extC.name.toLowerCase() === dyn.name.toLowerCase()
+         extC.id === dyn.id || String(extC.name || "").toLowerCase() === String(dyn.name || "").toLowerCase()
     ))
   ];
 
   const officialInstitutions: Institution[] = officialFirestoreColleges.map((c) => ({
     id: c.id,
-    name: safeDisplayName(c.name ? c.name.toLowerCase() : "", c.id, "Unknown Institution").toLowerCase(),
+    name: safeDisplayName(c.name ? String(c.name).toLowerCase() : "", c.id, "Unknown Institution").toLowerCase(),
     type: "official",
     code: c.code,
     departments: c.departments,
