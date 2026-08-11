@@ -92,17 +92,7 @@ export function filterExamsForStudent(exams: Exam[], student: Student): Exam[] {
   return exams.filter((exam) => {
     if (!isAssignedToStudent(exam.targets, student)) return false;
 
-    // A newly created student shouldn't see exams from the past that were created before they existed.
-    // If the exam is active/scheduled, they should see it regardless.
-    const examCreatedMillis = toMillis(exam.createdAt) ?? 0;
-    const wasCreatedBeforeStudent = examCreatedMillis > 0 && studentCreatedMillis > 0 && examCreatedMillis < studentCreatedMillis;
-
-    if (wasCreatedBeforeStudent) {
-      const eff = getEffectiveExamStatus(exam);
-      if (eff === "expired" || eff === "completed" || eff === "cancelled") {
-        return false;
-      }
-    }
+    // No longer hiding past exams for new students as per user request.
 
     return true;
   });

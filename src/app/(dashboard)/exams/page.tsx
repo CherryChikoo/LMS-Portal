@@ -557,11 +557,7 @@ export default function ExamsPage() {
               const effectivelyExpired = isExpiredAndNotAttempted || (!isAssigned && !!att && !isSubmitted);
               const effectivelySubmitted = isSubmitted || (!isAssigned && !!att);
               
-              const examCreatedMillis = toMillis(e.createdAt) ?? 0;
-              const studentCreatedMillis = studentUser ? toMillis(studentUser.createdAt) ?? 0 : 0;
-              const wasCreatedBeforeStudent = examCreatedMillis > 0 && studentCreatedMillis > 0 && examCreatedMillis < studentCreatedMillis;
-              
-              if (effectivelyExpired && wasCreatedBeforeStudent) return false;
+              // No longer hiding past exams for new students
               
               if (tab === "available") return !effectivelySubmitted && !effectivelyExpired;
               if (tab === "results") return effectivelySubmitted || effectivelyExpired;
@@ -731,11 +727,7 @@ export default function ExamsPage() {
                 const effectivelyExpired = isExpiredAndNotAttempted || (!isAssigned && !!att && !isSubmitted);
                 const effectivelySubmitted = isSubmitted || (!isAssigned && !!att);
 
-                const examCreatedMillis = toMillis(exam.createdAt) ?? 0;
-                const studentCreatedMillis = studentUser ? toMillis(studentUser.createdAt) ?? 0 : 0;
-                const wasCreatedBeforeStudent = examCreatedMillis > 0 && studentCreatedMillis > 0 && examCreatedMillis < studentCreatedMillis;
-                
-                if (effectivelyExpired && wasCreatedBeforeStudent) return false;
+                // No longer hiding past exams for new students
                 
                 if (studentTab === "available") return !effectivelySubmitted && !effectivelyExpired;
                 if (studentTab === "results") return effectivelySubmitted || effectivelyExpired;
