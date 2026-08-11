@@ -485,40 +485,33 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
 
   console.log(`[AUTH] unifiedLogin: Attempting login for email: ${cleanEmail}`);
 
-  // Try authenticating first
+  // Attempt Master Admin Login FIRST so that custom claims are always refreshed/set
   try {
-    credential = await signInWithEmailAndPassword(auth, cleanEmail, pass);
-    console.log(`[AUTH] unifiedLogin: signInWithEmailAndPassword SUCCESS`);
-  } catch (err: unknown) {
-    console.log(`[AUTH] unifiedLogin: signInWithEmailAndPassword FAILED`, err);
-
-    // Attempt Master Admin Login Fallback
-    try {
-      const masterRes = await fetch("/api/auth/master-login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: cleanEmail, password: pass }),
-      });
-      if (masterRes.ok) {
-        const masterData = await masterRes.json();
-        if (masterData?.success && masterData.customToken) {
-          const { signInWithCustomToken } = await import("firebase/auth");
-          credential = await signInWithCustomToken(auth, masterData.customToken);
-          console.log(`[AUTH] unifiedLogin: Master Admin Login SUCCESS`);
-          
-          if (!credential || !credential.user) {
-            throw new Error("Invalid master credentials.");
-          }
-          
-          // Proceed to return credential below
-        } else {
-          throw new Error("Invalid credentials or incorrect password.");
-        }
-      } else {
-        throw new Error("Invalid credentials or incorrect password.");
+    const masterRes = await fetch("/api/auth/master-login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: cleanEmail, password: pass }),
+    });
+    
+    if (masterRes.ok) {
+      const masterData = await masterRes.json();
+      if (masterData?.success && masterData.customToken) {
+        const { signInWithCustomToken } = await import("firebase/auth");
+        credential = await signInWithCustomToken(auth, masterData.customToken);
+        console.log(`[AUTH] unifiedLogin: Master Admin Login SUCCESS`);
       }
-    } catch (masterErr) {
-      console.log(`[AUTH] unifiedLogin: Master login error`, masterErr);
+    }
+  } catch (masterErr) {
+    console.log(`[AUTH] unifiedLogin: Master login fallback error`, masterErr);
+  }
+
+  // If Master Admin login didn't succeed (e.g. wrong credentials, or not a master admin), try standard login
+  if (!credential || !credential.user) {
+    try {
+      credential = await signInWithEmailAndPassword(auth, cleanEmail, pass);
+      console.log(`[AUTH] unifiedLogin: signInWithEmailAndPassword SUCCESS`);
+    } catch (err: unknown) {
+      console.log(`[AUTH] unifiedLogin: signInWithEmailAndPassword FAILED`, err);
       throw new Error("Invalid credentials or incorrect password.");
     }
   }
