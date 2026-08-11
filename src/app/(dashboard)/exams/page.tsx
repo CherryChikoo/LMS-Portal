@@ -642,12 +642,14 @@ export default function ExamsPage() {
                     }
 
                     if (examFilters.collegeId) {
-                      const matchesCollege = exam.targets?.some(t => 
-                        t.collegeId === examFilters.collegeId || 
-                        t.ids?.includes(examFilters.collegeId)
+                      const matchesRoot = (exam as any).collegeId === examFilters.collegeId;
+                      const matchesCollege = matchesRoot || exam.targets?.some(target => 
+                        target.collegeId === examFilters.collegeId || 
+                        target.ids?.includes(examFilters.collegeId)
                       );
                       if (!matchesCollege) return false;
                     }
+                    const t = exam.targets?.[0];
                     if (examFilters.department && (t?.department || "").trim().toLowerCase() !== (examFilters.department || "").trim().toLowerCase()) return false;
                     if (examFilters.academicYear && t?.academicYear && t.academicYear !== examFilters.academicYear) return false;
                     if (examFilters.section && (t?.section || "").trim().toLowerCase() !== (examFilters.section || "").trim().toLowerCase()) return false;
@@ -755,7 +757,8 @@ export default function ExamsPage() {
                 }
 
                 if (examFilters.collegeId) {
-                  const matchesCollege = exam.targets?.some(target => 
+                  const matchesRoot = (exam as any).collegeId === examFilters.collegeId;
+                  const matchesCollege = matchesRoot || exam.targets?.some(target => 
                     target.collegeId === examFilters.collegeId || 
                     target.ids?.includes(examFilters.collegeId)
                   );

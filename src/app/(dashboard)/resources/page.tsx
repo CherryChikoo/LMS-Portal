@@ -167,7 +167,8 @@ export default function ResourcesPage() {
         if (isGlobal) return true;
 
         if (resourceFilters.collegeId) {
-          const matchesCollege = res.targets?.some(target => 
+          const matchesRoot = res.collegeId === resourceFilters.collegeId;
+          const matchesCollege = matchesRoot || res.targets?.some(target => 
             target.collegeId === resourceFilters.collegeId || 
             target.ids?.includes(resourceFilters.collegeId)
           );
