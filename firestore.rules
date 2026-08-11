@@ -192,7 +192,13 @@ service cloud.firestore {
       allow read: if isAuthenticated() && (
         isMainAdmin() ||
         isSharedWithUser(resource.data.sharedWith) ||
-        belongsToSameCollege(resource.data.collegeId)
+        belongsToSameCollege(resource.data.collegeId) ||
+        (isCollegeAdmin() && (
+           resource.data.collegeId == 'global' || 
+           resource.data.collegeId == 'GLOBAL' || 
+           resource.data.collegeId == 'all' || 
+           resource.data.collegeId == 'ALL'
+        ))
       );
       
       allow create: if isMainAdmin() || 
@@ -227,7 +233,13 @@ service cloud.firestore {
       // Read: Admins, or students if exam is active/published and targeted to them
       allow read: if isAuthenticated() && (
         isMainAdmin() ||
-        (isCollegeAdmin() && belongsToSameCollege(resource.data.collegeId)) ||
+        (isCollegeAdmin() && (
+           belongsToSameCollege(resource.data.collegeId) ||
+           resource.data.collegeId == 'global' || 
+           resource.data.collegeId == 'GLOBAL' || 
+           resource.data.collegeId == 'all' || 
+           resource.data.collegeId == 'ALL'
+        )) ||
         (isStudent() && 
          resource.data.status != 'draft' && 
          (belongsToSameCollege(resource.data.collegeId) ||
