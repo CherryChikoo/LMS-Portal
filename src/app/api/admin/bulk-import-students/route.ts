@@ -409,7 +409,7 @@ export async function POST(request: NextRequest) {
           aggregatedBatch.set(db.collection("students").doc(res.writeDocs.uid), res.writeDocs.studentDoc, { merge: true });
           createdUids.push(res.writeDocs.uid);
           writeCount++;
-          delete res.writeDocs; // Clean up before sending to client
+          delete (res as any).writeDocs; // Clean up before sending to client
         }
       }
 

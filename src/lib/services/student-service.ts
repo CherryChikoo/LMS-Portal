@@ -6,7 +6,6 @@ import {
   updateDocument,
   setDocument,
   deleteDocument,
-  subscribeToDocuments,
   where,
   onSnapshot,
 } from "@/lib/firebase/firestore";
@@ -99,6 +98,7 @@ export async function createStudentAuthProfile(
         return {
           uid: body.uid,
           email: body.email || cleanEmail,
+          initialPassword: body.initialPassword || "Welcome@123",
         };
       }
       if (response.status === 400 || response.status === 409) {
@@ -148,7 +148,7 @@ export async function createStudentAuthProfile(
     createdAt: now,
     updatedAt: now,
     status: "active",
-    initialPassword: tempPassword,
+    initialPassword: "Welcome@123",
     mustChangePassword: true,
   } as Student;
 
@@ -160,7 +160,7 @@ export async function createStudentAuthProfile(
   return {
     uid: docId,
     email: cleanEmail,
-    initialPassword: tempPassword,
+    initialPassword: "Welcome@123",
   };
 }
 
@@ -168,76 +168,7 @@ export async function getAllStudents(options?: QueryOptions): Promise<PaginatedR
   return getDocuments<Student>(COLLECTION_NAME, [], false, { pageSize: 1000, ...options });
 }
 
-export function subscribeToAllStudents(callback: (students: Student[]) => void, options?: QueryOptions): () => void {
-  return subscribeToDocuments<Student>(COLLECTION_NAME, callback, [], false, { pageSize: 1000, ...options });
-}
 
-export function subscribeToStudentsByCollege(collegeId: string, callback: (students: Student[]) => void, options?: QueryOptions): () => void {
-  return subscribeToDocuments<Student>(COLLECTION_NAME, callback, [where("collegeId", "==", collegeId)], false, { pageSize: 1000, ...options });
-}
-
-export function subscribeToStudentPeerDirectory(
-  collegeId: string | undefined | null,
-  callback: (students: Student[]) => void,
-  options?: QueryOptions
-): () => void {
-  const cleanColId = (collegeId || "").trim();
-
-  if (cleanColId && cleanColId !== "col-unassigned" && cleanColId !== "unassigned") {
-    return subscribeToDocuments<Student>(COLLECTION_NAME, callback, [
-      where("collegeId", "==", cleanColId),
-    ], false, { pageSize: 1000, ...options });
-  }
-
-  const studentsMap = new Map<string, Student>();
-  const unsubs: Array<() => void> = [];
-  const update = () => callback(Array.from(studentsMap.values()));
-
-  const targets = ["col-unassigned", "unassigned", "", null];
-  targets.forEach((t) => {
-    unsubs.push(
-      subscribeToDocuments<Student>(
-        COLLECTION_NAME,
-        (data) => {
-          data.forEach((s) => studentsMap.set(s.id, s));
-          update();
-        },
-        [where("collegeId", "==", t)],
-        false,
-        { pageSize: 1000, ...options }
-      )
-    );
-  });
-
-  return () => {
-    unsubs.forEach((unsub) => unsub());
-  };
-}
-
-export function subscribeToStudentById(studentId: string, callback: (students: Student[]) => void): () => void {
-  if (process.env.NODE_ENV === "development") firestoreDiagnostics.incrementListener();
-  const unsubscribe = onSnapshot(
-    doc(db, COLLECTION_NAME, studentId),
-    (snap) => {
-      if (snap.exists()) {
-        const data = snap.data();
-        if (!data.isDeleted && !data.deletedAt) {
-          callback([{ id: snap.id, ...data } as Student]);
-          return;
-        }
-      }
-      callback([]);
-    },
-    (err) => {
-      console.warn(`[subscribeToStudentById ${studentId}] Graceful fallback:`, err?.message);
-      callback([]);
-    }
-  );
-  return () => {
-    if (process.env.NODE_ENV === "development") firestoreDiagnostics.decrementListener();
-    unsubscribe();
-  };
-}
 
 export async function getStudentsByCollege(collegeId: string, options?: QueryOptions): Promise<PaginatedResult<Student>> {
   return getDocuments<Student>(COLLECTION_NAME, [where("collegeId", "==", collegeId)], false, { pageSize: 1000, ...options });

@@ -227,35 +227,7 @@ export async function getPaginatedDocuments<T extends DocumentData & { isDeleted
   return { data, lastDoc: last };
 }
 
-export function subscribeToDocuments<T extends DocumentData & { isDeleted?: boolean; deletedAt?: Date; status?: string }>(
-  collectionName: string,
-  callback: (data: T[]) => void,
-  constraints: QueryConstraint[] = [],
-  includeDeleted: boolean = false,
-  options?: QueryOptions
-): () => void {
-  const hasLimit = constraints.some((c) => c.type === 'limit');
-  
-  // OPTIMIZATION: Apply safe default limit if not specified to prevent unbounded live subscriptions
-  const safePageSize = options?.pageSize || (hasLimit ? undefined : 1000);
-  
-  const finalConstraints = safePageSize && !hasLimit
-    ? [...constraints, limit(safePageSize)]
-    : constraints;
-  
-  const q = query(collection(db, collectionName), ...finalConstraints);
-  return onSnapshot(
-    q,
-    (snapshot) => {
-      const mapped = mapDocs<T>(snapshot.docs);
-      const data = mapped.filter((d) => includeDeleted || (!d.isDeleted && !d.deletedAt && d.status !== "deleted"));
-      callback(data);
-    },
-    (error) => {
-      console.warn(`[Firestore Listener ${collectionName}] Error:`, error?.message);
-      callback([]);
-    }
-  );
-}
+// onSnapshot has been completely removed to prevent massive Firebase read spikes and listener leaks.
+// All data fetching must be done via getDocuments or getDocument.
 
 export { where, orderBy, limit, collection, doc, query, setDoc, writeBatch, onSnapshot, getDoc, serverTimestamp };

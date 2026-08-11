@@ -12,7 +12,7 @@ import {
   deleteDoc,
   Timestamp,
 } from "firebase/firestore";
-import { getDocuments, subscribeToDocuments, type QueryOptions, type PaginatedResult } from "@/lib/firebase/firestore";
+import { getDocuments, type QueryOptions, type PaginatedResult } from "@/lib/firebase/firestore";
 import type { Batch } from "@/types";
 
 /**
@@ -20,13 +20,6 @@ import type { Batch } from "@/types";
  */
 export async function getAllBatches(options?: QueryOptions): Promise<PaginatedResult<Batch>> {
   return getDocuments<Batch>("batches", [orderBy("createdAt", "desc")], false, options);
-}
-
-/**
- * Subscribe to all batches
- */
-export function subscribeToAllBatches(callback: (batches: Batch[]) => void, options?: QueryOptions): () => void {
-  return subscribeToDocuments<Batch>("batches", callback, [orderBy("createdAt", "desc")], false, options);
 }
 
 /**
@@ -51,20 +44,6 @@ export async function getBatchById(id: string): Promise<Batch | null> {
  */
 export async function getBatchesByCollege(collegeId: string, options?: QueryOptions): Promise<PaginatedResult<Batch>> {
   return getDocuments<Batch>("batches", [
-    where("collegeId", "==", collegeId),
-    orderBy("createdAt", "desc")
-  ], false, options);
-}
-
-/**
- * Subscribe to batches by college
- */
-export function subscribeToBatchesByCollege(
-  collegeId: string,
-  callback: (batches: Batch[]) => void,
-  options?: QueryOptions
-): () => void {
-  return subscribeToDocuments<Batch>("batches", callback, [
     where("collegeId", "==", collegeId),
     orderBy("createdAt", "desc")
   ], false, options);

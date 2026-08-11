@@ -4,7 +4,6 @@ import {
   addDocument,
   updateDocument,
   deleteDocument,
-  subscribeToDocuments,
   where,
   type QueryOptions,
   type PaginatedResult,
@@ -15,13 +14,6 @@ import { isAssignedToStudent } from "./assignment-engine";
 
 const COLLECTION_NAME = "resources";
 
-export function subscribeToAllResources(callback: (resources: Resource[]) => void, options?: QueryOptions): () => void {
-  return subscribeToDocuments<Resource>(COLLECTION_NAME, callback, [], false, options);
-}
-
-export function subscribeToResourcesByCollege(collegeId: string, callback: (resources: Resource[]) => void, options?: QueryOptions): () => void {
-  return subscribeToDocuments<Resource>(COLLECTION_NAME, callback, [where("collegeId", "==", collegeId)], false, options);
-}
 
 export async function getAllResources(options?: QueryOptions): Promise<PaginatedResult<Resource>> {
   return getDocuments<Resource>(COLLECTION_NAME, [], false, options);

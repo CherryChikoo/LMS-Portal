@@ -6,7 +6,6 @@ import {
   deleteDocument,
   where,
   serverTimestamp,
-  subscribeToDocuments,
   type QueryOptions,
   type PaginatedResult,
 } from "@/lib/firebase/firestore";
@@ -18,78 +17,7 @@ import { toMillis } from "@/lib/utils/date";
 const EXAMS_COLLECTION = "exams";
 const RESULTS_COLLECTION = "exam_results";
 
-export function subscribeToAllExams(callback: (exams: Exam[]) => void, options?: QueryOptions): () => void {
-  return subscribeToDocuments<Exam>(EXAMS_COLLECTION, callback, [], false, { pageSize: 1000, ...options });
-}
 
-export function subscribeToExamsByCollege(collegeId: string, callback: (exams: Exam[]) => void, options?: QueryOptions): () => void {
-  return subscribeToDocuments<Exam>(EXAMS_COLLECTION, callback, [where("collegeId", "==", collegeId)], false, { pageSize: 1000, ...options });
-}
-
-export function subscribeToPublishedExamsByCollege(collegeId: string, callback: (exams: Exam[]) => void, options?: QueryOptions): () => void {
-  return subscribeToDocuments<Exam>(EXAMS_COLLECTION, callback, [
-    where("collegeId", "==", collegeId),
-    where("status", "!=", "draft")
-  ], false, { pageSize: 1000, ...options });
-}
-
-export function subscribeToAllAttempts(callback: (attempts: ExamAttempt[]) => void, options?: QueryOptions): () => void {
-  return subscribeToDocuments<ExamAttempt>(RESULTS_COLLECTION, callback, [], false, { pageSize: 1000, ...options });
-}
-
-export function subscribeToAttemptsByCollege(collegeId: string, callback: (attempts: ExamAttempt[]) => void, options?: QueryOptions): () => void {
-  return subscribeToDocuments<ExamAttempt>(RESULTS_COLLECTION, callback, [where("collegeId", "==", collegeId)], false, { pageSize: 1000, ...options });
-}
-
-export function subscribeToStudentAttempts(studentId: string, callback: (attempts: ExamAttempt[]) => void, options?: QueryOptions): () => void {
-  return subscribeToDocuments<ExamAttempt>(RESULTS_COLLECTION, callback, [where("studentId", "==", studentId)], false, { pageSize: 1000, ...options });
-}
-
-export function subscribeToStudentAttemptsForUser(
-  uid: string,
-  profileId: string | undefined,
-  _email: string | undefined,
-  callback: (attempts: ExamAttempt[]) => void,
-  options?: QueryOptions
-): () => void {
-  const attemptsMap = new Map<string, ExamAttempt>();
-  const unsubs: Array<() => void> = [];
-
-  const update = () => {
-    callback(Array.from(attemptsMap.values()));
-  };
-
-  const targetUid = uid || profileId;
-
-  if (targetUid) {
-    unsubs.push(
-      subscribeToDocuments<ExamAttempt>(RESULTS_COLLECTION, (data) => {
-        attemptsMap.clear();
-        data.forEach((a) => attemptsMap.set(a.id, a));
-        update();
-      }, [where("studentId", "==", targetUid)], false, options)
-    );
-  }
-
-  return () => {
-    unsubs.forEach((unsub) => unsub());
-  };
-}
-
-export function subscribeToLeaderboardAttempts(
-  collegeId: string | undefined | null,
-  callback: (attempts: ExamAttempt[]) => void,
-  options?: QueryOptions
-): () => void {
-  // OPTIMIZATION: Previously fetched all attempts globally for leaderboard.
-  // Now scoped to collegeId to dramatically reduce reads for students.
-  if (collegeId && collegeId !== "global") {
-    return subscribeToAttemptsByCollege(collegeId, callback, options);
-  }
-  // Fallback for admin/trainer without collegeId: still use subscribeToAllAttempts
-  // but with a limit applied via options
-  return subscribeToAllAttempts(callback, options);
-}
 
 export async function getAllExams(options?: QueryOptions): Promise<PaginatedResult<Exam>> {
   return getDocuments<Exam>(EXAMS_COLLECTION, [], false, { pageSize: 1000, ...options });

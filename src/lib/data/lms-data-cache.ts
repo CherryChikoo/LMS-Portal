@@ -449,7 +449,7 @@ export function subscribeToLMSCache(callback: () => void): () => void {
 
   callbacks.add(callback);
   if (cache.listeners === 0) {
-    startPolling();
+    startAuthListener();
   }
   cache.listeners++;
 
@@ -459,121 +459,104 @@ export function subscribeToLMSCache(callback: () => void): () => void {
     if (cache.listeners === 0) {
       cleanupTimer = setTimeout(() => {
         if (cache.listeners === 0) {
-          stopPolling();
+          stopAuthListener();
         }
       }, 5000);
     }
   };
 }
 
-// ─── Subscription Engine (replaces getDocs polling) ─────────────────────────
+// ─── Data Fetching Engine (TTL Caching) ───────────────────────────────────────
 
 let currentUserInfo: { uid: string; role: string; collegeId?: string; parsed: any } | null = null;
+let globalAuthUnsub: (() => void) | null = null;
 
 export async function refreshCache() {
-  // Data is now kept perfectly in sync via native Firestore onSnapshot listeners.
-  // Manual refreshes are no longer necessary and are mocked to prevent errors.
-  return Promise.resolve();
+  return fetchLMSData(true);
 }
 
-async function startSubscriptions() {
+async function fetchLMSData(force = false) {
   if (!currentUserInfo) return;
   const { role, collegeId, parsed } = currentUserInfo;
+  
+  // TTL Check: 5 minutes
+  const TTL = 5 * 60 * 1000;
+  const now = Date.now();
+  if (!force && cache.colleges?.updatedAt && (now - cache.colleges.updatedAt < TTL)) {
+    // Cache is fresh, skip Firestore reads
+    if (cache.loading) {
+      cache.loading = false;
+      notifyListeners();
+    }
+    return;
+  }
+
+  cache.loading = true;
+  notifyListeners();
+
   const isMainAdmin = role === "main_admin" || role === "admin" || role === "superadmin" || role === "trainer";
   const isCollegeAdmin = role === "college_admin" && collegeId;
   const isStudent = role === "student" && parsed?.id;
 
   try {
-    const { subscribeToDocuments, where } = await import("@/lib/firebase/firestore");
-    
-    stopPolling(); // Clear existing listeners before starting new ones
-
-    console.time("[Firestore] Subscriptions setup");
+    const { getDocuments, where } = await import("@/lib/firebase/firestore");
+    console.time("[Firestore] Fetch LMS Data (getDocs)");
 
     // 1. Colleges
-    cache.unsubscribers.push(subscribeToDocuments<College>("colleges", (data) => {
-      cache.colleges = { data, updatedAt: Date.now() };
-      debouncedRecomputeAndNotify("colleges");
-    }, [], false, { pageSize: 200 }));
+    const collegesRes = await getDocuments<College>("colleges", [], false, { pageSize: 500 });
+    cache.colleges = { data: collegesRes.data, updatedAt: now };
 
     // 2. Batches
     const batchesConstraints = (isCollegeAdmin || isStudent) && collegeId ? [where("collegeId", "==", collegeId)] : [];
-    cache.unsubscribers.push(subscribeToDocuments<Batch>("batches", (data) => {
-      cache.batches = { data, updatedAt: Date.now() };
-      debouncedRecomputeAndNotify("batches");
-    }, batchesConstraints, false, { pageSize: 500 }));
+    const batchesRes = await getDocuments<Batch>("batches", batchesConstraints, false, { pageSize: 500 });
+    cache.batches = { data: batchesRes.data, updatedAt: now };
 
     // 3. Students
     const studentsConstraints = isStudent && collegeId ? [where("collegeId", "==", collegeId)] 
       : isCollegeAdmin && collegeId ? [where("collegeId", "==", collegeId)] : [];
-    cache.unsubscribers.push(subscribeToDocuments<Student>("students", (data) => {
-      cache.students = { data, updatedAt: Date.now() };
-      debouncedRecomputeAndNotify("students");
-    }, studentsConstraints, false, { pageSize: isStudent ? 1000 : (isCollegeAdmin ? 2000 : 5000) }));
+    const studentsRes = await getDocuments<Student>("students", studentsConstraints, false, { pageSize: isStudent ? 1000 : (isCollegeAdmin ? 2000 : 5000) });
+    cache.students = { data: studentsRes.data, updatedAt: now };
 
     // 4. Exams
     if ((isCollegeAdmin || isStudent) && collegeId) {
-      let scopedExams: Exam[] = [];
-      let globalExams: Exam[] = [];
-      
-      const updateExams = () => {
-        const merged = [...scopedExams, ...globalExams];
-        const unique = Array.from(new Map(merged.map(e => [e.id, e])).values());
-        cache.exams = { data: unique, updatedAt: Date.now() };
-        debouncedRecomputeAndNotify("exams");
-      };
-
-      cache.unsubscribers.push(subscribeToDocuments<Exam>("exams", (data) => {
-        scopedExams = data; updateExams();
-      }, [where("collegeId", "==", collegeId)], false, { pageSize: 500 }));
-
-      cache.unsubscribers.push(subscribeToDocuments<Exam>("exams", (data) => {
-        globalExams = data; updateExams();
-      }, [where("collegeId", "in", ["global", "GLOBAL", "all", "ALL", ""])], false, { pageSize: 500 }));
+      const [scoped, globalEx] = await Promise.all([
+        getDocuments<Exam>("exams", [where("collegeId", "==", collegeId)], false, { pageSize: 500 }),
+        getDocuments<Exam>("exams", [where("collegeId", "in", ["global", "GLOBAL", "all", "ALL", ""])], false, { pageSize: 500 })
+      ]);
+      const merged = [...scoped.data, ...globalEx.data];
+      const unique = Array.from(new Map(merged.map(e => [e.id, e])).values());
+      cache.exams = { data: unique, updatedAt: now };
     } else {
-      cache.unsubscribers.push(subscribeToDocuments<Exam>("exams", (data) => {
-        cache.exams = { data, updatedAt: Date.now() };
-        debouncedRecomputeAndNotify("exams");
-      }, [], false, { pageSize: 100 }));
+      const examsRes = await getDocuments<Exam>("exams", [], false, { pageSize: 1000 });
+      cache.exams = { data: examsRes.data, updatedAt: now };
     }
 
     // 5. Resources
     if ((isCollegeAdmin || isStudent) && collegeId) {
-      let scopedRes: Resource[] = [];
-      let globalRes: Resource[] = [];
-      
-      const updateRes = () => {
-        const merged = [...scopedRes, ...globalRes];
-        const unique = Array.from(new Map(merged.map(r => [r.id, r])).values());
-        cache.resources = { data: unique, updatedAt: Date.now() };
-        debouncedRecomputeAndNotify("resources");
-      };
-
-      cache.unsubscribers.push(subscribeToDocuments<Resource>("resources", (data) => {
-        scopedRes = data; updateRes();
-      }, [where("collegeId", "==", collegeId)], false, { pageSize: 500 }));
-
-      cache.unsubscribers.push(subscribeToDocuments<Resource>("resources", (data) => {
-        globalRes = data; updateRes();
-      }, [where("collegeId", "in", ["global", "GLOBAL", "all", "ALL", ""])], false, { pageSize: 500 }));
+      const [scoped, globalRes] = await Promise.all([
+        getDocuments<Resource>("resources", [where("collegeId", "==", collegeId)], false, { pageSize: 500 }),
+        getDocuments<Resource>("resources", [where("collegeId", "in", ["global", "GLOBAL", "all", "ALL", ""])], false, { pageSize: 500 })
+      ]);
+      const merged = [...scoped.data, ...globalRes.data];
+      const unique = Array.from(new Map(merged.map(r => [r.id, r])).values());
+      cache.resources = { data: unique, updatedAt: now };
     } else {
-      cache.unsubscribers.push(subscribeToDocuments<Resource>("resources", (data) => {
-        cache.resources = { data, updatedAt: Date.now() };
-        debouncedRecomputeAndNotify("resources");
-      }, [], false, { pageSize: 100 }));
+      const resourcesRes = await getDocuments<Resource>("resources", [], false, { pageSize: 1000 });
+      cache.resources = { data: resourcesRes.data, updatedAt: now };
     }
 
     // 6. Attempts
     const attemptsConstraints = (isStudent || isCollegeAdmin) && collegeId ? [where("collegeId", "==", collegeId)] : [];
-    cache.unsubscribers.push(subscribeToDocuments<ExamAttempt>("exam_results", (data) => {
-      cache.attempts = { data, updatedAt: Date.now() };
-      debouncedRecomputeAndNotify("attempts");
-    }, attemptsConstraints, false, { pageSize: (isStudent || isCollegeAdmin) ? 500 : 2000 }));
+    const attemptsRes = await getDocuments<ExamAttempt>("exam_results", attemptsConstraints, false, { pageSize: (isStudent || isCollegeAdmin) ? 500 : 2000 });
+    cache.attempts = { data: attemptsRes.data, updatedAt: now };
 
-    console.timeEnd("[Firestore] Subscriptions setup");
-
+    console.timeEnd("[Firestore] Fetch LMS Data (getDocs)");
   } catch (error) {
     console.error("Failed to fetch LMS Data", error);
+  } finally {
+    cache.loading = false;
+    recomputeScopedData();
+    notifyListeners();
   }
 }
 
@@ -582,7 +565,9 @@ function recomputeAndNotify() {
   notifyListeners();
 }
 
-function startPolling() {
+function startAuthListener() {
+  if (globalAuthUnsub) return;
+
   if (!cache.colleges && !cache.students && !cache.exams && !cache.batches) {
     cache.loading = true;
   }
@@ -592,9 +577,7 @@ function startPolling() {
     import("@/lib/firebase/config").then(({ app }) => {
       const auth = getAuth(app);
       
-      const authUnsub = onAuthStateChanged(auth, async (user) => {
-        stopPolling();
-        
+      globalAuthUnsub = onAuthStateChanged(auth, async (user) => {
         if (!user) {
           cache.loading = false;
           currentUserInfo = null;
@@ -658,22 +641,19 @@ function startPolling() {
         // Store user info for subscriptions
         currentUserInfo = { uid: user.uid, role, collegeId: parsed?.collegeId, parsed };
 
-        // Start Subscriptions
-        startSubscriptions();
+        // Fetch LMS Data directly instead of creating listeners
+        fetchLMSData();
       });
-      
-      // Do NOT push authUnsub to cache.unsubscribers, otherwise stopPolling() will kill the auth listener!
-      // cache.authUnsub = authUnsub; // We can store it separately if needed.
     });
   });
 }
 
-function stopPolling() {
-  cache.unsubscribers.forEach((unsub) => { try { unsub(); } catch(e) {} });
-  cache.unsubscribers = [];
-  if (typeof window !== "undefined") {
-    (window as any).__lms_unsubs = [];
+function stopAuthListener() {
+  if (globalAuthUnsub) {
+    try { globalAuthUnsub(); } catch(e) {}
+    globalAuthUnsub = null;
   }
+  cache.unsubscribers = []; // Keep for backward compatibility if needed
 }
 
 // ─── Exported State Computation ──────────────────────────────────────────────
@@ -853,7 +833,8 @@ export function optimisticUpdateStudentInCache(studentId: string, updates: Parti
 }
 
 export function invalidateLMSCache(): void {
-  stopPolling();
+  stopAuthListener();
+  cache.listeners = 0;
   cache.colleges = null;
   cache.batches = null;
   cache.students = null;

@@ -15,7 +15,7 @@ import {
   Timestamp,
   writeBatch,
 } from "firebase/firestore";
-import { getDocuments, subscribeToDocuments, type QueryOptions, type PaginatedResult } from "@/lib/firebase/firestore";
+import { getDocuments, type QueryOptions, type PaginatedResult } from "@/lib/firebase/firestore";
 import type { College, SelectOption, User } from "@/types";
 
 /**
@@ -96,9 +96,6 @@ export const getAllColleges = fetchColleges;
 /**
  * Subscribe to all colleges with real-time updates
  */
-export function subscribeToAllColleges(callback: (colleges: College[]) => void, options?: QueryOptions): () => void {
-  return subscribeToDocuments<College>("colleges", callback, [orderBy("createdAt", "desc")], false, options);
-}
 
 /**
  * Fetch a single college by ID

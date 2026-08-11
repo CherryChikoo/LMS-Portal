@@ -188,7 +188,7 @@ export async function POST(request: NextRequest) {
       section: finalSection,
       batchIds: [finalBatch],
       mustChangePassword: true,
-      initialPassword: DEFAULT_STUDENT_PASSWORD,
+      initialPassword: generateSecurePassword(),
       createdAt: now,
       updatedAt: now,
     };
@@ -206,7 +206,7 @@ export async function POST(request: NextRequest) {
       rollNumber: `ROLL-${Math.floor(1000 + Math.random() * 9000)}`,
       batchIds: [finalBatch],
       mustChangePassword: true,
-      initialPassword: DEFAULT_STUDENT_PASSWORD,
+      initialPassword: generateSecurePassword(),
       enrollmentType: "manual",
       createdAt: now,
       updatedAt: now,
@@ -258,7 +258,7 @@ export async function POST(request: NextRequest) {
       success: true,
       uid,
       email: normalizedEmail,
-      initialPassword: DEFAULT_STUDENT_PASSWORD,
+      initialPassword: generateSecurePassword(),
     });
   } catch (err) {
     console.error("Create student auth endpoint error:", err);

@@ -35,7 +35,7 @@ export default function CollegesPage() {
   const [isGlobalDeleting, setIsGlobalDeleting] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; confirmText?: string; onConfirm: () => void } | null>(null);
+  const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; confirmText?: string; isAlert?: boolean; variant?: "destructive" | "success"; onConfirm: () => void } | null>(null);
   const [name, setName] = useState("");
   const [selectedDepts, setSelectedDepts] = useState<string[]>(["Computer Science & Engineering (CSE)", "General"]);
   const [customDeptName, setCustomDeptName] = useState<string>("");
