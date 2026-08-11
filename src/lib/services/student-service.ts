@@ -16,7 +16,7 @@ import { doc, writeBatch } from "firebase/firestore";
 
 import { firestoreDiagnostics } from "@/lib/firebase/diagnostics";
 
-import { invalidateLMSCache } from "@/lib/data/lms-data-cache";
+import { refreshCache } from "@/lib/data/lms-data-cache";
 
 import type { Student, User } from "@/types";
 
@@ -253,7 +253,7 @@ export async function updateStudentProfile(
     if (userPayload.name) userPayload.displayName = userPayload.name;
     await setDocument("users", studentId, userPayload, { merge: true });
     try {
-      invalidateLMSCache();
+      refreshCache();
     } catch (_) {}
     return { success: true };
   } catch (err: unknown) {
