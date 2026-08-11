@@ -60,15 +60,12 @@ export function filterResourcesForStudent(resources: Resource[], student: Studen
   return resources.filter((res) => {
     if (!isAssignedToStudent(res.targets, student, res.sharedWith)) return false;
 
-    // A newly created student shouldn't see GLOBAL resources from the past that were created before they existed.
-    // They ONLY see GLOBAL data assigned after their creation date.
+    // A newly created student shouldn't see ANY resources from the past that were created before they existed.
+    // They ONLY see data assigned after their creation date.
     const resCreatedMillis = res.createdAt ? (res.createdAt as any).toMillis?.() ?? (res.createdAt as any)._seconds * 1000 ?? new Date(res.createdAt as any).getTime() : 0;
     const wasCreatedBeforeStudent = resCreatedMillis > 0 && studentCreatedMillis > 0 && resCreatedMillis < studentCreatedMillis;
 
-    const tCol = res.collegeId || res.targets?.[0]?.collegeId;
-    const isGlobal = !tCol || tCol === "global" || tCol === "GLOBAL" || tCol === "all" || tCol === "ALL";
-
-    if (wasCreatedBeforeStudent && isGlobal) {
+    if (wasCreatedBeforeStudent) {
       return false;
     }
 

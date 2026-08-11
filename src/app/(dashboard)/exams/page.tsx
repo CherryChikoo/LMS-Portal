@@ -735,10 +735,7 @@ export default function ExamsPage() {
                 const studentCreatedMillis = studentUser ? toMillis(studentUser.createdAt) ?? 0 : 0;
                 const wasCreatedBeforeStudent = examCreatedMillis > 0 && studentCreatedMillis > 0 && examCreatedMillis < studentCreatedMillis;
                 
-                const tCol = (exam as any).collegeId || exam.targets?.[0]?.collegeId;
-                const isGlobal = !tCol || tCol === "global" || tCol === "GLOBAL" || tCol === "all" || tCol === "ALL";
-
-                if (wasCreatedBeforeStudent && isGlobal) return false;
+                if (wasCreatedBeforeStudent) return false;
                 
                 if (studentTab === "available") return !effectivelySubmitted && !effectivelyExpired;
                 if (studentTab === "results") return effectivelySubmitted || effectivelyExpired;

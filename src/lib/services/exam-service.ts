@@ -92,16 +92,12 @@ export function filterExamsForStudent(exams: Exam[], student: Student): Exam[] {
   return exams.filter((exam) => {
     if (!isAssignedToStudent(exam.targets, student, (exam as any).sharedWith)) return false;
 
-    // A newly created student shouldn't see GLOBAL exams from the past that were created before they existed.
-    // They ONLY see GLOBAL data assigned after their creation date.
-    // However, if an exam is explicitly assigned to their specific college, they SHOULD see it.
+    // A newly created student shouldn't see ANY exams from the past that were created before they existed.
+    // They ONLY see data assigned after their creation date.
     const examCreatedMillis = toMillis(exam.createdAt) ?? 0;
     const wasCreatedBeforeStudent = examCreatedMillis > 0 && studentCreatedMillis > 0 && examCreatedMillis < studentCreatedMillis;
 
-    const tCol = (exam as any).collegeId || exam.targets?.[0]?.collegeId;
-    const isGlobal = !tCol || tCol === "global" || tCol === "GLOBAL" || tCol === "all" || tCol === "ALL";
-
-    if (wasCreatedBeforeStudent && isGlobal) {
+    if (wasCreatedBeforeStudent) {
       return false;
     }
 
