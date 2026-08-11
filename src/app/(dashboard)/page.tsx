@@ -99,7 +99,7 @@ export function StudentPortalDashboard({
       if (e.deletedAt) return false;
       const s = getEffectiveExamStatus(e);
       return s === "active" || s === "scheduled";
-    });
+    }).sort((a, b) => (toMillis(b.createdAt) || 0) - (toMillis(a.createdAt) || 0));
   }, [exams, studentProfile]);
 
   const assignedResources = useMemo(() => {

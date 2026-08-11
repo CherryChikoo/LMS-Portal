@@ -799,7 +799,7 @@ export default function ExamsPage() {
               const wB = weight(statusB);
               
               if (wA !== wB) return wA - wB;
-              return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+              return (toMillis(b.createdAt) || 0) - (toMillis(a.createdAt) || 0);
             })
             .map((exam, index, arr) => {
               const effStatus = getEffectiveExamStatus(exam);
