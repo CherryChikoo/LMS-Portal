@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     }
     const currentAdminEmail = collegeDocSnap.data()?.adminEmail;
     
-    let collegeAdminUid = null;
+    let collegeAdminUid: string | null = null;
     const auth = getAdminAuth();
     
     if (currentAdminEmail) {
@@ -83,23 +83,33 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Invalid email format." }, { status: 400 });
       }
 
-      // Check for email uniqueness in Firestore collections
-      const emailQuerySnap = await db.collection("users").where("email", "==", normalizedEmail).limit(2).get();
-      const emailStudentsSnap = await db.collection("students").where("email", "==", normalizedEmail).limit(2).get();
+      // Check for email uniqueness — but ONLY against OTHER entities, not self
       const emailCollegesSnap = await db.collection("colleges").where("adminEmail", "==", normalizedEmail).limit(2).get();
-
-      const isOtherUser = (doc: any) => doc.id !== collegeAdminUid;
       const isOtherCollege = (doc: any) => doc.id !== collegeId;
       
-      const emailExists = emailQuerySnap.docs.some(isOtherUser) || 
-                          emailStudentsSnap.docs.some(isOtherUser) || 
-                          emailCollegesSnap.docs.some(isOtherCollege);
-
-      if (emailExists) {
-        return NextResponse.json(
-          { error: "Update failed: This email address is already in use by another account in the system.", errorCode: "firestore/email-already-exists" },
-          { status: 409 }
-        );
+      // If there IS an existing admin UID, also check users/students for conflicts
+      if (collegeAdminUid) {
+        const emailQuerySnap = await db.collection("users").where("email", "==", normalizedEmail).limit(2).get();
+        const emailStudentsSnap = await db.collection("students").where("email", "==", normalizedEmail).limit(2).get();
+        const isOtherUser = (doc: any) => doc.id !== collegeAdminUid;
+        
+        const emailExists = emailQuerySnap.docs.some(isOtherUser) || 
+                            emailStudentsSnap.docs.some(isOtherUser) || 
+                            emailCollegesSnap.docs.some(isOtherCollege);
+        if (emailExists) {
+          return NextResponse.json(
+            { error: "Update failed: This email address is already in use by another account in the system.", errorCode: "firestore/email-already-exists" },
+            { status: 409 }
+          );
+        }
+      } else {
+        // No existing admin — only check if another COLLEGE already uses this email
+        if (emailCollegesSnap.docs.some(isOtherCollege)) {
+          return NextResponse.json(
+            { error: "Update failed: This email address is already assigned to another college.", errorCode: "firestore/email-already-exists" },
+            { status: 409 }
+          );
+        }
       }
 
       authUpdateFields.email = normalizedEmail;
@@ -108,6 +118,7 @@ export async function POST(request: NextRequest) {
       authUpdateFields.displayName = `${(collegeName as string).trim()} Admin`;
     }
 
+    // If an existing admin account exists, UPDATE it
     if (collegeAdminUid && Object.keys(authUpdateFields).length > 0) {
       try {
         await auth.updateUser(collegeAdminUid, authUpdateFields);
@@ -124,6 +135,39 @@ export async function POST(request: NextRequest) {
         );
       }
     }
+    
+    // If NO existing admin account, CREATE a new Firebase Auth user for this college
+    if (!collegeAdminUid && adminEmail) {
+      const normalizedEmail = (adminEmail as string).toLowerCase().trim();
+      const defaultPassword = `College@${collegeId.slice(0, 6)}2024`;
+      
+      try {
+        // Check if email already exists in Firebase Auth
+        try {
+          const existingUser = await auth.getUserByEmail(normalizedEmail);
+          // Email already exists in Auth — reuse this account as the college admin
+          collegeAdminUid = existingUser.uid;
+          // Update their display name if provided
+          if (collegeName) {
+            await auth.updateUser(collegeAdminUid, { displayName: `${(collegeName as string).trim()} Admin` });
+          }
+        } catch {
+          // Email doesn't exist in Auth — create a new user
+          const newUser = await auth.createUser({
+            email: normalizedEmail,
+            password: defaultPassword,
+            displayName: collegeName ? `${(collegeName as string).trim()} Admin` : `${collegeId} Admin`,
+          });
+          collegeAdminUid = newUser.uid;
+        }
+      } catch (createErr: any) {
+        console.error("Failed to create college admin auth user:", createErr);
+        return NextResponse.json(
+          { error: createErr.message || "Failed to create College Admin Auth account." },
+          { status: 500 }
+        );
+      }
+    }
 
     const batch = db.batch();
     
@@ -136,18 +180,19 @@ export async function POST(request: NextRequest) {
       batch.set(db.collection("colleges").doc(collegeId), collegeUpdates, { merge: true });
     }
 
-    // Update User Document
+    // Update or Create User Document for the college admin
     if (collegeAdminUid) {
-      const userUpdates: Record<string, any> = {};
+      const userUpdates: Record<string, any> = {
+        role: "college_admin",
+        collegeId: collegeId,
+      };
       if (adminEmail) userUpdates.email = adminEmail.toLowerCase().trim();
       if (collegeName) {
         userUpdates.displayName = `${(collegeName as string).trim()} Admin`;
         userUpdates.collegeName = (collegeName as string).trim();
       }
       
-      if (Object.keys(userUpdates).length > 0) {
-        batch.set(db.collection("users").doc(collegeAdminUid), userUpdates, { merge: true });
-      }
+      batch.set(db.collection("users").doc(collegeAdminUid), userUpdates, { merge: true });
     }
 
     await batch.commit();
