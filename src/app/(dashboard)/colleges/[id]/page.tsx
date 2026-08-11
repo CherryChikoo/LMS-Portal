@@ -223,14 +223,15 @@ function getYearBadgeStyle(year?: string) {
       if (colData) {
         if (colData.type === "external" || colData.id.startsWith("ext-")) {
           external = true;
-          // For external colleges in Firestore, we still need to query by name because 
-          // most students only have collegeName populated during self-registration.
-          let extStudsRes = await getDocuments<Student>("students", [where("collegeName", "==", colData.name)], false, { pageSize: 1000 });
-          let extStudsRes2 = await getDocuments<Student>("students", [where("collegeId", "==", colData.id)], false, { pageSize: 1000 });
+          // For external colleges in Firestore, we must fetch all students and filter by slug locally 
+          // to capture all case variations (e.g. "Even Hub" vs "even Hub") that students might have typed.
+          const allStudsRes = await getAllStudents();
+          const cleanSlug = (v?: string) => (v ? String(v).trim().toLowerCase().replace(/[^a-z0-9]+/g, "") : "");
+          const targetSlug = cleanSlug(colData!.name);
           
-          const uniqueMap = new Map();
-          [...extStudsRes.data, ...extStudsRes2.data].forEach(s => uniqueMap.set(s.id, s));
-          allStuds = Array.from(uniqueMap.values());
+          allStuds = allStudsRes.data.filter(
+            (s) => s.collegeId === colData!.id || cleanSlug(s.collegeId) === targetSlug || cleanSlug(s.collegeName) === targetSlug
+          );
         } else {
           const studentsRes = await getStudentsByCollege(colData.id);
           allStuds = studentsRes.data;
