@@ -131,6 +131,7 @@ export function isAssignedToStudent(
 
       if (
         lowerShared.includes("all") ||
+        lowerShared.includes("global") ||
         lowerShared.includes(sId) ||
         (sEmail && lowerShared.includes(sEmail)) ||
         (sCollegeId && lowerShared.includes(sCollegeId)) ||
@@ -159,7 +160,7 @@ export function isAssignedToStudent(
 
     // Check "students" explicit target
     if (type === "students") {
-      if (ids.includes("all") || ids.includes(sId) || (sEmail && ids.includes(sEmail))) {
+      if (ids.includes("all") || ids.includes("global") || ids.includes(sId) || (sEmail && ids.includes(sEmail))) {
         return true;
       }
     }
@@ -168,6 +169,7 @@ export function isAssignedToStudent(
     if (type === "college") {
       if (
         ids.includes("all") ||
+        ids.includes("global") ||
         ids.includes("all colleges") ||
         ids.includes(sCollegeId) ||
         ids.includes(sCollegeName)
