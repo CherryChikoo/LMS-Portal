@@ -96,7 +96,7 @@ service cloud.firestore {
       // Read: Own profile, email match, or admin access
       allow read: if isAuthenticated() && (
         isOwner(userId) || 
-        (getUserEmail() != '' && resource.data.email == getUserEmail()) ||
+        (getUserEmail() != '' && resource.data.get('email', '') == getUserEmail()) ||
         isMainAdmin() || 
         (isCollegeAdmin() && resource.data.get('collegeId', '') == getUserCollege())
       );
@@ -115,7 +115,7 @@ service cloud.firestore {
          resource.data.get('collegeId', '') == getUserCollege() && 
          request.resource.data.get('collegeId', '') == getUserCollege()) || 
         (isOwner(userId) && 
-         request.resource.data.role == resource.data.role && 
+         request.resource.data.get('role', '') == resource.data.get('role', '') && 
          canChangeCollege())
       );
       
@@ -128,7 +128,7 @@ service cloud.firestore {
       // Similar to users but stricter
       allow read: if isAuthenticated() && (
         isOwner(studentId) || 
-        (getUserEmail() != '' && resource.data.email == getUserEmail()) ||
+        (getUserEmail() != '' && resource.data.get('email', '') == getUserEmail()) ||
         isMainAdmin() || 
         (isCollegeAdmin() && resource.data.get('collegeId', '') == getUserCollege())
       );
@@ -249,7 +249,7 @@ service cloud.firestore {
            resource.data.get('collegeId', '') == ''
         )) ||
         (isStudent() && 
-         resource.data.status != 'draft' && 
+         resource.data.get('status', '') != 'draft' && 
          (belongsToSameCollege(resource.data.get('collegeId', '')) ||
           (resource.data.keys().hasAll(['targets']) && 
            canAccessTarget(resource.data.targets))))
@@ -269,12 +269,12 @@ service cloud.firestore {
     match /exam_results/{resultId} {
       // Create: Students can create their own results
       allow create: if isStudent() && 
-                       request.resource.data.studentId == request.auth.uid;
+                       request.resource.data.get('studentId', '') == request.auth.uid;
       
       // Read: Own results, or admin access
       allow read: if isAuthenticated() && (
-        isOwner(resource.data.studentId) || 
-        (getUserEmail() != '' && resource.data.studentEmail == getUserEmail()) ||
+        isOwner(resource.data.get('studentId', '')) || 
+        (getUserEmail() != '' && resource.data.get('studentEmail', '') == getUserEmail()) ||
         isMainAdmin() || 
         (isCollegeAdmin() && belongsToSameCollege(resource.data.get('collegeId', '')))
       );
@@ -290,11 +290,11 @@ service cloud.firestore {
     
     match /doubts/{doubtId} {
       // Students can create doubts
-      allow create: if isStudent() && request.resource.data.studentId == request.auth.uid;
+      allow create: if isStudent() && request.resource.data.get('studentId', '') == request.auth.uid;
       
       // Read: Own doubts, or admins, or students in same college
       allow read: if isAuthenticated() && (
-        isOwner(resource.data.studentId) ||
+        isOwner(resource.data.get('studentId', '')) ||
         isMainAdmin() ||
         (isCollegeAdmin() && belongsToSameCollege(resource.data.get('collegeId', ''))) ||
         (isStudent() && belongsToSameCollege(resource.data.get('collegeId', '')))
@@ -302,7 +302,7 @@ service cloud.firestore {
       
       // Update: Owner or admins (for replies)
       allow update: if isAuthenticated() && (
-        isOwner(resource.data.studentId) ||
+        isOwner(resource.data.get('studentId', '')) ||
         isMainAdmin() ||
         (isCollegeAdmin() && belongsToSameCollege(resource.data.get('collegeId', '')))
       );
