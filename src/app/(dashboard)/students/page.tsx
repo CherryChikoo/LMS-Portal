@@ -333,7 +333,7 @@ function StudentsContent() {
         isOpen: true,
         isAlert: true,
         title: "Student Enrolled",
-        message: `The student can sign in with ${newEmail.toLowerCase().trim()} and the default password Welcome@123.`,
+        message: `The student can sign in with ${newEmail.toLowerCase().trim()} and the default password (e.g. Welcome@123).`,
         variant: "success",
       });
     } catch (err: unknown) {

@@ -984,7 +984,7 @@ export default function CollegesPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleDeleteExternalCollege(col.name, col.id)}
+                          onClick={() => handleDeleteExternalCollege(col.id || col.name)}
                           disabled={deletingIds.includes(col.name)}
                           className="h-8 w-8 p-0 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10 rounded-lg cursor-pointer disabled:opacity-50"
                           title="Delete Institution"

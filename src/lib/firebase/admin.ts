@@ -45,7 +45,13 @@ let adminDb: FirebaseFirestore.Firestore;
 export function getAdminFirestore() {
   if (!adminDb) {
     adminDb = getFirestore(getAdminApp());
-    adminDb.settings({ ignoreUndefinedProperties: true });
+    try {
+      adminDb.settings({ ignoreUndefinedProperties: true });
+    } catch (e: any) {
+      if (!e.message?.includes('already been initialized')) {
+        console.warn("Failed to set adminDb settings:", e);
+      }
+    }
   }
   return adminDb;
 }

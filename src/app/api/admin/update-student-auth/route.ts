@@ -2,6 +2,9 @@ import { getErrorMessage } from '@/lib/utils/error';
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth } from "@/lib/firebase/admin";
 import { getFirestore } from "firebase-admin/firestore";
+import crypto from "crypto";
+
+const generateSecurePassword = () => process.env.DEFAULT_STUDENT_PASSWORD || "Welcome@123";
 
 export async function POST(request: NextRequest) {
   try {
@@ -108,9 +111,9 @@ export async function POST(request: NextRequest) {
           const studentDoc = await db.collection("students").doc(uid).get();
           const studentData = studentDoc.data() || {};
           const fallbackEmail = (email as string)?.toLowerCase().trim() || studentData.email;
-          let fallbackPassword = password || studentData.initialPassword || "Welcome@123";
+          let fallbackPassword = password || generateSecurePassword();
           if (typeof fallbackPassword !== "string" || fallbackPassword.length < 6) {
-            fallbackPassword = "Welcome@123";
+            fallbackPassword = generateSecurePassword();
           }
           const fallbackName = studentData.name || "Student";
 

@@ -135,7 +135,7 @@ export async function POST(request: NextRequest) {
        }
        
        if (examsSnap.empty) {
-          return NextResponse.json({ success: true, nextStep: "finalize", cursor: undefined });
+          return NextResponse.json({ success: true, nextStep: "finalize", cursor: undefined, deletedCount: 0 });
        }
 
        const exam = examsSnap.docs[0];
@@ -148,20 +148,41 @@ export async function POST(request: NextRequest) {
 
        resSnap.docs.forEach(d => bulkWriter.delete(d.ref));
        qSnap.docs.forEach(d => bulkWriter.delete(d.ref));
-
+       
        if (resSnap.empty && qSnap.empty) {
           bulkWriter.delete(exam.ref);
+          await bulkWriter.close();
+          return NextResponse.json({ success: true, nextStep: "exams", cursor: undefined, deletedCount: 1 }); // 1 exam deleted
        }
        
        await bulkWriter.close();
-       return NextResponse.json({ success: true, nextStep: "exams", cursor: undefined });
+       return NextResponse.json({ success: true, nextStep: "exams", cursor: undefined, deletedCount: resSnap.size + qSnap.size });
     }
 
     // STEP: FINALIZE - Delete files and college doc
     if (step === "finalize") {
        await deleteStorageDirectory(`colleges/${collegeId}/`);
-       await db.collection("colleges").doc(collegeId).delete();
-       return NextResponse.json({ success: true, done: true, message: "College deleted successfully." });
+       const bulkWriter = db.bulkWriter();
+       const colRef = db.collection("colleges").doc(collegeId);
+       
+       const colDoc = await colRef.get();
+       let deletedCount = 0;
+       
+       if (colDoc.exists) {
+          bulkWriter.delete(colRef);
+          deletedCount = 1;
+       }
+       
+       // Cleanup any leftover external college docs with name=collegeId
+       const extSnap = await db.collection("colleges").where("name", "==", collegeId).get();
+       extSnap.docs.forEach(d => {
+          bulkWriter.delete(d.ref);
+          deletedCount++;
+       });
+       
+       await bulkWriter.close();
+       
+       return NextResponse.json({ success: true, done: true, message: "College deleted successfully.", deletedCount });
     }
 
     return NextResponse.json({ success: true });

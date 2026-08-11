@@ -84,9 +84,9 @@ export async function POST(request: NextRequest) {
       }
 
       // Check for email uniqueness in Firestore collections
-      const emailQuerySnap = await db.collection("users").where("email", "==", normalizedEmail).get();
-      const emailStudentsSnap = await db.collection("students").where("email", "==", normalizedEmail).get();
-      const emailCollegesSnap = await db.collection("colleges").where("adminEmail", "==", normalizedEmail).get();
+      const emailQuerySnap = await db.collection("users").where("email", "==", normalizedEmail).limit(2).get();
+      const emailStudentsSnap = await db.collection("students").where("email", "==", normalizedEmail).limit(2).get();
+      const emailCollegesSnap = await db.collection("colleges").where("adminEmail", "==", normalizedEmail).limit(2).get();
 
       const isOtherUser = (doc: any) => doc.id !== collegeAdminUid;
       const isOtherCollege = (doc: any) => doc.id !== collegeId;

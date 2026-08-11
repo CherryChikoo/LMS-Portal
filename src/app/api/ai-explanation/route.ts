@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { getAdminAuth, getAdminFirestore } from '@/lib/firebase/admin';
 import { getErrorMessage } from '@/lib/utils/error';
 import { NextResponse } from "next/server";
-import type { AIExplanation, Question } from "@/types";
+import type { AIExplanation, Question, Exam } from "@/types";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { generateFallbackExplanation } from "@/lib/utils/ai-explanation-fallback";
 
@@ -138,6 +138,9 @@ Do NOT wrap the output in markdown code blocks like \`\`\`json. Return RAW valid
           }
         }
 
+        if (!result) {
+          throw new Error("Failed to generate content: result is undefined");
+        }
         const response = await result.response;
         let textResponse = response.text().trim();
         // Robust JSON extraction in case model adds conversational text or markdown

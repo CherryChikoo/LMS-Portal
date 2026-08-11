@@ -145,7 +145,8 @@ export function parseStudentsCSV(csvText: string): CSVStudentRow[] {
  * Return a standard default temporary password
  */
 function generateTempPassword(): string {
-  return "Welcome@123";
+  // Use crypto to generate a strong random password since we no longer hardcode defaults
+  return crypto.randomUUID().slice(0, 16) + 'Aa1!';
 }
 
 /**
@@ -261,183 +262,12 @@ export async function importStudentsCSV(
       if (onProgress) onProgress(rows.length, rows.length);
       return combinedSummary;
     } catch (apiErr) {
-      console.warn("Server bulk import endpoint failed or returned error, executing resilient client import fallback:", apiErr);
+      console.error("Server bulk import endpoint failed or returned error:", apiErr);
+      throw apiErr;
     }
+  } else {
+    throw new Error("Must be logged in to import students");
   }
-
-  const summary: CSVImportSummary = {
-    total: rows.length,
-    createdCount: 0,
-    skippedCount: 0,
-    failedCount: 0,
-    duplicateCount: 0,
-    results: [],
-  };
-
-  // Pre-fetch existing emails from Firestore (users collection covers all roles) to minimize queries
-  const existingEmails = new Set<string>();
-  try {
-    const q = query(collection(db, "users"));
-    const snap = await getDocs(q);
-    snap.forEach((d) => {
-      const data = d.data() as { email?: string };
-      if (data.email) existingEmails.add(data.email.toLowerCase());
-    });
-  } catch {
-    // If collection empty or error, proceed
-  }
-
-  const seenEmailsInCSV = new Set<string>();
-  const validRows: { row: CSVStudentRow; email: string; name: string }[] = [];
-
-  for (const row of rows) {
-    const email = String(row.collegeEmail ?? "").trim().toLowerCase();
-    const name = String(row.studentName ?? "").trim();
-
-    // Check required fields
-    if (!email || !name) {
-      summary.skippedCount++;
-      summary.results.push({
-        name: name || "Unknown",
-        email: email || "Missing Email",
-        password: "",
-        status: "skipped",
-        reason: "Missing Name or Email",
-      });
-      continue;
-    }
-
-    // Check valid email
-    if (!isValidEmail(email)) {
-      summary.failedCount++;
-      summary.results.push({
-        name,
-        email,
-        password: "",
-        status: "failed",
-        reason: "Invalid Email Format",
-      });
-      continue;
-    }
-
-    // Check duplicates inside CSV or already in Firestore
-    if (seenEmailsInCSV.has(email) || existingEmails.has(email)) {
-      summary.duplicateCount++;
-      summary.results.push({
-        name,
-        email,
-        password: "",
-        status: "duplicate",
-        reason: existingEmails.has(email) ? "Account already exists in database" : "Duplicate email in CSV file",
-      });
-      continue;
-    }
-
-    seenEmailsInCSV.add(email);
-    validRows.push({ row, email, name });
-  }
-
-  if (onProgress) onProgress(0, validRows.length);
-
-  // Helper for instant cancellation check during delays
-  const cancellableSleep = (ms: number) =>
-    new Promise<void>((resolve) => {
-      const step = 50;
-      let elapsed = 0;
-      const timer = setInterval(() => {
-        elapsed += step;
-        if (elapsed >= ms || (shouldCancel && shouldCancel())) {
-          clearInterval(timer);
-          resolve();
-        }
-      }, step);
-    });
-
-  // Sub-5-second high-speed Firestore writeBatch commit engine
-  const BATCH_SIZE = 200; // 200 rows = 400 document set operations per Firestore batch (max limit 500)
-  let processedCount = 0;
-  const defaultPassword = "Welcome@123";
-
-  for (let i = 0; i < validRows.length; i += BATCH_SIZE) {
-    if (shouldCancel && shouldCancel()) {
-      summary.skippedCount += validRows.length - processedCount;
-      break;
-    }
-
-    const chunk = validRows.slice(i, i + BATCH_SIZE);
-    const currentBatch = writeBatch(db);
-
-    chunk.forEach(({ row, email, name }) => {
-      const rawCol = String(row.college ?? "Unassigned").trim();
-      const normCol = rawCol.toLowerCase();
-      const colId = normCol.replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "col-general";
-      const colTitle = rawCol.toLowerCase();
-      const dept = String(row.department ?? "Computer Science").trim() || "Computer Science";
-      const year = String(row.academicYear ?? "1st Year").trim() || "1st Year";
-      const sec = String(row.section ?? "A").trim() || "A";
-      const batchName = String(row.batch ?? "General Cohort").trim() || "General Cohort";
-
-      const studentRef = doc(collection(db, "students"));
-      const uid = studentRef.id;
-
-      const studentDoc: Student = {
-        id: uid,
-        name,
-        email,
-        collegeId: colId,
-        collegeName: colTitle,
-        department: dept,
-        academicYear: year,
-        semester: 1,
-        section: sec,
-        rollNumber: `ROLL-${Math.floor(1000 + Math.random() * 9000)}`,
-        batchIds: [batchName],
-        mustChangePassword: true,
-        initialPassword: defaultPassword,
-        enrollmentType: enrollmentType,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        status: "active",
-      } as Student;
-
-      const authMockUser: User = {
-        uid: uid,
-        id: uid,
-        email,
-        displayName: row.studentName,
-        role: "student",
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-
-      const userDoc: User = {
-        id: uid,
-        email,
-        displayName: name,
-        role: "student",
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      currentBatch.set(studentRef, studentDoc);
-      currentBatch.set(doc(db, "users", uid), { ...userDoc, mustChangePassword: true, initialPassword: defaultPassword });
-
-      summary.createdCount++;
-      summary.results.push({
-        name,
-        email,
-        password: defaultPassword,
-        status: "created",
-      });
-    });
-
-    await currentBatch.commit();
-    processedCount += chunk.length;
-
-    if (onProgress) onProgress(processedCount, validRows.length);
-  }
-
-  return summary;
 }
 
 /**

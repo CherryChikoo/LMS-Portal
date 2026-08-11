@@ -31,6 +31,7 @@ export async function POST(request: NextRequest) {
     // Check for active users
     const existingUsersSnapshot = await db.collection("users")
       .where("email", "==", normalizedEmail)
+      .limit(1)
       .get();
     
     // Filter for truly active users
@@ -51,6 +52,7 @@ export async function POST(request: NextRequest) {
     // Check for active colleges with this admin email
     const existingCollegesSnapshot = await db.collection("colleges")
       .where("adminEmail", "==", normalizedEmail)
+      .limit(1)
       .get();
       
     const activeColleges = existingCollegesSnapshot.docs.filter(doc => {
@@ -70,6 +72,7 @@ export async function POST(request: NextRequest) {
     // Check for active students
     const existingStudentsSnapshot = await db.collection("students")
       .where("email", "==", normalizedEmail)
+      .limit(1)
       .get();
       
     const activeStudents = existingStudentsSnapshot.docs.filter(doc => {

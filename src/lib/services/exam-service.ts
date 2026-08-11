@@ -19,30 +19,30 @@ const EXAMS_COLLECTION = "exams";
 const RESULTS_COLLECTION = "exam_results";
 
 export function subscribeToAllExams(callback: (exams: Exam[]) => void, options?: QueryOptions): () => void {
-  return subscribeToDocuments<Exam>(EXAMS_COLLECTION, callback, [], false, options);
+  return subscribeToDocuments<Exam>(EXAMS_COLLECTION, callback, [], false, { pageSize: 1000, ...options });
 }
 
 export function subscribeToExamsByCollege(collegeId: string, callback: (exams: Exam[]) => void, options?: QueryOptions): () => void {
-  return subscribeToDocuments<Exam>(EXAMS_COLLECTION, callback, [where("collegeId", "==", collegeId)], false, options);
+  return subscribeToDocuments<Exam>(EXAMS_COLLECTION, callback, [where("collegeId", "==", collegeId)], false, { pageSize: 1000, ...options });
 }
 
 export function subscribeToPublishedExamsByCollege(collegeId: string, callback: (exams: Exam[]) => void, options?: QueryOptions): () => void {
   return subscribeToDocuments<Exam>(EXAMS_COLLECTION, callback, [
     where("collegeId", "==", collegeId),
     where("status", "!=", "draft")
-  ], false, options);
+  ], false, { pageSize: 1000, ...options });
 }
 
 export function subscribeToAllAttempts(callback: (attempts: ExamAttempt[]) => void, options?: QueryOptions): () => void {
-  return subscribeToDocuments<ExamAttempt>(RESULTS_COLLECTION, callback, [], false, options);
+  return subscribeToDocuments<ExamAttempt>(RESULTS_COLLECTION, callback, [], false, { pageSize: 1000, ...options });
 }
 
 export function subscribeToAttemptsByCollege(collegeId: string, callback: (attempts: ExamAttempt[]) => void, options?: QueryOptions): () => void {
-  return subscribeToDocuments<ExamAttempt>(RESULTS_COLLECTION, callback, [where("collegeId", "==", collegeId)], false, options);
+  return subscribeToDocuments<ExamAttempt>(RESULTS_COLLECTION, callback, [where("collegeId", "==", collegeId)], false, { pageSize: 1000, ...options });
 }
 
 export function subscribeToStudentAttempts(studentId: string, callback: (attempts: ExamAttempt[]) => void, options?: QueryOptions): () => void {
-  return subscribeToDocuments<ExamAttempt>(RESULTS_COLLECTION, callback, [where("studentId", "==", studentId)], false, options);
+  return subscribeToDocuments<ExamAttempt>(RESULTS_COLLECTION, callback, [where("studentId", "==", studentId)], false, { pageSize: 1000, ...options });
 }
 
 export function subscribeToStudentAttemptsForUser(
@@ -92,11 +92,11 @@ export function subscribeToLeaderboardAttempts(
 }
 
 export async function getAllExams(options?: QueryOptions): Promise<PaginatedResult<Exam>> {
-  return getDocuments<Exam>(EXAMS_COLLECTION, [], false, options);
+  return getDocuments<Exam>(EXAMS_COLLECTION, [], false, { pageSize: 1000, ...options });
 }
 
 export async function getAllExamsIncludingDeleted(options?: QueryOptions): Promise<PaginatedResult<Exam>> {
-  return getDocuments<Exam>(EXAMS_COLLECTION, [], true, options);
+  return getDocuments<Exam>(EXAMS_COLLECTION, [], true, { pageSize: 1000, ...options });
 }
 
 export async function getExamById(id: string): Promise<Exam | null> {
@@ -198,7 +198,9 @@ export async function getStudentAttempts(studentId?: string): Promise<ExamResult
   if (studentId) {
     return getResultsByStudent(studentId);
   }
-  const res = await getDocuments<ExamResult>(RESULTS_COLLECTION);
+  // If no studentId provided, apply a safe limit of 500 to prevent massive read costs
+  // For full exports or larger views, paginated methods should be used instead
+  const res = await getDocuments<ExamResult>(RESULTS_COLLECTION, [], false, { pageSize: 500 });
   return res.data;
 }
 

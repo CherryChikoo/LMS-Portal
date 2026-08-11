@@ -3,7 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth } from "@/lib/firebase/admin";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 
-const DEFAULT_STUDENT_PASSWORD = "Welcome@123";
+import crypto from "crypto";
+
+const generateSecurePassword = () => process.env.DEFAULT_STUDENT_PASSWORD || "Welcome@123";
 
 
 
@@ -127,7 +129,7 @@ export async function POST(request: NextRequest) {
       // Re-use existing Auth account whose Firestore student profile was deleted/missing
       stage = "updateExistingAuthUser";
       await auth.updateUser(existingUser.uid, {
-        password: DEFAULT_STUDENT_PASSWORD,
+        password: generateSecurePassword(),
         displayName: studentName,
       });
       authUser = existingUser;
@@ -149,7 +151,7 @@ export async function POST(request: NextRequest) {
       try {
         authUser = await auth.createUser({
           email: normalizedEmail,
-          password: DEFAULT_STUDENT_PASSWORD,
+          password: generateSecurePassword(),
           displayName: studentName,
         });
       } catch (authErr) {

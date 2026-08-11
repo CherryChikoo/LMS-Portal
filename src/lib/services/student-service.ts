@@ -99,7 +99,6 @@ export async function createStudentAuthProfile(
         return {
           uid: body.uid,
           email: body.email || cleanEmail,
-          initialPassword: body.initialPassword || "Welcome@123",
         };
       }
       if (response.status === 400 || response.status === 409) {
@@ -121,7 +120,6 @@ export async function createStudentAuthProfile(
     throw new Error("A student account with this email address already exists.");
   }
 
-  const tempPassword = "Welcome@123";
   const docId = `stud-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
   const now = new Date();
 
@@ -167,15 +165,15 @@ export async function createStudentAuthProfile(
 }
 
 export async function getAllStudents(options?: QueryOptions): Promise<PaginatedResult<Student>> {
-  return getDocuments<Student>(COLLECTION_NAME, [], false, options);
+  return getDocuments<Student>(COLLECTION_NAME, [], false, { pageSize: 1000, ...options });
 }
 
 export function subscribeToAllStudents(callback: (students: Student[]) => void, options?: QueryOptions): () => void {
-  return subscribeToDocuments<Student>(COLLECTION_NAME, callback, [], false, options);
+  return subscribeToDocuments<Student>(COLLECTION_NAME, callback, [], false, { pageSize: 1000, ...options });
 }
 
 export function subscribeToStudentsByCollege(collegeId: string, callback: (students: Student[]) => void, options?: QueryOptions): () => void {
-  return subscribeToDocuments<Student>(COLLECTION_NAME, callback, [where("collegeId", "==", collegeId)], false, options);
+  return subscribeToDocuments<Student>(COLLECTION_NAME, callback, [where("collegeId", "==", collegeId)], false, { pageSize: 1000, ...options });
 }
 
 export function subscribeToStudentPeerDirectory(
@@ -188,7 +186,7 @@ export function subscribeToStudentPeerDirectory(
   if (cleanColId && cleanColId !== "col-unassigned" && cleanColId !== "unassigned") {
     return subscribeToDocuments<Student>(COLLECTION_NAME, callback, [
       where("collegeId", "==", cleanColId),
-    ], false, options);
+    ], false, { pageSize: 1000, ...options });
   }
 
   const studentsMap = new Map<string, Student>();
@@ -206,7 +204,7 @@ export function subscribeToStudentPeerDirectory(
         },
         [where("collegeId", "==", t)],
         false,
-        options
+        { pageSize: 1000, ...options }
       )
     );
   });
@@ -242,11 +240,11 @@ export function subscribeToStudentById(studentId: string, callback: (students: S
 }
 
 export async function getStudentsByCollege(collegeId: string, options?: QueryOptions): Promise<PaginatedResult<Student>> {
-  return getDocuments<Student>(COLLECTION_NAME, [where("collegeId", "==", collegeId)], false, options);
+  return getDocuments<Student>(COLLECTION_NAME, [where("collegeId", "==", collegeId)], false, { pageSize: 1000, ...options });
 }
 
 export async function getStudentsByBatch(batchId: string, options?: QueryOptions): Promise<PaginatedResult<Student>> {
-  return getDocuments<Student>(COLLECTION_NAME, [where("batchIds", "array-contains", batchId)], false, options);
+  return getDocuments<Student>(COLLECTION_NAME, [where("batchIds", "array-contains", batchId)], false, { pageSize: 1000, ...options });
 }
 
 export async function getStudentById(studentId: string): Promise<Student | null> {
@@ -359,7 +357,7 @@ export async function deleteStudentProfile(studentId: string): Promise<void> {
 export async function getTrainerNotes(studentId: string): Promise<import("@/types").TrainerNote[]> {
   const q = [where("studentId", "==", studentId)];
   // Sort descending by createdAt after fetching, since getDocuments might not have order by default without an index
-  const notesResult = await getDocuments<import("@/types").TrainerNote>("trainer_notes", q);
+  const notesResult = await getDocuments<import("@/types").TrainerNote>("trainer_notes", q, false, { pageSize: 100 });
   return notesResult.data.sort((a, b) => {
     const timeA = typeof a.createdAt === "object" && a.createdAt !== null && "toMillis" in (a.createdAt as any) ? (a.createdAt as any).toMillis() : new Date(a.createdAt).getTime();
     const timeB = typeof b.createdAt === "object" && b.createdAt !== null && "toMillis" in (b.createdAt as any) ? (b.createdAt as any).toMillis() : new Date(b.createdAt).getTime();

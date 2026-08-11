@@ -4,7 +4,7 @@ import type { Announcement } from "@/types";
 const ANNOUNCEMENTS_COLLECTION = "announcements";
 
 export async function getAllAnnouncements(options?: QueryOptions): Promise<PaginatedResult<Announcement>> {
-  return getDocuments<Announcement>(ANNOUNCEMENTS_COLLECTION, [], false, options);
+  return getDocuments<Announcement>(ANNOUNCEMENTS_COLLECTION, [], false, { pageSize: 100, ...options });
 }
 
 /**

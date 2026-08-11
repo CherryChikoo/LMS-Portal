@@ -19,6 +19,38 @@ import { getDocuments, subscribeToDocuments, type QueryOptions, type PaginatedRe
 import type { College, SelectOption, User } from "@/types";
 
 /**
+ * ChunkedBatch class for handling large batch operations in Firestore
+ * automatically committing when the 500 operation limit is approached.
+ */
+class ChunkedBatch {
+  private db: any;
+  private batch: any;
+  private count = 0;
+  private commitPromises: Promise<any>[] = [];
+  constructor(db: any) {
+    this.db = db;
+    this.batch = writeBatch(db);
+  }
+  update(ref: any, data: any) {
+    this.batch.update(ref, data);
+    this.count++;
+    if (this.count >= 400) {
+      this.commitPromises.push(this.batch.commit());
+      this.batch = writeBatch(this.db);
+      this.count = 0;
+    }
+  }
+  async commit() {
+    if (this.count > 0) {
+      this.commitPromises.push(this.batch.commit());
+      this.count = 0;
+    }
+    await Promise.all(this.commitPromises);
+    this.commitPromises = [];
+  }
+}
+
+/**
  * Predefined department options for colleges
  */
 export const PREDEFINED_DEPARTMENTS = [
@@ -293,7 +325,7 @@ export async function renameCollegeAndMigrate(
   newName: string,
   isExternal: boolean = false
 ): Promise<void> {
-  const batch = writeBatch(db);
+  const batch = new ChunkedBatch(db);
   const cleanSlug = (v?: string) => (v ? String(v).trim().toLowerCase().replace(/[^a-z0-9]+/g, "") : "");
   const normalizedNewName = newName.trim().toLowerCase();
   const targetOldSlugName = cleanSlug(oldName);
@@ -471,7 +503,7 @@ export async function deleteDepartmentAndMigrate(
   collegeId: string,
   departmentName: string
 ): Promise<void> {
-  const batch = writeBatch(db);
+  const batch = new ChunkedBatch(db);
 
   // Update college document - remove department
   const collegeRef = doc(db, "colleges", collegeId);
@@ -511,7 +543,7 @@ export async function renameDepartmentAndMigrate(
   oldName: string,
   newName: string
 ): Promise<void> {
-  const batch = writeBatch(db);
+  const batch = new ChunkedBatch(db);
 
   // Update college document
   const collegeRef = doc(db, "colleges", collegeId);

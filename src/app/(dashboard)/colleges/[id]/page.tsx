@@ -203,97 +203,12 @@ function getYearBadgeStyle(year?: string) {
     document.body.removeChild(link);
   };
 
-  useEffect(() => {
-    const loadCollege = async () => {
-      setLoading(true);
-      try {
-        const decodedId = decodeURIComponent(collegeId);
-        
-        // OPTIMIZATION: Load college doc directly first
-        let colData = await getCollegeById(collegeId);
-        let external = false;
-        
-        if (!colData) {
-          // Try alternate lookup for external colleges
-          const allColsResult = await getDocuments<College>("colleges", [], false, { pageSize: 100 });
-          const cleanSlug = (v?: string) => (v ? String(v).trim().toLowerCase().replace(/[^a-z0-9]+/g, "") : "");
-          const targetSlug = cleanSlug(decodedId);
-          colData = allColsResult.data.find((c) => c.id === decodedId || cleanSlug(c.id) === targetSlug || cleanSlug(c.name) === targetSlug) || null;
-        }
-
-        // OPTIMIZATION: Use scoped queries instead of loading ALL students/batches
-        let allStuds: Student[] = [];
-        let allBatches: Batch[] = [];
-        
-        if (colData) {
-          // Load only students for this specific college
-          const studentsRes = await getStudentsByCollege(colData.id);
-          allStuds = studentsRes.data;
-          
-          // Load only batches for this college (or all batches with limit for backward compat)
-          const batchesRes = await getAllBatches({ pageSize: 500 });
-          allBatches = batchesRes.data;
-        } else {
-          // Fallback: try to find students by name match for external colleges
-          const allStudsRes = await getAllStudents({ pageSize: 5000 });
-          allStuds = allStudsRes.data;
-          
-          const extStuds = allStuds.filter(
-            (s) => s.collegeId === decodedId || s.collegeName?.toLowerCase() === decodedId.toLowerCase()
-          );
-          
-          if (extStuds.length > 0) {
-            external = true;
-            const extDepts = Array.from(new Set(extStuds.map((s) => s.department).filter(Boolean)));
-            colData = {
-              id: decodedId,
-              name: decodedId,
-              code: decodedId.slice(0, 6).toUpperCase(),
-              departments: extDepts.length > 0 ? extDepts : ["General"],
-              studentCount: extStuds.length,
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            } as College;
-            allStuds = extStuds;
-          }
-          
-          const batchesRes = await getAllBatches({ pageSize: 500 });
-          allBatches = batchesRes.data;
-        }
-
-        setIsExternal(external);
-        setCollege(colData);
-        setBatches(allBatches);
-        if (colData) {
-          // Filter students belonging to this college
-          const colStuds = allStuds.filter(
-            (s) =>
-              s.collegeId === collegeId ||
-              s.collegeId === decodedId ||
-              s.collegeName?.toLowerCase() === colData.name.toLowerCase()
-          );
-          setStudents(colStuds);
-          if (!studDept && colData.departments && colData.departments.length > 0) {
-            setStudDept(colData.departments[0]);
-          }
-        }
-      } catch (err) {
-        console.error("Failed to load college details", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadCollege();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- studDept is set conditionally on first load; adding it would re-trigger fetch when the enroll form changes
-  }, [collegeId]);
-
-  const refreshData = async () => {
+  const fetchCollegeData = async () => {
     try {
       const decodedId = decodeURIComponent(collegeId);
       
-      // OPTIMIZATION: Load college doc directly first
       let colData = await getCollegeById(collegeId);
-      let external = isExternal;
+      let external = false;
       
       if (!colData) {
         const allColsResult = await getDocuments<College>("colleges", [], false, { pageSize: 100 });
@@ -302,7 +217,6 @@ function getYearBadgeStyle(year?: string) {
         colData = allColsResult.data.find((c) => c.id === decodedId || cleanSlug(c.id) === targetSlug || cleanSlug(c.name) === targetSlug) || null;
       }
 
-      // OPTIMIZATION: Use scoped queries
       let allStuds: Student[] = [];
       let allBatches: Batch[] = [];
       
@@ -312,8 +226,12 @@ function getYearBadgeStyle(year?: string) {
         const batchesRes = await getAllBatches({ pageSize: 500 });
         allBatches = batchesRes.data;
       } else {
-        const allStudsRes = await getAllStudents({ pageSize: 5000 });
-        allStuds = allStudsRes.data;
+        // Fallback: targeted lookups for external colleges instead of unbounded collection scans
+        let extStudsRes = await getDocuments<Student>("students", [where("collegeName", "==", decodedId)], false, { pageSize: 1000 });
+        if (extStudsRes.data.length === 0) {
+           extStudsRes = await getDocuments<Student>("students", [where("collegeId", "==", decodedId)], false, { pageSize: 1000 });
+        }
+        allStuds = extStudsRes.data;
         
         const extStuds = allStuds.filter(
           (s) => s.collegeId === decodedId || s.collegeName?.toLowerCase() === decodedId.toLowerCase()
@@ -334,7 +252,7 @@ function getYearBadgeStyle(year?: string) {
           allStuds = extStuds;
         }
         
-        const batchesRes = await getAllBatches({ pageSize: 500 });
+        const batchesRes = await getDocuments<Batch>("batches", [where("collegeId", "==", decodedId)], false, { pageSize: 100 });
         allBatches = batchesRes.data;
       }
 
@@ -354,8 +272,22 @@ function getYearBadgeStyle(year?: string) {
         }
       }
     } catch (err) {
-      console.error("Failed to refresh college details", err);
+      console.error("Failed to load college details", err);
     }
+  };
+
+  useEffect(() => {
+    const initLoad = async () => {
+      setLoading(true);
+      await fetchCollegeData();
+      setLoading(false);
+    };
+    initLoad();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- studDept is set conditionally on first load
+  }, [collegeId]);
+
+  const refreshData = async () => {
+    await fetchCollegeData();
   };
 
   // For external (self-registered) colleges, ensure a document exists at colleges/college.id

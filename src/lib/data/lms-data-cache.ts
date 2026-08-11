@@ -148,9 +148,26 @@ if (typeof window !== "undefined") {
   }
 }
 
-// ─── Recompute & Filtering ───────────────────────────────────────────────────
+let changedTypes = new Set<string>();
+
+let recomputeTimer: NodeJS.Timeout | null = null;
+function debouncedRecomputeAndNotify(type?: "colleges" | "batches" | "students" | "exams" | "resources" | "attempts") {
+  if (type) changedTypes.add(type);
+  else {
+    // If no type provided, assume all changed
+    ["colleges", "batches", "students", "exams", "resources", "attempts"].forEach(t => changedTypes.add(t));
+  }
+  
+  if (recomputeTimer) clearTimeout(recomputeTimer);
+  recomputeTimer = setTimeout(() => {
+    recomputeScopedData();
+    notifyListeners();
+  }, 50);
+}
 
 function recomputeScopedData() {
+  const needsAll = changedTypes.has("colleges") || changedTypes.has("students") || changedTypes.has("batches");
+  
   const collegesData = cache.colleges?.data || [];
   const batchesData = cache.batches?.data || [];
   const studentsData = cache.students?.data || [];
@@ -406,16 +423,7 @@ function recomputeScopedData() {
 
 // ─── Debounced Recompute + Notify ────────────────────────────────────────────
 
-let recomputeTimer: ReturnType<typeof setTimeout> | null = null;
-
-/** Batch multiple rapid data updates into a single recompute + notify cycle. */
-function debouncedRecomputeAndNotify() {
-  if (recomputeTimer) clearTimeout(recomputeTimer);
-  recomputeTimer = setTimeout(() => {
-    recomputeScopedData();
-    notifyListeners();
-  }, 50);
-}
+// Implementation moved to top of file to avoid TDZ and duplicate declarations.
 
 // ─── Listener Management ─────────────────────────────────────────────────────
 
@@ -480,17 +488,19 @@ async function startSubscriptions() {
     
     stopPolling(); // Clear existing listeners before starting new ones
 
+    console.time("[Firestore] Subscriptions setup");
+
     // 1. Colleges
     cache.unsubscribers.push(subscribeToDocuments<College>("colleges", (data) => {
       cache.colleges = { data, updatedAt: Date.now() };
-      debouncedRecomputeAndNotify();
+      debouncedRecomputeAndNotify("colleges");
     }, [], false, { pageSize: 200 }));
 
     // 2. Batches
     const batchesConstraints = (isCollegeAdmin || isStudent) && collegeId ? [where("collegeId", "==", collegeId)] : [];
     cache.unsubscribers.push(subscribeToDocuments<Batch>("batches", (data) => {
       cache.batches = { data, updatedAt: Date.now() };
-      debouncedRecomputeAndNotify();
+      debouncedRecomputeAndNotify("batches");
     }, batchesConstraints, false, { pageSize: 500 }));
 
     // 3. Students
@@ -498,27 +508,69 @@ async function startSubscriptions() {
       : isCollegeAdmin && collegeId ? [where("collegeId", "==", collegeId)] : [];
     cache.unsubscribers.push(subscribeToDocuments<Student>("students", (data) => {
       cache.students = { data, updatedAt: Date.now() };
-      debouncedRecomputeAndNotify();
+      debouncedRecomputeAndNotify("students");
     }, studentsConstraints, false, { pageSize: isStudent ? 1000 : (isCollegeAdmin ? 2000 : 5000) }));
 
     // 4. Exams
-    cache.unsubscribers.push(subscribeToDocuments<Exam>("exams", (data) => {
-      cache.exams = { data, updatedAt: Date.now() };
-      debouncedRecomputeAndNotify();
-    }, [], false, { pageSize: 2000 }));
+    if ((isCollegeAdmin || isStudent) && collegeId) {
+      let scopedExams: Exam[] = [];
+      let globalExams: Exam[] = [];
+      
+      const updateExams = () => {
+        const merged = [...scopedExams, ...globalExams];
+        const unique = Array.from(new Map(merged.map(e => [e.id, e])).values());
+        cache.exams = { data: unique, updatedAt: Date.now() };
+        debouncedRecomputeAndNotify("exams");
+      };
+
+      cache.unsubscribers.push(subscribeToDocuments<Exam>("exams", (data) => {
+        scopedExams = data; updateExams();
+      }, [where("collegeId", "==", collegeId)], false, { pageSize: 500 }));
+
+      cache.unsubscribers.push(subscribeToDocuments<Exam>("exams", (data) => {
+        globalExams = data; updateExams();
+      }, [where("collegeId", "in", ["global", "GLOBAL", "all", "ALL", ""])], false, { pageSize: 500 }));
+    } else {
+      cache.unsubscribers.push(subscribeToDocuments<Exam>("exams", (data) => {
+        cache.exams = { data, updatedAt: Date.now() };
+        debouncedRecomputeAndNotify("exams");
+      }, [], false, { pageSize: 100 }));
+    }
 
     // 5. Resources
-    cache.unsubscribers.push(subscribeToDocuments<Resource>("resources", (data) => {
-      cache.resources = { data, updatedAt: Date.now() };
-      debouncedRecomputeAndNotify();
-    }, [], false, { pageSize: 2000 }));
+    if ((isCollegeAdmin || isStudent) && collegeId) {
+      let scopedRes: Resource[] = [];
+      let globalRes: Resource[] = [];
+      
+      const updateRes = () => {
+        const merged = [...scopedRes, ...globalRes];
+        const unique = Array.from(new Map(merged.map(r => [r.id, r])).values());
+        cache.resources = { data: unique, updatedAt: Date.now() };
+        debouncedRecomputeAndNotify("resources");
+      };
+
+      cache.unsubscribers.push(subscribeToDocuments<Resource>("resources", (data) => {
+        scopedRes = data; updateRes();
+      }, [where("collegeId", "==", collegeId)], false, { pageSize: 500 }));
+
+      cache.unsubscribers.push(subscribeToDocuments<Resource>("resources", (data) => {
+        globalRes = data; updateRes();
+      }, [where("collegeId", "in", ["global", "GLOBAL", "all", "ALL", ""])], false, { pageSize: 500 }));
+    } else {
+      cache.unsubscribers.push(subscribeToDocuments<Resource>("resources", (data) => {
+        cache.resources = { data, updatedAt: Date.now() };
+        debouncedRecomputeAndNotify("resources");
+      }, [], false, { pageSize: 100 }));
+    }
 
     // 6. Attempts
     const attemptsConstraints = (isStudent || isCollegeAdmin) && collegeId ? [where("collegeId", "==", collegeId)] : [];
     cache.unsubscribers.push(subscribeToDocuments<ExamAttempt>("exam_results", (data) => {
       cache.attempts = { data, updatedAt: Date.now() };
-      debouncedRecomputeAndNotify();
+      debouncedRecomputeAndNotify("attempts");
     }, attemptsConstraints, false, { pageSize: (isStudent || isCollegeAdmin) ? 500 : 2000 }));
+
+    console.timeEnd("[Firestore] Subscriptions setup");
 
   } catch (error) {
     console.error("Failed to fetch LMS Data", error);

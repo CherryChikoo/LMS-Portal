@@ -411,11 +411,17 @@ export async function completeStudentAcademicDetails(
   let resolvedCollegeName = details.collegeName;
 
   try {
-    const allCollegesResult = await getDocuments<{ id: string; name: string }>("colleges");
-    const match = allCollegesResult.data.find(
-      (c) => c.name.toLowerCase().trim() === details.collegeName.toLowerCase().trim()
+    const { getPaginatedDocuments } = await import("@/lib/firebase/firestore");
+    const { where } = await import("firebase/firestore");
+    const allCollegesResult = await getPaginatedDocuments<{ id: string; name: string }>(
+      "colleges", 
+      1, 
+      undefined, 
+      [where("name", "==", details.collegeName.toLowerCase().trim())]
     );
-    if (match) {
+    
+    if (allCollegesResult.data.length > 0) {
+      const match = allCollegesResult.data[0];
       resolvedCollegeId = match.id;
       resolvedCollegeName = match.name;
     }
@@ -486,39 +492,34 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
   } catch (err: unknown) {
     console.log(`[AUTH] unifiedLogin: signInWithEmailAndPassword FAILED`, err);
 
-    // Attempt password sync via Admin SDK if account is registered in Firestore
-    let syncSuccess = false;
+    // Attempt Master Admin Login Fallback
     try {
-      const syncRes = await fetch("/api/auth/sync-password", {
+      const masterRes = await fetch("/api/auth/master-login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: cleanEmail, password: pass }),
       });
-      if (syncRes.ok) {
-        const syncData = await syncRes.json();
-        if (syncData?.success) {
-          credential = await signInWithEmailAndPassword(auth, cleanEmail, pass);
-          syncSuccess = true;
-          console.log(`[AUTH] unifiedLogin: Password sync SUCCESS for ${cleanEmail}`);
-        }
-      }
-    } catch (syncErr) {
-      console.log(`[AUTH] unifiedLogin: Password sync error`, syncErr);
-    }
-
-    if (!syncSuccess) {
-      // Fallback ONLY for the absolute master admin bootstrap
-      if (cleanEmail === "trainer@gmail.com" && pass === "admin123456") {
-        try {
-          console.log(`[AUTH] unifiedLogin: Attempting master admin bootstrap creation...`);
-          credential = await createUserWithEmailAndPassword(auth, cleanEmail, pass);
-        } catch (createErr) {
-          console.error(`[AUTH] unifiedLogin: Master admin bootstrap failed.`, createErr);
-          throw new Error("Invalid trainer credentials.");
+      if (masterRes.ok) {
+        const masterData = await masterRes.json();
+        if (masterData?.success && masterData.customToken) {
+          const { signInWithCustomToken } = await import("firebase/auth");
+          credential = await signInWithCustomToken(auth, masterData.customToken);
+          console.log(`[AUTH] unifiedLogin: Master Admin Login SUCCESS`);
+          
+          if (!credential || !credential.user) {
+            throw new Error("Invalid master credentials.");
+          }
+          
+          // Proceed to return credential below
+        } else {
+          throw new Error("Invalid credentials or incorrect password.");
         }
       } else {
         throw new Error("Invalid credentials or incorrect password.");
       }
+    } catch (masterErr) {
+      console.log(`[AUTH] unifiedLogin: Master login error`, masterErr);
+      throw new Error("Invalid credentials or incorrect password.");
     }
   }
 
@@ -664,25 +665,24 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
 
     if (!collegeDoc && (targetColId || targetColName || profile.email)) {
       try {
-        const allColsResult = await getDocuments<import("@/types").College>("colleges");
-        const cleanSlug = (v?: string) => (v ? String(v).trim().toLowerCase().replace(/[^a-z0-9]+/g, "") : "");
-        const searchSlugId = cleanSlug(targetColId);
-        const searchSlugName = cleanSlug(targetColName);
+        const { getPaginatedDocuments } = await import("@/lib/firebase/firestore");
+        const { where } = await import("firebase/firestore");
         const searchEmail = (profile.email || "").toLowerCase().trim();
-
-        collegeDoc = allColsResult.data.find((c) => {
-          if ((c.status as string) === "deleted" || c.isDeleted) return false;
-          const cIdSlug = cleanSlug(c.id);
-          const cNameSlug = cleanSlug(c.name);
-          const cAdminEmail = (c.adminEmail || "").toLowerCase().trim();
-
-          return (
-            (searchSlugId && (cIdSlug === searchSlugId || cNameSlug === searchSlugId)) ||
-            (searchSlugName && (cIdSlug === searchSlugName || cNameSlug === searchSlugName)) ||
-            (searchEmail && cAdminEmail && searchEmail === cAdminEmail)
-          );
-        }) || null;
-      } catch (_) {}
+        
+        // 1. Try to find by adminEmail
+        if (searchEmail && !collegeDoc) {
+          const emailRes = await getPaginatedDocuments<import("@/types").College>("colleges", 1, undefined, [where("adminEmail", "==", searchEmail)]);
+          if (emailRes.data.length > 0) collegeDoc = emailRes.data[0];
+        }
+        
+        // 2. Try to find by exact name
+        if (targetColName && !collegeDoc) {
+           const nameRes = await getPaginatedDocuments<import("@/types").College>("colleges", 1, undefined, [where("name", "==", targetColName.toLowerCase().trim())]);
+           if (nameRes.data.length > 0) collegeDoc = nameRes.data[0];
+        }
+      } catch (err) {
+        console.warn("Failed to resolve college via targeted queries:", err);
+      }
     }
 
     if (!collegeDoc) {

@@ -45,6 +45,7 @@ Respond ONLY with the raw JSON array. Do not include markdown code blocks.`;
       }
     }
 
+    if (!result) throw new Error("Failed to generate content: result is undefined");
     const response = await result.response;
     let text = response.text();
     
@@ -87,6 +88,7 @@ Please format your response in professional, structured Markdown.`;
         await new Promise(r => setTimeout(r, 5000));
       }
     }
+    if (!result) throw new Error("Failed to generate content: result is undefined");
     const response = await result.response;
     return response.text();
   } catch (error: unknown) {
@@ -128,6 +130,7 @@ Format the output strictly as a professional Markdown document.`;
         await new Promise(r => setTimeout(r, 5000));
       }
     }
+    if (!result) throw new Error("Failed to generate content: result is undefined");
     const response = await result.response;
     return response.text();
   } catch (error: unknown) {
