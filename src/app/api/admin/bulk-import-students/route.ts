@@ -196,6 +196,7 @@ export async function POST(request: NextRequest) {
             id: col.id,
             name: col.name,
             code: safeCodeName || "COLLEGE",
+            type: "registered",
             departments: Array.from(col.departments),
             origin: "trainer",
             studentCount: 0,

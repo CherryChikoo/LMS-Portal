@@ -17,6 +17,7 @@ import {
   safeDisplayName,
   markCollegeAsDeleted,
   deletedCollegesSet,
+  cleanSlug,
   type Hierarchy,
   type Institution,
 } from "@/lib/hierarchy/hierarchy-data";
@@ -742,9 +743,18 @@ function computeExportedState() {
     return Math.max(byId, byName);
   };
 
+  // Filter out Firestore external colleges that already exist as official colleges (name match)
+  const officialNames = new Set(officialFirestoreColleges.map((c) => String(c.name || "").toLowerCase()));
+  const officialSlugs = new Set(officialFirestoreColleges.map((c) => cleanSlug(c.name)));
+  const dedupedExternalFirestore = externalFirestoreColleges.filter((c) => {
+    const name = String(c.name || "").toLowerCase();
+    const slug = cleanSlug(c.name);
+    return !officialNames.has(name) && !officialSlugs.has(slug);
+  });
+
   // Merge Firestore external colleges with dynamic external institutions, avoiding duplicates
   const externals: Institution[] = [
-    ...externalFirestoreColleges.map((c) => ({
+    ...dedupedExternalFirestore.map((c) => ({
        id: c.id,
        name: safeDisplayName(c.name ? String(c.name).toLowerCase() : "", c.id, "Unknown Institution").toLowerCase(),
        type: "external" as const,
@@ -753,9 +763,17 @@ function computeExportedState() {
        isDeleted: c.isDeleted,
        studentCount: getStudentCount(c),
     })),
-    ...dynamicExternals.filter(dyn => !externalFirestoreColleges.some(extC => 
-         extC.id === dyn.id || String(extC.name || "").toLowerCase() === String(dyn.name || "").toLowerCase()
-    ))
+    ...dynamicExternals.filter(dyn => {
+      const dynName = String(dyn.name || "").toLowerCase();
+      const dynSlug = cleanSlug(dyn.name);
+      // Skip if matches any official college
+      if (officialNames.has(dynName) || officialSlugs.has(dynSlug)) return false;
+      // Skip if matches any Firestore external college already in the list
+      if (dedupedExternalFirestore.some(extC => 
+           extC.id === dyn.id || String(extC.name || "").toLowerCase() === dynName
+      )) return false;
+      return true;
+    })
   ];
 
   const officialInstitutions: Institution[] = officialFirestoreColleges.map((c) => ({
