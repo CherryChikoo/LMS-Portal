@@ -75,11 +75,20 @@ function matchesCompositeTarget(target: AssignmentTarget, student: Student): boo
 
   const batchIds = new Set([tBatchId, tBatchName, cleanSlug(target.batchId), cleanSlug(target.batchName)].filter(Boolean));
 
-  const matchCollege = collegeSpecified && (
+  let matchCollege = collegeSpecified && (
     targetCollegeSlugs.has("global") ||
     targetCollegeSlugs.has("all") ||
     studentCollegeSlugs.some((s) => targetCollegeSlugs.has(s))
   );
+
+  // Forgiving fallback for external colleges: If direct match fails, check if one slug contains the other.
+  // This solves issues where a student registers as "stans" but the admin targets "stanshub" (or vice versa).
+  if (collegeSpecified && !matchCollege) {
+    const targetArr = Array.from(targetCollegeSlugs);
+    matchCollege = studentCollegeSlugs.some(s => 
+      targetArr.some(t => s.length > 3 && t.length > 3 && (s.includes(t) || t.includes(s)))
+    );
+  }
 
   const matchBatch = batchSpecified && sBatchIds.some((b) => batchIds.has(b));
 
@@ -167,15 +176,21 @@ export function isAssignedToStudent(
 
     // Check "college" target
     if (type === "college") {
-      if (
-        ids.includes("all") ||
+      let isMatch = ids.includes("all") ||
         ids.includes("global") ||
         ids.includes("all colleges") ||
         ids.includes(sCollegeId) ||
-        ids.includes(sCollegeName)
-      ) {
-        return true;
+        ids.includes(sCollegeName);
+        
+      if (!isMatch) {
+        // Forgiving fallback for external colleges
+        isMatch = ids.some(id => 
+          (sCollegeId.length > 3 && id.length > 3 && (sCollegeId.includes(id) || id.includes(sCollegeId))) ||
+          (sCollegeName.length > 3 && id.length > 3 && (sCollegeName.includes(id) || id.includes(sCollegeName)))
+        );
       }
+      
+      if (isMatch) return true;
     }
 
     // Check "department" target
