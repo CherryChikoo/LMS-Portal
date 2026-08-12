@@ -327,7 +327,7 @@ export default function CollegesPage() {
           setIsGlobalDeleting(true);
           markCollegeAsDeleted(extName);
           setDeletingIds((prev) => [...prev, extName]);
-          optimisticDeleteCollege(extName);
+          // Removed optimisticDeleteCollege so the card stays mounted and shows the spinner
           setSelectedExternalIds((prev) => prev.filter((id) => id !== extName));
 
           // Call the unified deleteCollege API which handles external colleges and batch deletes everything efficiently
@@ -373,7 +373,7 @@ export default function CollegesPage() {
               .filter(s => s.collegeName === extName || s.collegeId === extName || s.collegeName?.toLowerCase() === extName.toLowerCase())
               .map(s => s.id);
             promises.push(deleteCollege(extName, undefined, uidsForThisCollege));
-            optimisticDeleteCollege(extName);
+            // Removed optimisticDeleteCollege so the cards stay mounted and show spinners
           });
           setSelectedExternalIds([]);
 
