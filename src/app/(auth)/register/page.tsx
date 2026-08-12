@@ -294,7 +294,9 @@ export default function RegisterPage() {
         department: department.trim(),
         collegeName: collegeName.trim(),
         collegeId: collegeName.toLowerCase().trim().replace(/[^a-z0-9]+/g, ""),
-        section: section.trim() || "A"
+        section: section.trim() || "A",
+        academicYear: "1st Year",
+        createdAt: Date.now()
       };
       isSubmittedRef.current = true;
       localStorage.setItem("lms_role", "student");

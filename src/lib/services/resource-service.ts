@@ -62,8 +62,9 @@ export function filterResourcesForStudent(resources: Resource[], student: Studen
     if (!isAssignedToStudent(res.targets, student, res.sharedWith)) return false;
 
     // A newly created student shouldn't see ANY resources that were last modified/assigned before they existed.
+    // We add a 24-hour grace period to completely avoid clock-skew or same-day assignment issues.
     const resUpdatedMillis = toMillis(res.updatedAt || res.createdAt) ?? 0;
-    const wasAssignedBeforeStudent = resUpdatedMillis > 0 && studentCreatedMillis > 0 && resUpdatedMillis < studentCreatedMillis;
+    const wasAssignedBeforeStudent = resUpdatedMillis > 0 && studentCreatedMillis > 0 && (resUpdatedMillis + 24 * 60 * 60 * 1000) < studentCreatedMillis;
 
     if (wasAssignedBeforeStudent) {
       return false;

@@ -197,13 +197,27 @@ export default function ResourcesPage() {
     let studentProfile = baseProfile;
     try {
       const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-      if (uStr) studentProfile = { ...baseProfile, ...JSON.parse(uStr) };
+      if (uStr) {
+        const parsed = JSON.parse(uStr);
+        const sId = parsed.id || parsed.uid;
+        const sEmail = parsed.email;
+        const canonical = students.find((s: Student) => s.id === sId || (sEmail && s.email === sEmail));
+        
+        studentProfile = {
+          ...baseProfile,
+          ...(parsed || {}),
+          ...(canonical || {}),
+          collegeId: canonical?.collegeId || parsed?.collegeId || parsed?.college || "",
+          collegeName: canonical?.collegeName || parsed?.collegeName || parsed?.college || canonical?.collegeId || parsed?.collegeId || "",
+        };
+      }
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (_) {
     }
     return filterResourcesForStudent(resources, studentProfile as Student);
   }, [
     resources,
+    students,
     userRole,
     currentUser,
     resourceFilters.collegeId,

@@ -93,8 +93,9 @@ export function filterExamsForStudent(exams: Exam[], student: Student): Exam[] {
     if (!isAssignedToStudent(exam.targets, student, (exam as any).sharedWith)) return false;
 
     // A newly created student shouldn't see ANY exams that were last modified/assigned before they existed.
+    // We add a 24-hour grace period to completely avoid clock-skew or same-day assignment issues.
     const examUpdatedMillis = toMillis(exam.updatedAt || exam.createdAt) ?? 0;
-    const wasAssignedBeforeStudent = examUpdatedMillis > 0 && studentCreatedMillis > 0 && examUpdatedMillis < studentCreatedMillis;
+    const wasAssignedBeforeStudent = examUpdatedMillis > 0 && studentCreatedMillis > 0 && (examUpdatedMillis + 24 * 60 * 60 * 1000) < studentCreatedMillis;
 
     if (wasAssignedBeforeStudent) {
       return false;
