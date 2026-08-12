@@ -537,7 +537,7 @@ async function fetchLMSData(force = false) {
   // 3. Students — isolated
   try {
     const studentsConstraints = (isStudent || isCollegeAdmin) && collegeId ? [where("collegeId", "==", collegeId)] : [];
-    const studentsRes = await getDocuments<Student>("students", studentsConstraints, false, { pageSize: isStudent ? 200 : (isCollegeAdmin ? 500 : 500) });
+    const studentsRes = await getDocuments<Student>("students", studentsConstraints, false, { pageSize: isStudent ? 200 : (isCollegeAdmin ? 2000 : 5000) });
     cache.students = { data: studentsRes.data, updatedAt: now };
   } catch (err: any) {
     console.error("[FETCH] Students failed:", err?.message || err);

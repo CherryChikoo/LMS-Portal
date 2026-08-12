@@ -31,6 +31,9 @@ function formatCollegeTitle(rawName: string): string {
   return trimmed.toLowerCase();
 }
 
+export const dynamic = "force-dynamic";
+export const maxDuration = 120; // Allow up to 120 seconds for large bulk imports on Vercel
+
 export async function POST(request: NextRequest) {
   try {
     const { adminIdToken, rows, enrollmentType = "csv" } = await request.json();
@@ -193,7 +196,6 @@ export async function POST(request: NextRequest) {
             id: col.id,
             name: col.name,
             code: safeCodeName || "COLLEGE",
-            type: "external",
             departments: Array.from(col.departments),
             origin: "trainer",
             studentCount: 0,
@@ -289,7 +291,7 @@ export async function POST(request: NextRequest) {
 
     // OPTIMIZATION: Process students in controlled batches to avoid overwhelming Firebase Auth
     // Firebase Auth has rate limits (~500 operations/second), so we batch the parallel processing
-    const CONCURRENT_BATCH_SIZE = 50; // Process 50 students at a time
+    const CONCURRENT_BATCH_SIZE = 30; // Process 30 students at a time to avoid Firebase Auth rate limits
     const processedResults: typeof summary.results = [];
 
     for (let i = 0; i < items.length; i += CONCURRENT_BATCH_SIZE) {
@@ -410,7 +412,7 @@ export async function POST(request: NextRequest) {
           aggregatedBatch.set(db.collection("students").doc(res.writeDocs.uid), res.writeDocs.studentDoc, { merge: true });
           createdUids.push(res.writeDocs.uid);
           writeCount++;
-          delete (res as any).writeDocs; // Clean up before sending to client
+          // NOTE: Do NOT delete writeDocs here — rollback needs it if commit fails
         }
       }
 
@@ -419,15 +421,22 @@ export async function POST(request: NextRequest) {
           await aggregatedBatch.commit();
         } catch (err) {
           console.error("Aggregated batch commit failed, rolling back auth users:", err);
-          // Rollback all Auth users created in this chunk
+          // Rollback all Auth users created in this chunk using the saved UIDs
+          for (const uid of createdUids) {
+            try { await auth.deleteUser(uid); } catch (_) {}
+          }
           for (const res of batchResults) {
-            if (res.status === "created" && createdUids.includes((res as any).writeDocs?.uid || "")) {
-               try { await auth.deleteUser((res as any).writeDocs.uid); } catch (_) {}
+            if (res.status === "created") {
                res.status = "failed";
                res.reason = "Database batch commit failed";
             }
           }
         }
+      }
+
+      // Clean up writeDocs AFTER successful commit (or rollback)
+      for (const res of batchResults) {
+        delete (res as any).writeDocs;
       }
 
       for (const res of batchResults) {
@@ -443,7 +452,7 @@ export async function POST(request: NextRequest) {
 
       // Small delay between batches to avoid rate limiting (optional)
       if (i + CONCURRENT_BATCH_SIZE < items.length) {
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => setTimeout(resolve, 300));
       }
     }
 
