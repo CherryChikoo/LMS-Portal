@@ -199,7 +199,7 @@ export async function updateCollege(
   );
 }
 
-export async function deleteCollege(id: string, onProgress?: (msg: string) => void): Promise<void> {
+export async function deleteCollege(id: string, onProgress?: (msg: string) => void, studentUids?: string[]): Promise<void> {
   const currentUser = auth.currentUser;
   if (!currentUser) {
     throw new Error("User must be authenticated to delete colleges");
@@ -217,7 +217,7 @@ export async function deleteCollege(id: string, onProgress?: (msg: string) => vo
       "Content-Type": "application/json",
       "Authorization": `Bearer ${adminIdToken}`
     },
-    body: JSON.stringify({ id }),
+    body: JSON.stringify({ id, studentUids }),
   });
 
   const result = await res.json();

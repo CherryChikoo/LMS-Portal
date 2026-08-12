@@ -10,7 +10,8 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60; // Allow up to 60 seconds for bulk deletion on Vercel
 
 const DeleteCollegeSchema = z.object({
-  id: z.string().min(1, "College ID is required.")
+  id: z.string().min(1, "College ID is required."),
+  studentUids: z.array(z.string()).optional()
 }).strict();
 
 export async function POST(request: NextRequest) {
@@ -55,17 +56,22 @@ export async function POST(request: NextRequest) {
 
     // STEP 1: Delete Firebase Auth accounts for students and college admin
     stage = "deleteAuthUsers";
-    let studentsSnap = await db.collection("students").where("collegeId", "==", collegeId).get();
-    if (studentsSnap.empty) {
-      studentsSnap = await db.collection("students").where("collegeName", "==", collegeId).get();
+    
+    let studentUidsToDelete = parseResult.data.studentUids || [];
+    
+    if (studentUidsToDelete.length === 0) {
+      let studentsSnap = await db.collection("students").where("collegeId", "==", collegeId).get();
+      if (studentsSnap.empty) {
+        studentsSnap = await db.collection("students").where("collegeName", "==", collegeId).get();
+      }
+      studentUidsToDelete = studentsSnap.docs.map(d => d.id);
     }
 
-    const studentUids = studentsSnap.docs.map(d => d.id);
-    console.log(`[DeleteCollege] Found ${studentUids.length} students to delete from Auth`);
+    console.log(`[DeleteCollege] Found ${studentUidsToDelete.length} students to delete from Auth`);
     
     // Chunk Auth deletes in batches of 1000 (Firebase Admin limit)
-    for (let i = 0; i < studentUids.length; i += 1000) {
-      const chunk = studentUids.slice(i, i + 1000);
+    for (let i = 0; i < studentUidsToDelete.length; i += 1000) {
+      const chunk = studentUidsToDelete.slice(i, i + 1000);
       try {
         await auth.deleteUsers(chunk);
       } catch (err) {
@@ -92,6 +98,18 @@ export async function POST(request: NextRequest) {
     stage = "deleteCollections";
     const collections = ["users", "students", "resources", "doubts", "trainer_notes", "batches", "departments", "courses"];
     
+    if (parseResult.data.studentUids && parseResult.data.studentUids.length > 0) {
+       // Only delete the explicitly specified students and their resources
+       const explicitUids = parseResult.data.studentUids;
+       const bulkWriter = db.bulkWriter();
+       for (const uid of explicitUids) {
+          bulkWriter.delete(db.collection("students").doc(uid));
+          bulkWriter.delete(db.collection("users").doc(uid));
+          // For nested resources, we'd need to delete by authorId/studentId, but for simplicity we rely on bulkDeleteByQuery below.
+       }
+       await bulkWriter.close();
+    }
+
     for (const col of collections) {
       await bulkDeleteByQuery(col, "collegeId", "==", collegeId);
       // Fallback for older schemas

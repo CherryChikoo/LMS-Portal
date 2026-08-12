@@ -331,7 +331,7 @@ export default function CollegesPage() {
           setSelectedExternalIds((prev) => prev.filter((id) => id !== extName));
 
           // Call the unified deleteCollege API which handles external colleges and batch deletes everything efficiently
-          await deleteCollege(extName);
+          await deleteCollege(extName, undefined, studentsToDelete.map(s => s.id));
           
           await refreshCache(); // Immediate UI update
           
@@ -366,14 +366,18 @@ export default function CollegesPage() {
       onConfirm: async () => {
         try {
           setIsGlobalDeleting(true);
-          const namesToDelete = [...selectedExternalIds];
-          namesToDelete.forEach((extName) => {
+          const promises: Promise<any>[] = [];
+          selectedExternalIds.forEach((extName) => {
             markCollegeAsDeleted(extName);
+            const uidsForThisCollege = studentsToDelete
+              .filter(s => s.collegeName === extName || s.collegeId === extName || s.collegeName?.toLowerCase() === extName.toLowerCase())
+              .map(s => s.id);
+            promises.push(deleteCollege(extName, undefined, uidsForThisCollege));
             optimisticDeleteCollege(extName);
           });
           setSelectedExternalIds([]);
 
-          await Promise.all(studentsToDelete.map((s) => deleteStudentProfile(s.id)));
+          await Promise.all(promises);
           await refreshCache(); // Immediate UI update
           
           setIsGlobalDeleting(false);
