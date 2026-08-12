@@ -557,12 +557,6 @@ export default function ExamsPage() {
               const effectivelyExpired = isExpiredAndNotAttempted || (!isAssigned && !!att && !isSubmitted);
               const effectivelySubmitted = isSubmitted || (!isAssigned && !!att);
               
-              const examCreatedMillis = toMillis(e.createdAt) ?? 0;
-              const studentCreatedMillis = studentUser ? toMillis(studentUser.createdAt) ?? 0 : 0;
-              const wasCreatedBeforeStudent = examCreatedMillis > 0 && studentCreatedMillis > 0 && examCreatedMillis < studentCreatedMillis;
-              
-              if (effectivelyExpired && wasCreatedBeforeStudent) return false;
-              
               if (tab === "available") return !effectivelySubmitted && !effectivelyExpired;
               if (tab === "results") return effectivelySubmitted || effectivelyExpired;
               return false;
@@ -730,16 +724,10 @@ export default function ExamsPage() {
                 // so it moves to the Results tab.
                 const effectivelyExpired = isExpiredAndNotAttempted || (!isAssigned && !!att && !isSubmitted);
                 const effectivelySubmitted = isSubmitted || (!isAssigned && !!att);
-
-                const examCreatedMillis = toMillis(exam.createdAt) ?? 0;
-                const studentCreatedMillis = studentUser ? toMillis(studentUser.createdAt) ?? 0 : 0;
-                const wasCreatedBeforeStudent = examCreatedMillis > 0 && studentCreatedMillis > 0 && examCreatedMillis < studentCreatedMillis;
                 
-                if (wasCreatedBeforeStudent) return false;
-                
-                if (studentTab === "available") return !effectivelySubmitted && !effectivelyExpired;
-                if (studentTab === "results") return effectivelySubmitted || effectivelyExpired;
-                return false;
+                if (studentTab === "available" && (effectivelySubmitted || effectivelyExpired)) return false;
+                if (studentTab === "results" && !effectivelySubmitted && !effectivelyExpired) return false;
+                return true;
               } else {
                 const eff = getEffectiveExamStatus(exam);
                 if (adminTab === "live" && !(eff === "active" || eff === "scheduled" || eff === "draft")) return false;

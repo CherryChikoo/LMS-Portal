@@ -56,20 +56,8 @@ export async function deleteResource(id: string): Promise<void> {
  * Filter resources assigned to a specific student based on hierarchy or direct student target
  */
 export function filterResourcesForStudent(resources: Resource[], student: Student): Resource[] {
-  const studentCreatedMillis = toMillis(student.createdAt) ?? 0;
-
   return resources.filter((res) => {
     if (!isAssignedToStudent(res.targets, student, res.sharedWith)) return false;
-
-    // A newly created student shouldn't see ANY resources from the past that were created before they existed.
-    // They ONLY see data assigned after their creation date.
-    const resCreatedMillis = toMillis(res.createdAt) ?? 0;
-    const wasCreatedBeforeStudent = resCreatedMillis > 0 && studentCreatedMillis > 0 && resCreatedMillis < studentCreatedMillis;
-
-    if (wasCreatedBeforeStudent) {
-      return false;
-    }
-
     return true;
   });
 }
