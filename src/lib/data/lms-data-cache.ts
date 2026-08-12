@@ -786,10 +786,18 @@ function computeExportedState() {
     studentCount: getStudentCount(c),
   }));
 
-  const institutions: Institution[] = [
-    ...officialInstitutions,
-    ...externals,
-  ];
+  // Deduplicate institutions globally to guarantee no duplicates in dropdowns
+  const uniqueInstitutionsMap = new Map<string, Institution>();
+  
+  [...officialInstitutions, ...externals].forEach(inst => {
+    const slug = cleanSlug(inst.name);
+    // Prefer official over external if there's a conflict
+    if (!uniqueInstitutionsMap.has(slug) || inst.type === "official") {
+      uniqueInstitutionsMap.set(slug, inst);
+    }
+  });
+
+  const institutions: Institution[] = Array.from(uniqueInstitutionsMap.values());
 
   const institutionOptions: SelectOption[] = institutions.map((inst) =>
     inst.isDeleted
