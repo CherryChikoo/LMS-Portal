@@ -225,7 +225,7 @@ function getYearBadgeStyle(year?: string) {
           external = true;
           // For external colleges in Firestore, we must fetch all students and filter by slug locally 
           // to capture all case variations (e.g. "Even Hub" vs "even Hub") that students might have typed.
-          const allStudsRes = await getAllStudents();
+          const allStudsRes = await getAllStudents({ pageSize: 10000 });
           const cleanSlug = (v?: string) => (v ? String(v).trim().toLowerCase().replace(/[^a-z0-9]+/g, "") : "");
           const targetSlug = cleanSlug(colData!.name);
           
@@ -241,7 +241,7 @@ function getYearBadgeStyle(year?: string) {
       } else {
         // Fallback: For external colleges we cannot query by 'collegeName' directly if decodedId is a slug like 'ext-evenhub'.
         // So we MUST fetch all students and filter locally to reliably capture slug matches.
-        const allStudsRes = await getAllStudents();
+        const allStudsRes = await getAllStudents({ pageSize: 10000 });
         const cleanSlug = (v?: string) => (v ? String(v).trim().toLowerCase().replace(/[^a-z0-9]+/g, "") : "");
         const targetSlug = decodedId.startsWith("ext-") ? decodedId.replace("ext-", "") : cleanSlug(decodedId);
         

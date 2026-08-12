@@ -255,6 +255,16 @@ export async function updateStudentProfile(
     try {
       refreshCache();
     } catch (_) {}
+    
+    // Asynchronously ensure the college is registered globally if it changed
+    if (whitelistedData.collegeName) {
+      fetch("/api/auth/register-college", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ collegeName: whitelistedData.collegeName })
+      }).catch(() => {});
+    }
+
     return { success: true };
   } catch (err: unknown) {
     return { success: false, error: getErrorMessage(err) || "Failed to update student profile database record." };

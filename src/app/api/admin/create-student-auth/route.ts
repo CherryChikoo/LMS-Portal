@@ -218,6 +218,22 @@ export async function POST(request: NextRequest) {
       const batchWrite = db.batch();
       batchWrite.set(db.collection("users").doc(uid), userDoc);
       batchWrite.set(db.collection("students").doc(uid), studentDoc);
+      
+      // Ensure the external college document exists
+      if (finalCollegeId && finalCollegeId !== "col-unassigned") {
+        const colRef = db.collection("colleges").doc(finalCollegeId);
+        const colSnap = await colRef.get();
+        if (!colSnap.exists) {
+          batchWrite.set(colRef, {
+            id: finalCollegeId,
+            name: finalCollegeName,
+            type: "external",
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp()
+          });
+        }
+      }
+
       await batchWrite.commit();
     } catch (dbErr) {
       console.error("Failed to write student Firestore documents:", dbErr);

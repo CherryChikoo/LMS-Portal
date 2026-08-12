@@ -193,6 +193,7 @@ export async function POST(request: NextRequest) {
             id: col.id,
             name: col.name,
             code: safeCodeName || "COLLEGE",
+            type: "external",
             departments: Array.from(col.departments),
             origin: "trainer",
             studentCount: 0,
