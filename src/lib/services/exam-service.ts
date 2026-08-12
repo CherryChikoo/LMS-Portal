@@ -87,8 +87,19 @@ export function getEffectiveExamStatus(exam: Exam): ExamStatus {
  * Filter exams assigned to a specific student based on hierarchy or direct student target.
  */
 export function filterExamsForStudent(exams: Exam[], student: Student): Exam[] {
+  const studentCreatedMillis = toMillis(student.createdAt) ?? 0;
+
   return exams.filter((exam) => {
     if (!isAssignedToStudent(exam.targets, student, (exam as any).sharedWith)) return false;
+
+    // A newly created student shouldn't see ANY exams that were last modified/assigned before they existed.
+    const examUpdatedMillis = toMillis(exam.updatedAt || exam.createdAt) ?? 0;
+    const wasAssignedBeforeStudent = examUpdatedMillis > 0 && studentCreatedMillis > 0 && examUpdatedMillis < studentCreatedMillis;
+
+    if (wasAssignedBeforeStudent) {
+      return false;
+    }
+
     return true;
   });
 }
