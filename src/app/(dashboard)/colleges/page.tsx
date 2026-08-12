@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { motion, AnimatePresence } from "motion/react";
 import { GraduationCap, Plus, Building2, Layers, Users, FolderTree, ChevronRight, Trash2, Pencil, Loader2, Upload, FileSpreadsheet, FolderOpen, StopCircle, Download } from "lucide-react";
 import Link from "next/link";
+import { createPortal } from "react-dom";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
@@ -1678,7 +1679,7 @@ export default function CollegesPage() {
       />
 
       <AnimatePresence>
-        {isGlobalDeleting && (
+        {isGlobalDeleting && typeof window !== 'undefined' && createPortal(
           <div className="fixed inset-0 z-[99999] flex flex-col items-center justify-center bg-black/60 backdrop-blur-md">
             <motion.div 
               initial={{ opacity: 0, scale: 0.9 }}
@@ -1693,7 +1694,8 @@ export default function CollegesPage() {
                 <p className="text-sm text-muted-foreground">This may take a few moments. Please do not close this window or navigate away.</p>
               </div>
             </motion.div>
-          </div>
+          </div>,
+          document.body
         )}
       </AnimatePresence>
     </motion.div>

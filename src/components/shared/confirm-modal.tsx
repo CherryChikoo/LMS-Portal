@@ -1,7 +1,8 @@
 "use client";
 
-import React from "react";
-import { motion, AnimatePresence } from "motion/react";
+import React, { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import { motion, AnimatePresence } from "framer-motion";
 import { AlertTriangle, Trash2, Info, CheckCircle2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -28,7 +29,11 @@ export function ConfirmModal({
   variant = "destructive",
   isAlert = false,
 }: ConfirmModalProps) {
-  if (!isOpen) return null;
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const getIcon = () => {
     switch (variant) {
@@ -61,10 +66,10 @@ export function ConfirmModal({
     return "default";
   };
 
-  return (
+  const content = (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 sm:p-6">
           <motion.div
             initial={{ opacity: 0, scale: 0.95, y: 10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -128,4 +133,7 @@ export function ConfirmModal({
       )}
     </AnimatePresence>
   );
+
+  if (!mounted) return null;
+  return createPortal(content, document.body);
 }
