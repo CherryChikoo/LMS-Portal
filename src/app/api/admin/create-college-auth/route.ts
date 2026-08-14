@@ -1,9 +1,7 @@
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { prisma } from "@/lib/prisma";
 import { getErrorMessage } from '@/lib/utils/error';
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminAuth } from "@/lib/firebase/admin";
-import { getFirestore, FieldValue } from "firebase-admin/firestore";
-
-
 
 function getErrorCode(err: unknown): string | undefined {
   if (err && typeof err === "object" && "code" in err) {
@@ -15,8 +13,11 @@ function getErrorCode(err: unknown): string | undefined {
 export async function POST(request: NextRequest) {
   let stage = "parseRequest";
   try {
+    const authHeader = request.headers.get("authorization");
+    const adminIdToken = authHeader && authHeader.startsWith("Bearer ") ? authHeader.split("Bearer ")[1] : null;
+
     const body = await request.json().catch(() => ({}));
-    const { adminIdToken, email, password, collegeId, collegeName } = body;
+    const { email, password, collegeId, collegeName } = body;
 
     if (!adminIdToken || typeof adminIdToken !== "string") {
       return NextResponse.json({ success: false, stage, errorCode: "auth/missing-token", message: "Admin authorization token is required." }, { status: 401 });
@@ -32,24 +33,30 @@ export async function POST(request: NextRequest) {
     }
 
     stage = "verifyAdminToken";
-    const auth = getAdminAuth();
-    let decodedToken;
-    try {
-      decodedToken = await auth.verifyIdToken(adminIdToken);
-    } catch (err) {
-      return NextResponse.json({ success: false, stage, errorCode: getErrorCode(err), message: "Invalid or expired admin session.", details: getErrorMessage(err) }, { status: 401 });
+    const { data: { user: adminUser }, error: verifyError } = await supabaseAdmin.auth.getUser(adminIdToken);
+    
+    if (verifyError || !adminUser) {
+      return NextResponse.json({ success: false, stage, errorCode: getErrorCode(verifyError), message: "Invalid or expired admin session.", details: getErrorMessage(verifyError) }, { status: 401 });
     }
 
     stage = "verifyAdminRole";
-    const db = getFirestore();
-    const requesterUid = decodedToken.uid;
-    const requesterDoc = await db.collection("users").doc(requesterUid).get();
-    if (!requesterDoc.exists) {
+    const requesterUid = adminUser.id;
+    const requesterDoc = await prisma.users.findFirst({ 
+      where: { 
+        OR: [
+          { id: requesterUid },
+          { authId: requesterUid }
+        ]
+      }, 
+      select: { role: true } 
+    });
+    
+    if (!requesterDoc) {
       return NextResponse.json({ success: false, stage, errorCode: "permission-denied", message: "Admin user not found in database." }, { status: 403 });
     }
 
-    const requesterRole = requesterDoc.data()?.role;
-    if (requesterRole !== "admin" && requesterRole !== "trainer" && requesterRole !== "main_admin") {
+    const requesterRole = requesterDoc.role;
+    if (requesterRole !== "admin" && requesterRole !== "trainer" && requesterRole !== "main_admin" && requesterRole !== "superadmin") {
       return NextResponse.json({ success: false, stage, errorCode: "permission-denied", message: "Only admins or trainers can create college accounts." }, { status: 403 });
     }
 
@@ -57,60 +64,38 @@ export async function POST(request: NextRequest) {
     const normalizedEmail = email.toLowerCase().trim();
     const displayName = `${collegeName.trim()} Admin`;
     
-    // Pre-flight Firestore Check across all relevant collections  
-    const [existingUsersSnapshot, existingStudentsSnapshot] = await Promise.all([
-      db.collection("users").where("email", "==", normalizedEmail).get(),
-      db.collection("students").where("email", "==", normalizedEmail).get()
-    ]);
-    // Filter for ACTIVE records only
-    const activeUsers = existingUsersSnapshot.docs.filter(doc => {
-      const data = doc.data();
-      return data.isActive !== false && data.isDeleted !== true;
-    });
+    // Pre-flight Prisma Check across all relevant collections  
+    const existingUser = await prisma.users.findFirst({ where: { email: normalizedEmail }, select: { id: true } });
+    const existingStudent = await prisma.students.findFirst({ where: { users: { email: normalizedEmail } }, select: { id: true } });
     
-    const activeStudents = existingStudentsSnapshot.docs.filter(doc => {
-      const data = doc.data();
-      return data.isActive !== false && data.isDeleted !== true;
-    });
-    
-    if (activeUsers.length > 0 || activeStudents.length > 0) {
+    if (existingUser || existingStudent) {
       return NextResponse.json({ 
         success: false, 
         stage, 
-        errorCode: "firestore/email-already-exists", 
+        errorCode: "database/email-already-exists", 
         message: "This email is already registered to an existing active account/college." 
       }, { status: 409 });
     }
 
-    try {
-      const existingAuthUser = await auth.getUserByEmail(normalizedEmail);
-      return NextResponse.json({ success: false, stage, errorCode: "auth/email-already-exists", message: "An account with this email already exists in Firebase Auth." }, { status: 409 });
-    } catch (err) {
-      if (getErrorCode(err) !== "auth/user-not-found") {
-        return NextResponse.json({ success: false, stage, errorCode: getErrorCode(err), message: "Could not verify email uniqueness.", details: getErrorMessage(err), retryable: true }, { status: 500 });
-      }
-    }
-
     stage = "createAuthUser";
-    let authUser = null;
-    try {
-      authUser = await auth.createUser({
-        email: normalizedEmail,
-        password: password,
-        displayName: displayName,
-      });
-    } catch (authErr) {
-      if (getErrorCode(authErr) === "auth/email-already-exists") {
+    const { data: authUser, error: authErr } = await supabaseAdmin.auth.admin.createUser({
+      email: normalizedEmail,
+      password: password,
+      email_confirm: true,
+      user_metadata: { full_name: displayName, role: 'college_admin', collegeId: collegeId },
+    });
+
+    if (authErr) {
+      if (authErr.message.includes("already exists") || authErr.message.includes("unique")) {
         return NextResponse.json({ success: false, stage, errorCode: "auth/email-already-exists", message: "An account with this email address already exists." }, { status: 409 });
       }
       return NextResponse.json(
-        { success: false, stage, errorCode: getErrorCode(authErr), message: "Failed to create Firebase Auth account.", details: getErrorMessage(authErr), retryable: true },
+        { success: false, stage, errorCode: getErrorCode(authErr), message: "Failed to create Supabase Auth account.", details: getErrorMessage(authErr), retryable: true },
         { status: 500 }
       );
     }
 
-    const uid = authUser.uid;
-    const now = FieldValue.serverTimestamp();
+    const uid = authUser.user.id;
 
     const userDoc = {
       id: uid,
@@ -118,23 +103,19 @@ export async function POST(request: NextRequest) {
       displayName: displayName,
       role: "college_admin",
       collegeId: collegeId,
-      collegeName: collegeName.trim(),
-      isActive: true,
-      createdAt: now,
-      updatedAt: now,
     };
 
-    stage = "createFirestoreDocument";
+    stage = "createDatabaseDocument";
     try {
-      await auth.setCustomUserClaims(uid, { role: "college_admin", collegeId: collegeId });
-      await db.collection("users").doc(uid).set(userDoc);
-      console.log(`[CreateCollege] ✅ Created Firestore doc: ${uid}`);
-      console.log(`[CreateCollege] 🎉 SUCCESS!\n`);
+      await prisma.users.create({ data: userDoc });
+      
+      console.log(`[CreateCollege] ✅ Created database doc: ${uid}`);
+      console.log(`[CreateCollege] 🎉 SUCCESS!`);
     } catch (dbErr) {
-      console.error("[CreateCollege] ❌ Firestore write failed:", dbErr);
+      console.error("[CreateCollege] ❌ Database write failed:", dbErr);
       stage = "rollbackAuthUser";
       try {
-        await auth.deleteUser(uid);
+        await supabaseAdmin.auth.admin.deleteUser(uid);
         console.log(`[CreateCollege] ✅ Rolled back Auth user`);
       } catch (rollbackErr) {
         console.error("[CreateCollege] ❌ CRITICAL: Rollback failed:", rollbackErr);
@@ -155,4 +136,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, stage: "unhandledException", errorCode: getErrorCode(err), message: "Internal server error.", details: getErrorMessage(err), retryable: true }, { status: 500 });
   }
 }
-

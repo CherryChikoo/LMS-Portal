@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminFirestore } from "@/lib/firebase/admin";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { prisma } from "@/lib/prisma";
 
 const cleanSlug = (v?: string | null): string =>
   v ? String(v).trim().toLowerCase().replace(/[^a-z0-9]+/g, "") : "";
@@ -19,39 +20,51 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Invalid college name" }, { status: 400 });
     }
 
-    const db = getAdminFirestore();
+    // Check if a college already exists by name (case-insensitive)
+    const existingByName = await prisma.colleges.findFirst({
+      where: {
+        name: {
+          equals: lowerName,
+          mode: 'insensitive'
+        }
+      }
+    });
 
-    // Check if a college already exists by name (case-insensitive) to avoid duplicate documents
-    // This handles the case where bulk import created "col-college-1" and self-registration tries to create "college1"
-    const existingByName = await db.collection("colleges")
-      .where("name", "==", lowerName)
-      .limit(1)
-      .get();
-
-    if (!existingByName.empty) {
-      // College already exists (created by bulk import or admin), don't create a duplicate
-      const existing = existingByName.docs[0];
-      return NextResponse.json({ success: true, slug: existing.id, lowerName, alreadyExists: true });
+    if (existingByName) {
+      return NextResponse.json({ success: true, slug: existingByName.id, lowerName, alreadyExists: true });
     }
 
-    // Also check by the slug-based doc ID
-    const collegeRef = db.collection("colleges").doc(slug);
-    const docSnap = await collegeRef.get();
+    // Check by slug-based ID
+    const docSnap = await prisma.colleges.findUnique({ where: { id: slug } });
     
-    if (!docSnap.exists) {
-      await collegeRef.set({
-        id: slug,
-        name: lowerName,
-        type: "external",
-        createdAt: new Date(),
-        updatedAt: new Date()
-      });
-      console.log(`[API] register-college: Created new external college doc for ${slug}`);
+    if (docSnap) {
+      return NextResponse.json({ success: true, slug, lowerName, alreadyExists: true });
     }
 
-    return NextResponse.json({ success: true, slug, lowerName });
+    // Create if it doesn't exist
+    await prisma.colleges.create({
+      data: {
+        id: slug,
+        name: collegeName,
+        code: slug.substring(0, 6).toUpperCase(),
+        departments: ["General"],
+        studentCount: 0,
+        status: "active",
+        type: "external",
+        isDeleted: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        branding: {
+          companyName: collegeName,
+          companySubtitle: "College Portal",
+          logoBase64: "",
+        },
+      }
+    });
+
+    return NextResponse.json({ success: true, slug, lowerName, created: true });
   } catch (error) {
-    console.error("[API] register-college error:", error);
+    console.error("Error creating college document:", error);
     return NextResponse.json({ success: false, error: "Internal Server Error" }, { status: 500 });
   }
 }

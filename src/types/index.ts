@@ -82,6 +82,9 @@ export interface Student {
   enrollmentNo?: string;
   batchIds?: string[];
   batchId?: string;
+  batchNames?: string[];
+  batches?: Array<{ id: string; name: string; department?: string; section?: string }>;
+  batchCount?: number;
   photoURL?: string;
   mustChangePassword?: boolean;
   initialPassword?: string;

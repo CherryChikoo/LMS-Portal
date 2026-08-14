@@ -1,10 +1,10 @@
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import 'server-only';
 import { getErrorMessage } from '@/lib/utils/error';
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminAuth, getAdminApp } from "@/lib/firebase/admin";
-import { getFirestore } from "firebase-admin/firestore";
 import { z } from "zod";
 import { bulkDeleteByQuery, deleteStorageDirectory } from '@/lib/services/cleanup-service';
+import { prisma } from '@/lib/prisma';
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60; // Allow up to 60 seconds for bulk deletion on Vercel
@@ -24,22 +24,32 @@ export async function POST(request: NextRequest) {
     const adminIdToken = authHeader.split("Bearer ")[1];
 
     stage = "verifyAdminToken";
-    const auth = getAdminAuth();
-    let decodedToken;
-    try {
-      decodedToken = await auth.verifyIdToken(adminIdToken);
-    } catch (err: unknown) {
+    const { data: { user: adminUser }, error: verifyError } = await supabaseAdmin.auth.getUser(adminIdToken);
+    
+    if (verifyError || !adminUser) {
       return NextResponse.json({ success: false, stage, errorCode: "invalid-token", message: "Invalid or expired admin session." }, { status: 401 });
     }
 
-    const requesterUid = decodedToken.uid;
-    const db = getFirestore(getAdminApp());
+    const requesterUid = adminUser.id;
 
-    stage = "verifyAdminRole";
-    const requesterDoc = await db.collection("users").doc(requesterUid).get();
-    const requesterRole = requesterDoc.exists ? requesterDoc.data()?.role : undefined;
+    const requesterDoc = await prisma.users.findFirst({ 
+      where: { 
+        OR: [
+          { id: requesterUid },
+          { authId: requesterUid }
+        ]
+      }, 
+      select: { role: true } 
+    });
+    const requesterError = null;
     
-    if (requesterRole !== "main_admin" && requesterRole !== "admin" && requesterRole !== "trainer") {
+    if (!requesterDoc || requesterError) {
+      console.error("delete-college: Admin user not found for UID:", requesterUid);
+      return NextResponse.json({ success: false, stage, errorCode: "permission-denied", message: `Admin user not found in database for UID: ${requesterUid}` }, { status: 403 });
+    }
+
+    const requesterRole = requesterDoc.role;
+    if (requesterRole !== "main_admin" && requesterRole !== "admin" && requesterRole !== "trainer" && requesterRole !== "superadmin") {
       return NextResponse.json({ success: false, stage, errorCode: "permission-denied", message: "Only admin or trainer roles can delete colleges." }, { status: 403 });
     }
 
@@ -54,40 +64,48 @@ export async function POST(request: NextRequest) {
 
     console.log(`[DeleteCollege] Starting full cascade deletion for college: ${collegeId}`);
 
-    // STEP 1: Delete Firebase Auth accounts for students and college admin
+    // STEP 1: Delete Supabase Auth accounts for students and college admin
     stage = "deleteAuthUsers";
     
     let studentUidsToDelete = parseResult.data.studentUids || [];
+    let authUidsToDelete: string[] = [];
     
     if (studentUidsToDelete.length === 0) {
-      let studentsSnap = await db.collection("students").where("collegeId", "==", collegeId).get();
-      if (studentsSnap.empty) {
-        studentsSnap = await db.collection("students").where("collegeName", "==", collegeId).get();
-      }
-      studentUidsToDelete = studentsSnap.docs.map(d => d.id);
+      let studentsSnap = await prisma.students.findMany({ where: { collegeId }, select: { id: true, authId: true } });
+      studentUidsToDelete = studentsSnap.map(d => d.id);
+      authUidsToDelete = studentsSnap.map(d => d.authId || d.id).filter(id => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id));
+    } else {
+      let studentsSnap = await prisma.students.findMany({ where: { id: { in: studentUidsToDelete } }, select: { id: true, authId: true } });
+      authUidsToDelete = studentsSnap.map(d => d.authId || d.id).filter(id => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id));
     }
 
-    console.log(`[DeleteCollege] Found ${studentUidsToDelete.length} students to delete from Auth`);
+    console.log(`[DeleteCollege] Found ${authUidsToDelete.length} students to delete from Auth`);
     
-    // Chunk Auth deletes in batches of 1000 (Firebase Admin limit)
-    for (let i = 0; i < studentUidsToDelete.length; i += 1000) {
-      const chunk = studentUidsToDelete.slice(i, i + 1000);
+    // Chunk Auth deletes to avoid rate limits
+    for (let i = 0; i < authUidsToDelete.length; i += 50) {
+      const chunk = authUidsToDelete.slice(i, i + 50);
       try {
-        await auth.deleteUsers(chunk);
+        await Promise.all(chunk.map(uid => supabaseAdmin.auth.admin.deleteUser(uid)));
       } catch (err) {
         console.error(`[DeleteCollege] Warning: Failed to delete some auth users in chunk:`, err);
       }
     }
 
     // Delete college admin auth
-    const collegeDoc = await db.collection("colleges").doc(collegeId).get();
-    if (collegeDoc.exists) {
-      const adminEmail = collegeDoc.data()?.adminEmail;
+    const collegeDoc = await prisma.colleges.findUnique({ where: { id: collegeId }, select: { adminEmail: true } });
+    if (collegeDoc) {
+      const adminEmail = collegeDoc.adminEmail;
       if (adminEmail) {
         try {
-          const adminUser = await auth.getUserByEmail(adminEmail);
-          await auth.deleteUser(adminUser.uid);
-          await db.collection("users").doc(adminUser.uid).delete();
+          // Find the admin user in users table
+          const adminUserDoc = await prisma.users.findFirst({ where: { email: adminEmail }, select: { id: true, authId: true } });
+          if (adminUserDoc) {
+            const adminAuthId = adminUserDoc.authId || adminUserDoc.id;
+            if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(adminAuthId)) {
+              await supabaseAdmin.auth.admin.deleteUser(adminAuthId);
+            }
+            await prisma.users.delete({ where: { id: adminUserDoc.id } });
+          }
         } catch (e) {
           // Ignore if admin user doesn't exist in auth
         }
@@ -96,42 +114,37 @@ export async function POST(request: NextRequest) {
 
     // STEP 2: Bulk Delete Collections directly associated with the college
     stage = "deleteCollections";
-    const collections = ["users", "students", "resources", "doubts", "trainer_notes", "batches", "departments", "courses"];
+    const collections = ["users", "students", "resources", "doubts", "trainer_notes", "batches", "student_batches"];
     
     if (parseResult.data.studentUids && parseResult.data.studentUids.length > 0) {
        // Only delete the explicitly specified students and their resources
        const explicitUids = parseResult.data.studentUids;
-       const bulkWriter = db.bulkWriter();
-       for (const uid of explicitUids) {
-          bulkWriter.delete(db.collection("students").doc(uid));
-          bulkWriter.delete(db.collection("users").doc(uid));
-          // For nested resources, we'd need to delete by authorId/studentId, but for simplicity we rely on bulkDeleteByQuery below.
+       
+       // Chunk the deletes since POSTGREST has URL length limits for .in()
+       for (let i = 0; i < explicitUids.length; i += 100) {
+         const chunk = explicitUids.slice(i, i + 100);
+         await prisma.students.deleteMany({ where: { id: { in: chunk } } });
+         await prisma.users.deleteMany({ where: { id: { in: chunk } } });
        }
-       await bulkWriter.close();
     }
 
     for (const col of collections) {
-      await bulkDeleteByQuery(col, "collegeId", "==", collegeId);
-      // Fallback for older schemas
-      await bulkDeleteByQuery(col, "collegeName", "==", collegeId);
+      try {
+        await bulkDeleteByQuery(col, "collegeId", "==", collegeId);
+      } catch (e) {}
     }
 
     // STEP 3: Delete Exams and their nested results/questions
     stage = "deleteExams";
-    let examsSnap = await db.collection("exams").where("collegeId", "==", collegeId).get();
-    if (examsSnap.empty) {
-      examsSnap = await db.collection("exams").where("collegeName", "==", collegeId).get();
-    }
+    let examsSnap = await prisma.exams.findMany({ where: { collegeId }, select: { id: true } });
 
-    console.log(`[DeleteCollege] Found ${examsSnap.size} exams to delete`);
-    const bulkWriter = db.bulkWriter();
+    console.log(`[DeleteCollege] Found ${examsSnap.length} exams to delete`);
     
-    for (const examDoc of examsSnap.docs) {
+    for (const examDoc of examsSnap) {
       await bulkDeleteByQuery("exam_results", "examId", "==", examDoc.id);
       await bulkDeleteByQuery("questions", "examId", "==", examDoc.id);
-      bulkWriter.delete(examDoc.ref);
+      await prisma.exams.delete({ where: { id: examDoc.id } });
     }
-    await bulkWriter.close();
 
     // STEP 4: Delete College Storage Directory
     stage = "deleteStorage";
@@ -139,11 +152,13 @@ export async function POST(request: NextRequest) {
 
     // STEP 5: Delete College Document
     stage = "deleteCollegeDoc";
-    if (collegeDoc.exists) {
-      await db.collection("colleges").doc(collegeId).delete();
+    if (collegeDoc) {
+      await prisma.colleges.deleteMany({ where: { id: collegeId } });
     }
     // Cleanup any fallback docs
-    await bulkDeleteByQuery("colleges", "name", "==", collegeId);
+    try {
+      await prisma.colleges.deleteMany({ where: { name: collegeId } });
+    } catch(e) {}
 
     console.log(`[DeleteCollege] Completed deletion successfully for: ${collegeId}`);
     return NextResponse.json({ success: true, done: true, message: "College deleted successfully." });

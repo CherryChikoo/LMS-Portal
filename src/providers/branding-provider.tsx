@@ -2,10 +2,11 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { usePathname } from "next/navigation";
-import { doc, onSnapshot, getDoc, getDocuments, where } from "@/lib/firebase/firestore";
-import { db, auth } from "@/lib/firebase/config";
+import { supabase } from "@/lib/supabase/client";
 import { CompanyBranding, subscribeToCompanyBranding, getCompanyBranding } from "@/lib/services/branding-service";
 import { getCurrentUser } from "@/lib/utils/auth-session";
+
+import { fetchCollegeByIdAction } from "@/lib/actions/college-actions";
 
 export interface BrandingContextType {
   branding: CompanyBranding;
@@ -48,9 +49,10 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
 
     const initBranding = async () => {
       try {
-        await getCurrentUser(); // Ensure Firebase Auth is fully initialized to prevent permission errors
+        await getCurrentUser();
         
-        if (!auth.currentUser) {
+        const { data: authData } = await supabase.auth.getUser();
+        if (!authData.user) {
           const mBrand = await getCompanyBranding();
           if (!isCancelled) {
             setMasterBranding(mBrand);
@@ -59,7 +61,6 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        // Fetch master branding in parallel
         getCompanyBranding().then(mBrand => {
           if (!isCancelled) setMasterBranding(mBrand);
         });
@@ -71,19 +72,16 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
           const profile = JSON.parse(storedUser);
           const collegeId = profile.collegeId;
 
-          // Resolve exact college document ID
           if (collegeId && collegeId !== "global") {
-            const colRef = doc(db, "colleges", collegeId);
             try {
-              const snap = await getDoc(colRef);
+              const data = await fetchCollegeByIdAction(collegeId);
               if (isCancelled) return;
-              if (snap.exists()) {
-                const data = snap.data();
+              if (data) {
                 const officialColName = data.name?.trim() || profile.collegeName?.trim() || "College Portal";
                 const cBrand: CompanyBranding = {
                   companyName: officialColName,
-                  companySubtitle: data.branding?.companySubtitle?.trim() || `${officialColName} Portal`,
-                  logoBase64: data.branding?.logoBase64 || "",
+                  companySubtitle: (data.branding as any)?.companySubtitle?.trim() || `${officialColName} Portal`,
+                  logoBase64: (data.branding as any)?.logoBase64 || "",
                 };
                 setTenantBranding(cBrand);
                 localStorage.setItem("lms_college_branding", JSON.stringify({ collegeId: collegeId, branding: cBrand }));
@@ -115,10 +113,12 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
     };
 
     window.addEventListener("storage", handleStorageChange);
+    window.addEventListener("lms_branding_updated", initBranding);
 
     return () => {
       isCancelled = true;
       window.removeEventListener("storage", handleStorageChange);
+      window.removeEventListener("lms_branding_updated", initBranding);
     };
   }, []);
 

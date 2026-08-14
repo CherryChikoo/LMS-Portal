@@ -20,7 +20,7 @@ import { useEntityResolution } from "@/lib/data/use-entity-resolution";
 import type { Resource, ResourceType, AssignmentTarget, Student } from "@/types";
 
 export default function ResourcesPage() {
-  const { filteredResources: resources, loading } = useLMSData();
+  const { filteredResources: resources, students, loading } = useLMSData();
   const [userRole, setUserRole] = useState<string>("student");
   const [mounted, setMounted] = useState(false);
   
@@ -160,24 +160,50 @@ export default function ResourcesPage() {
     if (userRole !== "student") {
       return (resources as Resource[]).filter((res: Resource) => {
         const t = res.targets?.[0];
-        const tCol = res.collegeId || t?.collegeId;
-        const isGlobal = !tCol || tCol === "global" || tCol === "GLOBAL" || tCol === "all" || tCol === "ALL";
         
-        // Global resources always show in the admin dashboard regardless of the local filter
-        if (isGlobal) return true;
-
-        if (resourceFilters.collegeId) {
+        // 1. Institution / College filter
+        if (resourceFilters.collegeId && resourceFilters.collegeId !== "ALL" && resourceFilters.collegeId !== "global" && resourceFilters.collegeId !== "GLOBAL") {
           const matchesRoot = res.collegeId === resourceFilters.collegeId;
-          const matchesCollege = matchesRoot || res.targets?.some(target => 
+          const matchesTarget = res.targets?.some(target => 
             target.collegeId === resourceFilters.collegeId || 
             target.ids?.includes(resourceFilters.collegeId)
           );
-          if (!matchesCollege) return false;
+          if (!matchesRoot && !matchesTarget) {
+            const hasExplicitCollege = !!(res.collegeId || t?.collegeId);
+            if (hasExplicitCollege) return false;
+          }
         }
-        if (resourceFilters.department && t?.department !== resourceFilters.department) return false;
-        if (resourceFilters.academicYear && t?.academicYear !== resourceFilters.academicYear) return false;
-        if (resourceFilters.section && t?.section !== resourceFilters.section) return false;
-        if (resourceFilters.batchId && t?.batchId !== resourceFilters.batchId) return false;
+
+        // 2. Department filter
+        if (resourceFilters.department && resourceFilters.department !== "ALL") {
+          if (t?.department && t.department.toLowerCase() !== resourceFilters.department.toLowerCase()) {
+            return false;
+          }
+        }
+
+        // 3. Academic Year filter
+        if (resourceFilters.academicYear && resourceFilters.academicYear !== "ALL") {
+          if (t?.academicYear && t.academicYear.toLowerCase() !== resourceFilters.academicYear.toLowerCase()) {
+            return false;
+          }
+        }
+
+        // 4. Section filter
+        if (resourceFilters.section && resourceFilters.section !== "ALL") {
+          if (t?.section && t.section.toLowerCase() !== resourceFilters.section.toLowerCase()) {
+            return false;
+          }
+        }
+
+        // 5. Batch filter
+        if (resourceFilters.batchId && resourceFilters.batchId !== "ALL") {
+          const filterBatch = resourceFilters.batchId.toLowerCase();
+          const tBatchId = t?.batchId?.toLowerCase();
+          const tBatchName = t?.batchName?.toLowerCase();
+          if (!tBatchId && !tBatchName) return false;
+          if (tBatchId !== filterBatch && tBatchName !== filterBatch) return false;
+        }
+
         return true;
       });
     }

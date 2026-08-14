@@ -4,10 +4,8 @@ import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "motion/react";
 import { Building2, Upload, X, Check } from "lucide-react";
-import { doc, setDoc, serverTimestamp, getDocuments } from "@/lib/firebase/firestore";
-import { db } from "@/lib/firebase/config";
 import { updateCompanyBranding } from "@/lib/services/branding-service";
-import { updateCollege, renameCollegeAndMigrate } from "@/lib/services/college-service";
+import { updateCollege, renameCollegeAndMigrate, getAllColleges } from "@/lib/services/college-service";
 import { useBranding } from "@/providers/branding-provider";
 import { APP_NAME } from "@/lib/constants";
 
@@ -54,7 +52,7 @@ export function BrandingModal({ isOpen, onClose }: BrandingModalProps) {
       const userRole = localStorage.getItem("lms_role") || u?.role;
 
       if (userRole === "college_admin" || (cId && cId !== "global")) {
-        const allCols = await getDocuments<import("@/types").College>("colleges");
+        const allCols = await getAllColleges();
         const cleanSlug = (v?: string) => (v ? String(v).trim().toLowerCase().replace(/[^a-z0-9]+/g, "") : "");
         const searchSlug = cleanSlug(cId || u?.collegeName || editName);
         const searchEmail = (u?.email || "").toLowerCase().trim();
@@ -69,25 +67,19 @@ export function BrandingModal({ isOpen, onClose }: BrandingModalProps) {
         const targetColId = colDoc ? colDoc.id : cId;
         if (!targetColId) throw new Error("No college ID associated with this admin.");
 
-        const collegeRef = doc(db, "colleges", targetColId);
         const newCollegeName = editName.trim().toLowerCase();
 
         const cBrand = {
           companyName: editName.trim(),
           companySubtitle: editSubtitle.trim() || "College Portal",
           logoBase64: editLogo,
-          updatedAt: serverTimestamp(),
+          updatedAt: new Date().toISOString(),
         };
 
-        await setDoc(
-          collegeRef,
-          {
-            name: newCollegeName,
-            branding: cBrand,
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        );
+        await updateCollege(targetColId, {
+          name: newCollegeName,
+          branding: cBrand,
+        });
 
         // Migrate all students, users, exams, and resources to the new lower-case college name
         if (colDoc && colDoc.name && colDoc.name.toLowerCase() !== newCollegeName) {
@@ -104,12 +96,16 @@ export function BrandingModal({ isOpen, onClose }: BrandingModalProps) {
 
         localStorage.setItem("lms_college_branding", JSON.stringify({ collegeId: targetColId, branding: cBrand }));
         window.dispatchEvent(new Event("storage"));
+        window.dispatchEvent(new Event("lms_branding_updated"));
       } else {
         await updateCompanyBranding({
           companyName: editName.trim(),
           companySubtitle: editSubtitle.trim(),
           logoBase64: editLogo,
         });
+        localStorage.removeItem("lms_college_branding");
+        window.dispatchEvent(new Event("storage"));
+        window.dispatchEvent(new Event("lms_branding_updated"));
       }
       onClose();
     } catch (err) {
@@ -239,23 +235,17 @@ export function BrandingModal({ isOpen, onClose }: BrandingModalProps) {
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold">
                   {typeof window !== "undefined" && localStorage.getItem("lms_role") === "college_admin" 
-                    ? "College Name (Set by Admin)" 
+                    ? "College Name" 
                     : "Company / Portal Name"}
                 </label>
-                {typeof window !== "undefined" && localStorage.getItem("lms_role") === "college_admin" ? (
-                  <div className="w-full h-10 px-3 flex items-center rounded-xl border border-border/80 bg-muted/30 text-sm font-bold text-foreground capitalize">
-                    {editName || branding.companyName || userCollegeName || "College"}
-                  </div>
-                ) : (
-                  <input
-                    type="text"
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    required
-                    placeholder="e.g. Acme Institute LMS"
-                    className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-brand/50"
-                  />
-                )}
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  required
+                  placeholder="e.g. Acme Institute"
+                  className="w-full h-10 px-3 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-brand/50"
+                />
               </div>
 
               <div className="space-y-1.5">
@@ -287,7 +277,7 @@ export function BrandingModal({ isOpen, onClose }: BrandingModalProps) {
                   ) : (
                     <>
                       <Check className="w-3.5 h-3.5" />
-                      <span>Save to Firebase</span>
+                      <span>Save</span>
                     </>
                   )}
                 </button>

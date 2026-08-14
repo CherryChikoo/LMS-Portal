@@ -39,18 +39,21 @@ import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { fadeInUp, staggerContainer, staggerItem } from "@/lib/animations";
-import { auth, db } from "@/lib/firebase/config";
-import {
-  updateProfile,
-  updatePassword as firebaseUpdatePassword,
-  EmailAuthProvider,
-  reauthenticateWithCredential,
-  getIdToken,
-} from "firebase/auth";
-import { setDoc, doc, getDoc, onSnapshot, getDocuments, where, deleteDocument, serverTimestamp, writeBatch } from "@/lib/firebase/firestore";
-import { deleteField } from "firebase/firestore";
+import { supabase } from "@/lib/supabase/client";
+import { 
+  updateStudentSettingsAction, 
+  updateUserSettingsAction, 
+  syncExamResultsNameAction, 
+  getStudentsByEmailAction, 
+  getUsersByEmailAction, 
+  deleteStudentByIdAction, 
+  deleteUserByIdAction,
+  updateCollegeSettingsAction
+} from "@/lib/actions/settings-actions";
+import { getStudentByIdAction } from "@/lib/actions/auth-actions";
+
 import { subscribeToCompanyBranding, updateCompanyBranding, type CompanyBranding } from "@/lib/services/branding-service";
-import { getCollegeById, updateCollege } from "@/lib/services/college-service";
+import { getCollegeById, updateCollege, renameCollegeAndMigrate } from "@/lib/services/college-service";
 import { formatAuthError } from "@/lib/services/auth-service";
 
 function StudentAccountSettings() {
@@ -72,17 +75,21 @@ function StudentAccountSettings() {
   const [pwdSuccess, setPwdSuccess] = useState(false);
   const [pwdError, setPwdError] = useState<string | null>(null);
   const pwdSuccessTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const [hasPasswordProvider, setHasPasswordProvider] = useState(() => {
-    return auth.currentUser?.providerData.some((p) => p.providerId === "password") ?? true;
-  });
+  const [hasPasswordProvider, setHasPasswordProvider] = useState(true);
 
   useEffect(() => {
-    const unsubAuth = auth.onAuthStateChanged((user) => {
-      if (user) {
-        setHasPasswordProvider(user.providerData.some((p) => p.providerId === "password"));
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user) {
+        setHasPasswordProvider(data.user.app_metadata.providers?.includes("email") ?? true);
       }
     });
-    return () => unsubAuth();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
+        setHasPasswordProvider(session.user.app_metadata.providers?.includes("email") ?? true);
+      }
+    });
+    return () => authListener.subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -91,7 +98,6 @@ function StudentAccountSettings() {
       const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
       if (uStr) {
         const u = JSON.parse(uStr);
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- loading saved profile from localStorage on mount
         if (u.name) setName(u.name);
         if (u.email) setEmail(u.email);
         if (u.department || u.branch) setDepartment(u.department || u.branch);
@@ -104,13 +110,12 @@ function StudentAccountSettings() {
         }
 
         if (u.id) {
-          unsub = onSnapshot(doc(db, "students", u.id), (snap) => {
-            if (snap.exists()) {
-              const d = snap.data();
-
-              // While the user is actively saving the profile, ignore Firestore snapshot
-              // updates for the email field to prevent a brief flash of the old email.
-              if (!isSavingProfileRef.current) {
+          const channel = supabase.channel('student-changes').on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'students', filter: `id=eq.${u.id}` },
+            (payload) => {
+              const d = payload.new as any;
+              if (d && !isSavingProfileRef.current) {
                 if (d.name) setName(d.name);
                 if (d.email) {
                   setEmail(d.email);
@@ -127,7 +132,8 @@ function StudentAccountSettings() {
                 window.dispatchEvent(new Event("storage"));
               }
             }
-          });
+          ).subscribe();
+          unsub = () => supabase.removeChannel(channel);
         }
       }
     } catch { /* ignore */ }
@@ -147,88 +153,67 @@ function StudentAccountSettings() {
       const cleanEmail = email.toLowerCase().trim();
       const oldEmail = originalEmail || (u.email || "").toLowerCase().trim();
       const emailChanged = oldEmail !== "" && cleanEmail !== oldEmail;
-      const primaryId = u.id || (auth.currentUser ? auth.currentUser.uid : "");
+      
+      const { data: authData } = await supabase.auth.getUser();
+      const currentUser = authData?.user;
+      const primaryId = u.id || (currentUser ? currentUser.id : "");
 
       if (!primaryId) {
         throw new Error("Unable to identify your account. Please sign in again.");
       }
 
-      // 1. Update non-email profile fields first (always allowed)
       const baseUpdateData = {
         name,
         displayName: name,
-        department,
         rollNumber,
-        collegeName: college,
         phone,
         updatedAt: new Date().toISOString()
       };
 
-      const batch = writeBatch(db);
-      batch.set(doc(db, "students", primaryId), baseUpdateData, { merge: true });
-      batch.set(doc(db, "users", primaryId), baseUpdateData, { merge: true });
-      await batch.commit();
+      await updateStudentSettingsAction(primaryId, baseUpdateData);
+      await updateUserSettingsAction(primaryId, baseUpdateData);
 
-      // 2. Update Firebase Auth display name when name changes
-      if (auth.currentUser && name !== u.name) {
+      if (currentUser && name !== u.name) {
         try {
-          await updateProfile(auth.currentUser, { displayName: name });
-           
+          await supabase.auth.updateUser({ data: { full_name: name } });
         } catch (profileErr: unknown) {
-          console.warn("Could not update Firebase Auth display name:", profileErr);
+          console.warn("Could not update Supabase Auth display name:", profileErr);
         }
       }
 
-      // 2b. Sync updated name into all past exam results so transcripts reflect current details
       if (name !== u.name && primaryId) {
         try {
-          const results = await getDocuments("exam_results", [where("studentId", "==", primaryId)]);
-          const resultsBatch = writeBatch(db);
-          results.data.forEach((r: any) =>
-            resultsBatch.set(doc(db, "exam_results", r.id), { studentName: name, updatedAt: new Date() }, { merge: true })
-          );
-          await resultsBatch.commit();
-           
+          await syncExamResultsNameAction(primaryId, name);
         } catch (syncErr: unknown) {
           console.warn("Could not sync name to past results:", syncErr);
         }
       }
 
-      // 3. Handle login email change separately (requires password reauthentication)
       if (emailChanged) {
-        // Uniqueness checks in Firestore (primary source of truth for this app).
-        // Note: Google/social accounts that exist in Firebase Auth but have no Firestore
-        // record cannot be detected client-side without a mail service or Admin SDK.
-        const existingStudents = await getDocuments("students", [where("email", "==", cleanEmail)]);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if (existingStudents.data.some((sDoc: any) => sDoc.id !== primaryId)) {
+        const existingStudents = await getStudentsByEmailAction(cleanEmail);
+        if (existingStudents && existingStudents.some((sDoc: any) => sDoc.id !== primaryId)) {
           throw new Error("This email address is already registered to another student.");
         }
 
-        const existingUsers = await getDocuments("users", [where("email", "==", cleanEmail)]);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if (existingUsers.data.some((uDoc: any) => uDoc.id !== primaryId)) {
+        const existingUsers = await getUsersByEmailAction(cleanEmail);
+        if (existingUsers && existingUsers.some((uDoc: any) => uDoc.id !== primaryId)) {
           throw new Error("This email address is already registered to another account.");
         }
 
-        if (!auth.currentUser) {
-          // Demo / fallback user without a live Firebase Auth session: update Firestore only.
-          const fallbackBatch = writeBatch(db);
-          fallbackBatch.set(doc(db, "students", primaryId), { email: cleanEmail }, { merge: true });
-          fallbackBatch.set(doc(db, "users", primaryId), { email: cleanEmail }, { merge: true });
-          await fallbackBatch.commit();
+        if (!currentUser) {
+          await updateStudentSettingsAction(primaryId, { email: cleanEmail });
+          await updateUserSettingsAction(primaryId, { email: cleanEmail });
 
-          // Delete old duplicate records that still reference the previous email
-          const oldStudents = await getDocuments("students", [where("email", "==", oldEmail)]);
-          for (const sDoc of oldStudents.data) {
-            if (sDoc.id !== primaryId) {
-              await deleteDocument("students", sDoc.id);
+          const oldStudents = await getStudentsByEmailAction(oldEmail);
+          if (oldStudents) {
+            for (const sDoc of oldStudents) {
+              if (sDoc.id !== primaryId) await deleteStudentByIdAction(sDoc.id);
             }
           }
-          const oldUsers = await getDocuments("users", [where("email", "==", oldEmail)]);
-          for (const uDoc of oldUsers.data) {
-            if (uDoc.id !== primaryId) {
-              await deleteDocument("users", uDoc.id);
+          const oldUsers = await getUsersByEmailAction(oldEmail);
+          if (oldUsers) {
+            for (const uDoc of oldUsers) {
+              if (uDoc.id !== primaryId) await deleteUserByIdAction(uDoc.id);
             }
           }
 
@@ -238,8 +223,8 @@ function StudentAccountSettings() {
           window.dispatchEvent(new Event("storage"));
           setOriginalEmail(cleanEmail);
         } else {
-          const isPasswordProvider = auth.currentUser.providerData.some((p) => p.providerId === "password");
-          const isGoogleProvider = auth.currentUser.providerData.some((p) => p.providerId === "google.com");
+          const isPasswordProvider = currentUser.app_metadata.providers?.includes("email");
+          const isGoogleProvider = currentUser.app_metadata.providers?.includes("google");
 
           if (isGoogleProvider) {
             throw new Error("Email cannot be changed for Google sign-in accounts from this page. Please update your Google account email instead.");
@@ -254,31 +239,17 @@ function StudentAccountSettings() {
           }
 
           // Verify identity with current password before changing the email.
-          const credential = EmailAuthProvider.credential(
-            auth.currentUser.email || oldEmail,
-            currentPasswordForEmail
-          );
-          await reauthenticateWithCredential(auth.currentUser, credential);
-
-          // Get a fresh ID token and update the login email via the secure Admin SDK endpoint.
-          const idToken = await getIdToken(auth.currentUser, true);
-          const response = await fetch("/api/update-email", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ idToken, newEmail: cleanEmail }),
+          const { error: signInError } = await supabase.auth.signInWithPassword({
+            email: currentUser.email || oldEmail,
+            password: currentPasswordForEmail
           });
+          if (signInError) throw new Error("Incorrect current password.");
 
-          const result = await response.json();
+          const { error: updateEmailError } = await supabase.auth.updateUser({ email: cleanEmail });
+          if (updateEmailError) throw new Error(updateEmailError.message);
 
-          if (!response.ok) {
-            throw new Error(result.error || "Failed to update login email.");
-          }
-
-          // Update Firestore records safely with merge.
-          const secureBatch = writeBatch(db);
-          secureBatch.set(doc(db, "students", primaryId), { email: cleanEmail }, { merge: true });
-          secureBatch.set(doc(db, "users", primaryId), { email: cleanEmail }, { merge: true });
-          await secureBatch.commit();
+          await updateStudentSettingsAction(primaryId, { email: cleanEmail });
+          await updateUserSettingsAction(primaryId, { email: cleanEmail });
 
           const updated = { ...u, name, email: cleanEmail, department, rollNumber, college, phone };
           localStorage.setItem("lms_user", JSON.stringify(updated));
@@ -287,7 +258,6 @@ function StudentAccountSettings() {
           setOriginalEmail(cleanEmail);
         }
       } else {
-        // No email change - sync localStorage with current values
         const updated = { ...u, name, email: oldEmail, department, rollNumber, college, phone };
         localStorage.setItem("lms_user", JSON.stringify(updated));
         localStorage.setItem("user", JSON.stringify(updated));
@@ -298,7 +268,7 @@ function StudentAccountSettings() {
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (err: unknown) {
-      const message = formatAuthError(err, "Failed to update profile.");
+      const message = formatAuthError(err);
       setProfileError(message);
     } finally {
       isSavingProfileRef.current = false;
@@ -309,7 +279,6 @@ function StudentAccountSettings() {
   const handleUpdatePwd = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Clear any pending success state/timeout from a previous attempt
     if (pwdSuccessTimeoutRef.current) {
       clearTimeout(pwdSuccessTimeoutRef.current);
       pwdSuccessTimeoutRef.current = null;
@@ -335,55 +304,50 @@ function StudentAccountSettings() {
     try {
       const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user") || "{}";
       const u = JSON.parse(uStr);
-      const primaryId = u.id || (auth.currentUser ? auth.currentUser.uid : "");
+      const { data: authData } = await supabase.auth.getUser();
+      const currentUser = authData?.user;
+      const primaryId = u.id || (currentUser ? currentUser.id : "");
 
-      if (!auth.currentUser || !primaryId) {
+      if (!currentUser || !primaryId) {
         throw new Error("Unable to verify your session. Please sign in again.");
       }
 
       if (hasPasswordProvider) {
-        // Verify current password before allowing any change
-        const credential = EmailAuthProvider.credential(
-          auth.currentUser.email || (u.email || ""),
-          curPwd
-        );
-        await reauthenticateWithCredential(auth.currentUser, credential);
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: currentUser.email || (u.email || ""),
+          password: curPwd
+        });
+        if (signInError) throw new Error("Incorrect current password.");
       }
 
-      // Update Firebase Authentication password (single source of truth)
-      await firebaseUpdatePassword(auth.currentUser, newPwd);
+      const { error: updatePwdError } = await supabase.auth.updateUser({ password: newPwd });
+      if (updatePwdError) throw new Error(updatePwdError.message);
       setHasPasswordProvider(true);
 
-      // Remove the fallback initialPassword from Firestore so only the Auth password remains valid.
-      // Delete any duplicate/old records that still reference this student.
       const pwdUpdateData = {
-        initialPassword: deleteField(),
         mustChangePassword: false,
         updatedAt: new Date().toISOString()
       };
 
-      const pwdBatch = writeBatch(db);
-      pwdBatch.set(doc(db, "students", primaryId), pwdUpdateData, { merge: true });
-      pwdBatch.set(doc(db, "users", primaryId), pwdUpdateData, { merge: true });
-      await pwdBatch.commit();
+      await updateStudentSettingsAction(primaryId, pwdUpdateData);
+      await updateUserSettingsAction(primaryId, pwdUpdateData);
 
       const targetEmail = (u.email || email).toLowerCase().trim();
       if (targetEmail) {
-        const matchingStudents = await getDocuments("students", [where("email", "==", targetEmail)]);
-        for (const sDoc of matchingStudents.data) {
-          if (sDoc.id !== primaryId) {
-            await deleteDocument("students", sDoc.id);
+        const matchingStudents = await getStudentsByEmailAction(targetEmail);
+        if (matchingStudents) {
+          for (const sDoc of matchingStudents) {
+            if (sDoc.id !== primaryId) await deleteStudentByIdAction(sDoc.id);
           }
         }
-        const matchingUsers = await getDocuments("users", [where("email", "==", targetEmail)]);
-        for (const uDoc of matchingUsers.data) {
-          if (uDoc.id !== primaryId) {
-            await deleteDocument("users", uDoc.id);
+        const matchingUsers = await getUsersByEmailAction(targetEmail);
+        if (matchingUsers) {
+          for (const uDoc of matchingUsers) {
+            if (uDoc.id !== primaryId) await deleteUserByIdAction(uDoc.id);
           }
         }
       }
 
-      // Do not store plaintext passwords in localStorage
       delete u.password;
       delete u.initialPassword;
       localStorage.setItem("lms_user", JSON.stringify(u));
@@ -396,20 +360,8 @@ function StudentAccountSettings() {
       pwdSuccessTimeoutRef.current = setTimeout(() => setPwdSuccess(false), 3000);
        
     } catch (err: unknown) {
-      const code = (err as any)?.code || "";
       const msg = (err as any)?.message || "";
-
-      if (code === "auth/wrong-password" || code === "auth/invalid-credential") {
-        setPwdError("Current password is incorrect.");
-      } else if (code === "auth/requires-recent-login") {
-        setPwdError("Your session has expired. Please sign out and sign in again before changing your password.");
-      } else if (code === "auth/weak-password") {
-        setPwdError("New password is too weak. Please choose a stronger password.");
-      } else {
-        setPwdError(msg || "Failed to update password.");
-      }
-
-      // Ensure success banner is never shown alongside an error
+      setPwdError(msg || "Failed to update password.");
       setPwdSuccess(false);
     }
   };
@@ -462,12 +414,38 @@ function StudentAccountSettings() {
               <Input value={rollNumber} onChange={(e) => setRollNumber(e.target.value)} className="h-11 rounded-xl bg-background" />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs font-bold text-muted-foreground uppercase">Department / Specialization</Label>
-              <Input value={department} onChange={(e) => setDepartment(e.target.value)} className="h-11 rounded-xl bg-background" />
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-bold text-muted-foreground uppercase flex items-center gap-1.5">
+                  <Building2 className="w-3.5 h-3.5 text-muted-foreground" /> Department / Specialization
+                </Label>
+                <span className="flex items-center gap-1 text-[10px] text-muted-foreground font-semibold uppercase tracking-wider bg-muted px-2 py-0.5 rounded">
+                  <Lock className="w-3 h-3 text-muted-foreground" /> Locked
+                </span>
+              </div>
+              <Input
+                value={department || "General"}
+                readOnly
+                disabled
+                className="h-11 rounded-xl bg-muted/40 text-muted-foreground border-border/60 cursor-not-allowed font-medium select-none"
+              />
+              <p className="text-[11px] text-muted-foreground">Assigned by academic administration and cannot be changed.</p>
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs font-bold text-muted-foreground uppercase">Institution / College</Label>
-              <Input value={college} onChange={(e) => setCollege(e.target.value)} className="h-11 rounded-xl bg-background" />
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-bold text-muted-foreground uppercase flex items-center gap-1.5">
+                  <Building2 className="w-3.5 h-3.5 text-muted-foreground" /> Institution / College
+                </Label>
+                <span className="flex items-center gap-1 text-[10px] text-muted-foreground font-semibold uppercase tracking-wider bg-muted px-2 py-0.5 rounded">
+                  <Lock className="w-3 h-3 text-muted-foreground" /> Locked
+                </span>
+              </div>
+              <Input
+                value={college || "Assigned Institution"}
+                readOnly
+                disabled
+                className="h-11 rounded-xl bg-muted/40 text-muted-foreground border-border/60 cursor-not-allowed font-medium select-none"
+              />
+              <p className="text-[11px] text-muted-foreground">Enrolled institution is fixed to your student cohort.</p>
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs font-bold text-muted-foreground uppercase">Phone / WhatsApp</Label>
@@ -488,7 +466,7 @@ function StudentAccountSettings() {
                 className="h-11 rounded-xl bg-background border-amber-500/40"
               />
               <p className="text-[11px] text-muted-foreground">
-                For security, Firebase requires your current password before changing your login email.
+                For security, Supabase requires your current password before changing your login email.
               </p>
             </div>
           )}
@@ -574,7 +552,6 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<"profile" | "security" | "branding">("profile");
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm?: () => void; isAlert?: boolean; variant?: "destructive" | "warning" | "info" | "success" } | null>(null);
 
-  // Profile fields
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [designation, setDesignation] = useState("");
@@ -584,21 +561,23 @@ export default function SettingsPage() {
   const [profileSaved, setProfileSaved] = useState(false);
   const [profileError, setProfileError] = useState("");
 
-  // Security & Password fields
   const [loginEmail, setLoginEmail] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  const [hasPasswordProvider, setHasPasswordProvider] = useState(() => {
-    return auth.currentUser?.providerData.some((p) => p.providerId === "password") ?? true;
-  });
+  const [hasPasswordProvider, setHasPasswordProvider] = useState(true);
 
   useEffect(() => {
-    const unsubAuth = auth.onAuthStateChanged((user) => {
-      if (user) {
-        setHasPasswordProvider(user.providerData.some((p) => p.providerId === "password"));
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user) {
+        setHasPasswordProvider(data.user.app_metadata.providers?.includes("email") ?? true);
       }
     });
-    return () => unsubAuth();
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
+        setHasPasswordProvider(session.user.app_metadata.providers?.includes("email") ?? true);
+      }
+    });
+    return () => authListener.subscription.unsubscribe();
   }, []);
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showCurrentPwd, setShowCurrentPwd] = useState(false);
@@ -609,11 +588,9 @@ export default function SettingsPage() {
 
   const isMasterAccount = (
     email?.toLowerCase() === "trainer@gmail.com" ||
-    loginEmail?.toLowerCase() === "trainer@gmail.com" ||
-    auth.currentUser?.email?.toLowerCase() === "trainer@gmail.com"
+    loginEmail?.toLowerCase() === "trainer@gmail.com"
   );
 
-  // Branding fields
   const [branding, setBranding] = useState<CompanyBranding>({ companyName: "LMS Portal", companySubtitle: "Enterprise v2.4" });
   const [brandName, setBrandName] = useState("");
   const [brandSubtitle, setBrandSubtitle] = useState("");
@@ -668,18 +645,31 @@ export default function SettingsPage() {
         const u = uStr ? JSON.parse(uStr) : null;
         const cId = u?.collegeId;
         if (cId) {
+          const newName = brandName.trim();
           const cBrand = {
-            companyName: brandName.trim(),
+            companyName: newName,
             companySubtitle: brandSubtitle.trim() || "College Portal",
             logoBase64: brandLogo,
-            updatedAt: serverTimestamp(),
+            updatedAt: new Date().toISOString(),
           };
-          const colRef = doc(db, "colleges", cId);
-          await setDoc(colRef, {
-            branding: cBrand,
-          }, { merge: true });
+          const existingCol = await getCollegeById(cId);
+          const oldName = existingCol?.name || u?.collegeName || "";
+
+          await updateCollege(cId, { name: newName.toLowerCase(), branding: cBrand });
+
+          if (oldName && oldName.toLowerCase() !== newName.toLowerCase()) {
+            await renameCollegeAndMigrate(cId, oldName, newName.toLowerCase(), (existingCol as any)?.isExternal || false);
+          }
+
+          if (u) {
+            u.collegeName = newName.toLowerCase();
+            localStorage.setItem("lms_user", JSON.stringify(u));
+            localStorage.setItem("user", JSON.stringify(u));
+          }
+
           localStorage.setItem("lms_college_branding", JSON.stringify({ collegeId: cId, branding: cBrand }));
           window.dispatchEvent(new Event("storage"));
+          window.dispatchEvent(new Event("lms_branding_updated"));
         }
       } else {
         await updateCompanyBranding({
@@ -738,11 +728,9 @@ export default function SettingsPage() {
     try {
       const r = localStorage.getItem("lms_role") || "admin";
       currentRole = r.toLowerCase();
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- loading saved role from localStorage on mount
       setUserRole(currentRole);
     } catch { /* ignore */ }
 
-    // Load active user profile strictly from storage
     const savedUserStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
     let loadedName = "";
     let loadedEmail = "";
@@ -781,27 +769,24 @@ export default function SettingsPage() {
     }
 
     try {
-      const currentUser = auth.currentUser;
+      const { data: authData } = await supabase.auth.getUser();
+      const currentUser = authData?.user;
+      
       if (currentUser) {
         try {
-          await updateProfile(currentUser, { displayName: displayName.trim() });
+          await supabase.auth.updateUser({ data: { full_name: displayName.trim() } });
         } catch { }
         try {
-          await setDoc(
-            doc(db, "users", currentUser.uid),
-            {
-              displayName: displayName.trim(),
-              designation: designation.trim(),
-              department: department.trim(),
-              phone: phone.trim(),
-              updatedAt: new Date()
-            },
-            { merge: true }
-          );
+          await updateUserSettingsAction(currentUser.id, {
+            displayName: displayName.trim(),
+            designation: designation.trim(),
+            department: department.trim(),
+            phone: phone.trim(),
+            updatedAt: new Date().toISOString()
+          });
         } catch { }
       }
 
-      // Persist in localStorage so topbar and other UI reflect immediately
       const savedUserStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
       const u = savedUserStr ? JSON.parse(savedUserStr) : { id: "admin-1", role: "trainer" };
       u.name = displayName.trim();
@@ -814,13 +799,12 @@ export default function SettingsPage() {
       localStorage.setItem("lms_user", JSON.stringify(u));
       localStorage.setItem("user", JSON.stringify(u));
 
-      // Trigger global event for Topbar and Sidebar
       window.dispatchEvent(new Event("storage"));
 
       setProfileSaved(true);
       setTimeout(() => setProfileSaved(false), 4000);
     } catch (err: unknown) {
-      setProfileError(formatAuthError(err, "Failed to save profile."));
+      setProfileError(formatAuthError(err));
     } finally {
       setSavingProfile(false);
     }
@@ -854,73 +838,57 @@ export default function SettingsPage() {
       const newEmail = loginEmail.trim().toLowerCase();
       const emailChanged = newEmail && newEmail !== targetEmail;
 
-      if (!auth.currentUser) {
+      const { data: authData } = await supabase.auth.getUser();
+      const currentUser = authData?.user;
+      if (!currentUser) {
         throw new Error("Unable to verify your session. Please sign in again.");
       }
 
       if (hasPasswordProvider) {
-        // Verify current password via Firebase Auth reauthentication
-        const credential = EmailAuthProvider.credential(auth.currentUser.email || targetEmail, currentPassword);
-        await reauthenticateWithCredential(auth.currentUser, credential);
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: currentUser.email || targetEmail,
+          password: currentPassword
+        });
+        if (signInError) throw new Error("Incorrect current password.");
       }
 
-      // Update password if provided
       if (newPassword) {
-        await firebaseUpdatePassword(auth.currentUser, newPassword);
+        const { error: updatePwdError } = await supabase.auth.updateUser({ password: newPassword });
+        if (updatePwdError) throw new Error(updatePwdError.message);
         setHasPasswordProvider(true);
 
-        // Clear initialPassword and mustChangePassword flags from Firestore so
-        // only the Firebase Auth password remains the valid credential.
-        const pwdCleanup: Record<string, any> = {
-          initialPassword: deleteField(),
-          mustChangePassword: deleteField(),
-          updatedAt: new Date()
+        const pwdCleanup = {
+          updatedAt: new Date().toISOString()
         };
-        await setDoc(doc(db, "users", auth.currentUser.uid), pwdCleanup, { merge: true });
+        await updateUserSettingsAction(currentUser.id, pwdCleanup);
 
-        // If college admin, also update colleges document with new password for admin overview sync
         const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
         const u = uStr ? JSON.parse(uStr) : null;
         if (u?.collegeId) {
-          await setDoc(doc(db, "colleges", u.collegeId), { initialPassword: newPassword, updatedAt: new Date() }, { merge: true });
+          await updateCollegeSettingsAction(u.collegeId, { initialPassword: newPassword, updatedAt: new Date().toISOString() });
         }
       }
 
-      // Update login email if changed (server-side via Admin SDK)
       if (emailChanged) {
-        const idToken = await getIdToken(auth.currentUser, true);
-        const response = await fetch("/api/update-email", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ idToken, newEmail }),
-        });
-        const result = await response.json();
-        if (!response.ok) {
-          throw new Error(result.error || "Failed to update login email.");
-        }
+        const { error: updateEmailError } = await supabase.auth.updateUser({ email: newEmail });
+        if (updateEmailError) throw new Error(updateEmailError.message);
         setEmail(newEmail);
-
-
       }
 
-      // Sync updated details to Firestore and localStorage
-      const uid = auth.currentUser.uid;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const uid = currentUser.id;
       const updatePayload: Record<string, any> = {
         displayName: displayName,
         department: department,
         phone: phone,
-        updatedAt: new Date()
+        updatedAt: new Date().toISOString()
       };
       if (emailChanged) updatePayload.email = newEmail;
-      await setDoc(doc(db, "users", uid), updatePayload, { merge: true });
+      await updateUserSettingsAction(uid, updatePayload);
 
-      // If a students doc exists with the same uid, sync the email there too
       if (emailChanged) {
-        const studentRef = doc(db, "students", uid);
-        const studentSnap = await getDoc(studentRef);
-        if (studentSnap.exists()) {
-          await setDoc(doc(db, "students", uid), { email: newEmail }, { merge: true });
+        const studentSnap = await getStudentByIdAction(uid);
+        if (studentSnap) {
+          await updateStudentSettingsAction(uid, { email: newEmail });
         }
       }
 
@@ -945,7 +913,7 @@ export default function SettingsPage() {
       setPwdSaved(true);
       setTimeout(() => setPwdSaved(false), 5000);
     } catch (err: unknown) {
-      setPwdError(formatAuthError(err, "Failed to update security credentials."));
+      setPwdError(formatAuthError(err));
     } finally {
       setSavingPwd(false);
     }
@@ -959,7 +927,6 @@ export default function SettingsPage() {
 
   return (
     <motion.div initial="hidden" animate="visible" variants={staggerContainer} className="space-y-6 sm:space-y-8 font-sans pb-12">
-      {/* Top Page Header */}
       <motion.div variants={staggerItem} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-2">
@@ -976,7 +943,6 @@ export default function SettingsPage() {
         </div>
       </motion.div>
 
-      {/* Tabs Navigation */}
       <motion.div variants={staggerItem}>
         <div className="flex flex-wrap items-center gap-1.5 p-1 rounded-2xl bg-card/80 dark:bg-white/[0.03] border border-border/60 backdrop-blur-md">
           {[
@@ -989,7 +955,6 @@ export default function SettingsPage() {
             return (
               <button
                 key={tab.id}
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 onClick={() => setActiveTab(tab.id as any)}
                 className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${
                   isActive
@@ -1005,7 +970,6 @@ export default function SettingsPage() {
         </div>
       </motion.div>
 
-      {/* Tab 1: Profile & Identity */}
       <AnimatePresence mode="wait">
         {activeTab === "profile" && (
           <motion.div
@@ -1090,7 +1054,7 @@ export default function SettingsPage() {
                       <span>Profile synchronized successfully!</span>
                     </div>
                   ) : (
-                    <span className="text-xs text-muted-foreground">Persisted to local session &amp; Firestore</span>
+                    <span className="text-xs text-muted-foreground">Persisted to local session &amp; Database</span>
                   )}
                   <Button
                     onClick={handleSaveProfile}
@@ -1104,7 +1068,6 @@ export default function SettingsPage() {
               </GlassCard>
             </div>
 
-            {/* Right Profile Live Preview Card */}
             <div className="lg:col-span-4">
               <GlassCard className="p-6 space-y-5 bg-gradient-to-b from-card/90 to-card/50">
                 <div className="text-center space-y-3.5 py-3">
@@ -1150,7 +1113,6 @@ export default function SettingsPage() {
           </motion.div>
         )}
 
-        {/* Tab 2: Security & Credentials */}
         {activeTab === "security" && (
           <motion.div
             key="security-tab"
@@ -1281,7 +1243,6 @@ export default function SettingsPage() {
           </motion.div>
         )}
 
-        {/* Tab 3: Company Branding & Logo */}
         {activeTab === "branding" && (
           <motion.div
             key="branding-tab"
@@ -1339,7 +1300,7 @@ export default function SettingsPage() {
                           />
                         </label>
                         <p className="text-xs text-muted-foreground leading-relaxed">
-                          Supported formats: PNG, JPG, WEBP, or SVG. Automatically optimized and stored in base64 format in Firebase for global visibility.
+                          Supported formats: PNG, JPG, WEBP, or SVG. Automatically optimized and stored in base64 format in Database for global visibility.
                         </p>
                       </div>
                     </div>

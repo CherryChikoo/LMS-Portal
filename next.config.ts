@@ -10,7 +10,7 @@ const nextConfig: NextConfig = {
   experimental: {
     optimizePackageImports: ['lucide-react', 'motion', 'recharts'],
   },
-  serverExternalPackages: ['firebase-admin'],
+  serverExternalPackages: [],
 
   typescript: {
     ignoreBuildErrors: true,

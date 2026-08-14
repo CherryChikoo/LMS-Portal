@@ -1,67 +1,49 @@
-import 'server-only';
-import { getAdminApp } from '@/lib/firebase/admin';
-import { getFirestore, WhereFilterOp } from 'firebase-admin/firestore';
-import { getStorage } from 'firebase-admin/storage';
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { prisma } from "@/lib/prisma";
 
 /**
- * OPTIMIZATION: Deletes documents matching a query in paginated batches
- * Prevents memory issues and timeouts with large result sets (10,000+ docs)
+ * OPTIMIZATION: Deletes documents matching a query using Prisma
  */
 export async function bulkDeleteByQuery(
   collectionName: string,
   field: string,
-  operator: WhereFilterOp,
+  operator: string,
   value: any,
   options?: { batchSize?: number }
 ): Promise<number> {
-  const db = getFirestore(getAdminApp());
-  const BATCH_SIZE = options?.batchSize || 500;
-  let totalDeleted = 0;
-
   try {
-    let hasMore = true;
-    
-    while (hasMore) {
-      // Fetch next batch with limit
-      const querySnapshot = await db
-        .collection(collectionName)
-        .where(field, operator, value)
-        .limit(BATCH_SIZE)
-        .get();
-      
-      if (querySnapshot.empty) {
-        break;
-      }
-
-      const bulkWriter = db.bulkWriter();
-      
-      // Add retry logic for transient failures
-      bulkWriter.onWriteError((error) => {
-        if (error.failedAttempts < 3) return true; // Retry
-        console.error(`[CleanupService] BulkWriter error after retries:`, error);
-        return false; // Give up after 3 attempts
-      });
-      
-      querySnapshot.docs.forEach((doc) => {
-        bulkWriter.delete(doc.ref);
-      });
-
-      await bulkWriter.close();
-      totalDeleted += querySnapshot.docs.length;
-      
-      console.log(`[CleanupService] Deleted batch of ${querySnapshot.docs.length} from ${collectionName}, total: ${totalDeleted}`);
-      
-      // If we got fewer docs than batch size, we're done
-      hasMore = querySnapshot.docs.length === BATCH_SIZE;
-      
-      // Small delay between batches to avoid overwhelming Firestore
-      if (hasMore) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
+    const model = (prisma as any)[collectionName];
+    if (!model) {
+      throw new Error(`Model ${collectionName} does not exist in Prisma schema`);
     }
+
+    let prismaWhere: any = {};
     
-    console.log(`[CleanupService] bulkDeleteByQuery complete: ${totalDeleted} docs deleted from ${collectionName}`);
-    return totalDeleted;
+    // Map Firebase operators to Prisma
+    switch (operator) {
+      case '==':
+        prismaWhere[field] = value;
+        break;
+      case 'in':
+        prismaWhere[field] = { in: Array.isArray(value) ? value : [value] };
+        break;
+      case 'array-contains':
+        // Prisma array contains (PostgreSQL)
+        prismaWhere[field] = { has: value };
+        break;
+      case 'array-contains-any':
+        prismaWhere[field] = { hasSome: Array.isArray(value) ? value : [value] };
+        break;
+      default:
+        prismaWhere[field] = value;
+    }
+
+    const result = await model.deleteMany({
+      where: prismaWhere
+    });
+    
+    console.log(`[CleanupService] bulkDeleteByQuery complete: ${result.count} docs deleted from ${collectionName}`);
+    return result.count || 0;
   } catch (error) {
     console.error(`[CleanupService] bulkDeleteByQuery failed for ${collectionName}:`, error);
     throw error;
@@ -69,9 +51,14 @@ export async function bulkDeleteByQuery(
 }
 
 export async function deleteDocumentAdmin(collectionName: string, id: string): Promise<void> {
-  const db = getFirestore(getAdminApp());
   try {
-    await db.collection(collectionName).doc(id).delete();
+    const model = (prisma as any)[collectionName];
+    if (!model) {
+      throw new Error(`Model ${collectionName} does not exist in Prisma schema`);
+    }
+    await model.delete({
+      where: { id }
+    });
   } catch (error) {
     console.error(`[CleanupService] deleteDocumentAdmin failed for ${collectionName}/${id}:`, error);
     throw error;
@@ -80,10 +67,24 @@ export async function deleteDocumentAdmin(collectionName: string, id: string): P
 
 export async function deleteStorageDirectory(prefix: string): Promise<void> {
   try {
-    const bucket = getStorage(getAdminApp()).bucket();
-    if (bucket) {
-      // prefix should end with '/' for directories
-      await bucket.deleteFiles({ prefix });
+    const BUCKET = 'lms-storage';
+    // List all files in the directory
+    const { data: files, error: listError } = await supabaseAdmin.storage.from(BUCKET).list(prefix, {
+      limit: 100,
+      offset: 0,
+    });
+    
+    if (listError) throw listError;
+    
+    if (files && files.length > 0) {
+      // Exclude the folder placeholder itself if Supabase returns it
+      const pathsToDelete = files
+        .filter(f => f.name !== '.emptyFolderPlaceholder')
+        .map(f => `${prefix}${prefix.endsWith('/') ? '' : '/'}${f.name}`);
+      if (pathsToDelete.length > 0) {
+        const { error: deleteError } = await supabaseAdmin.storage.from(BUCKET).remove(pathsToDelete);
+        if (deleteError) throw deleteError;
+      }
     }
   } catch (error) {
     console.warn(`[CleanupService] deleteStorageDirectory warning for prefix ${prefix}:`, error);
@@ -94,21 +95,18 @@ export async function deleteStorageDirectory(prefix: string): Promise<void> {
 export async function deleteStorageFileByUrl(fileUrl: string): Promise<void> {
   if (!fileUrl) return;
   try {
-    const bucket = getStorage(getAdminApp()).bucket();
-    if (!bucket) return;
+    const BUCKET = 'lms-storage';
     
-    // Extract the path from standard Firebase Storage HTTP URLs
-    // e.g. https://firebasestorage.googleapis.com/v0/b/project.appspot.com/o/users%2Fabc%2Fprofile.jpg?alt=media
     let filePath = "";
-    if (fileUrl.includes("/o/")) {
-      filePath = fileUrl.split("/o/")[1].split("?")[0];
-      filePath = decodeURIComponent(filePath);
+    if (fileUrl.includes(BUCKET)) {
+      filePath = fileUrl.split(`${BUCKET}/`)[1]?.split("?")[0];
     } else {
       filePath = decodeURIComponent(fileUrl);
     }
 
     if (filePath) {
-      await bucket.file(filePath).delete();
+      const { error } = await supabaseAdmin.storage.from(BUCKET).remove([filePath]);
+      if (error) throw error;
     }
   } catch (error) {
     console.warn(`[CleanupService] deleteStorageFile warning for URL ${fileUrl}:`, error);

@@ -1,26 +1,21 @@
+import { supabase } from '@/lib/supabase/client';
+import { globalLoading } from "@/providers/global-loading-provider";
 import { getErrorMessage } from '@/lib/utils/error';
-import {
-  getDocuments,
-  getDocument,
-  addDocument,
-  updateDocument,
-  setDocument,
-  deleteDocument,
-  where,
-  onSnapshot,
-} from "@/lib/firebase/firestore";
-
-import { auth, db } from "@/lib/firebase/config";
-
-import { doc, writeBatch } from "firebase/firestore";
-
-import { firestoreDiagnostics } from "@/lib/firebase/diagnostics";
-
 import { refreshCache } from "@/lib/data/lms-data-cache";
-
 import type { Student, User } from "@/types";
-
-import { type QueryOptions, type PaginatedResult } from "@/lib/firebase/firestore";
+import {
+  getAllStudentsAction,
+  getStudentsByCollegeAction,
+  getStudentsByBatchAction,
+  getStudentByIdAction,
+  getStudentByEmailAction,
+  createStudentProfileAction,
+  updateStudentProfileAction,
+  getTrainerNotesAction,
+  addTrainerNoteAction,
+  checkStudentEmailExistsAction,
+  resilientStudentFallbackAction
+} from '@/lib/actions/student-actions';
 
 const COLLECTION_NAME = "students";
 
@@ -41,16 +36,13 @@ export interface CreateStudentAuthResult {
   initialPassword: string;
 }
 
-/**
- * Create a new student account explicitly via the secure Admin SDK endpoint.
- * This creates the Firebase Auth user with the default password and the
- * matching Firestore users/students documents in one atomic operation.
- */
 export async function createStudentAuthProfile(
   input: CreateStudentAuthInput
 ): Promise<CreateStudentAuthResult> {
-  const currentUser = auth.currentUser;
-  if (!currentUser) {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const session = sessionData.session;
+  
+  if (!session) {
     throw new Error("Admin authentication required. Please sign in again.");
   }
 
@@ -61,69 +53,61 @@ export async function createStudentAuthProfile(
   const department = String(input.department ?? "Computer Science").trim();
   const academicYear = String(input.academicYear ?? "1st Year").trim();
   const section = String(input.section ?? "A").trim();
-  const batchName = String(input.batch ?? "General Cohort").trim();
+  const batchName = input.batch ? String(input.batch).trim() : "";
 
-  let adminIdToken: string = "";
   try {
-    adminIdToken = await currentUser.getIdToken(true).catch(() => currentUser.getIdToken());
-  } catch {
-    // Session token retrieval warning - will attempt direct fallback if needed
-  }
+    const response = await fetch("/api/admin/create-student-auth", {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${session.access_token}`
+      },
+      body: JSON.stringify({
+        email: cleanEmail,
+        name: studentName,
+        collegeId,
+        collegeName,
+        department,
+        academicYear,
+        section,
+        batch: batchName,
+      }),
+    });
 
-  if (adminIdToken) {
+    let body: any = {};
     try {
-      const response = await fetch("/api/admin/create-student-auth", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          adminIdToken,
-          email: cleanEmail,
-          name: studentName,
-          collegeId,
-          collegeName,
-          department,
-          academicYear,
-          section,
-          batch: batchName,
-        }),
-      });
+      const text = await response.text();
+      body = JSON.parse(text);
+    } catch (_) {}
 
-      let body: any = {};
-      try {
-        const text = await response.text();
-        body = JSON.parse(text);
-      } catch (_) {}
-
-      if (response.ok && body.uid) {
-        return {
-          uid: body.uid,
-          email: body.email || cleanEmail,
-          initialPassword: body.initialPassword || "Welcome@123",
-        };
-      }
-      if (response.status === 400 || response.status === 409) {
-        throw new Error(body.message || body.error || "Failed to create student account.");
-      }
-    } catch (err: unknown) {
-      const msg = getErrorMessage(err).toLowerCase();
-      // If the error message clearly indicates a validation or duplication error, throw it.
-      if (msg && (msg.includes("already exists") || msg.includes("valid") || msg.includes("email"))) {
-        throw err;
-      }
-      console.warn("Server API student creation failed, executing resilient Firestore fallback:", err);
+    if (response.ok && body.uid) {
+      return {
+        uid: body.uid,
+        email: body.email || cleanEmail,
+        initialPassword: body.initialPassword || "Welcome@123",
+      };
     }
+    if (response.status === 400 || response.status === 409) {
+      throw new Error(body.message || body.error || "Failed to create student account.");
+    }
+  } catch (err: unknown) {
+    const msg = getErrorMessage(err).toLowerCase();
+    if (msg && (msg.includes("already exists") || msg.includes("valid") || msg.includes("email"))) {
+      throw err;
+    }
+    console.warn("Server API student creation failed, executing resilient fallback:", err);
   }
 
-  // Resilient direct Firestore registration fallback
-  const existingDocs = await getDocuments<Student>(COLLECTION_NAME, [where("email", "==", cleanEmail)]);
-  if (existingDocs.data.length > 0) {
+  // Resilient direct Prisma registration fallback
+  const existingDocs = await checkStudentEmailExistsAction(cleanEmail);
+  if (existingDocs) {
     throw new Error("A student account with this email address already exists.");
   }
 
   const docId = `stud-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
   const now = new Date();
 
-  const userDoc: User = {
+  const userDoc = {
     id: docId,
     email: cleanEmail,
     displayName: studentName,
@@ -132,30 +116,21 @@ export async function createStudentAuthProfile(
     updatedAt: now,
   };
 
-  const studentDoc: Student = {
+  const studentDoc = {
     id: docId,
-    name: studentName,
-    email: cleanEmail,
     collegeId,
-    collegeName,
     department,
     academicYear,
     semester: 1,
     section,
     rollNumber: `ROLL-${Math.floor(1000 + Math.random() * 9000)}`,
-    batchIds: [batchName],
     enrollmentType: "manual",
     createdAt: now,
     updatedAt: now,
-    status: "active",
-    initialPassword: "Welcome@123",
     mustChangePassword: true,
-  } as Student;
+  };
 
-  const batchWriteOp = writeBatch(db);
-  batchWriteOp.set(doc(db, "users", docId), userDoc);
-  batchWriteOp.set(doc(db, "students", docId), studentDoc);
-  await batchWriteOp.commit();
+  await resilientStudentFallbackAction(docId, cleanEmail, studentName, studentDoc, userDoc);
 
   return {
     uid: docId,
@@ -164,146 +139,201 @@ export async function createStudentAuthProfile(
   };
 }
 
-export async function getAllStudents(options?: QueryOptions): Promise<PaginatedResult<Student>> {
-  return getDocuments<Student>(COLLECTION_NAME, [], false, { pageSize: 1000, ...options });
+function mapStudentRow(row: any): Student {
+  if (!row) return row;
+  const user = row.users || {};
+  const batchIds: string[] = [];
+  const batchNames: string[] = [];
+  const batchesList: Array<{ id: string; name: string; department?: string; section?: string }> = [];
+
+  if (Array.isArray(row.student_batches)) {
+    row.student_batches.forEach((sb: any) => {
+      const bId = sb.batchId || sb.batches?.id;
+      const bName = sb.batches?.name;
+      if (bId && !batchIds.includes(bId)) {
+        batchIds.push(bId);
+      }
+      if (bName && !batchNames.includes(bName)) {
+        batchNames.push(bName);
+      }
+      if (sb.batches) {
+        batchesList.push({
+          id: sb.batches.id,
+          name: sb.batches.name,
+          department: sb.batches.department,
+          section: sb.batches.section
+        });
+      }
+    });
+  } else if (Array.isArray(row.batchIds)) {
+    row.batchIds.forEach((b: string) => {
+      if (b && !batchIds.includes(b)) batchIds.push(b);
+    });
+  }
+
+  const collegeName = row.colleges?.name || row.collegeName || (!row.collegeId || row.collegeId === "col-unassigned" || row.collegeId === "unassigned" ? "Unassigned" : row.collegeId);
+  const mapped = {
+    ...row,
+    collegeName,
+    name: user.displayName || user.name || row.name || "Unnamed Student",
+    email: user.email || row.email || "",
+    role: user.role || row.role || "student",
+    displayName: user.displayName || user.name || row.displayName || "Unnamed Student",
+    status: user.status || row.status || "active",
+    batchIds,
+    batchNames,
+    batches: batchesList,
+    batchCount: batchIds.length,
+  };
+  delete mapped.users;
+  delete mapped.colleges;
+  return mapped as Student;
 }
 
-
-
-export async function getStudentsByCollege(collegeId: string, options?: QueryOptions): Promise<PaginatedResult<Student>> {
-  return getDocuments<Student>(COLLECTION_NAME, [where("collegeId", "==", collegeId)], false, { pageSize: 1000, ...options });
+export async function getAllStudents(): Promise<{ data: Student[], lastDoc: any }> {
+  const data = await getAllStudentsAction();
+  const parsedData = JSON.parse(JSON.stringify(data));
+  const mappedData = parsedData.map(mapStudentRow);
+  return { data: mappedData, lastDoc: mappedData.length > 0 ? mappedData[mappedData.length - 1] : null };
 }
 
-export async function getStudentsByBatch(batchId: string, options?: QueryOptions): Promise<PaginatedResult<Student>> {
-  return getDocuments<Student>(COLLECTION_NAME, [where("batchIds", "array-contains", batchId)], false, { pageSize: 1000, ...options });
+export async function getStudentsByCollege(collegeId: string): Promise<{ data: Student[], lastDoc: any }> {
+  const data = await getStudentsByCollegeAction(collegeId);
+  const parsedData = JSON.parse(JSON.stringify(data));
+  const mappedData = parsedData.map(mapStudentRow);
+  return { data: mappedData, lastDoc: mappedData.length > 0 ? mappedData[mappedData.length - 1] : null };
+}
+
+export async function getStudentsByBatch(batchId: string): Promise<{ data: Student[], lastDoc: any }> {
+  const data = await getStudentsByBatchAction(batchId);
+  const parsedData = JSON.parse(JSON.stringify(data));
+  const students = parsedData.map((row: any) => mapStudentRow(row.students));
+  return {
+    data: students,
+    lastDoc: null
+  };
 }
 
 export async function getStudentById(studentId: string): Promise<Student | null> {
-  return getDocument<Student>(COLLECTION_NAME, studentId);
+  const data = await getStudentByIdAction(studentId);
+  if (!data) return null;
+  return mapStudentRow(JSON.parse(JSON.stringify(data)));
 }
 
 export async function getStudentByEmail(email: string): Promise<Student | null> {
-  const docs = await getDocuments<Student>(COLLECTION_NAME, [where("email", "==", email.toLowerCase())]);
-  return docs.data.length > 0 ? docs.data[0] : null;
+  const data = await getStudentByEmailAction(email);
+  if (!data) return null;
+  return mapStudentRow(JSON.parse(JSON.stringify(data)));
 }
 
 export async function createStudentProfile(data: Omit<Student, "id">): Promise<string> {
-  return addDocument<Student>(COLLECTION_NAME, data);
+  return await globalLoading.wrap(async () => {
+    return await createStudentProfileAction(data);
+  }, `Creating student profile for ${data.name}...`);
 }
 
 export async function updateStudentProfile(
   studentId: string,
   data: Partial<Student>
 ): Promise<{ success: boolean; error?: string }> {
-  // 1. Strict Field Whitelisting: Shield system relational keys (collegeId, collegeName, role, createdAt, etc.)
-  const whitelistedData: Record<string, unknown> = {};
-  if (data.name !== undefined) whitelistedData.name = data.name.trim();
-  if (data.email !== undefined) whitelistedData.email = data.email.toLowerCase().trim();
-  if (data.phone !== undefined) whitelistedData.phone = data.phone;
-  if (data.collegeId !== undefined) whitelistedData.collegeId = data.collegeId;
-  if (data.collegeName !== undefined) whitelistedData.collegeName = data.collegeName;
-  if (data.rollNumber !== undefined) whitelistedData.rollNumber = data.rollNumber;
-  if (data.department !== undefined) whitelistedData.department = data.department;
-  if (data.academicYear !== undefined) whitelistedData.academicYear = data.academicYear;
-  if (data.section !== undefined) whitelistedData.section = data.section;
-  if (data.status !== undefined) whitelistedData.status = data.status;
-  if (data.batchIds !== undefined) whitelistedData.batchIds = data.batchIds;
-  if (data.initialPassword !== undefined) whitelistedData.initialPassword = data.initialPassword;
+  return await globalLoading.wrap(async () => {
+    const whitelistedData: Record<string, unknown> = {};
+    if (data.name !== undefined) whitelistedData.name = data.name.trim();
+    if (data.email !== undefined) whitelistedData.email = data.email.toLowerCase().trim();
+    if (data.phone !== undefined) whitelistedData.phone = data.phone;
+    if (data.collegeId !== undefined) whitelistedData.collegeId = data.collegeId;
+    if (data.collegeName !== undefined) whitelistedData.collegeName = data.collegeName;
+    if (data.rollNumber !== undefined) whitelistedData.rollNumber = data.rollNumber;
+    if (data.department !== undefined) whitelistedData.department = data.department;
+    if (data.academicYear !== undefined) whitelistedData.academicYear = data.academicYear;
+    if (data.section !== undefined) whitelistedData.section = data.section;
+    if (data.status !== undefined) whitelistedData.status = data.status;
+    if (data.batchIds !== undefined) whitelistedData.batchIds = data.batchIds;
+    if (data.initialPassword !== undefined) whitelistedData.initialPassword = data.initialPassword;
 
-  whitelistedData.updatedAt = new Date();
+    whitelistedData.updatedAt = new Date().toISOString();
 
-  // 2. Auth Execution Lock: Update Firebase Auth FIRST if email, password, or collegeId changed
-  if (data.email || data.initialPassword || data.collegeId) {
-    const currentUser = auth.currentUser;
-    if (!currentUser) {
-      return { success: false, error: "Cannot update student authentication: Session token expired. Please sign in again." };
-    }
-    try {
-      const adminIdToken = await currentUser.getIdToken(true);
-      const payload: Record<string, unknown> = {
-        uid: studentId,
-      };
-
-      if (data.email) payload.email = data.email.toLowerCase().trim();
-      if (data.initialPassword) payload.password = data.initialPassword;
-      if (data.collegeId) payload.collegeId = data.collegeId;
-
-      const response = await fetch("/api/admin/update-student-auth", {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${adminIdToken}`
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        return { success: false, error: body.error || "Update failed: Could not update Firebase Auth account." };
+    if (data.email || data.initialPassword || data.collegeId) {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const session = sessionData.session;
+      
+      if (!session) {
+        return { success: false, error: "Cannot update student authentication: Session token expired. Please sign in again." };
       }
-    } catch (err: unknown) {
-      return { success: false, error: getErrorMessage(err) || "Failed to update Firebase Auth account." };
-    }
-  }
+      try {
+        const payload: Record<string, unknown> = { uid: studentId };
+        if (data.email) payload.email = data.email.toLowerCase().trim();
+        if (data.initialPassword) payload.password = data.initialPassword;
+        if (data.collegeId) payload.collegeId = data.collegeId;
 
-  // 3. Atomic Firestore Mutation: Update Firestore ONLY AFTER Auth succeeds (or if no Auth change was requested)
-  try {
-    await updateDocument<Student>(COLLECTION_NAME, studentId, whitelistedData);
-    const userPayload = { ...whitelistedData };
-    if (userPayload.name) userPayload.displayName = userPayload.name;
-    await setDocument("users", studentId, userPayload, { merge: true });
+        const response = await fetch("/api/admin/update-student-auth", {
+          method: "POST",
+          headers: { 
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${session.access_token}`
+          },
+          body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          return { success: false, error: body.error || "Update failed: Could not update Auth account." };
+        }
+      } catch (err: unknown) {
+        return { success: false, error: getErrorMessage(err) || "Failed to update Auth account." };
+      }
+    }
+
     try {
-      refreshCache();
-    } catch (_) {}
-    
-    // Asynchronously ensure the college is registered globally if it changed
-    if (whitelistedData.collegeName) {
-      fetch("/api/auth/register-college", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ collegeName: whitelistedData.collegeName })
-      }).catch(() => {});
-    }
+      await updateStudentProfileAction(studentId, whitelistedData);
+      
+      try {
+        refreshCache();
+      } catch (_) {}
+      
+      if (whitelistedData.collegeName) {
+        fetch("/api/auth/register-college", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ collegeName: whitelistedData.collegeName })
+        }).catch(() => {});
+      }
 
-    return { success: true };
-  } catch (err: unknown) {
-    return { success: false, error: getErrorMessage(err) || "Failed to update student profile database record." };
-  }
+      return { success: true };
+    } catch (err: unknown) {
+      return { success: false, error: getErrorMessage(err) || "Failed to update student profile database record." };
+    }
+  }, "Updating student profile...");
 }
 
 export async function deleteStudentProfile(studentId: string): Promise<void> {
-  const currentUser = auth.currentUser;
-  if (!currentUser) {
-    throw new Error("Admin authentication required. Please sign in again.");
-  }
-  const idToken = await currentUser.getIdToken();
+  return await globalLoading.wrap(async () => {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const session = sessionData.session;
+    
+    if (!session) {
+      throw new Error("Admin authentication required. Please sign in again.");
+    }
 
-  // Use the secure server endpoint so the Firebase Auth account, Firestore
-  // student doc, and Firestore user doc are all removed together.
-  const response = await fetch("/api/delete-user", {
-    method: "POST",
-    headers: { 
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${idToken}`
-    },
-    body: JSON.stringify({ uid: studentId }),
-  });
+    const response = await fetch("/api/delete-user", {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${session.access_token}`
+      },
+      body: JSON.stringify({ uid: studentId }),
+    });
 
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.message || body.error || "Failed to delete student account.");
-  }
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.message || body.error || "Failed to delete student account.");
+    }
+  }, "Deleting student account...");
 }
 
 export async function getTrainerNotes(studentId: string): Promise<import("@/types").TrainerNote[]> {
-  const q = [where("studentId", "==", studentId)];
-  // Sort descending by createdAt after fetching, since getDocuments might not have order by default without an index
-  const notesResult = await getDocuments<import("@/types").TrainerNote>("trainer_notes", q, false, { pageSize: 100 });
-  return notesResult.data.sort((a, b) => {
-    const timeA = typeof a.createdAt === "object" && a.createdAt !== null && "toMillis" in (a.createdAt as any) ? (a.createdAt as any).toMillis() : new Date(a.createdAt).getTime();
-    const timeB = typeof b.createdAt === "object" && b.createdAt !== null && "toMillis" in (b.createdAt as any) ? (b.createdAt as any).toMillis() : new Date(b.createdAt).getTime();
-    return timeB - timeA;
-  });
+  const data = await getTrainerNotesAction(studentId);
+  return JSON.parse(JSON.stringify(data));
 }
 
 export async function addTrainerNote(studentId: string, text: string, authorName: string): Promise<import("@/types").TrainerNote> {
@@ -313,6 +343,6 @@ export async function addTrainerNote(studentId: string, text: string, authorName
     authorName,
     createdAt: new Date(),
   };
-  const docRef = await addDocument("trainer_notes", note);
-  return { id: docRef as string, ...note };
+  const id = await addTrainerNoteAction(note);
+  return JSON.parse(JSON.stringify({ id, ...note }));
 }

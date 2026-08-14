@@ -94,7 +94,7 @@ function getAnswerSheetHref(attemptId: string): string {
   return isAdminLikePath() ? `/admin/results/${attemptId}` : `/results/${attemptId}`;
 }
 
-function formatDateTime(value: unknown): string {
+function formatDateTime(value: unknown, fallback = "—"): string {
   const formatted = formatTimestamp(value, {
     month: "short",
     day: "numeric",
@@ -102,7 +102,7 @@ function formatDateTime(value: unknown): string {
     hour: "2-digit",
     minute: "2-digit",
   });
-  return formatted ?? "Live Active";
+  return formatted ?? fallback;
 }
 
 function formatDateOnly(value: unknown): string {
@@ -385,7 +385,7 @@ export default function ExamDetailsPage({ params }: PageProps) {
               userColId = u.collegeId;
             }
           } catch {}
-          const attData = await getResultsByExam(id, undefined, userColId);
+          const attData = await getResultsByExam(id, userColId);
           setAttempts(attData?.data || []);
         }
       } catch (err) {
@@ -503,8 +503,8 @@ function StudentExamDetails({ exam, studentUser, studentChecked, nowMs }: Studen
         : passingMarks)
     : 0;
 
-  const startTimeStr = formatDateTime(exam.startTime ?? exam.scheduledAt);
-  const endTimeStr = formatDateTime(exam.endTime);
+  const startTimeStr = formatDateTime(exam.startTime ?? exam.scheduledAt, "Live Active");
+  const endTimeStr = formatDateTime(exam.endTime, "No Expiration (Open)");
   const assignedBy = exam.createdBy || "Institution";
 
   const statusBadge = buildStatusBadge(effStatus);
@@ -564,7 +564,7 @@ function StudentExamDetails({ exam, studentUser, studentChecked, nowMs }: Studen
           <InfoTile
             icon={Clock}
             label="Duration"
-            value={`${exam.duration || 0} minutes`}
+            value={`${exam.duration || (exam as any).durationMinutes || 0} minutes`}
           />
           <InfoTile
             icon={FileText}
@@ -855,7 +855,7 @@ function TrainerExamDetails({
             value={`${effectivePassingMarks} (${passingPercentage}%)`}
             icon={Target}
           />
-          <MetaTile label="Duration" value={`${exam.duration || 0} minutes`} icon={Clock} />
+          <MetaTile label="Duration" value={`${exam.duration || (exam as any).durationMinutes || 0} minutes`} icon={Clock} />
           <MetaTile
             label="Created By"
             value={exam.createdBy || "Institution"}

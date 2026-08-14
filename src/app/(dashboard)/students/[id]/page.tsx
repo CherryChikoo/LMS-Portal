@@ -12,18 +12,18 @@ import {
   Clock,
   TrendingUp,
   Target,
-  FileSpreadsheet,
   AlertCircle,
   Loader2,
   MapPin,
   Calendar,
+  Layers,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useLMSData } from "@/lib/data/use-lms-data";
 import { useEntityResolution } from "@/lib/data/use-entity-resolution";
 import { Student, ExamAttempt, Exam } from "@/types";
-import { getEffectiveExamStatus } from "@/lib/services/exam-service";
+import { getEffectiveExamStatus, filterExamsForStudent } from "@/lib/services/exam-service";
 import { toDate, toMillis } from "@/lib/utils/date";
 
 export default function StudentEvaluationPage({ params }: { params: Promise<{ id: string }> }) {
@@ -32,12 +32,26 @@ export default function StudentEvaluationPage({ params }: { params: Promise<{ id
   const router = useRouter();
 
   const { students, attempts: allAttempts, exams: allExams, loading } = useLMSData();
-  const { resolveInstitution } = useEntityResolution();
+  const { resolveInstitution, resolveBatch } = useEntityResolution();
 
   // Find target student
   const student = useMemo(() => {
     return (students as Student[]).find((s) => s.id === studentId) || null;
   }, [students, studentId]);
+
+  // Resolve assigned batches list
+  const assignedBatches = useMemo(() => {
+    if (!student) return [];
+    if (student.batches && student.batches.length > 0) {
+      return student.batches;
+    }
+    const ids = Array.from(new Set(student.batchIds || []));
+    return ids.map((bId) => ({
+      id: bId,
+      name: resolveBatch(bId),
+      section: student.section,
+    }));
+  }, [student, resolveBatch]);
 
   // Filter attempts for this student
   const attempts = useMemo(() => {
@@ -57,25 +71,10 @@ export default function StudentEvaluationPage({ params }: { params: Promise<{ id
     });
   }, [allAttempts, student]);
 
-  // Filter exams assigned to this student
+  // Filter exams assigned to this student (excluding past exams created before student enrollment)
   const exams = useMemo(() => {
     if (!student) return [];
-    return (allExams as Exam[]).filter((e) => {
-      if (e.deletedAt) return false;
-      if (!e.targets) return false;
-      return e.targets.some((t) => {
-        if (t.type === "students") return t.ids.includes(student.id);
-        if (t.type === "college") return t.ids.includes(student.collegeId);
-        if (t.type === "batch") return t.ids.some((b) => (student.batchIds || []).includes(b));
-        if (t.type === "composite") {
-          return (
-            t.collegeId === student.collegeId ||
-            (t.batchId && (student.batchIds || []).includes(t.batchId))
-          );
-        }
-        return false;
-      });
-    });
+    return filterExamsForStudent(allExams as Exam[], student).filter(e => !e.deletedAt);
   }, [allExams, student]);
 
   // Metrics
@@ -175,8 +174,28 @@ export default function StudentEvaluationPage({ params }: { params: Promise<{ id
                   })()}
                 </span>
               )}
-              <span className="flex items-center gap-1.5"><MapPin className="w-4 h-4 text-muted-foreground/70" /> {student.department} • {student.section}</span>
+              <span className="flex items-center gap-1.5"><MapPin className="w-4 h-4 text-muted-foreground/70" /> {student.department || "General"} • Sec {student.section || "A"}</span>
+              <span className="flex items-center gap-1.5 font-semibold text-brand">
+                <Layers className="w-4 h-4 text-brand" /> {assignedBatches.length} {assignedBatches.length === 1 ? "Batch" : "Batches"}
+              </span>
             </div>
+
+            {assignedBatches.length > 0 && (
+              <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-border/40 text-xs mt-2">
+                <span className="font-bold text-foreground text-xs flex items-center gap-1.5">
+                  <Layers className="w-3.5 h-3.5 text-brand" /> Assigned Batches:
+                </span>
+                {assignedBatches.map((b) => (
+                  <span
+                    key={b.id}
+                    className="px-2.5 py-1 rounded-lg bg-brand/10 border border-brand/20 text-brand font-semibold text-xs flex items-center gap-1.5"
+                  >
+                    <span>{b.name}</span>
+                    {b.section && <span className="text-[10px] opacity-75">({b.section})</span>}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

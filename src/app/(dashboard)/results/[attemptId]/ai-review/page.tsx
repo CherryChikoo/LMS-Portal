@@ -6,7 +6,7 @@ import { motion } from "motion/react";
 import { ArrowLeft, Sparkles, AlertCircle, CheckCircle2, XCircle, BrainCircuit, Target, LineChart, TargetIcon, Flame, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { getDocument } from "@/lib/firebase/firestore";
+import { supabase } from "@/lib/supabase/client";
 import { getExamById } from "@/lib/services";
 import { fadeInUp } from "@/lib/animations";
 import type { Exam, ExamResult, Question } from "@/types";
@@ -26,7 +26,7 @@ export default function AIReviewPage({ params }: { params: Promise<{ attemptId: 
 
     async function loadData() {
       try {
-        const fetched = await getDocument<ExamResult>("exam_results", attemptId);
+        const { data: fetched } = await supabase.from('exam_results').select('*').eq('id', attemptId).single();
         if (fetched) {
           setAttempt(fetched);
           if (fetched.aiSummary) setSummary(fetched.aiSummary);

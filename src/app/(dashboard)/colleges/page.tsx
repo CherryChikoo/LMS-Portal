@@ -1,9 +1,12 @@
 "use client";
 
+import { upsertCollegeAction } from "@/lib/actions/college-actions";
+import { getCollegeAdminsAction } from "@/lib/actions/auth-actions";
+import { supabase } from "@/lib/supabase/client";
 import { useEffect, useState, useRef } from "react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "motion/react";
-import { GraduationCap, Plus, Building2, Layers, Users, FolderTree, ChevronRight, Trash2, Pencil, Loader2, Upload, FileSpreadsheet, FolderOpen, StopCircle, Download } from "lucide-react";
+import { GraduationCap, Plus, Building2, Layers, Users, FolderTree, ChevronRight, Trash2, Pencil, KeyRound, Loader2, Upload, FileSpreadsheet, FolderOpen, StopCircle, Download } from "lucide-react";
 import Link from "next/link";
 import { createPortal } from "react-dom";
 import { PageHeader } from "@/components/shared/page-header";
@@ -13,13 +16,8 @@ import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
 import { getAllColleges, createCollege, deleteCollege, getAllStudents, deleteStudentProfile, updateCollege, updateStudentProfile, renameCollegeAndMigrate, PREDEFINED_DEPARTMENTS, ensureGeneralDepartment, createStudentAuthProfile, importStudentsCSV, parseStudentsCSV, generateCredentialsCSV } from "@/lib/services";
 import { useLMSDataSelector } from "@/lib/data/use-lms-data";
-import { optimisticDeleteCollege } from "@/lib/data/lms-store";
-import { refreshCache } from "@/lib/data/lms-data-cache";
+import { refreshCache, optimisticUpdateCollegeInCache, optimisticDeleteCollegeFromCache as optimisticDeleteCollege } from "@/lib/data/lms-data-cache";
 import { markCollegeAsDeleted } from "@/lib/hierarchy/hierarchy-data";
-import { getAuth } from "firebase/auth";
-import { getDocuments, where } from "@/lib/firebase/firestore";
-import { doc, setDoc, Timestamp } from "firebase/firestore";
-import { db } from "@/lib/firebase/config";
 import type { College, Student, CSVStudentRow, CSVImportSummary } from "@/types";
 import { useErrorHandler } from "@/providers/error-provider";
 
@@ -45,12 +43,17 @@ export default function CollegesPage() {
   const [loginEnabled, setLoginEnabled] = useState(false);
   const [creating, setCreating] = useState(false);
 
-  const [editingCollege, setEditingCollege] = useState<College | null>(null);
-  const [editCollegeName, setEditCollegeName] = useState("");
-  const [editAdminEmail, setEditAdminEmail] = useState("");
-  const [editInitialPassword, setEditInitialPassword] = useState("");
-  const [editLoginEnabled, setEditLoginEnabled] = useState(false);
-  const [updatingCollege, setUpdatingCollege] = useState(false);
+  // Separate State: Rename College Modal
+  const [renamingCollege, setRenamingCollege] = useState<College | null>(null);
+  const [renameCollegeName, setRenameCollegeName] = useState("");
+  const [renamingLoading, setRenamingLoading] = useState(false);
+
+  // Separate State: Manage Admin Credentials Modal
+  const [credsCollege, setCredsCollege] = useState<College | null>(null);
+  const [credsAdminEmail, setCredsAdminEmail] = useState("");
+  const [credsPassword, setCredsPassword] = useState("");
+  const [credsLoginEnabled, setCredsLoginEnabled] = useState(false);
+  const [credsLoading, setCredsLoading] = useState(false);
 
   const [editingExternal, setEditingExternal] = useState<{ id: string; name: string } | null>(null);
   const [editExternalName, setEditExternalName] = useState("");
@@ -66,7 +69,7 @@ export default function CollegesPage() {
   const [cardEnrollYear, setCardEnrollYear] = useState("1st Year");
   const [cardEnrollSection, setCardEnrollSection] = useState("A");
   const [cardCustomSection, setCardCustomSection] = useState("");
-  const [cardEnrollBatch, setCardEnrollBatch] = useState("General Cohort");
+  const [cardEnrollBatch, setCardEnrollBatch] = useState("");
   const [cardEnrolling, setCardEnrolling] = useState(false);
   const [cardEnrollError, setCardEnrollError] = useState<string | null>(null);
 
@@ -270,15 +273,39 @@ export default function CollegesPage() {
       onConfirm: async () => {
         try {
           const newStatus = isRestricted ? "active" : "restricted";
+          optimisticUpdateCollegeInCache(col.id, { status: newStatus });
           await updateCollege(col.id, { status: newStatus });
           await refreshCache(); // Immediate UI update
-          toast.success(`Updated status for "${col.name}".`);
+          toast.success(isRestricted ? `Access restored for "${col.name}".` : `Access restricted for "${col.name}".`);
         } catch (err) {
           console.error("Failed to toggle college status:", err);
+          await refreshCache();
           toast.error("Failed to toggle college status.");
         }
       }
     });
+  };
+
+  const handleRenameCollegeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!renamingCollege || !renameCollegeName.trim()) return;
+    const newName = renameCollegeName.trim().toLowerCase();
+    setRenamingLoading(true);
+    try {
+      await updateCollege(renamingCollege.id, { name: newName });
+      if (renamingCollege.name.toLowerCase() !== newName) {
+        await renameCollegeAndMigrate(renamingCollege.id, renamingCollege.name, newName, false);
+      }
+      await refreshCache();
+      toast.success(`College renamed to "${renameCollegeName.trim()}".`);
+      setRenamingCollege(null);
+      setRenameCollegeName("");
+    } catch (err: unknown) {
+      console.error("Failed to rename college:", err);
+      toast.error(err instanceof Error ? err.message : "Failed to rename college");
+    } finally {
+      setRenamingLoading(false);
+    }
   };
 
   const handleDeleteSelectedAdminColleges = () => {
@@ -453,13 +480,16 @@ export default function CollegesPage() {
       
       // PRE-FLIGHT CHECK
       if (normalizedEmail) {
-        const auth = getAuth();
-        const token = await auth.currentUser?.getIdToken();
+                const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
         if (token) {
           const emailCheckResp = await fetch("/api/admin/check-email-exists", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email: normalizedEmail, adminIdToken: token }),
+            headers: { 
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${token}`
+            },
+            body: JSON.stringify({ email: normalizedEmail }),
           });
           const emailCheckData = await emailCheckResp.json();
           if (emailCheckData.exists) {
@@ -514,14 +544,16 @@ export default function CollegesPage() {
 
       // Attempt to create Auth User if loginEnabled
       if (loginEnabled && normalizedEmail) {
-        const auth = getAuth();
-        const token = await auth.currentUser?.getIdToken();
+                const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
         if (token) {
           const authResp = await fetch("/api/admin/create-college-auth", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { 
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${token}`
+            },
             body: JSON.stringify({
-              adminIdToken: token,
               email: normalizedEmail,
               password: initialPassword,
               collegeId: collegeId,
@@ -562,91 +594,84 @@ export default function CollegesPage() {
     }
   };
 
-  const handleUpdateCollege = async (e: React.FormEvent) => {
+  const handleRenameCollege = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingCollege || !editCollegeName.trim()) return;
-    setUpdatingCollege(true);
+    if (!renamingCollege || !renameCollegeName.trim()) return;
+    setRenamingLoading(true);
     try {
-      const normalizedNewName = editCollegeName.trim().toLowerCase();
-      const oldName = editingCollege.name;
-      const oldEmail = editingCollege.adminEmail || "";
-      const newEmail = editAdminEmail.trim().toLowerCase();
+      const normalizedNewName = renameCollegeName.trim().toLowerCase();
+      const oldName = renamingCollege.name;
 
-      // Tier 1: Rename college & migrate student/user documents in Firestore if name changed
       if (normalizedNewName !== oldName.toLowerCase()) {
         await renameCollegeAndMigrate(
-          editingCollege.id,
+          renamingCollege.id,
           oldName,
           normalizedNewName,
           false
         );
       }
-
-      // Tier 2: Check if Auth credentials need to be updated
-      const authCredentialsChanged =
-        editLoginEnabled &&
-        (newEmail !== oldEmail.toLowerCase() || Boolean(editInitialPassword));
-
-      if (authCredentialsChanged) {
-        const auth = getAuth();
-        const token = await auth.currentUser?.getIdToken();
-        if (!token) {
-          showError({ message: "Session expired. Please sign in again." });
-          return;
-        }
-
-        const authResp = await fetch("/api/admin/update-college-auth", {
-          method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`
-          },
-          body: JSON.stringify({
-            collegeId: editingCollege.id,
-            collegeName: normalizedNewName,
-            adminEmail: newEmail,
-          }),
-        });
-
-        if (!authResp.ok) {
-          let data: any = {};
-          const textResponse = await authResp.text();
-          try {
-            data = JSON.parse(textResponse);
-          } catch {
-            data = { message: "Failed to update college auth details." };
-          }
-          showError(data);
-          return;
-        }
-      }
-
-      // Tier 3: Update college metadata and migrate associated records in Firestore
-      const payload: Partial<College> = {
-        name: normalizedNewName,
-        adminEmail: editLoginEnabled ? newEmail : oldEmail,
-        initialPassword: editInitialPassword || editingCollege.initialPassword,
-        loginEnabled: editLoginEnabled,
-      };
-
-      if (editingCollege.name !== normalizedNewName) {
-        await renameCollegeAndMigrate(editingCollege.id, editingCollege.name, normalizedNewName, false);
-      }
-      await updateCollege(editingCollege.id, payload);
-      await refreshCache(); // Immediate UI update
-      toast.success("College details updated successfully.");
-
-      // Tier 4: State Cleanup
-      setEditingCollege(null);
-      setEditCollegeName("");
-      setEditAdminEmail("");
-      setEditInitialPassword("");
-      setEditLoginEnabled(false);
-    } catch (err) {
-      console.error("Failed to update college", err);
-      toast.error("Failed to update college details.");
+      await refreshCache();
+      toast.success(`College renamed to "${renameCollegeName.trim()}" successfully.`);
+      setRenamingCollege(null);
+      setRenameCollegeName("");
+    } catch (err: any) {
+      console.error("Failed to rename college", err);
+      showError(err);
     } finally {
-      setUpdatingCollege(false);
+      setRenamingLoading(false);
+    }
+  };
+
+  const handleUpdateCredentials = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!credsCollege) return;
+    setCredsLoading(true);
+    try {
+      const newEmail = credsAdminEmail.trim().toLowerCase();
+
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) {
+        showError({ message: "Session expired. Please sign in again." });
+        return;
+      }
+
+      const authResp = await fetch("/api/admin/update-college-auth", {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          collegeId: credsCollege.id,
+          collegeName: credsCollege.name,
+          adminEmail: credsLoginEnabled ? newEmail : undefined,
+          password: credsPassword.trim() || undefined,
+        }),
+      });
+
+      if (!authResp.ok) {
+        let data: any = {};
+        const textResponse = await authResp.text();
+        try {
+          data = JSON.parse(textResponse);
+        } catch {
+          data = { message: "Failed to update college auth details." };
+        }
+        showError(data);
+        return;
+      }
+
+      await refreshCache();
+      toast.success("College admin credentials updated successfully.");
+      setCredsCollege(null);
+      setCredsAdminEmail("");
+      setCredsPassword("");
+    } catch (err: any) {
+      console.error("Failed to update credentials", err);
+      showError(err);
+    } finally {
+      setCredsLoading(false);
     }
   };
 
@@ -696,15 +721,14 @@ export default function CollegesPage() {
           }
 
           // 1. Create the official college document
-          const collegeRef = doc(db, "colleges", slug);
-          await setDoc(collegeRef, {
+          await upsertCollegeAction({
             id: slug,
             name: lowerName,
             departments: ["General", ...extDepartments],
             status: "active",
-            createdAt: Timestamp.now(),
-            updatedAt: Timestamp.now(),
-          }, { merge: true });
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          });
 
           // 2. Migrate existing students to explicitly point to this slug
           await renameCollegeAndMigrate(slug, extName, lowerName, true);
@@ -806,7 +830,7 @@ export default function CollegesPage() {
                       </div>
 
                       <div className="flex items-center gap-1">
-                        {col.loginEnabled && (
+                        {(col.loginEnabled || col.adminEmail) && (
                           <Button
                             variant="ghost"
                             size="sm"
@@ -821,33 +845,43 @@ export default function CollegesPage() {
                             {col.status === "restricted" ? "Restricted" : "Restrict"}
                           </Button>
                         )}
+                        {/* 1. Rename College Button */}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setRenamingCollege(col);
+                            setRenameCollegeName(col.name);
+                          }}
+                          className="h-8 w-8 p-0 text-brand hover:text-brand/90 hover:bg-brand/10 rounded-lg cursor-pointer"
+                          title="Rename College"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        {/* 2. Manage Admin Credentials Button */}
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={async () => {
-                            setEditingCollege(col);
-                            setEditCollegeName(col.name);
-                            setEditAdminEmail(col.adminEmail || "");
-                            setEditInitialPassword(col.initialPassword || "");
-                            setEditLoginEnabled(col.loginEnabled || false);
+                            setCredsCollege(col);
+                            setCredsAdminEmail(col.adminEmail || "");
+                            setCredsPassword("");
+                            const hasAdmin = Boolean(col.adminEmail || col.loginEnabled);
+                            setCredsLoginEnabled(hasAdmin);
 
-                            // Live Sync Guard: Query users collection to reflect any credential changes made directly by the college admin
                             try {
-                              const userDocs = await getDocuments<any>("users", [
-                                where("collegeId", "==", col.id),
-                                where("role", "==", "college_admin")
-                              ]);
-                              if (userDocs.data.length > 0) {
-                                const activeUser = userDocs.data[0];
-                                if (activeUser.email) setEditAdminEmail(activeUser.email);
-                                if (activeUser.initialPassword) setEditInitialPassword(activeUser.initialPassword);
+                              const userDocs = await getCollegeAdminsAction(col.id);
+                              if (userDocs && userDocs.length > 0) {
+                                const activeUser = userDocs[0];
+                                if (activeUser.email) setCredsAdminEmail(activeUser.email);
+                                setCredsLoginEnabled(true);
                               }
                             } catch {}
                           }}
-                          className="h-8 w-8 p-0 text-brand hover:text-brand/90 hover:bg-brand/10 rounded-lg"
-                          title="Edit College Details"
+                          className="h-8 w-8 p-0 text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 rounded-lg cursor-pointer"
+                          title="Manage Admin Credentials"
                         >
-                          <Pencil className="w-4 h-4" />
+                          <KeyRound className="w-4 h-4" />
                         </Button>
                         <Button
                           variant="ghost"
@@ -1240,9 +1274,9 @@ export default function CollegesPage() {
         )}
       </AnimatePresence>
 
-      {/* Edit College Name Modal */}
+      {/* 1. Rename College Modal */}
       <AnimatePresence>
-        {editingCollege && (
+        {renamingCollege && (
           <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
@@ -1251,100 +1285,52 @@ export default function CollegesPage() {
               className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-5"
             >
               <div className="flex items-center justify-between border-b border-border pb-3">
-                <h3 className="text-lg font-bold text-foreground">Edit College Details</h3>
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-brand/10 text-brand flex items-center justify-center">
+                    <Pencil className="w-4 h-4" />
+                  </div>
+                  <h3 className="text-lg font-bold text-foreground">Rename College</h3>
+                </div>
                 <button
                   onClick={() => {
-                    setEditingCollege(null);
-                    setEditCollegeName("");
+                    setRenamingCollege(null);
+                    setRenameCollegeName("");
                   }}
-                  className="text-muted-foreground hover:text-foreground"
+                  className="text-muted-foreground hover:text-foreground cursor-pointer"
                 >
                   ✕
                 </button>
               </div>
 
-              <form onSubmit={handleUpdateCollege} className="space-y-4">
+              <form onSubmit={handleRenameCollege} className="space-y-4">
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-foreground">College Name</label>
                   <input
                     type="text"
-                    value={editCollegeName}
-                    onChange={(e) => setEditCollegeName(e.target.value)}
+                    value={renameCollegeName}
+                    onChange={(e) => setRenameCollegeName(e.target.value)}
                     required
                     placeholder="e.g. Stanford Institute of Tech"
                     className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
                   />
+                  <p className="text-[11px] text-muted-foreground">
+                    Renaming will automatically update all associated student and exam records.
+                  </p>
                 </div>
 
-                <div className="pt-4 border-t border-border space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="text-sm font-semibold text-foreground">College Admin Access</h4>
-                      <p className="text-[10px] sm:text-xs text-muted-foreground">Enable a dedicated login portal for this college</p>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={editLoginEnabled}
-                        onChange={(e) => setEditLoginEnabled(e.target.checked)}
-                        className="sr-only peer"
-                      />
-                      <div className="w-9 h-5 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand"></div>
-                    </label>
-                  </div>
-
-                  <AnimatePresence>
-                    {editLoginEnabled && (
-                      <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: "auto" }}
-                        exit={{ opacity: 0, height: 0 }}
-                        className="space-y-3 overflow-hidden"
-                      >
-                        <div className="space-y-1.5">
-                          <label className="text-[10px] sm:text-xs font-semibold text-foreground/80 uppercase tracking-wider">
-                            Admin Email
-                          </label>
-                          <input
-                            type="email"
-                            value={editAdminEmail}
-                            onChange={(e) => setEditAdminEmail(e.target.value)}
-                            required={editLoginEnabled}
-                            className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
-                            placeholder="admin@college.edu"
-                          />
-                        </div>
-                        <div className="space-y-1.5">
-                          <label className="text-[10px] sm:text-xs font-semibold text-foreground/80 uppercase tracking-wider">
-                            Initial Password
-                          </label>
-                          <input
-                            type="text"
-                            value={editInitialPassword}
-                            onChange={(e) => setEditInitialPassword(e.target.value)}
-                            required={editLoginEnabled}
-                            className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
-                            placeholder="e.g. Welcome123"
-                          />
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-
-                <div className="flex justify-end gap-2 pt-2">
+                <div className="flex justify-end gap-2 pt-3 border-t border-border">
                   <Button
                     type="button"
                     variant="outline"
                     onClick={() => {
-                      setEditingCollege(null);
-                      setEditCollegeName("");
+                      setRenamingCollege(null);
+                      setRenameCollegeName("");
                     }}
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" disabled={updatingCollege} className="bg-brand text-brand-foreground hover:bg-brand/90">
-                    {updatingCollege ? "Saving..." : "Save Changes"}
+                  <Button type="submit" disabled={renamingLoading} className="bg-brand text-brand-foreground hover:bg-brand/90">
+                    {renamingLoading ? "Saving..." : "Save Name"}
                   </Button>
                 </div>
               </form>
@@ -1353,7 +1339,178 @@ export default function CollegesPage() {
         )}
       </AnimatePresence>
 
-      {/* Edit Outside Institution Name Modal */}
+      {/* 2. Manage Admin Credentials Modal */}
+      <AnimatePresence>
+        {credsCollege && (
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-5"
+            >
+              <div className="flex items-center justify-between border-b border-border pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-500 flex items-center justify-center">
+                    <KeyRound className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-foreground">Admin Credentials</h3>
+                    <p className="text-xs text-muted-foreground">{credsCollege.name}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setCredsCollege(null);
+                    setCredsAdminEmail("");
+                    setCredsPassword("");
+                  }}
+                  className="text-muted-foreground hover:text-foreground cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handleUpdateCredentials} className="space-y-4">
+                <div className="flex items-center justify-between p-3.5 rounded-xl bg-background/60 border border-border">
+                  <div>
+                    <h4 className="text-sm font-semibold text-foreground">College Admin Access</h4>
+                    <p className="text-[10px] sm:text-xs text-muted-foreground">Enable dedicated login portal for this college</p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={credsLoginEnabled}
+                      onChange={(e) => setCredsLoginEnabled(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand"></div>
+                  </label>
+                </div>
+
+                <AnimatePresence>
+                  {credsLoginEnabled && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="space-y-3 overflow-hidden"
+                    >
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] sm:text-xs font-semibold text-foreground/80 uppercase tracking-wider">
+                          Admin Email
+                        </label>
+                        <input
+                          type="email"
+                          value={credsAdminEmail}
+                          onChange={(e) => setCredsAdminEmail(e.target.value)}
+                          required={credsLoginEnabled}
+                          className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
+                          placeholder="admin@college.edu"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[10px] sm:text-xs font-semibold text-foreground/80 uppercase tracking-wider">
+                            New Password
+                          </label>
+                          <span className="text-[10px] text-muted-foreground font-normal">(Optional)</span>
+                        </div>
+                        <input
+                          type="text"
+                          value={credsPassword}
+                          onChange={(e) => setCredsPassword(e.target.value)}
+                          className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
+                          placeholder="Leave blank to keep current password"
+                        />
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                <div className="flex justify-end gap-2 pt-3 border-t border-border">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setCredsCollege(null);
+                      setCredsAdminEmail("");
+                      setCredsPassword("");
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={credsLoading} className="bg-brand text-brand-foreground hover:bg-brand/90">
+                    {credsLoading ? "Saving..." : "Save Credentials"}
+                  </Button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Rename Official College Modal */}
+      <AnimatePresence>
+        {renamingCollege && (
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-5"
+            >
+              <div className="flex items-center justify-between border-b border-border pb-3">
+                <div>
+                  <h3 className="text-lg font-bold text-foreground">Rename College</h3>
+                  <p className="text-xs text-muted-foreground">Updates the institution name across the entire portal.</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setRenamingCollege(null);
+                    setRenameCollegeName("");
+                  }}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handleRenameCollegeSubmit} className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-foreground">College Name</label>
+                  <input
+                    type="text"
+                    value={renameCollegeName}
+                    onChange={(e) => setRenameCollegeName(e.target.value)}
+                    required
+                    placeholder="e.g. IIT Patna"
+                    className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setRenamingCollege(null);
+                      setRenameCollegeName("");
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={renamingLoading} className="bg-brand text-brand-foreground hover:bg-brand/90">
+                    {renamingLoading ? "Saving..." : "Save Changes"}
+                  </Button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Rename External Institution Modal */}
       <AnimatePresence>
         {editingExternal && (
           <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">

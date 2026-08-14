@@ -1,8 +1,5 @@
 import { getErrorMessage } from '@/lib/utils/error';
-import { createUserWithEmailAndPassword, updateProfile, getAuth } from "firebase/auth";
-import { initializeApp, deleteApp } from "firebase/app";
-import { auth, db, firebaseConfig } from "@/lib/firebase/config";
-import { doc, setDoc, getDocs, collection, query, where, writeBatch } from "firebase/firestore";
+import { supabase } from "@/lib/supabase/client";
 import type { CSVStudentRow, CSVImportSummary, StudentImportCredential, Student, User } from "@/types";
 
 /**
@@ -166,7 +163,8 @@ export async function importStudentsCSV(
   enrollmentType: "csv" | "manual" = "csv"
 ): Promise<CSVImportSummary> {
   // High-speed Server-side Admin Bulk Import Attempt
-  const currentUser = auth.currentUser;
+  const { data: authData } = await supabase.auth.getUser();
+  const currentUser = authData?.user;
   if (currentUser) {
     try {
       const CHUNK_SIZE = 25; // 25 rows per request guarantees sub-1.5s responses and 0 Vercel 504 timeouts
@@ -193,14 +191,23 @@ export async function importStudentsCSV(
         for (let attempt = 1; attempt <= retries; attempt++) {
           if (shouldCancel && shouldCancel()) return null;
           try {
-            const adminIdToken = await currentUser.getIdToken(true).catch(() => currentUser.getIdToken());
+            const sessionData = await supabase.auth.getSession();
+            let adminIdToken = sessionData.data.session?.access_token || "";
+            if (!adminIdToken) {
+              const refresh = await supabase.auth.refreshSession();
+              adminIdToken = refresh.data.session?.access_token || "";
+            }
+
             const response = await fetch("/api/admin/bulk-import-students", {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: {
+                "Content-Type": "application/json",
+                ...(adminIdToken ? { Authorization: `Bearer ${adminIdToken}` } : {})
+              },
               body: JSON.stringify({ adminIdToken, rows: chunk, enrollmentType }),
             });
 
-            // ⚠️ CRITICAL FIX: Proper error handling - NO empty object returns
+            // Proper error handling
             let data;
             try {
               data = await response.json();
@@ -228,14 +235,10 @@ export async function importStudentsCSV(
       };
 
       for (let i = 0; i < chunks.length; i += MAX_CONCURRENT_REQUESTS) {
-        if (shouldCancel && shouldCancel()) {
-          const remainingRows = rows.length - processedCount;
-          combinedSummary.skippedCount += remainingRows;
-          break;
-        }
-
+        if (shouldCancel && shouldCancel()) break;
         const batchChunks = chunks.slice(i, i + MAX_CONCURRENT_REQUESTS);
-        const summaries = await Promise.all(batchChunks.map((c) => sendChunkWithRetry(c)));
+        const chunkPromises = batchChunks.map((chunk) => sendChunkWithRetry(chunk));
+        const summaries = await Promise.all(chunkPromises);
 
         for (let sIdx = 0; sIdx < summaries.length; sIdx++) {
           const resSummary = summaries[sIdx];

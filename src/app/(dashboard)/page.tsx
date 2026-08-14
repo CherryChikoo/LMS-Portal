@@ -67,7 +67,11 @@ export function StudentPortalDashboard({
           const canonical = students.find((s) => s.id === sId || (sEmail && s.email === sEmail));
           
           if (canonical) {
-            setStudentProfile(canonical);
+            setStudentProfile({
+              ...parsed,
+              ...canonical,
+              createdAt: canonical.createdAt || parsed.createdAt,
+            });
           } else {
             setStudentProfile(parsed);
           }
@@ -522,7 +526,7 @@ export default function DashboardPage() {
               </div>
             </div>
             <div>
-              <div className="text-3xl font-bold font-heading">{loading ? "0" : exams.length}</div>
+              <div className="text-3xl font-bold font-heading">{exams.length}</div>
               <div className="flex items-center justify-between mt-1">
                 <span className="text-xs text-muted-foreground">Total overall assignments</span>
                 <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-emerald-500 transition-colors" />
@@ -542,7 +546,7 @@ export default function DashboardPage() {
               </div>
             </div>
             <div>
-              <div className="text-3xl font-bold font-heading">{loading ? "0" : activeStudents.length}</div>
+              <div className="text-3xl font-bold font-heading">{activeStudents.length}</div>
               <div className="flex items-center justify-between mt-1">
                 <span className="text-xs text-muted-foreground">
                   {userRole === "admin" ? "Across all colleges" : userRole === "college_admin" ? "In your college" : "In your batches"}
@@ -564,7 +568,7 @@ export default function DashboardPage() {
               </div>
             </div>
             <div>
-              <div className="text-3xl font-bold font-heading">{loading ? "0" : activeOrScheduledExams.length}</div>
+              <div className="text-3xl font-bold font-heading">{activeOrScheduledExams.length}</div>
               <div className="flex items-center justify-between mt-1">
                 <span className="text-xs text-muted-foreground">Currently running</span>
                 <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
@@ -584,7 +588,7 @@ export default function DashboardPage() {
               </div>
             </div>
             <div>
-              <div className="text-3xl font-bold font-heading">{loading ? "0" : resources.length}</div>
+              <div className="text-3xl font-bold font-heading">{resources.length}</div>
               <div className="flex items-center justify-between mt-1">
                 <span className="text-xs text-muted-foreground">Total study materials</span>
                 <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
@@ -646,7 +650,7 @@ export default function DashboardPage() {
               </Link>
             </div>
             <div className="space-y-3 flex-1">
-            {loading ? (
+            {displayBatches.length === 0 && loading ? (
               <div className="py-8 text-center text-xs text-muted-foreground">Loading batches...</div>
             ) : displayBatches.length === 0 ? (
               <GlassCard className="p-6 text-center text-xs text-muted-foreground">

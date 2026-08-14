@@ -14,7 +14,9 @@ export function useEntityResolution() {
     filteredResources,
     hierarchy,
     institutions,
-    rawColleges
+    rawColleges,
+    rawBatches,
+    rawStudents
   } = useLMSData();
 
   return useMemo(() => ({
@@ -29,7 +31,7 @@ export function useEntityResolution() {
     resolveBatch: (id: string | number | undefined | null): string => {
       if (!id || String(id) === "ALL" || String(id) === "GLOBAL") return String(id) === "ALL" ? "All Batches" : "Global";
       
-      const sourceBatches = hierarchy?.batches || filteredBatches || [];
+      const sourceBatches = rawBatches?.length > 0 ? rawBatches : (hierarchy?.batches || filteredBatches || []);
       const resolved = resolveEntity(sourceBatches, id, "Batch");
       return resolved.name;
     },
@@ -37,7 +39,7 @@ export function useEntityResolution() {
     resolveStudent: (id: string | number | undefined | null): string => {
       if (!id) return "Unknown Student";
       
-      const sourceStudents = hierarchy?.students || filteredStudents || [];
+      const sourceStudents = rawStudents?.length > 0 ? rawStudents : (hierarchy?.students || filteredStudents || []);
       const resolved = resolveEntity(sourceStudents, id, "Student");
       
       // Fallback for email matching legacy systems

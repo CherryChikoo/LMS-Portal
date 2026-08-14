@@ -1,7 +1,7 @@
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { prisma } from "@/lib/prisma";
 import { getErrorMessage } from '@/lib/utils/error';
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminApp, getAdminAuth } from "@/lib/firebase/admin";
-import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import crypto from "crypto";
 
 const generateSecurePassword = () => process.env.DEFAULT_STUDENT_PASSWORD || "Welcome@123";
@@ -32,11 +32,19 @@ function formatCollegeTitle(rawName: string): string {
 }
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 120; // Allow up to 120 seconds for large bulk imports on Vercel
+export const maxDuration = 120;
 
 export async function POST(request: NextRequest) {
   try {
-    const { adminIdToken, rows, enrollmentType = "csv" } = await request.json();
+    const authHeader = request.headers.get("authorization");
+    let adminIdToken = authHeader && authHeader.startsWith("Bearer ") ? authHeader.split("Bearer ")[1] : null;
+
+    const body = await request.json();
+    const { rows, enrollmentType = "csv" } = body;
+
+    if (!adminIdToken && body.adminIdToken && typeof body.adminIdToken === "string") {
+      adminIdToken = body.adminIdToken;
+    }
 
     if (!adminIdToken || typeof adminIdToken !== "string") {
       return NextResponse.json({ error: "Admin authorization token is required." }, { status: 401 });
@@ -46,31 +54,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No student rows provided for import." }, { status: 400 });
     }
 
-    // Verify admin identity
-    let decodedToken;
-    try {
-      const auth = getAdminAuth();
-      decodedToken = await auth.verifyIdToken(adminIdToken);
-    } catch {
+    const { data: { user: adminUser }, error: verifyError } = await supabaseAdmin.auth.getUser(adminIdToken);
+    
+    if (verifyError || !adminUser) {
       return NextResponse.json({ error: "Invalid or expired admin session." }, { status: 401 });
     }
 
-    const app = getAdminApp();
-    const db = getFirestore(app);
-    const auth = getAdminAuth();
+    const requesterUid = adminUser.id;
 
-    // Verify admin role
-    const requesterDoc = await db.collection("users").doc(decodedToken.uid).get();
-    const requesterRole = requesterDoc.data()?.role;
-    if (requesterRole !== "admin" && requesterRole !== "trainer" && requesterRole !== "college_admin") {
+    const requesterDoc = await prisma.users.findFirst({ 
+      where: { 
+        OR: [
+          { id: requesterUid },
+          { authId: requesterUid }
+        ]
+      }, 
+      select: { role: true } 
+    });
+    const requesterRole = requesterDoc?.role;
+
+    if (requesterRole !== "admin" && requesterRole !== "trainer" && requesterRole !== "college_admin" && requesterRole !== "main_admin" && requesterRole !== "superadmin") {
       return NextResponse.json({ error: "Only admin, trainer, or college roles can import students." }, { status: 403 });
     }
 
-    console.time("[Firestore] Bulk Import Total");
-    console.time("[Firestore] Bulk Import Pre-fetch Colleges");
+    console.time("[Supabase] Bulk Import Total");
+    console.time("[Supabase] Bulk Import Pre-fetch Colleges");
 
-    // 1. OPTIMIZATION: Pre-fetch existing colleges with pagination to avoid unbounded reads
-    // Extract unique college names from import rows first to determine what we actually need
     const uniqueCollegeNames = new Set<string>();
     (rows as ImportRowInput[]).forEach((r) => {
       const rawCol = String(r.college ?? "UNASSIGNED").trim();
@@ -82,78 +91,34 @@ export async function POST(request: NextRequest) {
 
     const collegeMap = new Map<string, { id: string; name: string; departments: Set<string>; initialDepsCount: number }>();
 
-    // Use targeted queries in parallel batches, grouped by first letter, with cursor pagination to avoid truncation
-    const nameGroups = new Map<string, string[]>();
-    uniqueCollegeNames.forEach(name => {
-      const firstLetter = name[0] || 'a';
-      if (!nameGroups.has(firstLetter)) {
-        nameGroups.set(firstLetter, []);
-      }
-      nameGroups.get(firstLetter)!.push(name);
-    });
-
-    const fetchPromises = Array.from(nameGroups.entries()).map(async ([letter, names]) => {
-      const startAt = letter;
-      const endAt = letter + '\uf8ff'; 
-      let allDocsForLetter: any[] = [];
-      let lastDoc: any = null;
-      let hasMore = true;
-
-      while (hasMore) {
-        let query = db.collection("colleges")
-          .where("name", ">=", startAt)
-          .where("name", "<=", endAt)
-          .limit(500);
-          
-        if (lastDoc) {
-          query = query.startAfter(lastDoc);
+    // Fetch existing colleges matching names
+    const namesArray = Array.from(uniqueCollegeNames);
+    
+    if (namesArray.length > 0) {
+        // Chunk requests to avoid URL limits in PostgREST
+        for(let i=0; i<namesArray.length; i+=100) {
+            const chunk = namesArray.slice(i, i+100);
+            // Search by exact name or ID (fallback)
+            const cols = await prisma.colleges.findMany({ select: { id: true, name: true, departments: true } });
+            if (cols) {
+               cols.forEach((col: any) => {
+                  const normName = (col.name || "").toLowerCase().trim();
+                  const deps = new Set<string>(Array.isArray(col.departments) ? col.departments : []);
+                  const entry = { id: col.id, name: col.name || formatCollegeTitle(normName), departments: deps, initialDepsCount: deps.size };
+                  collegeMap.set(normName, entry);
+                  collegeMap.set(col.id.toLowerCase().trim(), entry);
+               });
+            }
         }
+    }
+    
+    console.timeEnd("[Supabase] Bulk Import Pre-fetch Colleges");
 
-        const snapshot = await query.get();
-        allDocsForLetter.push(...snapshot.docs);
-
-        if (snapshot.docs.length < 500) {
-          hasMore = false;
-        } else {
-          lastDoc = snapshot.docs[snapshot.docs.length - 1];
-        }
-      }
-      return allDocsForLetter;
-    });
-
-    const allDocs = (await Promise.all(fetchPromises)).flat();
-    allDocs.forEach((d) => {
-      const data = d.data();
-      if (!data.isDeleted && data.status !== "deleted") {
-        const normName = (data.name || "").toLowerCase().trim();
-        const normId = d.id.toLowerCase().trim();
-        const deps = new Set<string>(Array.isArray(data.departments) ? data.departments : []);
-        const entry = { id: d.id, name: data.name || formatCollegeTitle(normName), departments: deps, initialDepsCount: deps.size };
-        if (normName) collegeMap.set(normName, entry);
-        if (normId) collegeMap.set(normId, entry);
-      }
-    });
-
-    console.timeEnd("[Firestore] Bulk Import Pre-fetch Colleges");
-
-    // Extract unique colleges from the import rows
     const newCollegesToCreate = new Map<string, { id: string; name: string; departments: Set<string>; initialDepsCount: number }>();
 
     const RESERVED_COLLEGE_NAMES = new Set([
-      "all",
-      "all colleges",
-      "all institutions",
-      "select college",
-      "select institution",
-      "global",
-      "default college",
-      "unassigned",
-      "none",
-      "n/a",
-      "na",
-      "null",
-      "undefined",
-      "unknown",
+      "all", "all colleges", "all institutions", "select college", "select institution", "global",
+      "default college", "unassigned", "none", "n/a", "na", "null", "undefined", "unknown",
     ]);
 
     for (const r of rows as ImportRowInput[]) {
@@ -183,66 +148,40 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Create newly encountered colleges in Firestore 'colleges' collection so they are Registered Colleges
+    // Insert new colleges
     if (newCollegesToCreate.size > 0) {
-      let batchCol = db.batch();
-      let count = 0;
-      for (const col of Array.from(newCollegesToCreate.values())) {
-        const colRef = db.collection("colleges").doc(col.id);
+      const collegesToInsert = Array.from(newCollegesToCreate.values()).map(col => {
         const safeCodeName = String(col.name || "").replace(/[^a-zA-Z0-9]/g, "").slice(0, 6).toUpperCase();
-        batchCol.set(
-          colRef,
-          {
-            id: col.id,
-            name: col.name,
-            code: safeCodeName || "COLLEGE",
-            type: "registered",
-            departments: Array.from(col.departments),
-            origin: "trainer",
-            studentCount: 0,
-            status: "active",
-            createdAt: FieldValue.serverTimestamp(),
-            updatedAt: FieldValue.serverTimestamp(),
-          },
-          { merge: true }
-        );
-        count++;
-        if (count >= 400) {
-          await batchCol.commit();
-          batchCol = db.batch();
-          count = 0;
+        return {
+          id: col.id,
+          name: col.name,
+          code: safeCodeName || "COLLEGE",
+          type: "registered",
+          departments: Array.from(col.departments),
+          origin: "trainer",
+          status: "active"
         }
-      }
-      if (count > 0) await batchCol.commit();
-    }
-
-    // Update departments for existing registered colleges ONLY if new departments were added
-    let updatedCollegeBatches = db.batch();
-    let colUpdateCount = 0;
-    for (const col of Array.from(collegeMap.values())) {
-      if (!newCollegesToCreate.has(String(col.name || "").toLowerCase()) && col.departments.size > col.initialDepsCount) {
-        const colRef = db.collection("colleges").doc(col.id);
-        updatedCollegeBatches.set(
-          colRef,
-          {
-            departments: Array.from(col.departments),
-            updatedAt: FieldValue.serverTimestamp(),
-          },
-          { merge: true }
-        );
-        colUpdateCount++;
-        if (colUpdateCount >= 400) {
-          await updatedCollegeBatches.commit();
-          updatedCollegeBatches = db.batch();
-          colUpdateCount = 0;
-        }
+      });
+      for (const col of collegesToInsert) {
+        await prisma.colleges.upsert({
+          where: { id: col.id },
+          update: col,
+          create: col
+        });
       }
     }
-    if (colUpdateCount > 0) {
-      await updatedCollegeBatches.commit();
+
+    // Update departments for existing colleges
+    const collegesToUpdate = Array.from(collegeMap.values()).filter(col => 
+      !newCollegesToCreate.has(String(col.name || "").toLowerCase()) && col.departments.size > col.initialDepsCount
+    );
+    
+    if (collegesToUpdate.length > 0) {
+       await Promise.all(collegesToUpdate.map(col => 
+         prisma.colleges.update({ where: { id: col.id }, data: { departments: Array.from(col.departments) } })
+       ));
     }
 
-    // 2. High-speed parallel student Auth creation & Firestore batch writing
     const summary = {
       total: (rows as ImportRowInput[]).length,
       createdCount: 0,
@@ -253,47 +192,24 @@ export async function POST(request: NextRequest) {
     };
 
     const items = rows as ImportRowInput[];
-
-    // Extract emails from current request batch for targeted duplicate checking
-    const chunkEmails = items
-      .map((r) => String(r.collegeEmail ?? "").toLowerCase().trim())
-      .filter(Boolean);
-
-    // OPTIMIZATION: Targeted email duplicate lookup with batch size limits
-    // Use cached email set for better performance on large imports
+    const chunkEmails = items.map((r) => String(r.collegeEmail ?? "").toLowerCase().trim()).filter(Boolean);
     const existingEmailSet = new Set<string>();
+
     if (chunkEmails.length > 0) {
-      const EMAIL_BATCH_SIZE = 30; // Firestore 'in' query limit
-      const MAX_CONCURRENT_QUERIES = 10; // Limit concurrent queries to avoid overwhelming Firestore
-      
-      // Process email lookups in controlled batches
-      for (let i = 0; i < chunkEmails.length; i += EMAIL_BATCH_SIZE * MAX_CONCURRENT_QUERIES) {
-        const emailLookups: Promise<any>[] = [];
-        const endIndex = Math.min(i + EMAIL_BATCH_SIZE * MAX_CONCURRENT_QUERIES, chunkEmails.length);
-        
-        for (let j = i; j < endIndex; j += EMAIL_BATCH_SIZE) {
-          const subList = chunkEmails.slice(j, Math.min(j + EMAIL_BATCH_SIZE, chunkEmails.length));
-          if (subList.length > 0) {
-            emailLookups.push(db.collection("users").where("email", "in", subList).get());
-          }
+      for (let i = 0; i < chunkEmails.length; i += 100) {
+        const subList = chunkEmails.slice(i, i + 100);
+        const existing = await prisma.users.findMany({ where: { email: { in: subList } }, select: { email: true } });
+        if (existing) {
+          existing.forEach((d: any) => existingEmailSet.add(d.email.toLowerCase().trim()));
         }
-        
-        const snaps = await Promise.all(emailLookups);
-        snaps.forEach((snap) => {
-          snap.docs.forEach((d: any) => {
-            const email = d.data()?.email;
-            if (email) existingEmailSet.add(String(email).toLowerCase().trim());
-          });
-        });
       }
     }
 
-    const now = FieldValue.serverTimestamp();
-
-    // OPTIMIZATION: Process students in controlled batches to avoid overwhelming Firebase Auth
-    // Firebase Auth has rate limits (~500 operations/second), so we batch the parallel processing
-    const CONCURRENT_BATCH_SIZE = 30; // Process 30 students at a time to avoid Firebase Auth rate limits
+    const CONCURRENT_BATCH_SIZE = 10;
     const processedResults: typeof summary.results = [];
+
+    const newUsersToInsert = [];
+    const newStudentsToInsert = [];
 
     for (let i = 0; i < items.length; i += CONCURRENT_BATCH_SIZE) {
       const batch = items.slice(i, i + CONCURRENT_BATCH_SIZE);
@@ -324,145 +240,182 @@ export async function POST(request: NextRequest) {
 
           let uid: string;
           try {
-            const createdAuth = await auth.createUser({
+            const { data: authUser, error: authErr } = await supabaseAdmin.auth.admin.createUser({
               email,
               password: tempPassword,
-              displayName: name,
+              email_confirm: true,
+              user_metadata: { full_name: name, role: "student", collegeId: finalCollegeId }
             });
-            uid = createdAuth.uid;
-          } catch (authErr: unknown) {
-            if ((authErr as any)?.code === "auth/email-already-exists") {
-              try {
-                const existingAuth = await auth.getUserByEmail(email);
-                const userDocSnap = await db.collection("users").doc(existingAuth.uid).get();
-                if (!userDocSnap.exists) {
-                  await auth.updateUser(existingAuth.uid, { password: tempPassword, displayName: name });
-                  uid = existingAuth.uid;
+
+            if (authErr) {
+              if (authErr.message.includes("already exists") || authErr.message.includes("unique")) {
+                // Try to find the user
+                const { data: users } = await supabaseAdmin.auth.admin.listUsers();
+                const existingAuth = users?.users?.find(u => u.email === email);
+                if (existingAuth) {
+                   const userDoc = await prisma.users.findUnique({ where: { id: existingAuth.id }, select: { id: true } });
+                   if (!userDoc) {
+                      await supabaseAdmin.auth.admin.updateUserById(existingAuth.id, {
+                        password: tempPassword,
+                        user_metadata: { full_name: name, role: "student", collegeId: finalCollegeId }
+                      });
+                      uid = existingAuth.id;
+                   } else {
+                     return { name, email, password: "", status: "duplicate", reason: "Email already registered in database" };
+                   }
                 } else {
-                  return { name, email, password: "", status: "duplicate", reason: "Email already registered in Auth" };
+                   return { name, email, password: "", status: "failed", reason: "Auth verification error" };
                 }
-              } catch {
-                return { name, email, password: "", status: "failed", reason: "Auth verification error" };
+              } else {
+                 return { name, email, password: "", status: "failed", reason: authErr.message || "Auth creation failed" };
               }
             } else {
-              return { name, email, password: "", status: "failed", reason: (authErr as any)?.message || "Auth creation failed" };
+              uid = authUser.user.id;
             }
+          } catch (err: any) {
+            return { name, email, password: "", status: "failed", reason: err.message || "Auth creation failed" };
           }
 
-          const userDoc = {
-            id: uid,
-            email,
-            displayName: name,
-            role: "student",
-            collegeId: finalCollegeId,
-            collegeName: finalCollegeName,
-            department: finalDepartment,
-            academicYear: finalAcademicYear,
-            section: finalSection,
-            batchIds: [finalBatch],
-            mustChangePassword: true,
-            initialPassword: tempPassword,
-            createdAt: now,
-            updatedAt: now,
+          existingEmailSet.add(email);
+          return { 
+            name, email, password: tempPassword, status: "created",
+            uid, finalCollegeId, finalCollegeName, finalDepartment, finalAcademicYear, finalSection, finalBatch
           };
-
-          const studentDoc = {
-            id: uid,
-            name,
-            email,
-            collegeId: finalCollegeId,
-            collegeName: finalCollegeName,
-            department: finalDepartment,
-            academicYear: finalAcademicYear,
-            semester: 1,
-            section: finalSection,
-            rollNumber: `ROLL-${Math.floor(1000 + Math.random() * 9000)}`,
-            batchIds: [finalBatch],
-            mustChangePassword: true,
-            initialPassword: tempPassword,
-            enrollmentType: enrollmentType,
-            createdAt: now,
-            updatedAt: now,
-          };
-
-          try {
-            await auth.setCustomUserClaims(uid, { role: "student", collegeId: finalCollegeId });
-            existingEmailSet.add(email);
-            return { 
-              name, email, password: tempPassword, status: "created",
-              writeDocs: { uid, userDoc, studentDoc }
-            };
-          } catch (dbErr: unknown) {
-            // Rollback Auth user if custom claims or processing fails
-            try {
-              await auth.deleteUser(uid);
-            } catch (rollbackErr) {}
-            return { name, email, password: "", status: "failed", reason: "Error applying user claims or processing" };
-          }
         })
       );
 
-      // Aggregated batch commit to avoid concurrency overload
-      const aggregatedBatch = db.batch();
-      let writeCount = 0;
-      const createdUids: string[] = [];
-
       for (const res of batchResults) {
-        if (res.status === "created" && res.writeDocs) {
-          aggregatedBatch.set(db.collection("users").doc(res.writeDocs.uid), res.writeDocs.userDoc, { merge: true });
-          aggregatedBatch.set(db.collection("students").doc(res.writeDocs.uid), res.writeDocs.studentDoc, { merge: true });
-          createdUids.push(res.writeDocs.uid);
-          writeCount++;
-          // NOTE: Do NOT delete writeDocs here — rollback needs it if commit fails
-        }
-      }
+        if (res.status === "created") {
+          newUsersToInsert.push({
+            id: res.uid,
+            email: res.email,
+            displayName: res.name,
+            role: "student",
+            collegeId: res.finalCollegeId,
+            collegeName: res.finalCollegeName,
+            department: res.finalDepartment,
+            academicYear: res.finalAcademicYear,
+            section: res.finalSection,
+            batchIds: [res.finalBatch],
+            mustChangePassword: true,
+            initialPassword: res.password,
+          });
 
-      if (writeCount > 0) {
-        try {
-          await aggregatedBatch.commit();
-        } catch (err) {
-          console.error("Aggregated batch commit failed, rolling back auth users:", err);
-          // Rollback all Auth users created in this chunk using the saved UIDs
-          for (const uid of createdUids) {
-            try { await auth.deleteUser(uid); } catch (_) {}
-          }
-          for (const res of batchResults) {
-            if (res.status === "created") {
-               res.status = "failed";
-               res.reason = "Database batch commit failed";
+          newStudentsToInsert.push({
+            id: res.uid,
+            name: res.name,
+            email: res.email,
+            collegeId: res.finalCollegeId,
+            collegeName: res.finalCollegeName,
+            department: res.finalDepartment,
+            academicYear: res.finalAcademicYear,
+            semester: 1,
+            section: res.finalSection,
+            rollNumber: `ROLL-${Math.floor(1000 + Math.random() * 9000)}`,
+            batchIds: [res.finalBatch],
+            mustChangePassword: true,
+            initialPassword: res.password,
+            enrollmentType: enrollmentType,
+          });
+
+          summary.createdCount++;
+        } else if (res.status === "skipped") {
+          summary.skippedCount++;
+        } else if (res.status === "duplicate") {
+          summary.duplicateCount++;
+        } else {
+          summary.failedCount++;
+        }
+        
+        const cleanRes = { name: res.name, email: res.email, password: res.password, status: res.status, reason: (res as any).reason };
+        processedResults.push(cleanRes);
+      }
+    }
+
+    // Insert database docs in bulk
+    if (newUsersToInsert.length > 0) {
+      // Chunk to avoid payload size limit
+      for (let i = 0; i < newUsersToInsert.length; i += 100) {
+        const userBatch = newUsersToInsert.slice(i, i + 100);
+        for (const u of userBatch) {
+          const userDoc = {
+            id: u.id,
+            email: u.email,
+            displayName: u.displayName,
+            role: u.role,
+            collegeId: u.collegeId || null,
+            authId: u.id
+          };
+          const userUpdateDoc = {
+            email: u.email,
+            displayName: u.displayName,
+            role: u.role,
+            collegeId: u.collegeId || null,
+          };
+          await prisma.users.upsert({ where: { id: u.id }, update: userUpdateDoc, create: userDoc as any });
+        }
+        
+        const studentBatch = newStudentsToInsert.slice(i, i + 100);
+        const batchAssignments: { studentId: string; batchId: string }[] = [];
+        for (const s of studentBatch) {
+          const { id, ...data } = s;
+          // students doesn't have email in prisma schema, nor name!
+          // Remove them from payload
+          const { email, name, collegeName, initialPassword, mustChangePassword, batchIds, ...pureStudentData } = data as any;
+          await prisma.students.upsert({ where: { id }, update: pureStudentData, create: { id, ...pureStudentData } });
+
+          if (Array.isArray(batchIds) && batchIds.length > 0) {
+            for (const bRaw of batchIds) {
+              const batchName = typeof bRaw === "string" ? bRaw.trim() : "";
+              if (!batchName || batchName === "General Cohort" || batchName === "Unassigned" || batchName === "None") continue;
+
+              let matchedBatches = await prisma.batches.findMany({
+                where: {
+                  OR: [
+                    { id: batchName },
+                    { name: { equals: batchName, mode: "insensitive" } }
+                  ]
+                },
+                select: { id: true }
+              });
+
+              if (matchedBatches.length === 0) {
+                const newBatchId = `batch-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+                const created = await prisma.batches.create({
+                  data: {
+                    id: newBatchId,
+                    name: batchName,
+                    collegeId: pureStudentData.collegeId || null,
+                    department: pureStudentData.department || null,
+                    academicYear: pureStudentData.academicYear || null,
+                    section: pureStudentData.section || null,
+                  },
+                  select: { id: true }
+                });
+                matchedBatches = [created];
+              }
+
+              for (const mb of matchedBatches) {
+                batchAssignments.push({ studentId: String(id), batchId: mb.id });
+              }
             }
           }
         }
-      }
-
-      // Clean up writeDocs AFTER successful commit (or rollback)
-      for (const res of batchResults) {
-        delete (res as any).writeDocs;
-      }
-
-      for (const res of batchResults) {
-        if (res.status === "created") summary.createdCount++;
-        else if (res.status === "skipped") summary.skippedCount++;
-        else if (res.status === "duplicate") summary.duplicateCount++;
-        else summary.failedCount++;
-        
-        // Ensure we don't send writeDocs back to client
-        delete (res as any).writeDocs;
-        processedResults.push(res);
-      }
-
-      // Small delay between batches to avoid rate limiting (optional)
-      if (i + CONCURRENT_BATCH_SIZE < items.length) {
-        await new Promise(resolve => setTimeout(resolve, 300));
+        if (batchAssignments.length > 0) {
+          await prisma.student_batches.createMany({
+            data: batchAssignments,
+            skipDuplicates: true
+          });
+        }
       }
     }
 
     summary.results = processedResults;
 
-    console.timeEnd("[Firestore] Bulk Import Total");
+    console.timeEnd("[Supabase] Bulk Import Total");
     return NextResponse.json({ success: true, summary });
-    } catch (err: unknown) {
-      console.error("Bulk import students endpoint error:", err);
-      return NextResponse.json({ error: "Internal server error during bulk import.", details: (err as any)?.message || String(err) }, { status: 500 });
-    }
+  } catch (err: unknown) {
+    console.error("Bulk import students endpoint error:", err);
+    return NextResponse.json({ error: "Internal server error during bulk import.", details: (err as any)?.message || String(err) }, { status: 500 });
   }
+}

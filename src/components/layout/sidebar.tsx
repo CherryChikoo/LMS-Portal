@@ -29,43 +29,11 @@ export function Sidebar() {
   const { branding, loading } = useBranding();
   const mounted = useMounted();
   const [showBrandModal, setShowBrandModal] = useState(false);
-  const [userRole, setUserRole] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    try {
-      const role = localStorage.getItem("lms_role") || localStorage.getItem("role");
-      if (role) return role.toLowerCase();
-      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-      if (uStr) {
-        const parsed = JSON.parse(uStr);
-        if (parsed.role) return parsed.role.toLowerCase();
-      }
-    } catch {}
-    return "student";
-  });
-  const [userCollegeId, setUserCollegeId] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    try {
-      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-      if (uStr) {
-        const parsed = JSON.parse(uStr);
-        return parsed.collegeId || null;
-      }
-    } catch {}
-    return null;
-  });
-  const [userCollegeName, setUserCollegeName] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    try {
-      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-      if (uStr) {
-        const parsed = JSON.parse(uStr);
-        return parsed.collegeName || null;
-      }
-    } catch {}
-    return null;
-  });
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [userCollegeId, setUserCollegeId] = useState<string | null>(null);
+  const [userCollegeName, setUserCollegeName] = useState<string | null>(null);
 
-  useEffect(() => {
+  const refreshUser = () => {
     try {
       const role = localStorage.getItem("lms_role") || localStorage.getItem("role");
       let parsed = null;
@@ -85,6 +53,16 @@ export function Sidebar() {
     } catch {
       setUserRole("student");
     }
+  };
+
+  useEffect(() => {
+    refreshUser();
+    window.addEventListener("storage", refreshUser);
+    window.addEventListener("lms_branding_updated", refreshUser);
+    return () => {
+      window.removeEventListener("storage", refreshUser);
+      window.removeEventListener("lms_branding_updated", refreshUser);
+    };
   }, []);
 
   const handleLogout = async () => {
@@ -192,9 +170,7 @@ export function Sidebar() {
             ) : (
               <>
                 <span className="font-bold text-base text-brand tracking-tight truncate">
-                  {(userRole === "college_admin" || userRole === "student") && userCollegeId && !userCollegeId.startsWith("ext-") && userCollegeName 
-                    ? userCollegeName 
-                    : (branding.companyName || (userRole === "admin" || userRole === "trainer" ? "Enterprise LMS" : "College Admin Portal"))}
+                  {branding.companyName || userCollegeName || (userRole === "admin" || userRole === "trainer" ? "Enterprise LMS" : "College Admin Portal")}
                 </span>
                 <span className="text-[9px] font-bold text-brand/60 uppercase tracking-widest truncate">
                   {branding.companySubtitle || (userRole === "admin" || userRole === "trainer" ? "Master Admin" : userRole === "student" ? "Student Portal" : "College Admin Portal")}

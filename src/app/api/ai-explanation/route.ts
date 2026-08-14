@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { getAdminAuth, getAdminFirestore } from '@/lib/firebase/admin';
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { prisma } from "@/lib/prisma";
 import { getErrorMessage } from '@/lib/utils/error';
 import { NextResponse } from "next/server";
 import type { AIExplanation, Question, Exam } from "@/types";
@@ -22,9 +23,10 @@ export async function POST(req: Request) {
   try {
     const authHeader = req.headers.get('authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    const auth = getAdminAuth();
-    let decodedToken;
-    try { decodedToken = await auth.verifyIdToken(authHeader.split('Bearer ')[1]); } catch(e) { return NextResponse.json({ error: 'Invalid token' }, { status: 401 }); }
+    const token = authHeader.split('Bearer ')[1];
+    
+    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+    if (authError || !user) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
     const body = await req.json().catch(() => ({}));
     const parseResult = await AIExplanationSchema.safeParseAsync(body);
@@ -35,13 +37,11 @@ export async function POST(req: Request) {
     if (inputQuestions && Array.isArray(inputQuestions) && inputQuestions.length > 0) {
       existingQuestions = inputQuestions;
     } else if (examId) {
-      const db = getAdminFirestore();
-      const examDoc = await db.collection('exams').doc(examId).get();
-      const exam = examDoc.exists ? examDoc.data() as Exam : null;
-      if (!exam || !exam.questions || exam.questions.length === 0) {
+      const exam = await prisma.exams.findUnique({ where: { id: examId }, select: { questions: true } });
+      if (!exam || !exam.questions || (exam.questions as any[]).length === 0) {
         return NextResponse.json({ error: "Exam or questions not found" }, { status: 404 });
       }
-      existingQuestions = exam.questions;
+      existingQuestions = exam.questions as any;
     } else {
       return NextResponse.json({ error: "Exam ID or questions array is required" }, { status: 400 });
     }
@@ -72,8 +72,20 @@ export async function POST(req: Request) {
     });
 
     if (examId) {
-      const db = getAdminFirestore();
-      await db.collection('exams').doc(examId).update({ questions: updatedQuestions });
+      try {
+        await Promise.all(
+          updatedQuestions.map((q) =>
+            prisma.questions.updateMany({
+              where: { id: q.id },
+              data: {
+                aiExplanation: q.aiExplanation ? (q.aiExplanation as any) : null,
+              },
+            })
+          )
+        );
+      } catch (dbErr) {
+        console.warn("[AI EXPLANATION] DB pre-update warning:", dbErr);
+      }
     }
 
     // Process chunks with Gemini API
@@ -222,8 +234,20 @@ Do NOT wrap the output in markdown code blocks like \`\`\`json. Return RAW valid
 
     // If examId exists in DB, update DB
     if (examId) {
-      const db = getAdminFirestore();
-      await db.collection('exams').doc(examId).update({ questions: updatedQuestions });
+      try {
+        await Promise.all(
+          updatedQuestions.map((q) =>
+            prisma.questions.updateMany({
+              where: { id: q.id },
+              data: {
+                aiExplanation: q.aiExplanation ? (q.aiExplanation as any) : null,
+              },
+            })
+          )
+        );
+      } catch (dbErr) {
+        console.warn("[AI EXPLANATION] DB post-update warning:", dbErr);
+      }
     }
 
     return NextResponse.json({

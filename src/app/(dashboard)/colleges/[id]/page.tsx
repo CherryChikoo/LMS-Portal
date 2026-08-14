@@ -15,7 +15,9 @@ import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
 import { uniqueOptions } from "@/lib/utils/array";
 import { getCollegeById, updateCollege, createCollege, getAllStudents, createStudentProfile, createStudentAuthProfile, getAllBatches, deleteStudentProfile, getStudentByEmail, getStudentsByCollege, updateStudentProfile, deleteDepartmentAndMigrate, renameDepartmentAndMigrate, PREDEFINED_DEPARTMENTS, ensureGeneralDepartment, importStudentsCSV, parseStudentsCSV, generateCredentialsCSV, formatAuthError } from "@/lib/services";
-import { getDocuments, where } from "@/lib/firebase/firestore";
+import { upsertCollegeAction, fetchCollegesAction } from "@/lib/actions/college-actions";
+import { getBatchesByCollegeAction } from "@/lib/actions/batch-actions";
+import { getUsersByEmailAction } from "@/lib/actions/settings-actions";
 import { matchesYearFilter } from "@/lib/hierarchy/hierarchy-data";
 import type { College, Student, Batch, CSVStudentRow, CSVImportSummary } from "@/types";
 
@@ -101,7 +103,7 @@ function getYearBadgeStyle(year?: string) {
   const [studYear, setStudYear] = useState("1st Year");
   const [studSection, setStudSection] = useState("A");
   const [customStudSection, setCustomStudSection] = useState("");
-  const [studBatch, setStudBatch] = useState("General Cohort");
+  const [studBatch, setStudBatch] = useState("");
 
   // Edit Student Modal (also enables editing self-registered / outside-institution students)
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
@@ -111,7 +113,7 @@ function getYearBadgeStyle(year?: string) {
   const [editStudYear, setEditStudYear] = useState("1st Year");
   const [editStudSection, setEditStudSection] = useState("A");
   const [editStudCustomSection, setEditStudCustomSection] = useState("");
-  const [editStudBatch, setEditStudBatch] = useState("General Cohort");
+  const [editStudBatch, setEditStudBatch] = useState("");
   const [savingEditStudent, setSavingEditStudent] = useState(false);
   const [editStudentError, setEditStudentError] = useState<string | null>(null);
 
@@ -211,10 +213,10 @@ function getYearBadgeStyle(year?: string) {
       let external = false;
       
       if (!colData) {
-        const allColsResult = await getDocuments<College>("colleges", [], false, { pageSize: 100 });
+        const allColsResultData = await fetchCollegesAction();
         const cleanSlug = (v?: string) => (v ? String(v).trim().toLowerCase().replace(/[^a-z0-9]+/g, "") : "");
         const targetSlug = cleanSlug(decodedId);
-        colData = allColsResult.data.find((c) => c.id === decodedId || cleanSlug(c.id) === targetSlug || cleanSlug(c.name) === targetSlug) || null;
+        colData = ((allColsResultData || []).find((c) => c.id === decodedId || cleanSlug(c.id) === targetSlug || cleanSlug(c.name) === targetSlug) || null) as unknown as College | null;
       }
 
       let allStuds: Student[] = [];
@@ -225,7 +227,7 @@ function getYearBadgeStyle(year?: string) {
           external = true;
           // For external colleges in Firestore, we must fetch all students and filter by slug locally 
           // to capture all case variations (e.g. "Even Hub" vs "even Hub") that students might have typed.
-          const allStudsRes = await getAllStudents({ pageSize: 10000 });
+          const allStudsRes = await getAllStudents();
           const cleanSlug = (v?: string) => (v ? String(v).trim().toLowerCase().replace(/[^a-z0-9]+/g, "") : "");
           const targetSlug = cleanSlug(colData!.name);
           
@@ -236,12 +238,12 @@ function getYearBadgeStyle(year?: string) {
           const studentsRes = await getStudentsByCollege(colData.id);
           allStuds = studentsRes.data;
         }
-        const batchesRes = await getAllBatches({ pageSize: 500 });
+        const batchesRes = await getAllBatches();
         allBatches = batchesRes.data;
       } else {
         // Fallback: For external colleges we cannot query by 'collegeName' directly if decodedId is a slug like 'ext-evenhub'.
         // So we MUST fetch all students and filter locally to reliably capture slug matches.
-        const allStudsRes = await getAllStudents({ pageSize: 10000 });
+        const allStudsRes = await getAllStudents();
         const cleanSlug = (v?: string) => (v ? String(v).trim().toLowerCase().replace(/[^a-z0-9]+/g, "") : "");
         const targetSlug = decodedId.startsWith("ext-") ? decodedId.replace("ext-", "") : cleanSlug(decodedId);
         
@@ -269,8 +271,8 @@ function getYearBadgeStyle(year?: string) {
           allStuds = [];
         }
         
-        const batchesRes = await getDocuments<Batch>("batches", [where("collegeId", "==", decodedId)], false, { pageSize: 100 });
-        allBatches = batchesRes.data;
+        const batchesResData = await getBatchesByCollegeAction(decodedId);
+        allBatches = (batchesResData || []) as unknown as Batch[];
       }
 
       setIsExternal(external);
@@ -315,28 +317,17 @@ function getYearBadgeStyle(year?: string) {
     if (!college) return null;
     const targetId = college.id;
     try {
-      const { doc, setDoc, Timestamp } = await import("firebase/firestore");
-      const { db } = await import("@/lib/firebase/config");
-      await setDoc(
-        doc(db, "colleges", targetId),
-        {
-          id: targetId,
-          name: college.name,
-          code: college.code || targetId.toUpperCase(),
-          departments: college.departments || ["General"],
-          studentCount: college.studentCount || students.length,
-          status: "active",
-          type: "external",
-          isDeleted: false,
-          updatedAt: Timestamp.now(),
-          branding: {
-            companyName: college.name,
-            companySubtitle: "College Portal",
-            logoBase64: "",
-          },
-        },
-        { merge: true }
-      );
+      const { supabase } = await import("@/lib/supabase/client");
+      await upsertCollegeAction({
+        id: targetId,
+        name: college.name,
+        code: college.code || targetId.toUpperCase(),
+        departments: college.departments || ["General"],
+        studentCount: college.studentCount || students.length,
+        status: "active",
+        type: "external",
+        isDeleted: false
+      });
       setIsExternal(false);
       return targetId;
     } catch (err) {
@@ -443,9 +434,9 @@ function getYearBadgeStyle(year?: string) {
     const normalizedEmail = studEmail.toLowerCase().trim();
     const [existingStudent, existingUsers] = await Promise.all([
       getStudentByEmail(normalizedEmail),
-      getDocuments<Record<string, unknown>>("users", [where("email", "==", normalizedEmail)]),
+      getUsersByEmailAction(normalizedEmail),
     ]);
-    if (existingStudent || existingUsers.data.length > 0) {
+    if (existingStudent || existingUsers.length > 0) {
       setEnrollError("A student or user account with this email already exists.");
       setEnrolling(false);
       return;
@@ -495,7 +486,7 @@ function getYearBadgeStyle(year?: string) {
     const isKnownSection = ["A", "B", "C", "D"].includes(section);
     setEditStudSection(isKnownSection ? section : "CUSTOM");
     setEditStudCustomSection(isKnownSection ? "" : section);
-    setEditStudBatch(stud.batchIds?.[0] || "General Cohort");
+    setEditStudBatch(stud.batchIds?.[0] || "");
     setEditStudentError(null);
   };
 
@@ -506,11 +497,11 @@ function getYearBadgeStyle(year?: string) {
     if (normalizedEmail !== editingStudent.email) {
       const [existingStudent, existingUsers] = await Promise.all([
         getStudentByEmail(normalizedEmail),
-        getDocuments<Record<string, unknown>>("users", [where("email", "==", normalizedEmail)]),
+        getUsersByEmailAction(normalizedEmail),
       ]);
       const isUsedByAnother =
         (existingStudent && existingStudent.id !== editingStudent.id) ||
-        existingUsers.data.some((u) => u.id !== editingStudent.id && (u.email as string)?.toLowerCase() === normalizedEmail);
+        existingUsers.some((u) => u.id !== editingStudent.id && (u as any).email?.toLowerCase() === normalizedEmail);
       if (isUsedByAnother) {
         setEditStudentError("A student or user account with this email already exists.");
         return;
@@ -1342,9 +1333,9 @@ function getYearBadgeStyle(year?: string) {
                       onChange={(e) => setEditStudBatch(e.target.value)}
                       className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground font-semibold"
                     >
-                      <option value="General Cohort">General Cohort</option>
+                      <option value="">None (No Batch)</option>
                       {batches.map((b) => (
-                        <option key={b.id} value={b.name}>{b.name || "Unnamed College"}</option>
+                        <option key={b.id} value={b.name}>{b.name || "Unnamed Batch"}</option>
                       ))}
                     </select>
                   </div>
@@ -1474,9 +1465,9 @@ function getYearBadgeStyle(year?: string) {
                       onChange={(e) => setStudBatch(e.target.value)}
                       className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground font-semibold"
                     >
-                      <option value="General Cohort">General Cohort</option>
+                      <option value="">None (No Batch)</option>
                       {batches.map((b) => (
-                        <option key={b.id} value={b.name}>{b.name || "Unnamed College"}</option>
+                        <option key={b.id} value={b.name}>{b.name || "Unnamed Batch"}</option>
                       ))}
                     </select>
                   </div>

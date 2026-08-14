@@ -1,6 +1,5 @@
 import { UserRole } from '@/types';
-import { onAuthStateChanged } from "firebase/auth";
-import { auth } from "@/lib/firebase/config";
+import { supabase } from '@/lib/supabase/client';
 
 /**
  * Central utility for managing client-side authentication sessions, storage, and cookies.
@@ -33,11 +32,11 @@ export async function setAuthSession(
   const cookieOptions = `path=/; max-age=86400; SameSite=Lax${isSecure ? "; Secure" : ""}`;
 
   if (typeof session === "string") {
-    // session is a Firebase ID token
+    // session is an ID token
     localStorage.setItem("lms_token", session);
     localStorage.setItem("lms_auth", "true");
   } else {
-    // session is a user profile object (legacy / email-password flow)
+    // session is a user profile object
     localStorage.setItem("lms_user", JSON.stringify(session));
     localStorage.setItem("user", JSON.stringify(session));
     localStorage.setItem("lms_auth", "true");
@@ -58,42 +57,32 @@ export async function setAuthSession(
 }
 
 /**
- * Resolve the currently authenticated Firebase user, falling back to the
- * cached localStorage profile when Firebase Auth is still initializing.
- * Returns the Firebase uid and email so student-facing pages can filter
- * Firestore queries by the current student instead of fetching all rows.
+ * Resolve the currently authenticated user, falling back to the
+ * cached localStorage profile when auth is still initializing.
  */
-export function getCurrentUser(): Promise<{ uid: string; email: string; profile: Record<string, unknown> } | null> {
-  return new Promise((resolve) => {
-    if (typeof window === "undefined") {
-      resolve(null);
-      return;
-    }
+export async function getCurrentUser(): Promise<{ uid: string; email: string; profile: Record<string, unknown> } | null> {
+  if (typeof window === "undefined") {
+    return null;
+  }
 
-    let profile: Record<string, unknown> | null = null;
-    try {
-      const stored = localStorage.getItem("lms_user") || localStorage.getItem("user");
-      if (stored) profile = JSON.parse(stored);
-    } catch {
-      profile = null;
-    }
+  let profile: Record<string, unknown> | null = null;
+  try {
+    const stored = localStorage.getItem("lms_user") || localStorage.getItem("user");
+    if (stored) profile = JSON.parse(stored);
+  } catch {
+    profile = null;
+  }
 
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      unsubscribe();
-      if (firebaseUser) {
-        resolve({
-          uid: firebaseUser.uid,
-          email: firebaseUser.email || (profile?.email as string) || "",
-          profile: profile || {},
-        });
-      } else {
-        // We do NOT fall back to localStorage here because if firebaseUser is null,
-        // any Firestore query will fail with "Missing or insufficient permissions" anyway.
-        // It's better to force the user to log in again.
-        resolve(null);
-      }
-    });
-  });
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session?.user) {
+    return {
+      uid: session.user.id,
+      email: session.user.email || (profile?.email as string) || "",
+      profile: profile || {},
+    };
+  }
+
+  return null;
 }
 
 export async function clearAuthSession(redirectPath?: string): Promise<void> {

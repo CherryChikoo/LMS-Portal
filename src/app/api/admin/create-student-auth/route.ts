@@ -1,13 +1,10 @@
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { prisma } from "@/lib/prisma";
 import { getErrorMessage } from '@/lib/utils/error';
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminAuth } from "@/lib/firebase/admin";
-import { getFirestore, FieldValue } from "firebase-admin/firestore";
 
-import crypto from "crypto";
 
 const generateSecurePassword = () => process.env.DEFAULT_STUDENT_PASSWORD || "Welcome@123";
-
-
 
 function getErrorCode(err: unknown): string | undefined {
   if (err && typeof err === "object" && "code" in err) {
@@ -27,9 +24,11 @@ function collegeNameToId(name: string): string {
 export async function POST(request: NextRequest) {
   let stage = "parseRequest";
   try {
+    const authHeader = request.headers.get("authorization");
+    const adminIdToken = authHeader && authHeader.startsWith("Bearer ") ? authHeader.split("Bearer ")[1] : null;
+
     const body = await request.json().catch(() => ({}));
     const {
-      adminIdToken,
       email,
       name,
       collegeId,
@@ -63,31 +62,36 @@ export async function POST(request: NextRequest) {
     }
 
     stage = "verifyAdminToken";
-    let decodedToken;
-    try {
-      const auth = getAdminAuth();
-      decodedToken = await auth.verifyIdToken(adminIdToken);
-    } catch (err) {
+    const { data: { user: adminUser }, error: verifyError } = await supabaseAdmin.auth.getUser(adminIdToken);
+    
+    if (verifyError || !adminUser) {
       return NextResponse.json(
-        { success: false, stage, errorCode: getErrorCode(err), message: "Invalid or expired admin session.", details: getErrorMessage(err) },
+        { success: false, stage, errorCode: getErrorCode(verifyError), message: "Invalid or expired admin session.", details: getErrorMessage(verifyError) },
         { status: 401 }
       );
     }
 
     stage = "verifyAdminRole";
-    const db = getFirestore();
-    const requesterUid = decodedToken.uid;
-    const requesterDoc = await db.collection("users").doc(requesterUid).get();
-    if (!requesterDoc.exists) {
+    const requesterUid = adminUser.id;
+    const requesterDoc = await prisma.users.findFirst({ 
+      where: { 
+        OR: [
+          { id: requesterUid },
+          { authId: requesterUid }
+        ]
+      }, 
+      select: { role: true } 
+    });
+    
+    if (!requesterDoc) {
       return NextResponse.json(
         { success: false, stage, errorCode: "permission-denied", message: "Admin user not found in database." },
         { status: 403 }
       );
     }
 
-    const requesterData = requesterDoc.data();
-    const requesterRole = requesterData?.role;
-    if (requesterRole !== "admin" && requesterRole !== "trainer" && requesterRole !== "college_admin") {
+    const requesterRole = requesterDoc.role;
+    if (requesterRole !== "admin" && requesterRole !== "trainer" && requesterRole !== "college_admin" && requesterRole !== "superadmin" && requesterRole !== "main_admin") {
       return NextResponse.json(
         { success: false, stage, errorCode: "permission-denied", message: "Only admin, trainer, or college roles can create student accounts." },
         { status: 403 }
@@ -102,169 +106,178 @@ export async function POST(request: NextRequest) {
     const finalDepartment = (department || "Computer Science").trim();
     const finalAcademicYear = (academicYear || "1st Year").trim();
     const finalSection = (section || "A").toString().trim();
-    const finalBatch = (batch || "General Cohort").trim();
+    const finalBatch = (batch || "").trim();
 
-    const auth = getAdminAuth();
-    let authUser = null;
-    let reusedExistingAccount = false;
+    // PRE-FLIGHT CHECK: Check if an active profile doc exists in Prisma for any role (students or users)
+    const [existingUserRecord, existingStudent, existingCollege] = await Promise.all([
+      prisma.users.findFirst({ where: { email: normalizedEmail }, select: { id: true } }),
+      prisma.students.findFirst({ where: { users: { email: normalizedEmail } }, select: { id: true } }),
+      prisma.colleges.findFirst({ where: { adminEmail: normalizedEmail }, select: { id: true } })
+    ]);
 
-    // PRE-FLIGHT CHECK: Check if an active profile doc exists in Firestore for any role (students or users)
-    const emailQuerySnap = await db.collection("users").where("email", "==", normalizedEmail).get();
-    const emailStudentsSnap = await db.collection("students").where("email", "==", normalizedEmail).get();
-    const emailCollegesSnap = await db.collection("colleges").where("adminEmail", "==", normalizedEmail).get();
-
-    if (!emailQuerySnap.empty || !emailStudentsSnap.empty || !emailCollegesSnap.empty) {
+    if (
+      existingUserRecord || 
+      existingStudent || 
+      existingCollege
+    ) {
       return NextResponse.json(
         {
-          success: false, stage, errorCode: "firestore/email-already-exists",
+          success: false, stage, errorCode: "database/email-already-exists",
           message: "An active account with this email address already exists in the system database.",
         },
         { status: 409 }
       );
     }
 
-    try {
-      const existingUser = await auth.getUserByEmail(normalizedEmail);
-      
-      // Re-use existing Auth account whose Firestore student profile was deleted/missing
+    stage = "createAuthUser";
+    let authUser = null;
+    let reusedExistingAccount = false;
+
+    // Check if auth user exists
+    const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers();
+    const existingUser = existingUsers?.users?.find(u => u.email === normalizedEmail);
+
+    if (existingUser) {
       stage = "updateExistingAuthUser";
-      await auth.updateUser(existingUser.uid, {
+      const { data: updatedUser, error: updateError } = await supabaseAdmin.auth.admin.updateUserById(existingUser.id, {
         password: generateSecurePassword(),
-        displayName: studentName,
+        user_metadata: { full_name: studentName, role: 'student', collegeId: finalCollegeId },
       });
-      authUser = existingUser;
+      if (updateError) {
+        return NextResponse.json(
+          { success: false, stage, errorCode: getErrorCode(updateError), message: "Failed to update existing Auth account.", details: getErrorMessage(updateError), retryable: true },
+          { status: 500 }
+        );
+      }
+      authUser = updatedUser.user;
       reusedExistingAccount = true;
-    } catch (err) {
-      const code = getErrorCode(err);
-      if (code !== "auth/user-not-found") {
-        console.error("Admin getUserByEmail error:", err);
+    } else {
+      const { data: newUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
+        email: normalizedEmail,
+        password: generateSecurePassword(),
+        email_confirm: true,
+        user_metadata: { full_name: studentName, role: 'student', collegeId: finalCollegeId },
+      });
+
+      if (createError) {
         return NextResponse.json(
-          { success: false, stage, errorCode: code, message: "Could not verify email uniqueness.", details: getErrorMessage(err), retryable: true },
+          { success: false, stage, errorCode: getErrorCode(createError), message: "Failed to create Auth account.", details: getErrorMessage(createError), retryable: true },
           { status: 500 }
         );
       }
+      authUser = newUser.user;
     }
 
-    // Create the Firebase Auth user if it didn't exist
-    if (!authUser) {
-      stage = "createAuthUser";
-      try {
-        authUser = await auth.createUser({
-          email: normalizedEmail,
-          password: generateSecurePassword(),
-          displayName: studentName,
-        });
-      } catch (authErr) {
-        console.error("Admin createUser error:", authErr);
-        if (getErrorCode(authErr) === "auth/email-already-exists") {
-          return NextResponse.json(
-            { success: false, stage, errorCode: "auth/email-already-exists", message: "An account with this email address already exists." },
-            { status: 409 }
-          );
-        }
-        return NextResponse.json(
-          {
-            success: false, stage, errorCode: getErrorCode(authErr),
-            message: "Failed to create Firebase Auth account.",
-            details: getErrorMessage(authErr), retryable: true
-          },
-          { status: 500 }
-        );
-      }
-    }
-
-    const uid = authUser.uid;
-    const now = FieldValue.serverTimestamp();
+    const uid = authUser.id;
 
     const userDoc = {
       id: uid,
+      authId: uid,
       email: normalizedEmail,
       displayName: studentName,
       role: "student",
       collegeId: finalCollegeId,
-      collegeName: finalCollegeName,
-      department: finalDepartment,
-      academicYear: finalAcademicYear,
-      section: finalSection,
-      batchIds: [finalBatch],
-      mustChangePassword: true,
-      initialPassword: generateSecurePassword(),
-      createdAt: now,
-      updatedAt: now,
     };
 
     const studentDoc = {
       id: uid,
-      name: studentName,
-      email: normalizedEmail,
+      authId: uid,
+      // name and email are not in students Prisma schema
       collegeId: finalCollegeId,
-      collegeName: finalCollegeName,
+      // collegeName is not in Prisma schema
       department: finalDepartment,
       academicYear: finalAcademicYear,
       semester: 1,
       section: finalSection,
       rollNumber: `ROLL-${Math.floor(1000 + Math.random() * 9000)}`,
-      batchIds: [finalBatch],
+      // batchIds not in Prisma schema, student_batches needs to be used but we'll ignore for now
       mustChangePassword: true,
-      initialPassword: generateSecurePassword(),
       enrollmentType: "manual",
-      createdAt: now,
-      updatedAt: now,
     };
 
-    stage = "createFirestoreDocuments";
+    stage = "createDatabaseDocuments";
     try {
-      await auth.setCustomUserClaims(uid, { role: "student", collegeId: finalCollegeId });
-      const batchWrite = db.batch();
-      batchWrite.set(db.collection("users").doc(uid), userDoc);
-      batchWrite.set(db.collection("students").doc(uid), studentDoc);
+      await prisma.$transaction([
+        prisma.users.upsert({ where: { id: uid }, update: userDoc, create: userDoc }),
+        prisma.students.upsert({ where: { id: uid }, update: studentDoc, create: studentDoc })
+      ]);
       
       // Ensure the external college document exists
       if (finalCollegeId && finalCollegeId !== "col-unassigned") {
-        const colRef = db.collection("colleges").doc(finalCollegeId);
-        const colSnap = await colRef.get();
-        if (!colSnap.exists) {
-          batchWrite.set(colRef, {
-            id: finalCollegeId,
-            name: finalCollegeName,
-            type: "external",
-            createdAt: FieldValue.serverTimestamp(),
-            updatedAt: FieldValue.serverTimestamp()
+        const colSnap = await prisma.colleges.findUnique({ where: { id: finalCollegeId }, select: { id: true } });
+        if (!colSnap) {
+          await prisma.colleges.create({
+            data: {
+              id: finalCollegeId,
+              name: finalCollegeName,
+              code: finalCollegeId.substring(0, 6).toUpperCase(),
+              type: "external",
+            }
           });
         }
       }
 
-      await batchWrite.commit();
+      // Assign student to batch in student_batches
+      if (finalBatch && finalBatch !== "Unassigned" && finalBatch !== "None" && finalBatch !== "General Cohort") {
+        let matchingBatches = await prisma.batches.findMany({
+          where: {
+            OR: [
+              { id: finalBatch },
+              { name: { equals: finalBatch, mode: "insensitive" } }
+            ]
+          },
+          select: { id: true }
+        });
+
+        if (matchingBatches.length === 0) {
+          const newBatchId = `batch-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+          const created = await prisma.batches.create({
+            data: {
+              id: newBatchId,
+              name: finalBatch,
+              collegeId: finalCollegeId || null,
+              department: department || null,
+              academicYear: academicYear || null,
+              section: section || null,
+            },
+            select: { id: true }
+          });
+          matchingBatches = [created];
+        }
+
+        if (matchingBatches.length > 0) {
+          await prisma.student_batches.createMany({
+            data: matchingBatches.map((b: any) => ({
+              studentId: uid,
+              batchId: b.id
+            })),
+            skipDuplicates: true
+          });
+        }
+      }
+
     } catch (dbErr) {
-      console.error("Failed to write student Firestore documents:", dbErr);
+      console.error("Failed to write student database documents:", dbErr);
       stage = "rollbackAuthUser";
       
-      // Rollback of the Auth user if Firestore write fails (only if we didn't re-use an existing one)
+      // Rollback of the Auth user if db write fails
       if (!reusedExistingAccount) {
         try {
-          await auth.deleteUser(uid);
+          await supabaseAdmin.auth.admin.deleteUser(uid);
         } catch (rollbackErr) {
-          console.error("CRITICAL: Failed to rollback auth student creation after Firestore error:", rollbackErr);
+          console.error("CRITICAL: Failed to rollback auth student creation after database error:", rollbackErr);
           return NextResponse.json(
             { success: false, stage, errorCode: getErrorCode(dbErr), message: "Failed to create student profile documents. Auth rollback also failed.", details: `DB Error: ${getErrorMessage(dbErr)} | Rollback Error: ${getErrorMessage(rollbackErr)}`, retryable: false },
             { status: 500 }
           );
         }
         return NextResponse.json(
-          {
-            success: false, stage, errorCode: getErrorCode(dbErr),
-            message: "Failed to create student profile documents. Account creation was rolled back safely.",
-            details: getErrorMessage(dbErr), retryable: true
-          },
+          { success: false, stage, errorCode: getErrorCode(dbErr), message: "Failed to create student profile documents. Account creation was rolled back safely.", details: getErrorMessage(dbErr), retryable: true },
           { status: 500 }
         );
       } else {
         return NextResponse.json(
-          {
-            success: false, stage, errorCode: getErrorCode(dbErr),
-            message: "Failed to create student profile documents.",
-            details: getErrorMessage(dbErr), retryable: true
-          },
+          { success: false, stage, errorCode: getErrorCode(dbErr), message: "Failed to create student profile documents.", details: getErrorMessage(dbErr), retryable: true },
           { status: 500 }
         );
       }

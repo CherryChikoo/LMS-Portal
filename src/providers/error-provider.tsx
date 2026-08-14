@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, ReactNode } from "react";
-import { parseLmsError, ParsedError } from "@/lib/firebase-error-handler";
+import { parseLmsError, ParsedError } from "@/lib/lms-error-handler";
 import { GlobalAlert } from "@/components/ui/global-alert";
 
 interface ErrorContextType {

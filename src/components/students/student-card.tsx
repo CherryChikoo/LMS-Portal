@@ -115,9 +115,33 @@ export const StudentCard = memo(function StudentCard({
           <span className="px-2 py-0.5 rounded bg-accent text-[10px] font-mono font-semibold text-foreground">
             Sec {student.section || "A"}
           </span>
-          <span className="px-2 py-0.5 rounded bg-brand/10 text-brand text-[10px] font-mono font-semibold">
-            {student.batchIds?.[0] ? resolveBatch(student.batchIds[0]) : "General"}
-          </span>
+          {(() => {
+            const rawBatchList = (student.batches && student.batches.length > 0)
+              ? student.batches.map(b => b.name)
+              : (student.batchNames && student.batchNames.length > 0)
+              ? student.batchNames
+              : (student.batchIds || []).map(b => resolveBatch(b));
+
+            const uniqueBatches = Array.from(new Set(rawBatchList.filter(Boolean)));
+            const count = uniqueBatches.length || student.batchCount || (student.batchIds || []).length || 0;
+
+            if (count === 0) {
+              return (
+                <span className="px-2 py-0.5 rounded bg-muted text-muted-foreground text-[10px] font-mono font-semibold">
+                  0 Batches
+                </span>
+              );
+            }
+
+            return (
+              <span
+                className="px-2 py-0.5 rounded bg-brand/10 text-brand text-[10px] font-mono font-semibold"
+                title={uniqueBatches.length > 0 ? `Batches (${count}):\n• ` + uniqueBatches.join('\n• ') : `${count} Batches`}
+              >
+                {count} {count === 1 ? "Batch" : "Batches"}
+              </span>
+            );
+          })()}
         </div>
 
         {/* Mobile Action Buttons */}

@@ -14,8 +14,10 @@ import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
 import { uniqueOptions } from "@/lib/utils/array";
-import { getBatchById, updateBatch, updateStudentProfile } from "@/lib/services";
+import { getBatchById, updateBatch, updateStudentProfile, bulkAddStudentsToBatch, bulkRemoveStudentsFromBatch } from "@/lib/services";
 import { useLMSDataSelector } from "@/lib/data/use-lms-data";
+import { refreshCache } from "@/lib/data/lms-data-cache";
+import { globalLoading } from "@/providers/global-loading-provider";
 import type { Batch, Student, College } from "@/types";
 
 interface PageProps {
@@ -194,14 +196,14 @@ export default function BatchDetailPage({ params }: PageProps) {
   const validSelectedStudents = availableStudents.filter((s) => selectedForBulk.has(s.id));
 
   const handleAddStudentToBatch = async (student: Student) => {
+    if (!batch) return;
     setAddingId(student.id);
     try {
+      await bulkAddStudentsToBatch(batch.id, [student.id]);
       const currentBatches = student.batchIds || [];
       const updatedBatches = Array.from(new Set([...currentBatches, batch.id, batch.name]));
-      await updateStudentProfile(student.id, { batchIds: updatedBatches });
-      await updateBatch(batch.id, { studentCount: enrolledStudents.length + 1 });
 
-      // Locally update state for fast feedback
+      // Locally update state for instantaneous feedback
       setAllStudents((prev) =>
         prev.map((s) => (s.id === student.id ? { ...s, batchIds: updatedBatches } : s))
       );
@@ -210,14 +212,11 @@ export default function BatchDetailPage({ params }: PageProps) {
         next.delete(student.id);
         return next;
       });
+      await refreshCache();
+      toast.success(`Enrolled "${student.name}" into batch.`);
     } catch (err) {
       console.error("Failed to add student to batch:", err);
-      setConfirmConfig({
-        isOpen: true,
-        title: "Enrollment Failed",
-        message: `Failed to add "${student.name}" to batch. Please try again.`,
-        variant: "warning"
-      });
+      toast.error(`Failed to add "${student.name}" to batch.`);
     } finally {
       setAddingId(null);
     }
@@ -235,26 +234,23 @@ export default function BatchDetailPage({ params }: PageProps) {
       onConfirm: async () => {
         setBulkAdding(true);
         try {
-          for (const student of studentsToAdd) {
-            const currentBatches = student.batchIds || [];
-            const updatedBatches = Array.from(new Set([...currentBatches, batch.id, batch.name]));
-            await updateStudentProfile(student.id, { batchIds: updatedBatches });
-          }
-          await updateBatch(batch.id, { studentCount: enrolledStudents.length + studentsToAdd.length });
+          const studentIds = studentsToAdd.map((s) => s.id);
+          await bulkAddStudentsToBatch(batch.id, studentIds);
+
+          const studentIdSet = new Set(studentIds);
           setAllStudents((prev) =>
             prev.map((s) =>
-              selectedForBulk.has(s.id) ? { ...s, batchIds: Array.from(new Set([...(s.batchIds || []), batch.id, batch.name])) } : s
+              studentIdSet.has(s.id)
+                ? { ...s, batchIds: Array.from(new Set([...(s.batchIds || []), batch.id, batch.name])) }
+                : s
             )
           );
           setSelectedForBulk(new Set());
+          await refreshCache();
+          toast.success(`Enrolled ${studentsToAdd.length} students into batch.`);
         } catch (err) {
           console.error("Bulk add failed:", err);
-          setConfirmConfig({
-            isOpen: true,
-            title: "Enrollment Failed",
-            message: "Failed to enroll some or all selected students into the batch. Please try again.",
-            variant: "warning"
-          });
+          toast.error("Failed to enroll selected students into the batch.");
         } finally {
           setBulkAdding(false);
         }
@@ -341,16 +337,18 @@ export default function BatchDetailPage({ params }: PageProps) {
       onConfirm: async () => {
         setRemovingId(student.id);
         try {
+          await bulkRemoveStudentsFromBatch(batch.id, [student.id]);
           const currentBatches = student.batchIds || [];
           const updatedBatches = currentBatches.filter((b) => b !== batch.id && b !== batch.name);
-          await updateStudentProfile(student.id, { batchIds: updatedBatches });
-          await updateBatch(batch.id, { studentCount: Math.max(0, enrolledStudents.length - 1) });
 
           setAllStudents((prev) =>
             prev.map((s) => (s.id === student.id ? { ...s, batchIds: updatedBatches } : s))
           );
+          await refreshCache();
+          toast.success(`Removed "${student.name}" from batch.`);
         } catch (err) {
           console.error("Failed to remove student from batch:", err);
+          toast.error("Failed to remove student from batch.");
         } finally {
           setRemovingId(null);
         }
@@ -496,7 +494,7 @@ export default function BatchDetailPage({ params }: PageProps) {
                     <td className="py-3 px-4 font-mono font-semibold text-foreground">{stud.rollNumber || "—"}</td>
                     <td className="py-3 px-4">
                       <span className="px-2.5 py-1 rounded-lg bg-accent/60 text-foreground font-semibold">
-                        {stud.collegeName || "Unknown Institution"}
+                        {stud.collegeName || "Unassigned"}
                       </span>
                     </td>
                     <td className="py-3 px-4">
@@ -695,7 +693,7 @@ export default function BatchDetailPage({ params }: PageProps) {
                             <p className="text-xs text-muted-foreground truncate">{stud.email}</p>
                             <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                               <span className="text-[10px] px-2 py-0.5 rounded bg-accent/80 font-semibold text-foreground">
-                                {stud.collegeName || "Unknown Institution"}
+                                {stud.collegeName || "Unassigned"}
                               </span>
                               <span className="text-[10px] px-2 py-0.5 rounded bg-brand/10 text-brand font-semibold">
                                 {stud.department}

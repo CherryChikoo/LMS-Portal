@@ -1,73 +1,72 @@
-import {
-  getDocuments,
-  getDocument,
-  addDocument,
-  updateDocument,
-  deleteDocument,
-  where,
-  type QueryOptions,
-  type PaginatedResult,
-} from "@/lib/firebase/firestore";
-import { auth } from "@/lib/firebase/config";
+import { supabase } from "@/lib/supabase/client";
+import { globalLoading } from "@/providers/global-loading-provider";
 import type { Resource, Student } from "@/types";
 import { isAssignedToStudent } from "./assignment-engine";
 import { toMillis } from "@/lib/utils/date";
+import {
+  getAllResourcesAction,
+  getResourceByIdAction,
+  createResourceAction,
+  updateResourceAction
+} from "@/lib/actions/resource-actions";
 
-const COLLECTION_NAME = "resources";
-
-
-export async function getAllResources(options?: QueryOptions): Promise<PaginatedResult<Resource>> {
-  return getDocuments<Resource>(COLLECTION_NAME, [], false, options);
+export async function getAllResources(): Promise<{ data: Resource[], lastDoc: any }> {
+  const data = await getAllResourcesAction();
+  const parsedData = JSON.parse(JSON.stringify(data));
+  return { data: parsedData as Resource[], lastDoc: parsedData.length > 0 ? parsedData[parsedData.length - 1] : null };
 }
 
 export async function getResourceById(id: string): Promise<Resource | null> {
-  return getDocument<Resource>(COLLECTION_NAME, id);
+  const data = await getResourceByIdAction(id);
+  if (!data) return null;
+  return JSON.parse(JSON.stringify(data)) as Resource;
 }
 
 export async function createResource(data: Omit<Resource, "id">): Promise<string> {
-  return addDocument<Resource>(COLLECTION_NAME, data);
+  return await globalLoading.wrap(async () => {
+    return await createResourceAction(data);
+  }, `Publishing resource "${data.title}"...`);
 }
 
 export async function updateResource(id: string, data: Partial<Resource>): Promise<void> {
-  return updateDocument<Resource>(COLLECTION_NAME, id, data);
+  return await globalLoading.wrap(async () => {
+    await updateResourceAction(id, data);
+  }, "Updating learning resource...");
 }
 
 export async function deleteResource(id: string): Promise<void> {
-  const user = auth.currentUser;
-  if (!user) throw new Error("Must be logged in to delete resource");
-  
-  const token = await user.getIdToken();
-  const res = await fetch("/api/admin/delete-resource", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`
-    },
-    body: JSON.stringify({ id })
-  });
+  return await globalLoading.wrap(async () => {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const session = sessionData.session;
+    if (!session) throw new Error("Must be logged in to delete resource");
+    
+    const res = await fetch("/api/admin/delete-resource", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`
+      },
+      body: JSON.stringify({ id })
+    });
 
-  const data = await res.json();
-  if (!res.ok || !data.success) {
-    throw new Error(data.message || "Failed to delete resource via Admin API");
-  }
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.message || "Failed to delete resource via Admin API");
+    }
+  }, "Deleting learning resource...");
 }
 
-/**
- * Filter resources assigned to a specific student based on hierarchy or direct student target
- */
 export function filterResourcesForStudent(resources: Resource[], student: Student): Resource[] {
   const studentCreatedMillis = toMillis(student.createdAt) ?? 0;
 
   return resources.filter((res) => {
     if (!isAssignedToStudent(res.targets, student, res.sharedWith)) return false;
 
-    // A newly created student shouldn't see ANY resources that were last modified/assigned before they existed.
-    // We add a 24-hour grace period to completely avoid clock-skew or same-day assignment issues.
-    const resUpdatedMillis = toMillis(res.updatedAt || res.createdAt) ?? 0;
-    const wasAssignedBeforeStudent = resUpdatedMillis > 0 && studentCreatedMillis > 0 && (resUpdatedMillis + 24 * 60 * 60 * 1000) < studentCreatedMillis;
-
-    if (wasAssignedBeforeStudent) {
-      return false;
+    if (studentCreatedMillis > 0) {
+      const resTimeMillis = toMillis(res.createdAt) ?? 0;
+      if (resTimeMillis > 0 && resTimeMillis < studentCreatedMillis) {
+        return false;
+      }
     }
 
     return true;

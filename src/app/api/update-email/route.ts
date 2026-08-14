@@ -1,7 +1,7 @@
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { prisma } from "@/lib/prisma";
 import { getErrorMessage } from '@/lib/utils/error';
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminAuth } from "@/lib/firebase/admin";
-import { getFirestore, FieldValue } from "firebase-admin/firestore";
 
 export async function POST(request: NextRequest) {
   try {
@@ -23,64 +23,51 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let decodedToken;
-    try {
-      const auth = getAdminAuth();
-      decodedToken = await auth.verifyIdToken(idToken);
-    } catch {
+    const { data: { user }, error: verifyError } = await supabaseAdmin.auth.getUser(idToken);
+    
+    if (verifyError || !user) {
       return NextResponse.json(
         { error: "Invalid or expired session. Please sign in again." },
         { status: 401 }
       );
     }
 
-    const uid = decodedToken.uid;
-    const auth = getAdminAuth();
+    const uid = user.id;
 
-    // 1. Explicit Firebase Auth Update with Collision Protection
-    try {
-      await auth.updateUser(uid, { email: cleanEmail });
-    } catch (error: unknown) {
-      if ((error as any)?.code === "auth/email-already-exists") {
+    // 1. Explicit Auth Update with Collision Protection
+    const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(uid, { email: cleanEmail });
+    
+    if (authError) {
+      if (authError.message.includes("already exists") || authError.message.includes("unique")) {
         return NextResponse.json(
           { error: "Update failed: This email address is already in use by another account.", errorCode: "auth/email-already-exists" },
           { status: 409 }
         );
       }
-      console.error("Admin updateUser error:", error);
+      console.error("Admin updateUser error:", authError);
       return NextResponse.json(
-        { error: getErrorMessage(error) || "Failed to update Firebase Auth user." },
+        { error: authError.message || "Failed to update Supabase Auth user." },
         { status: 500 }
       );
     }
 
-    // 2. Atomic Firestore Document Sync
-    const db = getFirestore();
+    // 2. Database Sync
     try {
-      const batch = db.batch();
-      const userRef = db.collection("users").doc(uid);
-      const studentRef = db.collection("students").doc(uid);
-
-      batch.set(userRef, { email: cleanEmail, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-      batch.set(studentRef, { email: cleanEmail, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      await prisma.users.update({ where: { id: uid }, data: { email: cleanEmail } });
+      // students table does not have email column in Prisma schema
 
       // If this user is a college_admin, update their college document adminEmail as well
-      const userSnap = await userRef.get();
-      if (userSnap.exists) {
-        const uData = userSnap.data();
-        if (uData?.collegeId) {
-          const collegeRef = db.collection("colleges").doc(uData.collegeId);
-          batch.set(collegeRef, { adminEmail: cleanEmail, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-        }
+      const userDoc = await prisma.users.findUnique({ where: { id: uid }, select: { collegeId: true } });
+      if (userDoc?.collegeId) {
+        await prisma.colleges.update({ where: { id: userDoc.collegeId }, data: { adminEmail: cleanEmail } });
       }
 
-      await batch.commit();
     } catch (dbErr: unknown) {
-      console.error("[CRITICAL SYNC FAILURE] Auth email updated successfully, but Firestore update failed:", dbErr);
+      console.error("[CRITICAL SYNC FAILURE] Auth email updated successfully, but database update failed:", dbErr);
       return NextResponse.json(
         {
           success: true,
-          warning: "Email updated in Auth, but Firestore sync encountered an issue.",
+          warning: "Email updated in Auth, but Database sync encountered an issue.",
           details: getErrorMessage(dbErr),
         },
         { status: 200 }
@@ -91,7 +78,7 @@ export async function POST(request: NextRequest) {
   } catch (error: unknown) {
     console.error("Admin update email root error:", error);
 
-    if ((error as any)?.code === "auth/email-already-exists") {
+    if ((error as any)?.message?.includes("already exists")) {
       return NextResponse.json(
         { error: "Update failed: This email address is already in use by another account.", errorCode: "auth/email-already-exists" },
         { status: 409 }

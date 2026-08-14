@@ -116,13 +116,37 @@ export const StudentRow = memo(function StudentRow({
         </div>
       </td>
       <td className="py-3.5 px-4 text-xs">
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5 max-w-[280px]">
           <span className="px-2 py-0.5 rounded-md bg-accent border border-border/60 font-mono text-[11px] font-semibold text-foreground whitespace-nowrap">
             {student.section || "N/A"}
           </span>
-          <span className="px-2 py-0.5 rounded-md bg-brand/10 border border-brand/20 font-mono text-[11px] font-semibold text-brand whitespace-nowrap">
-            {student.batchIds?.[0] ? resolveBatch(student.batchIds[0]) : "Unassigned"}
-          </span>
+          {(() => {
+            const rawBatchList = (student.batches && student.batches.length > 0)
+              ? student.batches.map(b => b.name)
+              : (student.batchNames && student.batchNames.length > 0)
+              ? student.batchNames
+              : (student.batchIds || []).map(b => resolveBatch(b));
+
+            const uniqueBatches = Array.from(new Set(rawBatchList.filter(Boolean)));
+            const count = uniqueBatches.length || student.batchCount || (student.batchIds || []).length || 0;
+
+            if (count === 0) {
+              return (
+                <span className="px-2 py-0.5 rounded-md bg-muted text-muted-foreground border border-border/40 font-mono text-[11px] font-semibold whitespace-nowrap">
+                  0 Batches
+                </span>
+              );
+            }
+
+            return (
+              <span
+                className="px-2 py-0.5 rounded-md bg-brand/10 border border-brand/20 font-mono text-[11px] font-semibold text-brand whitespace-nowrap cursor-help"
+                title={uniqueBatches.length > 0 ? `Assigned Batches (${count}):\n• ` + uniqueBatches.join('\n• ') : `${count} Batches`}
+              >
+                {count} {count === 1 ? "Batch" : "Batches"}
+              </span>
+            );
+          })()}
         </div>
       </td>
       <td className="py-3.5 px-4">

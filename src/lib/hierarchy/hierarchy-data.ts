@@ -169,13 +169,19 @@ export function buildInstitutionOptions(
   const out: SelectOption[] = [];
 
   hierarchy.colleges.forEach((c) => {
-    const display = safeDisplayName(c.name, c.id, "Unknown Institution");
+    let display = safeDisplayName(c.name, c.id, "Unknown Institution");
+    if (c.type === "external") {
+      display = `${display} (External)`;
+    }
     out.push({ label: c.isDeleted ? `${display} (Deleted)` : display, value: c.id });
   });
 
   if (includeExternalInstitutions) {
     getExternalInstitutions(hierarchy).forEach((inst) => {
-      const display = safeDisplayName(inst.name, inst.id, "Unknown Institution");
+      let display = safeDisplayName(inst.name, inst.id, "Unknown Institution");
+      if (inst.type === "external" && !display.includes("(External)")) {
+        display = `${display} (External)`;
+      }
       out.push({ label: display, value: inst.id });
     });
   }

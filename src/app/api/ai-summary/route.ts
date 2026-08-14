@@ -1,9 +1,9 @@
 import { getErrorMessage } from '@/lib/utils/error';
 import { NextRequest, NextResponse } from "next/server";
-import { getDocument, updateDocument } from "@/lib/firebase/firestore";
+import { prisma } from "@/lib/prisma";
 import type { ExamResult, Exam, Question } from "@/types";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { getAdminAuth } from "@/lib/firebase/admin";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { z } from "zod";
 
 export const maxDuration = 60; // Max allowed for Vercel Hobby tier
@@ -23,11 +23,8 @@ export async function POST(req: NextRequest) {
     }
     const idToken = authHeader.split("Bearer ")[1];
     
-    const auth = getAdminAuth();
-    let decodedToken;
-    try {
-      decodedToken = await auth.verifyIdToken(idToken);
-    } catch (err) {
+    const { data: { user: decodedToken }, error: authError } = await supabaseAdmin.auth.getUser(idToken);
+    if (authError || !decodedToken) {
       return NextResponse.json({ error: "Invalid or expired session" }, { status: 401 });
     }
 
@@ -38,17 +35,20 @@ export async function POST(req: NextRequest) {
     }
     const { resultId } = parseResult.data;
 
-    const result = await getDocument<ExamResult>("exam_results", resultId);
+    const result = await prisma.exam_results.findUnique({
+      where: { id: resultId },
+      include: { students: true }
+    });
+
     if (!result) {
       return NextResponse.json({ error: "Result not found" }, { status: 404 });
     }
 
-    // BOLA protection: Only allow the student who took the exam, or an admin/college_admin
-    const userRole = decodedToken.role;
-    if (userRole === "student" && result.studentId !== decodedToken.uid) {
+    const userRole = decodedToken.app_metadata.role || "student";
+    if (userRole === "student" && result.studentId !== decodedToken.id) {
       return NextResponse.json({ error: "Access denied. You can only view your own results." }, { status: 403 });
     }
-    if (userRole === "college_admin" && result.collegeId !== decodedToken.collegeId) {
+    if (userRole === "college_admin" && result.students?.collegeId !== decodedToken.app_metadata.collegeId) {
       return NextResponse.json({ error: "Access denied. Student does not belong to your college." }, { status: 403 });
     }
 
@@ -56,17 +56,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ summary: result.aiSummary });
     }
 
-    const exam = await getDocument<Exam>("exams", result.examId);
+    const exam = await prisma.exams.findUnique({
+      where: { id: result.examId },
+      include: { questions: true }
+    });
+
     if (!exam || !exam.questions) {
       return NextResponse.json({ error: "Exam or questions not found" }, { status: 404 });
     }
 
-    const performanceData = exam.questions.map((q: Question) => {
-      const studentAnswer = ((result.answers || {}) || {})[q.id];
+    const performanceData = exam.questions.map((q: any) => {
+      const studentAnswer = ((result.answers as any || {}) || {})[q.id];
       let isCorrect = false;
       if (Array.isArray(q.correctAnswer) && Array.isArray(studentAnswer)) {
         isCorrect = q.correctAnswer.length === studentAnswer.length &&
-          q.correctAnswer.every((val) => (studentAnswer as string[]).includes(val));
+          q.correctAnswer.every((val: any) => (studentAnswer as string[]).includes(val));
       } else if (typeof q.correctAnswer === "string" && typeof studentAnswer === "string") {
         isCorrect = q.correctAnswer === studentAnswer;
       } else if (Array.isArray(q.correctAnswer) && typeof studentAnswer === "string") {
@@ -78,7 +82,7 @@ export async function POST(req: NextRequest) {
         topic: q.topic || "General",
         difficulty: q.difficulty || "medium",
         isCorrect,
-        aiExplanationSummary: q.aiExplanation?.overview?.summary || ""
+        aiExplanationSummary: q.aiExplanation ? (q.aiExplanation as any)?.overview?.summary : ""
       };
     });
 
@@ -114,8 +118,11 @@ Do NOT wrap the output in markdown code blocks like \`\`\`json. Return RAW valid
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
     const model = genAI.getGenerativeModel({ model: MODEL_NAME });
 
-    const prompt = `${systemPrompt}\n\nData:\n${JSON.stringify({
-      studentName: result.studentName,
+    const prompt = `${systemPrompt}
+
+Data:
+${JSON.stringify({
+      studentName: result.students?.id ? (result.students as any).name : "Unknown",
       score: result.score,
       totalMarks: result.totalMarks,
       percentage: result.percentage,
@@ -135,7 +142,7 @@ Do NOT wrap the output in markdown code blocks like \`\`\`json. Return RAW valid
     }
 
     const summaryData = JSON.parse(textResponse);
-    await updateDocument("exam_results", resultId, { aiSummary: summaryData });
+    await prisma.exam_results.update({ where: { id: resultId }, data: { aiSummary: summaryData } });
     return NextResponse.json({ summary: summaryData });
 
   } catch (error) {

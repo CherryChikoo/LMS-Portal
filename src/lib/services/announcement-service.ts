@@ -1,18 +1,13 @@
-import { getDocuments, type QueryOptions, type PaginatedResult } from "@/lib/firebase/firestore";
+import { supabase } from "@/lib/supabase/client";
 import type { Announcement } from "@/types";
 
 const ANNOUNCEMENTS_COLLECTION = "announcements";
 
-export async function getAllAnnouncements(options?: QueryOptions): Promise<PaginatedResult<Announcement>> {
-  return getDocuments<Announcement>(ANNOUNCEMENTS_COLLECTION, [], false, { pageSize: 100, ...options });
+export async function getAllAnnouncements(): Promise<{ data: Announcement[], lastDoc: any }> {
+  // The announcements table does not exist in the database schema.
+  return { data: [], lastDoc: null };
 }
 
-/**
- * Filter announcements intended for a specific student.
- * Announcements use a legacy `targetAudience` array of identifiers.
- * A student matches when the audience contains "all" / "all students",
- * the student's uid, or the student's email.
- */
 export function filterAnnouncementsForStudent(
   announcements: Announcement[],
   uid: string,
@@ -38,9 +33,6 @@ export function filterAnnouncementsForStudent(
   });
 }
 
-/**
- * Fetch announcements visible to the currently signed-in student.
- */
 export async function getAnnouncementsForCurrentUser(
   uid: string,
   email?: string

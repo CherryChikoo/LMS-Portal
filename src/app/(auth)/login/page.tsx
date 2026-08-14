@@ -52,51 +52,17 @@ function LoginContent() {
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
     try {
-      const res = await unifiedGoogleLogin();
-      if (!res) {
-        setGoogleLoading(false);
-        return;
-      }
-
-      const uObj = {
-        id: res.user.uid,
-        name: res.profile?.displayName || res.user.displayName || res.user.email?.split("@")[0] || "User",
-        email: res.profile?.email || res.user.email || "",
-        role: res.role,
-        department: (res.profile as any)?.department || "General",
-        collegeId: (res.profile as any)?.collegeId || "",
-        collegeName: (res.profile as any)?.collegeName || "",
-        academicYear: (res.profile as any)?.academicYear,
-        section: (res.profile as any)?.section,
-        batchIds: (res.profile as any)?.batchIds,
-      };
-      
-      await setAuthSession(uObj, res.role as UserRole);
-      
-      const target = res.role === "student" ? "/student" : (res.role === "college_admin" ? "/" : "/admin");
-      window.location.assign(target);
+      await unifiedGoogleLogin();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.startsWith("LINK_REQUIRED:")) {
-        const parts = msg.split(":");
-        const email = parts[1];
-        const credJson = parts.slice(2).join(":");
-        setLinkEmail(email);
-        setLinkCredentialJson(credJson);
-        setLinkModalOpen(true);
-      } else if (msg.includes("RESTRICTED_ACCOUNT") || msg.toLowerCase().includes("restricted")) {
-        setRestrictedModalOpen(true);
-      } else {
-        const title = msg.toLowerCase().includes("access denied") ? "Access Denied" : "Authentication Failed";
-        const message = formatAuthError(err, "Google Sign-In failed. Please try again.");
-        setAlertConfig({
-          isOpen: true,
-          title,
-          message,
-          type: "error",
-        });
-      }
-    } finally {
+      const title = msg.toLowerCase().includes("access denied") ? "Access Denied" : "Authentication Failed";
+      const message = formatAuthError(err);
+      setAlertConfig({
+        isOpen: true,
+        title,
+        message,
+        type: "error",
+      });
       setGoogleLoading(false);
     }
   };
@@ -108,24 +74,24 @@ function LoginContent() {
       const res = await unifiedLogin(email, password);
       
       const uObj = {
-        id: res.user.uid,
-        name: res.profile?.displayName || res.user.displayName || email.split("@")[0] || "User",
-        email: res.profile?.email || res.user.email || email,
-        role: res.role,
-        department: res.profile?.department || "General",
-        collegeId: res.profile?.collegeId || "",
-        collegeName: res.profile?.collegeName || "",
-        academicYear: res.profile?.academicYear,
-        section: res.profile?.section,
-        batchIds: res.profile?.batchIds,
-        createdAt: toMillis(res.profile?.createdAt) || Date.now(),
+        id: (res as any)?.user.uid,
+        name: (res as any)?.profile?.displayName || (res as any)?.user.displayName || email.split("@")[0] || "User",
+        email: (res as any)?.profile?.email || (res as any)?.user.email || email,
+        role: (res as any)?.role,
+        department: (res as any)?.profile?.department || "General",
+        collegeId: (res as any)?.profile?.collegeId || "",
+        collegeName: (res as any)?.profile?.collegeName || "",
+        academicYear: (res as any)?.profile?.academicYear,
+        section: (res as any)?.profile?.section,
+        batchIds: (res as any)?.profile?.batchIds,
+        createdAt: toMillis((res as any)?.profile?.createdAt) || Date.now(),
       };
       
-      await setAuthSession(uObj, res.role as UserRole);
+      await setAuthSession(uObj, (res as any)?.role as UserRole);
 
-      if (res.role === "student") {
+      if ((res as any)?.role === "student") {
         window.location.assign("/student");
-      } else if (res.role === "college_admin") {
+      } else if ((res as any)?.role === "college_admin") {
         window.location.assign("/");
       } else {
         window.location.assign("/admin");
@@ -136,7 +102,7 @@ function LoginContent() {
         setRestrictedModalOpen(true);
       } else {
         const title = msg.toLowerCase().includes("access denied") ? "Access Denied" : "Authentication Failed";
-        const message = formatAuthError(err, "Invalid credentials or incorrect password.");
+        const message = formatAuthError(err);
         setAlertConfig({
           isOpen: true,
           title,
@@ -155,32 +121,27 @@ function LoginContent() {
     setLinkModalOpen(false);
     try {
       const res = await unifiedLogin(linkEmail, linkPassword);
-      const { GoogleAuthProvider, linkWithCredential } = await import("firebase/auth");
-      const parsedCred = JSON.parse(linkCredentialJson);
-      const cred = GoogleAuthProvider.credential(parsedCred.idToken, parsedCred.accessToken);
-      if (cred) {
-        await linkWithCredential(res.user, cred);
-      }
+      // Legacy link with credential removed
       
       const uObj = {
-        id: res.user.uid,
-        name: res.profile?.displayName || res.user.displayName || linkEmail.split("@")[0] || "User",
-        email: res.profile?.email || res.user.email || linkEmail,
-        role: res.role,
-        department: res.profile?.department || "General",
-        collegeId: res.profile?.collegeId || "",
-        collegeName: res.profile?.collegeName || "",
-        academicYear: res.profile?.academicYear,
-        section: res.profile?.section,
-        batchIds: res.profile?.batchIds,
-        createdAt: toMillis(res.profile?.createdAt) || Date.now(),
+        id: (res as any)?.user.uid,
+        name: (res as any)?.profile?.displayName || (res as any)?.user.displayName || linkEmail.split("@")[0] || "User",
+        email: (res as any)?.profile?.email || (res as any)?.user.email || linkEmail,
+        role: (res as any)?.role,
+        department: (res as any)?.profile?.department || "General",
+        collegeId: (res as any)?.profile?.collegeId || "",
+        collegeName: (res as any)?.profile?.collegeName || "",
+        academicYear: (res as any)?.profile?.academicYear,
+        section: (res as any)?.profile?.section,
+        batchIds: (res as any)?.profile?.batchIds,
+        createdAt: toMillis((res as any)?.profile?.createdAt) || Date.now(),
       };
       
-      await setAuthSession(uObj, res.role as UserRole);
+      await setAuthSession(uObj, (res as any)?.role as UserRole);
 
-      if (res.role === "student") {
+      if ((res as any)?.role === "student") {
         window.location.assign("/student");
-      } else if (res.role === "college_admin") {
+      } else if ((res as any)?.role === "college_admin") {
         window.location.assign("/");
       } else {
         window.location.assign("/admin");
@@ -191,7 +152,7 @@ function LoginContent() {
         setRestrictedModalOpen(true);
       } else {
         const title = msg.toLowerCase().includes("access denied") ? "Access Denied" : "Authentication Failed";
-        const message = formatAuthError(err, "Invalid password for linking account.");
+        const message = formatAuthError(err);
         setAlertConfig({ isOpen: true, title, message, type: "error" });
       }
     } finally {

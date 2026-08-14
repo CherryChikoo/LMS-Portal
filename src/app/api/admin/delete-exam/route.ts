@@ -1,8 +1,8 @@
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { prisma } from "@/lib/prisma";
 import 'server-only';
 import { getErrorMessage } from '@/lib/utils/error';
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminAuth, getAdminApp } from "@/lib/firebase/admin";
-import { getFirestore } from "firebase-admin/firestore";
 import { z } from "zod";
 import { bulkDeleteByQuery, deleteDocumentAdmin } from '@/lib/services/cleanup-service';
 
@@ -20,22 +20,26 @@ export async function POST(request: NextRequest) {
     const adminIdToken = authHeader.split("Bearer ")[1];
 
     stage = "verifyAdminToken";
-    const auth = getAdminAuth();
-    let decodedToken;
-    try {
-      decodedToken = await auth.verifyIdToken(adminIdToken);
-    } catch (err: unknown) {
+    const { data: { user: adminUser }, error: verifyError } = await supabaseAdmin.auth.getUser(adminIdToken);
+    
+    if (verifyError || !adminUser) {
       return NextResponse.json({ success: false, stage, errorCode: "invalid-token", message: "Invalid or expired admin session." }, { status: 401 });
     }
 
-    const requesterUid = decodedToken.uid;
-    const db = getFirestore(getAdminApp());
+    const requesterUid = adminUser.id;
 
-    stage = "verifyAdminRole";
-    const requesterDoc = await db.collection("users").doc(requesterUid).get();
-    const requesterRole = requesterDoc.exists ? requesterDoc.data()?.role : undefined;
+    const requesterDoc = await prisma.users.findFirst({ 
+      where: { 
+        OR: [
+          { id: requesterUid },
+          { authId: requesterUid }
+        ]
+      }, 
+      select: { role: true, collegeId: true } 
+    });
+    const requesterRole = requesterDoc?.role;
     
-    if (requesterRole !== "main_admin" && requesterRole !== "admin" && requesterRole !== "college_admin" && requesterRole !== "trainer") {
+    if (requesterRole !== "main_admin" && requesterRole !== "admin" && requesterRole !== "college_admin" && requesterRole !== "trainer" && requesterRole !== "superadmin") {
       return NextResponse.json({ success: false, stage, errorCode: "permission-denied", message: "Permission denied." }, { status: 403 });
     }
 
@@ -48,16 +52,15 @@ export async function POST(request: NextRequest) {
     const { id: examId } = parseResult.data;
 
     stage = "fetchExam";
-    const examDoc = await db.collection("exams").doc(examId).get();
-    if (!examDoc.exists) {
+    const examDoc = await prisma.exams.findUnique({ where: { id: examId }, select: { collegeId: true } });
+    if (!examDoc) {
       return NextResponse.json({ success: false, stage, errorCode: "not-found", message: "Exam not found." }, { status: 404 });
     }
 
     // BOLA Check: If college_admin, ensure they only delete their own college's exams
     if (requesterRole === "college_admin") {
-      const examData = examDoc.data();
-      const requesterCollegeId = requesterDoc.data()?.collegeId;
-      if (examData?.collegeId !== requesterCollegeId) {
+      const requesterCollegeId = requesterDoc?.collegeId;
+      if (examDoc.collegeId !== requesterCollegeId) {
         return NextResponse.json({ success: false, stage, errorCode: "permission-denied", message: "You can only delete exams belonging to your college." }, { status: 403 });
       }
     }

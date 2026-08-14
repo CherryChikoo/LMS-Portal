@@ -13,6 +13,7 @@ import { AcademicHierarchyFilters } from "@/components/shared/academic-hierarchy
 import { useAcademicHierarchy } from "@/lib/hierarchy/use-academic-hierarchy";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
+import { getUserByIdAction } from "@/lib/actions/auth-actions";
 import { getAllExams, createExam, expireExam, deleteExam, parseMarkdownTest, getEffectiveExamStatus, getStudentAttempts, getStudentAttemptsForCurrentUser, filterExamsForStudent, reviewQuestionsWithAI, findStudentAttemptForExam, type AIReviewResult } from "@/lib/services";
 import { getCurrentUser } from "@/lib/utils/auth-session";
 import { generateFallbackExplanation } from "@/lib/utils/ai-explanation-fallback";
@@ -21,7 +22,6 @@ import { useLMSData } from "@/lib/data/use-lms-data";
 import { refreshCache } from "@/lib/data/lms-store";
 import { useEntityResolution } from "@/lib/data/use-entity-resolution";
 import { formatAuthError } from "@/lib/services/auth-service";
-import { getAuth } from "firebase/auth";
 import type { Exam, Question, QuestionType, Student, AssignmentTarget, ExamAttempt } from "@/types";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -253,31 +253,37 @@ export default function ExamsPage() {
     if (!title || questions.length === 0) return;
 
     if (scheduleMode === "scheduled") {
-      if (!startTimeStr || !endTimeStr) {
-        showError({ message: "Please select both a start and end date/time for the scheduled exam." });
+      if (!startTimeStr) {
+        showError({ message: "Please select a start date and time for the scheduled exam." });
         return;
       }
       const startDt = new Date(startTimeStr);
-      const endDt = new Date(endTimeStr);
-      if (Number.isNaN(startDt.getTime()) || Number.isNaN(endDt.getTime())) {
-        showError({ message: "Invalid date/time selected. Please choose valid values." });
+      if (Number.isNaN(startDt.getTime())) {
+        showError({ message: "Invalid start date/time selected. Please choose a valid value." });
         return;
       }
       if (startDt.getTime() < Date.now() - 5 * 60 * 1000) {
         showError({ message: "Cannot schedule tests on previous completed days or past times. Please select a future date and time." });
         return;
       }
-      if (endDt.getTime() <= startDt.getTime()) {
-        const isSameDay =
-          startDt.getFullYear() === endDt.getFullYear() &&
-          startDt.getMonth() === endDt.getMonth() &&
-          startDt.getDate() === endDt.getDate();
-        showError({
-          message: isSameDay
-            ? "End time must be after the start time."
-            : "End date must be after the start date."
-        });
-        return;
+      if (endTimeStr) {
+        const endDt = new Date(endTimeStr);
+        if (Number.isNaN(endDt.getTime())) {
+          showError({ message: "Invalid end date/time selected. Please choose a valid value." });
+          return;
+        }
+        if (endDt.getTime() <= startDt.getTime()) {
+          const isSameDay =
+            startDt.getFullYear() === endDt.getFullYear() &&
+            startDt.getMonth() === endDt.getMonth() &&
+            startDt.getDate() === endDt.getDate();
+          showError({
+            message: isSameDay
+              ? "End time must be after the start time."
+              : "End date must be after the start date."
+          });
+          return;
+        }
       }
     }
 
@@ -299,13 +305,12 @@ export default function ExamsPage() {
           
           // Fallback: If localStorage is stale and missing collegeId, fetch it
           if (!targetCollegeId) {
-            const { getDocument } = await import("@/lib/firebase/firestore");
-            const profile = await getDocument("users", parsed.id);
-            if (profile && (profile as any).collegeId) {
-              targetCollegeId = (profile as any).collegeId;
+            const { supabase } = await import("@/lib/supabase/client");
+            const profile = await getUserByIdAction(parsed.id);
+            if (profile && profile.collegeId) {
+              targetCollegeId = profile.collegeId;
               targetCollegeName = (profile as any).collegeName || targetCollegeName;
               
-              // Update stale localStorage silently
               parsed.collegeId = targetCollegeId;
               parsed.collegeName = targetCollegeName;
               localStorage.setItem("lms_user", JSON.stringify(parsed));
@@ -402,8 +407,9 @@ export default function ExamsPage() {
       });
 
       // Background Gemini upgrade (non-blocking)
-      const auth = getAuth();
-      const token = await auth.currentUser?.getIdToken();
+      const { supabase } = await import('@/lib/supabase/client');
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
       fetch("/api/ai-explanation", {
         method: "POST",
         headers: { 
@@ -491,6 +497,10 @@ export default function ExamsPage() {
       }
     });
   };
+
+  if (!mounted) {
+    return null;
+  }
 
   return (
     <>
@@ -733,30 +743,50 @@ export default function ExamsPage() {
                 if (adminTab === "live" && !(eff === "active" || eff === "scheduled" || eff === "draft")) return false;
                 if (adminTab === "expired" && !(eff === "expired" || eff === "completed" || eff === "cancelled")) return false;
 
-                const tCol = (exam as any).collegeId || exam.targets?.[0]?.collegeId;
-                const isGlobal = !tCol || tCol === "global" || tCol === "GLOBAL" || tCol === "all" || tCol === "ALL";
-                
-                const hasSubCollegeFilter = !!(examFilters.department || examFilters.academicYear || examFilters.section || examFilters.batchId);
+                const t = exam.targets?.[0];
 
-                if (isGlobal) {
-                  if (hasSubCollegeFilter) return false;
-                  if (userRole === "admin" && examFilters.collegeId && examFilters.collegeId !== "GLOBAL") return false;
-                  return true;
-                }
-
-                if (examFilters.collegeId) {
+                // 1. Institution / College filter
+                if (examFilters.collegeId && examFilters.collegeId !== "ALL" && examFilters.collegeId !== "global" && examFilters.collegeId !== "GLOBAL") {
                   const matchesRoot = (exam as any).collegeId === examFilters.collegeId;
-                  const matchesCollege = matchesRoot || exam.targets?.some(target => 
+                  const matchesTarget = exam.targets?.some(target => 
                     target.collegeId === examFilters.collegeId || 
                     target.ids?.includes(examFilters.collegeId)
                   );
-                  if (!matchesCollege) return false;
+                  if (!matchesRoot && !matchesTarget) {
+                    const hasExplicitCollege = !!((exam as any).collegeId || t?.collegeId);
+                    if (hasExplicitCollege) return false;
+                  }
                 }
-                const t = exam.targets?.[0];
-                if (examFilters.department && (t?.department || "").trim().toLowerCase() !== (examFilters.department || "").trim().toLowerCase()) return false;
-                if (examFilters.academicYear && t?.academicYear && t.academicYear !== examFilters.academicYear) return false;
-                if (examFilters.section && (t?.section || "").trim().toLowerCase() !== (examFilters.section || "").trim().toLowerCase()) return false;
-                if (examFilters.batchId && t?.batchId && t.batchId !== examFilters.batchId) return false;
+
+                // 2. Department filter
+                if (examFilters.department && examFilters.department !== "ALL") {
+                  if (t?.department && t.department.toLowerCase() !== examFilters.department.toLowerCase()) {
+                    return false;
+                  }
+                }
+
+                // 3. Academic Year filter
+                if (examFilters.academicYear && examFilters.academicYear !== "ALL") {
+                  if (t?.academicYear && t.academicYear.toLowerCase() !== examFilters.academicYear.toLowerCase()) {
+                    return false;
+                  }
+                }
+
+                // 4. Section filter
+                if (examFilters.section && examFilters.section !== "ALL") {
+                  if (t?.section && t.section.toLowerCase() !== examFilters.section.toLowerCase()) {
+                    return false;
+                  }
+                }
+
+                // 5. Batch filter
+                if (examFilters.batchId && examFilters.batchId !== "ALL") {
+                  const filterBatch = examFilters.batchId.toLowerCase();
+                  const tBatchId = t?.batchId?.toLowerCase();
+                  const tBatchName = t?.batchName?.toLowerCase();
+                  if (!tBatchId && !tBatchName) return false;
+                  if (tBatchId !== filterBatch && tBatchName !== filterBatch) return false;
+                }
               }
               return true;
             })
@@ -940,7 +970,7 @@ export default function ExamsPage() {
                         </span>
                         <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground font-medium">
                           <Clock className="w-3.5 h-3.5 shrink-0" />
-                          <span>{exam.duration} mins</span>
+                          <span>{exam.duration || (exam as any).durationMinutes || 60} mins</span>
                         </span>
                       </div>
 
@@ -957,7 +987,7 @@ export default function ExamsPage() {
                     <div className="grid grid-cols-2 gap-4 p-3.5 rounded-2xl bg-muted/30 dark:bg-white/[0.03] text-xs">
                       <div className="flex flex-col items-center justify-center">
                         <span className="text-[11px] font-medium text-muted-foreground">Total Questions</span>
-                        <p className="font-extrabold text-foreground text-sm mt-0.5">{exam.questions?.length || exam.questionIds?.length || 0}</p>
+                        <p className="font-extrabold text-foreground text-sm mt-0.5">{exam.questions?.length || exam.questionIds?.length || (exam as any).totalQuestions || 0}</p>
                       </div>
                       <div className="flex flex-col items-center justify-center">
                         <span className="text-[11px] font-medium text-muted-foreground">Total Marks</span>
@@ -1055,7 +1085,7 @@ export default function ExamsPage() {
                       </div>
                       <span className="inline-flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400 font-medium">
                         <Clock className="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
-                        <span>{exam.duration} mins</span>
+                        <span>{exam.duration || (exam as any).durationMinutes || 60} mins</span>
                       </span>
                     </div>
 
@@ -1064,7 +1094,7 @@ export default function ExamsPage() {
                         {exam.title}
                       </h3>
                       <p className="text-sm text-gray-500 dark:text-gray-400 line-clamp-1 font-normal">
-                        Contains {exam.questions?.length || exam.questionIds?.length || 0} questions
+                        Contains {exam.questions?.length || exam.questionIds?.length || (exam as any).totalQuestions || 0} questions
                       </p>
                     </div>
                   </div>
@@ -1072,7 +1102,7 @@ export default function ExamsPage() {
                   <div className="grid grid-cols-2 gap-4 p-4 rounded-lg bg-gray-50 dark:bg-gray-800/30 text-xs mt-1">
                     <div className="flex flex-col items-center justify-center">
                       <span className="text-xs uppercase tracking-wider text-gray-500 dark:text-gray-500">Questions</span>
-                      <p className="font-bold text-gray-900 dark:text-white text-lg mt-1">{exam.questions?.length || exam.questionIds?.length || 0}</p>
+                      <p className="font-bold text-gray-900 dark:text-white text-lg mt-1">{exam.questions?.length || exam.questionIds?.length || (exam as any).totalQuestions || 0}</p>
                     </div>
                     <div className="flex flex-col items-center justify-center">
                       <span className="text-xs uppercase tracking-wider text-gray-500 dark:text-gray-500">Total Marks</span>
@@ -1433,10 +1463,21 @@ export default function ExamsPage() {
                     </div>
                     
                     <div className="space-y-3 group">
-                      <label className="text-[12px] font-bold text-foreground flex items-center gap-2">
-                        <div className="w-1.5 h-1.5 rounded-full bg-destructive"></div>
-                        End Time (Closes)
-                      </label>
+                      <div className="flex items-center justify-between">
+                        <label className="text-[12px] font-bold text-foreground flex items-center gap-2">
+                          <div className="w-1.5 h-1.5 rounded-full bg-amber-500"></div>
+                          End Time <span className="text-[11px] font-normal text-muted-foreground">(Optional / Open-ended)</span>
+                        </label>
+                        {endTimeStr && (
+                          <button
+                            type="button"
+                            onClick={() => setEndTimeStr("")}
+                            className="text-[11px] text-muted-foreground hover:text-foreground underline transition-colors"
+                          >
+                            Clear (No Expiry)
+                          </button>
+                        )}
+                      </div>
                       <div className="flex flex-col sm:flex-row gap-2">
                         <div className="relative flex-1">
                           <input
@@ -1445,7 +1486,10 @@ export default function ExamsPage() {
                             min={startTimeStr ? startTimeStr.split('T')[0] : new Date().toISOString().split('T')[0]}
                             onChange={(e) => {
                               const dateVal = e.target.value;
-                              if (!dateVal) return;
+                              if (!dateVal) {
+                                setEndTimeStr('');
+                                return;
+                              }
                               // If no time is set, default to 1 hour after start time if available
                               let timeVal = endTimeStr ? (endTimeStr.split('T')[1] || '') : '';
                               if (!timeVal) {

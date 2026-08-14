@@ -1,7 +1,7 @@
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { prisma } from "@/lib/prisma";
 import { getErrorMessage } from '@/lib/utils/error';
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminAuth } from "@/lib/firebase/admin";
-import { getFirestore } from "firebase-admin/firestore";
 import crypto from "crypto";
 
 const generateSecurePassword = () => process.env.DEFAULT_STUDENT_PASSWORD || "Welcome@123";
@@ -20,26 +20,30 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "User ID (uid) is required." }, { status: 400 });
     }
 
-    let decodedToken;
-    try {
-      const auth = getAdminAuth();
-      decodedToken = await auth.verifyIdToken(adminIdToken);
-    } catch {
+    const { data: { user: adminUser }, error: verifyError } = await supabaseAdmin.auth.getUser(adminIdToken);
+    
+    if (verifyError || !adminUser) {
       return NextResponse.json({ error: "Invalid or expired admin session." }, { status: 401 });
     }
 
     // Check that the requester has an admin/trainer role
-    const requesterUid = decodedToken.uid;
-    const db = getFirestore();
-
-    const requesterDoc = await db.collection("users").doc(requesterUid).get();
-    if (!requesterDoc.exists) {
+    const requesterUid = adminUser.id;
+    const requesterDoc = await prisma.users.findFirst({ 
+      where: { 
+        OR: [
+          { id: requesterUid },
+          { authId: requesterUid }
+        ]
+      }, 
+      select: { role: true } 
+    });
+    
+    if (!requesterDoc) {
       return NextResponse.json({ error: "Admin user not found in database." }, { status: 403 });
     }
 
-    const requesterData = requesterDoc.data();
-    const requesterRole = requesterData?.role;
-    if (requesterRole !== "admin" && requesterRole !== "trainer" && requesterRole !== "college" && requesterRole !== "college_admin") {
+    const requesterRole = requesterDoc.role;
+    if (requesterRole !== "admin" && requesterRole !== "trainer" && requesterRole !== "college" && requesterRole !== "college_admin" && requesterRole !== "superadmin" && requesterRole !== "main_admin") {
       return NextResponse.json({ error: "Only admin, trainer, or college roles can update student auth." }, { status: 403 });
     }
 
@@ -52,7 +56,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Build the Auth update payload
-    const authUpdateFields: Record<string, string> = {};
+    const authUpdateFields: Record<string, any> = {};
     if (email) {
       const normalizedEmail = (email as string).toLowerCase().trim();
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -60,21 +64,16 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Invalid email format." }, { status: 400 });
       }
 
-      // Check for email uniqueness in Firestore collections to avoid cross-role collisions
-      const emailQuerySnap = await db.collection("users").where("email", "==", normalizedEmail).get();
-      const emailStudentsSnap = await db.collection("students").where("email", "==", normalizedEmail).get();
-      const emailCollegesSnap = await db.collection("colleges").where("adminEmail", "==", normalizedEmail).get();
+      // Check for email uniqueness in Prisma tables
+      const [emailUser, emailStudent, emailCollege] = await Promise.all([
+        prisma.users.findFirst({ where: { email: normalizedEmail, id: { not: uid } }, select: { id: true } }),
+        prisma.students.findFirst({ where: { users: { email: normalizedEmail }, id: { not: uid } }, select: { id: true } }),
+        prisma.colleges.findFirst({ where: { adminEmail: normalizedEmail }, select: { id: true } })
+      ]);
 
-      // Ensure we ignore the current user's own docs
-      const isOtherUser = (doc: any) => doc.id !== uid;
-      
-      const emailExists = emailQuerySnap.docs.some(isOtherUser) || 
-                          emailStudentsSnap.docs.some(isOtherUser) || 
-                          emailCollegesSnap.docs.some(isOtherUser);
-
-      if (emailExists) {
+      if (emailUser || emailStudent || emailCollege) {
         return NextResponse.json(
-          { error: "Update failed: This email address is already in use by another account in the system.", errorCode: "firestore/email-already-exists" },
+          { error: "Update failed: This email address is already in use by another account in the system.", errorCode: "database/email-already-exists" },
           { status: 409 }
         );
       }
@@ -91,137 +90,70 @@ export async function POST(request: NextRequest) {
       authUpdateFields.password = password;
     }
 
-    // Update the Firebase Auth user
-    try {
-      const auth = getAdminAuth();
-      await auth.updateUser(uid, authUpdateFields);
-    } catch (authErr: unknown) {
-      const authErrCode = (authErr as { code?: string })?.code;
+    let authUid = uid;
+    const studentUserDoc = await prisma.users.findUnique({ where: { id: uid }, select: { authId: true } });
+    if (studentUserDoc && studentUserDoc.authId) {
+      authUid = studentUserDoc.authId;
+    }
 
-      if (authErrCode === "auth/email-already-exists") {
-        return NextResponse.json(
-          { error: "Update failed: This email address is already in use by another account.", errorCode: "auth/email-already-exists" },
-          { status: 409 }
-        );
-      }
+    // Update the Auth user metadata if needed
+    if (role || collegeId) {
+      const { data: userRecord } = await supabaseAdmin.auth.admin.getUserById(authUid);
+      const currentMeta = userRecord.user?.user_metadata || {};
+      const updatedMeta = { ...currentMeta };
+      if (role) updatedMeta.role = role;
+      if (collegeId) updatedMeta.collegeId = collegeId;
+      authUpdateFields.user_metadata = updatedMeta;
+    }
 
-      if (authErrCode === "auth/user-not-found") {
-        try {
-          const auth = getAdminAuth();
-          const studentDoc = await db.collection("students").doc(uid).get();
-          const studentData = studentDoc.data() || {};
-          const fallbackEmail = (email as string)?.toLowerCase().trim() || studentData.email;
-          let fallbackPassword = password || generateSecurePassword();
-          if (typeof fallbackPassword !== "string" || fallbackPassword.length < 6) {
-            fallbackPassword = generateSecurePassword();
-          }
-          const fallbackName = studentData.name || "Student";
+    // Update the Supabase Auth user
+    if (Object.keys(authUpdateFields).length > 0) {
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(authUid)) {
+        const { error: authUpdateError } = await supabaseAdmin.auth.admin.updateUserById(authUid, authUpdateFields);
 
-          if (!fallbackEmail) {
-            return NextResponse.json(
-              { error: "Student email is required to create an Auth account." },
-              { status: 400 }
-            );
-          }
-
-          await auth.createUser({
-            uid: uid,
-            email: fallbackEmail,
-            password: fallbackPassword,
-            displayName: fallbackName,
-          });
-        } catch (createErr: unknown) {
-          if ((createErr as any)?.code === "auth/email-already-exists") {
+        if (authUpdateError) {
+          if (authUpdateError.message.includes("email already exists") || authUpdateError.message.includes("unique") || authUpdateError.message.includes("already been registered")) {
             return NextResponse.json(
               { error: "Update failed: This email address is already in use by another account.", errorCode: "auth/email-already-exists" },
               { status: 409 }
             );
           }
-          console.error("Admin createUser error for missing user:", createErr);
           return NextResponse.json(
-            { error: (createErr as any)?.message || "Failed to create missing Firebase Auth account." },
+            { error: authUpdateError.message || "Failed to update Supabase Auth account." },
             { status: 500 }
           );
         }
-      } else {
-        console.error("Admin updateUser error:", authErr);
-        return NextResponse.json(
-          { error: (authErr as any)?.message || "Failed to update Firebase Auth account." },
-          { status: 500 }
-        );
       }
     }
 
-    // Sync custom claims if role or collegeId is provided
-    if (role || collegeId) {
-      try {
-        const auth = getAdminAuth();
-        const userRecord = await auth.getUser(uid);
-        const currentClaims = userRecord.customClaims || {};
-        const updatedClaims = { ...currentClaims };
-        
-        if (role) updatedClaims.role = role;
-        if (collegeId) updatedClaims.collegeId = collegeId;
-        
-        await auth.setCustomUserClaims(uid, updatedClaims);
-      } catch (claimsErr) {
-        console.error("Admin setCustomUserClaims error:", claimsErr);
-        return NextResponse.json(
-          { error: "Failed to update Firebase Auth custom claims." },
-          { status: 500 }
-        );
-      }
-    }
-
-    // Sync email and other fields to Firestore users doc and students doc
-    const batch = db.batch();
+    // Sync email and other fields to database users and students table
+    const userUpdates: Record<string, any> = {};
+    const studentUpdates: Record<string, any> = {};
 
     if (email) {
       const normalizedEmail = (email as string).toLowerCase().trim();
-
-      // Update users collection safely with merge
-      const userDocRef = db.collection("users").doc(uid);
-      batch.set(userDocRef, { email: normalizedEmail }, { merge: true });
-
-      // Update students collection safely with merge
-      const studentDocRef = db.collection("students").doc(uid);
-      batch.set(studentDocRef, { email: normalizedEmail }, { merge: true });
+      userUpdates.email = normalizedEmail;
+      // email is not in students Prisma model
     }
 
-    if (role || collegeId) {
-      const userUpdates: Record<string, any> = {};
-      const studentUpdates: Record<string, any> = {};
-      
-      if (role) userUpdates.role = role;
-      if (collegeId) {
-        userUpdates.collegeId = collegeId;
-        studentUpdates.collegeId = collegeId;
-      }
-      
-      if (Object.keys(userUpdates).length > 0) {
-        batch.set(db.collection("users").doc(uid), userUpdates, { merge: true });
-      }
-      if (Object.keys(studentUpdates).length > 0) {
-        batch.set(db.collection("students").doc(uid), studentUpdates, { merge: true });
-      }
+    if (role) userUpdates.role = role;
+    if (collegeId) {
+      userUpdates.collegeId = collegeId;
+      studentUpdates.collegeId = collegeId;
     }
 
-    // When password is updated, clear mustChangePassword and initialPassword flags
+    // When password is updated, clear mustChangePassword flag
     if (password) {
-      const userDocRef = db.collection("users").doc(uid);
-      batch.set(userDocRef, {
-        mustChangePassword: false,
-        initialPassword: "",
-      }, { merge: true });
-
-      const studentDocRef = db.collection("students").doc(uid);
-      batch.set(studentDocRef, {
-        mustChangePassword: false,
-        initialPassword: "",
-      }, { merge: true });
+      studentUpdates.mustChangePassword = false;
     }
 
-    await batch.commit();
+    if (Object.keys(userUpdates).length > 0) {
+      await prisma.users.update({ where: { id: uid }, data: userUpdates });
+    }
+    
+    if (Object.keys(studentUpdates).length > 0) {
+      await prisma.students.update({ where: { id: uid }, data: studentUpdates });
+    }
 
     return NextResponse.json({ success: true });
   } catch (err: unknown) {

@@ -1,89 +1,84 @@
-import { db } from "@/lib/firebase/config";
-import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  query,
-  where,
-  orderBy,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  Timestamp,
-} from "firebase/firestore";
-import { getDocuments, type QueryOptions, type PaginatedResult } from "@/lib/firebase/firestore";
 import type { Batch } from "@/types";
+import { globalLoading } from "@/providers/global-loading-provider";
+import {
+  getAllBatchesAction,
+  getBatchByIdAction,
+  getBatchesByCollegeAction,
+  createBatchAction,
+  updateBatchAction,
+  deleteBatchAction,
+  bulkAddStudentsToBatchAction,
+  bulkRemoveStudentsFromBatchAction
+} from "@/lib/actions/batch-actions";
 
-/**
- * Get all batches
- */
-export async function getAllBatches(options?: QueryOptions): Promise<PaginatedResult<Batch>> {
-  return getDocuments<Batch>("batches", [orderBy("createdAt", "desc")], false, options);
-}
-
-/**
- * Get batch by ID
- */
-export async function getBatchById(id: string): Promise<Batch | null> {
-  const docRef = doc(db, "batches", id);
-  const docSnap = await getDoc(docRef);
-
-  if (!docSnap.exists()) {
-    return null;
-  }
-
+function mapBatchRow(row: any): Batch {
+  if (!row) return row;
+  const studentIds = Array.isArray(row.student_batches)
+    ? row.student_batches.map((sb: any) => sb.studentId)
+    : (row.studentIds || []);
+  const studentCount = row._count?.student_batches ?? row.student_batches?.length ?? row.studentCount ?? studentIds.length ?? 0;
   return {
-    id: docSnap.id,
-    ...docSnap.data(),
+    ...row,
+    studentCount,
+    studentIds,
   } as Batch;
 }
 
-/**
- * Get batches by college
- */
-export async function getBatchesByCollege(collegeId: string, options?: QueryOptions): Promise<PaginatedResult<Batch>> {
-  return getDocuments<Batch>("batches", [
-    where("collegeId", "==", collegeId),
-    orderBy("createdAt", "desc")
-  ], false, options);
+export async function getAllBatches(): Promise<{ data: Batch[], lastDoc: any }> {
+  const data = await getAllBatchesAction();
+  const parsedData = JSON.parse(JSON.stringify(data));
+  const mappedData = parsedData.map(mapBatchRow);
+  return { data: mappedData, lastDoc: mappedData.length > 0 ? mappedData[mappedData.length - 1] : null };
 }
 
-/**
- * Create a new batch
- */
+export async function getBatchById(id: string): Promise<Batch | null> {
+  const data = await getBatchByIdAction(id);
+  if (!data) return null;
+  return mapBatchRow(JSON.parse(JSON.stringify(data)));
+}
+
+export async function getBatchesByCollege(collegeId: string): Promise<{ data: Batch[], lastDoc: any }> {
+  const data = await getBatchesByCollegeAction(collegeId);
+  const parsedData = JSON.parse(JSON.stringify(data));
+  const mappedData = parsedData.map(mapBatchRow);
+  return { data: mappedData, lastDoc: mappedData.length > 0 ? mappedData[mappedData.length - 1] : null };
+}
+
 export async function createBatch(data: Partial<Batch>): Promise<string> {
-  const now = Timestamp.now();
-
-  const batchData = {
-    ...data,
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  const docRef = await addDoc(collection(db, "batches"), batchData);
-  return docRef.id;
+  return await globalLoading.wrap(async () => {
+    const batchData = {
+      ...data,
+      id: data.id || `batch-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    return await createBatchAction(batchData);
+  }, `Creating batch "${data.name || "New Batch"}"...`);
 }
 
-/**
- * Update a batch
- */
 export async function updateBatch(
   id: string,
   data: Partial<Batch>
 ): Promise<void> {
-  const docRef = doc(db, "batches", id);
-
-  await updateDoc(docRef, {
-    ...data,
-    updatedAt: Timestamp.now(),
-  });
+  return await globalLoading.wrap(async () => {
+    await updateBatchAction(id, { ...data, updatedAt: new Date() });
+  }, "Updating batch details...");
 }
 
-/**
- * Delete a batch
- */
 export async function deleteBatch(id: string): Promise<void> {
-  const docRef = doc(db, "batches", id);
-  await deleteDoc(docRef);
+  return await globalLoading.wrap(async () => {
+    await deleteBatchAction(id);
+  }, "Deleting batch...");
+}
+
+export async function bulkAddStudentsToBatch(batchIdOrName: string, studentIds: string[]): Promise<void> {
+  return await globalLoading.wrap(async () => {
+    await bulkAddStudentsToBatchAction(batchIdOrName, studentIds);
+  }, `Enrolling ${studentIds.length} student(s) into batch...`);
+}
+
+export async function bulkRemoveStudentsFromBatch(batchIdOrName: string, studentIds: string[]): Promise<void> {
+  return await globalLoading.wrap(async () => {
+    await bulkRemoveStudentsFromBatchAction(batchIdOrName, studentIds);
+  }, `Removing ${studentIds.length} student(s) from batch...`);
 }

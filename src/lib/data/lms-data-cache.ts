@@ -8,7 +8,9 @@ import {
   getBatchesByCollege,
   getStudentAttempts,
 } from "@/lib/services";
-import { getDocuments, type QueryOptions, where } from "@/lib/firebase/firestore";
+import { supabase } from "@/lib/supabase/client";
+import { getAuthProfileDataAction } from "@/lib/actions/auth-actions";
+import { getStudentAttemptsAction } from "@/lib/actions/exam-actions";
 import {
   buildHierarchy,
   getExternalInstitutions,
@@ -25,6 +27,7 @@ import type { College, Batch, Student, SelectOption, Exam, Resource, ExamAttempt
 import { setLMSStoreState } from "./lms-store";
 import { logger } from "@/lib/utils/logger";
 import { isAssignedToStudent } from "@/lib/services/assignment-engine";
+import { toMillis } from "@/lib/utils/date";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -43,6 +46,8 @@ export interface LMSDataCacheState {
   
   hierarchy: Hierarchy | null;
   rawColleges: College[];
+  rawBatches: Batch[];
+  rawStudents: Student[];
   filteredColleges: College[];
   filteredBatches: Batch[];
   filteredStudents: Student[];
@@ -132,6 +137,8 @@ const cache: LMSDataCacheState = {
 
   hierarchy: null,
   rawColleges: [],
+  rawBatches: [],
+  rawStudents: [],
   filteredColleges: [],
   filteredBatches: [],
   filteredStudents: [],
@@ -188,6 +195,8 @@ function recomputeScopedData() {
   const attemptsData = cache.attempts?.data || [];
 
   cache.rawColleges = collegesData;
+  cache.rawBatches = batchesData;
+  cache.rawStudents = studentsData;
 
   // Reconcile deletedCollegesSet: if a college exists in the live Firestore data,
   // it was re-created after being deleted. Remove it from the blacklist.
@@ -235,11 +244,11 @@ function recomputeScopedData() {
     return false;
   };
 
-  const isActive = (d: { isDeleted?: boolean; deletedAt?: Date; status?: string }) => !d.isDeleted && !d.deletedAt && d.status !== "deleted" && d.status !== "inactive";
+  const isActive = (d: { isDeleted?: boolean; deletedAt?: Date; status?: string }) => !d.isDeleted && !d.deletedAt && d.status !== "deleted";
 
   let fColleges = collegesData.filter((c) => isActive(c) && !isCollegeDeleted(c.id, c.name));
   let fBatches = batchesData.filter(isActive);
-  const fStudents = studentsData.filter((s) => isActive(s) && !isCollegeDeleted(s.collegeId, s.collegeName));
+  let fStudents = studentsData.filter(isActive);
   const activeStudentIds = new Set(fStudents.map((s) => s.id));
   
   // Filter exams: Check for deleted colleges AND apply college-scoping for college admins
@@ -289,11 +298,34 @@ function recomputeScopedData() {
         const currentUserAsStudent = { ...parsed, id: parsed.id || parsed.uid || "" } as Student;
         const userCollegeId = parsed.collegeId;
         const userCollegeName = parsed.collegeName;
+
+        let studentCreatedAtMillis: number = 0;
+        if (r === "student") {
+          const sCreated = parsed.createdAt || currentUserAsStudent.createdAt;
+          if (sCreated) {
+            studentCreatedAtMillis = toMillis(sCreated) || 0;
+          }
+          if (!studentCreatedAtMillis && (currentUserAsStudent.id || currentUserAsStudent.email)) {
+            const matchedInDb = studentsData.find(s => s.id === currentUserAsStudent.id || (currentUserAsStudent.email && s.email === currentUserAsStudent.email));
+            if (matchedInDb?.createdAt) {
+              studentCreatedAtMillis = toMillis(matchedInDb.createdAt) || 0;
+            }
+          }
+        }
         
         // Filter exams for college admins and students
         fExams = fExams.filter((exam) => {
           if (r === "student") {
-            return isAssignedToStudent(exam.targets, currentUserAsStudent, (exam as any).sharedWith);
+            if (!isAssignedToStudent(exam.targets, currentUserAsStudent, (exam as any).sharedWith)) {
+              return false;
+            }
+            if (studentCreatedAtMillis > 0) {
+              const examTimeMillis = toMillis(exam.createdAt || exam.startTime || exam.scheduledAt) || 0;
+              if (examTimeMillis > 0 && examTimeMillis < studentCreatedAtMillis) {
+                return false;
+              }
+            }
+            return true;
           }
           
           // For college admin:
@@ -331,7 +363,16 @@ function recomputeScopedData() {
         // Filter resources for college admins and students
         fResources = fResources.filter((resource) => {
           if (r === "student") {
-            return isAssignedToStudent(resource.targets, currentUserAsStudent, resource.sharedWith);
+            if (!isAssignedToStudent(resource.targets, currentUserAsStudent, resource.sharedWith)) {
+              return false;
+            }
+            if (studentCreatedAtMillis > 0) {
+              const resTimeMillis = toMillis(resource.createdAt) || 0;
+              if (resTimeMillis > 0 && resTimeMillis < studentCreatedAtMillis) {
+                return false;
+              }
+            }
+            return true;
           }
           
           const tCol = resource.collegeId || resource.targets?.[0]?.collegeId;
@@ -375,10 +416,33 @@ function recomputeScopedData() {
           return false;
         });
       }
+      if ((r === "college_admin" || r === "college") && (parsed.collegeId || parsed.collegeName)) {
+        const dummyCol = { id: parsed.collegeId, name: parsed.collegeName || parsed.collegeId } as College;
+        fStudents = fStudents.filter(s => isStudentInCollege(s, dummyCol));
+      }
     }
   } catch (_) {}
 
-  // Pre-compute student counts to avoid O(N*M) filtering
+  const colMap = new Map<string, string>();
+  fColleges.forEach(c => {
+    if (c.id && c.name) colMap.set(String(c.id).toLowerCase(), c.name);
+    if (c.name) colMap.set(String(c.name).toLowerCase(), c.name);
+  });
+
+  fStudents = fStudents.map(s => {
+    let colName = s.collegeName;
+    if (!colName || colName === "Unknown Institution" || colName === "unknown") {
+      if (s.collegeId && colMap.has(String(s.collegeId).toLowerCase())) {
+        colName = colMap.get(String(s.collegeId).toLowerCase())!;
+      } else if (!s.collegeId || s.collegeId === "col-unassigned" || s.collegeId === "unassigned") {
+        colName = "Unassigned";
+      } else {
+        colName = s.collegeId;
+      }
+    }
+    return { ...s, collegeName: colName };
+  });
+
   const filteredStudentCountByColId = new Map<string, number>();
   const filteredStudentCountByColName = new Map<string, number>();
   const filteredStudentCountByBatchId = new Map<string, number>();
@@ -408,7 +472,7 @@ function recomputeScopedData() {
 
   fBatches = fBatches.map((b) => ({
     ...b,
-    studentCount: filteredStudentCountByBatchId.get(b.id) || 0,
+    studentCount: filteredStudentCountByBatchId.get(b.id) || (b.name ? filteredStudentCountByBatchId.get(b.name) : 0) || b.studentCount || 0,
   }));
 
   // Exclude external colleges from the main filteredColleges list used by the UI
@@ -488,14 +552,35 @@ export async function refreshCache() {
 }
 
 async function fetchLMSData(force = false) {
-  if (!currentUserInfo) return;
+  if (!currentUserInfo) {
+    if (typeof window !== "undefined") {
+      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      const r = localStorage.getItem("lms_role") || "admin";
+      if (uStr) {
+        try {
+          const parsed = JSON.parse(uStr);
+          currentUserInfo = { 
+            uid: parsed.id || parsed.uid || "", 
+            role: (parsed.role || r).toLowerCase(), 
+            collegeId: parsed.collegeId, 
+            parsed 
+          };
+        } catch (_) {}
+      }
+      if (!currentUserInfo) {
+        currentUserInfo = { uid: "system", role: r.toLowerCase(), parsed: null };
+      }
+    } else {
+      currentUserInfo = { uid: "system", role: "admin", parsed: null };
+    }
+  }
+
   const { role, collegeId, parsed } = currentUserInfo;
   
   // TTL Check: 5 minutes
   const TTL = 5 * 60 * 1000;
   const now = Date.now();
   if (!force && cache.colleges?.updatedAt && (now - cache.colleges.updatedAt < TTL)) {
-    // Cache is fresh, skip Firestore reads
     if (cache.loading) {
       cache.loading = false;
       notifyListeners();
@@ -507,19 +592,20 @@ async function fetchLMSData(force = false) {
   cache.error = null;
   notifyListeners();
 
-  const isMainAdmin = role === "main_admin" || role === "admin" || role === "superadmin" || role === "trainer";
+  const isMainAdmin = role === "main_admin" || role === "admin" || role === "superadmin" || role === "trainer" || role === "master_admin";
   const isCollegeAdmin = role === "college_admin" && collegeId;
   const isStudent = role === "student" && parsed?.id;
 
-  const { getDocuments, where } = await import("@/lib/firebase/firestore");
-  console.time("[Firestore] Fetch LMS Data (getDocs)");
+  console.time("[Supabase] Fetch LMS Data");
   
   const errors: string[] = [];
 
   // 1. Colleges — isolated
   try {
-    const collegesRes = await getDocuments<College>("colleges", [], false, { pageSize: 100 });
-    cache.colleges = { data: collegesRes.data, updatedAt: now };
+    const collegesRes = await getAllColleges();
+    if (collegesRes && Array.isArray(collegesRes.data)) {
+      cache.colleges = { data: collegesRes.data, updatedAt: now };
+    }
   } catch (err: any) {
     console.error("[FETCH] Colleges failed:", err?.message || err);
     errors.push(`Colleges: ${err?.message || "Unknown error"}`);
@@ -527,9 +613,12 @@ async function fetchLMSData(force = false) {
 
   // 2. Batches — isolated
   try {
-    const batchesConstraints = (isCollegeAdmin || isStudent) && collegeId ? [where("collegeId", "==", collegeId)] : [];
-    const batchesRes = await getDocuments<Batch>("batches", batchesConstraints, false, { pageSize: 100 });
-    cache.batches = { data: batchesRes.data, updatedAt: now };
+    const batchesRes = (isCollegeAdmin || isStudent) && collegeId 
+      ? await getBatchesByCollege(collegeId)
+      : await getAllBatches();
+    if (batchesRes && Array.isArray(batchesRes.data)) {
+      cache.batches = { data: batchesRes.data, updatedAt: now };
+    }
   } catch (err: any) {
     console.error("[FETCH] Batches failed:", err?.message || err);
     errors.push(`Batches: ${err?.message || "Unknown error"}`);
@@ -537,9 +626,10 @@ async function fetchLMSData(force = false) {
 
   // 3. Students — isolated
   try {
-    const studentsConstraints = (isStudent || isCollegeAdmin) && collegeId ? [where("collegeId", "==", collegeId)] : [];
-    const studentsRes = await getDocuments<Student>("students", studentsConstraints, false, { pageSize: isStudent ? 200 : (isCollegeAdmin ? 2000 : 5000) });
-    cache.students = { data: studentsRes.data, updatedAt: now };
+    const studentsRes = await getAllStudents();
+    if (studentsRes && Array.isArray(studentsRes.data)) {
+      cache.students = { data: studentsRes.data, updatedAt: now };
+    }
   } catch (err: any) {
     console.error("[FETCH] Students failed:", err?.message || err);
     errors.push(`Students: ${err?.message || "Unknown error"}`);
@@ -547,8 +637,10 @@ async function fetchLMSData(force = false) {
 
   // 4. Exams
   try {
-    const examsRes = await getDocuments<Exam>("exams", [], false, { pageSize: 500 });
-    cache.exams = { data: examsRes.data, updatedAt: now };
+    const examsRes = await getAllExams();
+    if (examsRes && Array.isArray(examsRes.data)) {
+      cache.exams = { data: examsRes.data, updatedAt: now };
+    }
   } catch (err: any) {
     console.error("[FETCH] Exams failed:", err?.message || err);
     errors.push(`Exams: ${err?.message || "Unknown error"}`);
@@ -556,8 +648,10 @@ async function fetchLMSData(force = false) {
 
   // 5. Resources
   try {
-    const resourcesRes = await getDocuments<Resource>("resources", [], false, { pageSize: 500 });
-    cache.resources = { data: resourcesRes.data, updatedAt: now };
+    const resourcesRes = await getAllResources();
+    if (resourcesRes && Array.isArray(resourcesRes.data)) {
+      cache.resources = { data: resourcesRes.data, updatedAt: now };
+    }
   } catch (err: any) {
     console.error("[FETCH] Resources failed:", err?.message || err);
     errors.push(`Resources: ${err?.message || "Unknown error"}`);
@@ -565,15 +659,21 @@ async function fetchLMSData(force = false) {
 
   // 6. Attempts — isolated
   try {
-    const attemptsConstraints = (isStudent || isCollegeAdmin) && collegeId ? [where("collegeId", "==", collegeId)] : [];
-    const attemptsRes = await getDocuments<ExamAttempt>("exam_results", attemptsConstraints, false, { pageSize: (isStudent || isCollegeAdmin) ? 100 : 200 });
-    cache.attempts = { data: attemptsRes.data, updatedAt: now };
+    let attemptsRes: ExamAttempt[] = [];
+    if (isStudent && parsed?.id) {
+      const res = await getStudentAttempts(parsed.id);
+      attemptsRes = res as ExamAttempt[];
+    } else {
+      const data = await getStudentAttemptsAction();
+      if (data) attemptsRes = data as unknown as ExamAttempt[];
+    }
+    cache.attempts = { data: attemptsRes, updatedAt: now };
   } catch (err: any) {
     console.error("[FETCH] Attempts failed:", err?.message || err);
     errors.push(`Attempts: ${err?.message || "Unknown error"}`);
   }
 
-  console.timeEnd("[Firestore] Fetch LMS Data (getDocs)");
+  console.timeEnd("[Supabase] Fetch LMS Data");
 
   // Surface errors to UI only if ALL collections failed
   if (errors.length > 0) {
@@ -603,6 +703,9 @@ function recomputeAndNotify() {
 }
 
 function startAuthListener() {
+  // Always trigger data fetch to ensure fresh cache
+  fetchLMSData();
+
   if (globalAuthUnsub) return;
 
   if (!cache.colleges && !cache.students && !cache.exams && !cache.batches) {
@@ -610,94 +713,77 @@ function startAuthListener() {
   }
   cache.error = null;
 
-  import("firebase/auth").then(({ getAuth, onAuthStateChanged }) => {
-    import("@/lib/firebase/config").then(({ app }) => {
-      const auth = getAuth(app);
+  // Use Supabase Auth listener
+  const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const user = session?.user;
+    if (!user) {
+      // Do not clear user info during background token transitions
+      return;
+    }
+
+    let parsed: any = null;
+    let role: string = "";
+
+    try {
+      const { profile: userDoc, studentDoc } = await getAuthProfileDataAction(user.id);
       
-      globalAuthUnsub = onAuthStateChanged(auth, async (user) => {
-        if (!user) {
-          // CRITICAL FIX: Do NOT set cache.loading = false or call notifyListeners() here.
-          // On page refresh, onAuthStateChanged fires with null FIRST (while restoring session),
-          // then fires again with the real user. If we push empty state to the UI here,
-          // it causes a flash of "zero data" before the real data loads.
-          currentUserInfo = null;
-          return;
+      if (userDoc) {
+        parsed = { ...userDoc } as any;
+        role = parsed.role?.toLowerCase() || "admin";
+        
+        if (role === "student" && (!parsed.collegeId || !parsed.collegeName)) {
+          if (studentDoc) {
+            parsed = { ...studentDoc, ...parsed };
+          }
         }
+      } else {
+        if (studentDoc) {
+          parsed = studentDoc ? (Object.assign({}, studentDoc) as any) : {};
+          role = "student";
+        }
+      }
 
-        let parsed: any = null;
-        let role: string = "";
+      if (parsed) {
+        if (typeof window !== "undefined") {
+          localStorage.setItem("lms_user", JSON.stringify(parsed));
+          localStorage.setItem("user", JSON.stringify(parsed));
+          localStorage.setItem("lms_role", role);
+          
+          const isSecure = window.location.protocol === "https:";
+          const cookieOptions = `path=/; max-age=86400; SameSite=Lax${isSecure ? "; Secure" : ""}`;
+          document.cookie = `lms_role=${role}; ${cookieOptions}`;
+        }
+      }
+    } catch (e) {
+      logger.error("CACHE", "Failed to fetch user document for auth sync", e);
+    }
 
+    if (!parsed && typeof window !== "undefined") {
+      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      if (uStr) {
         try {
-          const { getFirestore, doc, getDoc } = await import("firebase/firestore");
-          const db = getFirestore(app);
-          const userDoc = await getDoc(doc(db, "users", user.uid));
-          if (userDoc.exists()) {
-            parsed = { id: user.uid, ...userDoc.data() };
-            role = parsed.role?.toLowerCase() || "admin";
-            
-            // BACKFILL: Existing students might have an incomplete users doc that lacks college info
-            if (role === "student" && (!parsed.collegeId || !parsed.collegeName)) {
-              const studentDoc = await getDoc(doc(db, "students", user.uid));
-              if (studentDoc.exists()) {
-                parsed = { ...studentDoc.data(), ...parsed }; // users doc overrides, but students doc fills in missing fields
-              }
-            }
-          } else {
-            const studentDoc = await getDoc(doc(db, "students", user.uid));
-            if (studentDoc.exists()) {
-              parsed = { id: user.uid, ...studentDoc.data() };
-              role = "student";
-            }
-          }
+          parsed = JSON.parse(uStr);
+          if (parsed.role) role = parsed.role.toLowerCase();
+        } catch (e) {}
+      }
+      if (!role) {
+        role = localStorage.getItem("lms_role")?.toLowerCase() || "admin";
+      }
+    }
 
-          if (parsed) {
-            if (typeof window !== "undefined") {
-              localStorage.setItem("lms_user", JSON.stringify(parsed));
-              localStorage.setItem("user", JSON.stringify(parsed));
-              localStorage.setItem("lms_role", role);
-              
-              const isSecure = window.location.protocol === "https:";
-              const cookieOptions = `path=/; max-age=86400; SameSite=Lax${isSecure ? "; Secure" : ""}`;
-              document.cookie = `lms_role=${role}; ${cookieOptions}`;
-            }
-          }
-        } catch (e) {
-          logger.error("CACHE", "Failed to fetch user document for auth sync", e);
-        }
+    // Derive collegeId if missing but collegeName is present
+    if (parsed && !parsed.collegeId && parsed.collegeName) {
+      parsed.collegeId = parsed.collegeName.toLowerCase().trim().replace(/[^a-z0-9]+/g, "");
+    }
 
-        if (!parsed && typeof window !== "undefined") {
-          const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-          if (uStr) {
-            try {
-              parsed = JSON.parse(uStr);
-              if (parsed.role) role = parsed.role.toLowerCase();
-            } catch (e) {}
-          }
-          if (!role) {
-            role = localStorage.getItem("lms_role")?.toLowerCase() || "admin";
-          }
-        }
+    // Store user info for subscriptions
+    currentUserInfo = { uid: user.id, role, collegeId: parsed?.collegeId, parsed };
 
-        const isMainAdmin = role === "main_admin" || role === "admin" || role === "superadmin" || role === "trainer";
-
-        // Derive collegeId if missing but collegeName is present (for self-registered external colleges)
-        if (parsed && !parsed.collegeId && parsed.collegeName) {
-          parsed.collegeId = parsed.collegeName.toLowerCase().trim().replace(/[^a-z0-9]+/g, "");
-        }
-
-        // AUTH READINESS GUARD: Prevent race condition where queries fire before collegeId resolves
-        if (role === "college_admin" && !parsed?.collegeId) {
-          return;
-        }
-
-        // Store user info for subscriptions
-        currentUserInfo = { uid: user.uid, role, collegeId: parsed?.collegeId, parsed };
-
-        // Fetch LMS Data directly instead of creating listeners
-        fetchLMSData();
-      });
-    });
+    // Fetch LMS Data directly
+    fetchLMSData();
   });
+  
+  globalAuthUnsub = () => subscription.unsubscribe();
 }
 
 function stopAuthListener() {
@@ -705,7 +791,7 @@ function stopAuthListener() {
     try { globalAuthUnsub(); } catch(e) {}
     globalAuthUnsub = null;
   }
-  cache.unsubscribers = []; // Keep for backward compatibility if needed
+  cache.unsubscribers = [];
 }
 
 // ─── Exported State Computation ──────────────────────────────────────────────
@@ -891,6 +977,14 @@ export function optimisticDeleteCollegeFromCache(collegeId: string): void {
   }
   recomputeScopedData();
   notifyListeners();
+}
+
+export function optimisticUpdateCollegeInCache(collegeId: string, updates: Partial<College>): void {
+  if (cache.colleges?.data) {
+    cache.colleges.data = cache.colleges.data.map((c) => (c.id === collegeId ? { ...c, ...updates } : c));
+    recomputeScopedData();
+    notifyListeners();
+  }
 }
 
 export function optimisticDeleteStudentFromCache(studentId: string): void {

@@ -9,6 +9,7 @@ import { NavigationProgress } from "@/components/layout/navigation-progress";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { subscribeToLMSCache } from "@/lib/data/lms-data-cache";
+import { getStudentByIdAction, getUserByIdAction } from "@/lib/actions/auth-actions";
 import { ErrorBoundary } from "@/components/error-boundary";
 
 export default function DashboardLayout({
@@ -37,8 +38,35 @@ export default function DashboardLayout({
 
   // Auth verification effect - runs when pathname changes
   useEffect(() => {
-    const verifyAuth = () => {
-      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+    const verifyAuth = async () => {
+      let uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      if (!uStr) {
+        try {
+          const { supabase } = await import("@/lib/supabase/client");
+          const { data } = await supabase.auth.getSession();
+          if (data?.session?.user) {
+            const user = data.session.user;
+            const email = user.email?.toLowerCase().trim() || "";
+            const { getUserByIdAction } = await import("@/lib/actions/auth-actions");
+            const dbUser = await getUserByIdAction(user.id);
+            const role = dbUser?.role || "student";
+            const uObj = {
+              id: dbUser?.id || user.id,
+              name: dbUser?.displayName || user.user_metadata?.full_name || email.split("@")[0] || "User",
+              email: email,
+              role: role,
+              collegeId: dbUser?.collegeId || null,
+              createdAt: Date.now(),
+            };
+            localStorage.setItem("lms_auth", "true");
+            localStorage.setItem("lms_role", role);
+            localStorage.setItem("lms_user", JSON.stringify(uObj));
+            localStorage.setItem("user", JSON.stringify(uObj));
+            uStr = JSON.stringify(uObj);
+          }
+        } catch (_) {}
+      }
+
       if (!uStr) {
         import("@/lib/utils/auth-session").then(({ clearAuthSession }) => {
           clearAuthSession("/login");
@@ -113,103 +141,135 @@ export default function DashboardLayout({
       }
     };
 
+    let isMounted = true;
     let authUnsub: (() => void) | null = null;
     let syncUnsubs: (() => void)[] = [];
 
-    import("firebase/auth").then(({ getAuth, onAuthStateChanged }) => {
-      import("@/lib/firebase/config").then(({ app }) => {
-        const auth = getAuth(app);
-        authUnsub = onAuthStateChanged(auth, (user) => {
-          // Clear any existing sync subscriptions if auth state changes
+    // Safely delay background profile sync so Next.js client router fully mounts first
+    const initTimer = setTimeout(() => {
+      if (!isMounted) return;
+
+      import("@/lib/supabase/client").then(({ supabase }) => {
+        if (!isMounted) return;
+
+        const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+          if (!isMounted) return;
+          const user = session?.user;
           syncUnsubs.forEach((u) => u());
           syncUnsubs = [];
 
-          // Only sync if Firebase Auth confirms we are logged in
           if (!user) return;
 
-          if (parsedUser.role === "student") {
-            import("firebase/firestore").then(({ doc, getDoc }) => {
-              import("@/lib/firebase/config").then(async ({ db }) => {
-                try {
-                  const docSnap = await getDoc(doc(db, "students", parsedUser.id));
-                  if (!docSnap.exists() || docSnap.data()?.status === "deleted" || docSnap.data()?.isDeleted) {
-                    import("@/lib/utils/auth-session").then(({ clearAuthSession }) => {
-                      clearAuthSession("/login?error=account_deleted");
-                    });
-                    return;
-                  }
-                  if (docSnap.exists()) {
-                    const s = docSnap.data();
-                    if (s.status === "restricted") {
-                      import("@/lib/utils/auth-session").then(({ clearAuthSession }) => {
-                        clearAuthSession("/login?error=restricted");
-                      });
-                      return;
-                    }
-                    const updated = {
-                      ...parsedUser,
-                      name: s.name || parsedUser.name,
-                      email: s.email || parsedUser.email,
-                      department: s.department || parsedUser.department,
-                      collegeId: s.collegeId || parsedUser.collegeId,
-                      academicYear: s.academicYear || parsedUser.academicYear,
-                      section: s.section || parsedUser.section,
-                      batchIds: s.batchIds || parsedUser.batchIds,
-                    };
-                    commitIfChanged(updated, [
-                      "name",
-                      "email",
-                      "department",
-                      "collegeId",
-                      "academicYear",
-                      "section",
-                      "batchIds",
-                    ]);
-                  }
-                } catch (e) {
-                  console.error("Profile sync error", e);
+          setTimeout(async () => {
+            if (!isMounted) return;
+
+            if (parsedUser.role === "student") {
+              try {
+                let docSnap = await getStudentByIdAction(parsedUser.id);
+                if (!docSnap && user.id) {
+                  docSnap = await getStudentByIdAction(user.id);
                 }
-              });
-            });
-          } else {
-            import("firebase/firestore").then(({ doc, getDoc }) => {
-              import("@/lib/firebase/config").then(async ({ db }) => {
-                try {
-                  const docSnap = await getDoc(doc(db, "users", parsedUser.id));
-                  if (!docSnap.exists()) {
-                    import("@/lib/utils/auth-session").then(({ clearAuthSession }) => {
-                      clearAuthSession("/login?error=account_deleted");
-                    });
-                    return;
-                  }
-                  if (docSnap.exists()) {
-                    const u = docSnap.data();
-                    const updated = {
-                      ...parsedUser,
-                      name: u.displayName || parsedUser.name,
-                      email: u.email || parsedUser.email,
-                      collegeId: u.collegeId || parsedUser.collegeId,
-                    };
-                    commitIfChanged(updated, ["name", "email", "collegeId"]);
-                  }
-                } catch (e) {
-                  console.error("User sync error", e);
+                if (!docSnap && user.email) {
+                  docSnap = await getStudentByIdAction(user.email);
                 }
-              });
-            });
-          }
+
+                if (!isMounted) return;
+                if (!docSnap) {
+                  return;
+                }
+
+                const s = docSnap as any;
+                const userStatus = s.users?.status || s.status;
+                if (userStatus === "restricted") {
+                  import("@/lib/utils/auth-session").then(({ clearAuthSession }) => {
+                    clearAuthSession("/login?error=restricted");
+                  });
+                  return;
+                }
+                if (userStatus === "deleted") {
+                  import("@/lib/utils/auth-session").then(({ clearAuthSession }) => {
+                    clearAuthSession("/login?error=account_deleted");
+                  });
+                  return;
+                }
+                const updated = {
+                  ...parsedUser,
+                  name: s.users?.displayName || s.name || parsedUser.name,
+                  email: s.users?.email || s.email || parsedUser.email,
+                  department: s.department || parsedUser.department,
+                  collegeId: s.collegeId || parsedUser.collegeId,
+                  academicYear: s.academicYear || parsedUser.academicYear,
+                  section: s.section || parsedUser.section,
+                  batchIds: s.batchIds || parsedUser.batchIds,
+                };
+                commitIfChanged(updated, [
+                  "name",
+                  "email",
+                  "department",
+                  "collegeId",
+                  "academicYear",
+                  "section",
+                  "batchIds",
+                ]);
+              } catch (e) {
+                console.error("Profile sync error", e);
+              }
+            } else {
+              try {
+                let docSnap = await getUserByIdAction(parsedUser.id);
+                if (!docSnap && user.id) {
+                  docSnap = await getUserByIdAction(user.id);
+                }
+                if (!docSnap && user.email) {
+                  docSnap = await getUserByIdAction(user.email);
+                }
+
+                if (!isMounted) return;
+                if (!docSnap) {
+                  return;
+                }
+
+                const u = docSnap as any;
+                const colStatus = u.colleges?.status;
+                if (u.status === "restricted" || (colStatus === "restricted" && (u.role === "college_admin" || u.role === "college"))) {
+                  import("@/lib/utils/auth-session").then(({ clearAuthSession }) => {
+                    clearAuthSession("/login?error=restricted");
+                  });
+                  return;
+                }
+                if (u.status === "deleted") {
+                  import("@/lib/utils/auth-session").then(({ clearAuthSession }) => {
+                    clearAuthSession("/login?error=account_deleted");
+                  });
+                  return;
+                }
+                const updated = {
+                  ...parsedUser,
+                  name: u.displayName || parsedUser.name,
+                  email: u.email || parsedUser.email,
+                  collegeId: u.collegeId || parsedUser.collegeId,
+                };
+                commitIfChanged(updated, ["name", "email", "collegeId"]);
+              } catch (e) {
+                console.error("User sync error", e);
+              }
+            }
+          }, 100);
 
           const unsubLMS = subscribeToLMSCache(() => {});
           syncUnsubs.push(unsubLMS);
           unsubs.push(unsubLMS);
         });
+        authUnsub = () => authListener.subscription.unsubscribe();
         unsubs.push(() => {
           if (authUnsub) authUnsub();
         });
       });
-    });
+    }, 100);
 
     return () => {
+      isMounted = false;
+      clearTimeout(initTimer);
       unsubs.forEach((u) => u());
     };
   }, []); // Run once on mount only

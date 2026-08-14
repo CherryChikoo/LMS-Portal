@@ -46,3 +46,19 @@ dev-server.log
 dev-server.pid
 
 .vercel
+
+/src/generated/prisma
+scratch/
+scratch-*.ts
+test-*.ts
+test-*.js
+test_*.ts
+test_*.js
+insert-*.ts
+list-*.ts
+list-*.js
+restore-*.ts
+migrate-*.js
+create-*.js
+debug-payload.txt
+fix-*.js

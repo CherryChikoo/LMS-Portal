@@ -1,7 +1,7 @@
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { prisma } from "@/lib/prisma";
 import { getErrorMessage } from '@/lib/utils/error';
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminApp } from "@/lib/firebase/admin";
-import { getFirestore } from "firebase-admin/firestore";
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,31 +15,16 @@ export async function POST(request: NextRequest) {
     }
 
     const normalizedEmail = email.toLowerCase().trim();
-    const db = getFirestore(getAdminApp());
 
-    // Query users, students, and colleges collections in parallel via Admin SDK (bypasses security rules)
     const [usersSnap, studentsSnap, collegesSnap] = await Promise.all([
-      db.collection("users").where("email", "==", normalizedEmail).limit(1).get(),
-      db.collection("students").where("email", "==", normalizedEmail).limit(1).get(),
-      db.collection("colleges").where("adminEmail", "==", normalizedEmail).limit(1).get(),
+      prisma.users.findFirst({ where: { email: normalizedEmail }, select: { id: true, role: true, status: true } }),
+      prisma.students.findFirst({ where: { users: { email: normalizedEmail } }, select: { id: true } }),
+      prisma.colleges.findFirst({ where: { adminEmail: normalizedEmail }, select: { id: true, status: true, isDeleted: true } }),
     ]);
 
-    let responseUserDoc = null;
-    let responseStudentDoc = null;
-    let responseCollegeDoc = null;
-
-    if (!usersSnap.empty) {
-      const data = usersSnap.docs[0].data();
-      responseUserDoc = { id: usersSnap.docs[0].id, role: data.role, status: data.status, isDeleted: data.isDeleted };
-    }
-    if (!studentsSnap.empty) {
-      const data = studentsSnap.docs[0].data();
-      responseStudentDoc = { id: studentsSnap.docs[0].id, status: data.status, isDeleted: data.isDeleted };
-    }
-    if (!collegesSnap.empty) {
-      const data = collegesSnap.docs[0].data();
-      responseCollegeDoc = { id: collegesSnap.docs[0].id, status: data.status, isDeleted: data.isDeleted };
-    }
+    let responseUserDoc = usersSnap;
+    let responseStudentDoc = studentsSnap;
+    let responseCollegeDoc = collegesSnap;
 
     const exists = Boolean(responseUserDoc || responseStudentDoc || responseCollegeDoc);
 

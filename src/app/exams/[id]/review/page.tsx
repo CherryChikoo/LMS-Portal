@@ -25,9 +25,10 @@ import {
   getStudentAttemptsForCurrentUser,
 } from "@/lib/services";
 import { getCurrentUser } from "@/lib/utils/auth-session";
+import { getResultsByExamAction } from "@/lib/actions/exam-actions";
 import { formatTimestamp } from "@/lib/utils/date";
 
-import { getDocuments, where } from "@/lib/firebase/firestore";
+import { supabase } from "@/lib/supabase/client";
 import type { Exam, ExamAttempt, ExamResult } from "@/types";
 
 interface PageProps {
@@ -161,10 +162,8 @@ export default function ReviewExamPage({ params }: PageProps) {
         // Fallback: If not found in user attempts, query results directly by examId
         if (!submitted) {
           try {
-            const examResults = await getDocuments<ExamResult>("exam_results", [
-              where("examId", "==", id),
-            ]);
-            const matched = examResults.data.find((a: any) => {
+            const examResultsData = await getResultsByExamAction(id);
+            const matched = (examResultsData || []).find((a: any) => {
               const normEmail = email.toLowerCase().trim();
               return (
                 (uid && a.studentId === uid) ||
@@ -174,7 +173,7 @@ export default function ReviewExamPage({ params }: PageProps) {
               );
             });
             if (matched) {
-              submitted = matched as ExamAttempt;
+              submitted = matched as unknown as ExamAttempt;
             }
           } catch {}
         }

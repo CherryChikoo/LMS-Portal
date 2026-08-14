@@ -23,7 +23,7 @@ import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
 import { parseStudentsCSV, importStudentsCSV, generateCredentialsCSV, createStudentAuthProfile, updateCollege, deleteStudentProfile, updateStudentProfile, formatAuthError } from "@/lib/services";
 import { useLMSData, useLMSDataSelector } from "@/lib/data/use-lms-data";
-import { optimisticDeleteStudent, optimisticUpdateStudent } from "@/lib/data/lms-store";
+import { optimisticDeleteStudentFromCache as optimisticDeleteStudent, optimisticUpdateStudentInCache as optimisticUpdateStudent, refreshCache } from "@/lib/data/lms-data-cache";
 import { StudentRow } from "@/components/students/student-row";
 import { StudentCard } from "@/components/students/student-card";
 import { useEntityResolution } from "@/lib/data/use-entity-resolution";
@@ -121,7 +121,7 @@ function StudentsContent() {
   const [newYear, setNewYear] = useState("1st Year");
   const [newSection, setNewSection] = useState("A");
   const [customNewSection, setCustomNewSection] = useState("");
-  const [newBatch, setNewBatch] = useState(initialBatchId || "General Cohort");
+  const [newBatch, setNewBatch] = useState(initialBatchId || "");
 
   // Edit Student Modal states
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
@@ -161,8 +161,6 @@ function StudentsContent() {
   }, [actionParam]);
 
   const fetchStudents = async () => {
-    // Trigger a fresh cache pull from Firestore after mutations
-    const { refreshCache } = await import("@/lib/data/lms-store");
     await refreshCache();
   };
 
@@ -174,7 +172,7 @@ function StudentsContent() {
     setEditDepartment(student.department || "Computer Science");
     setEditYear(student.academicYear || "1st Year");
     setEditSection(student.section || "A");
-    setEditBatch(student.batchIds?.[0] || "General Cohort");
+    setEditBatch(student.batchIds?.[0] || "");
     setEditPassword(""); // Leave empty to keep unchanged
   };
 
@@ -207,16 +205,18 @@ function StudentsContent() {
         }
         payload.initialPassword = editPassword.trim();
       }
+      optimisticUpdateStudent(editingStudent.id, payload);
       const res = await updateStudentProfile(editingStudent.id, payload);
       if (!res.success) {
         toast.error(res.error || "Failed to update student profile.");
+        await fetchStudents();
         return;
       }
       toast.success("Student profile updated successfully.");
       await fetchStudents();
       setEditingStudent(null);
     } catch (err) {
-      toast.error(formatAuthError(err, "Failed to update student profile."));
+      toast.error(formatAuthError(err));
     } finally {
       setSavingEdit(false);
     }
@@ -278,7 +278,7 @@ function StudentsContent() {
       fetchStudents();
     } catch (err) {
       console.error("Import error", err);
-      toast.error(formatAuthError(err, "Failed to import students."));
+      toast.error(formatAuthError(err));
     } finally {
       setImporting(false);
       setCancelling(false);
@@ -337,7 +337,7 @@ function StudentsContent() {
         variant: "success",
       });
     } catch (err: unknown) {
-      const message = formatAuthError(err, "Failed to create student account.");
+      const message = formatAuthError(err);
       setConfirmConfig({
         isOpen: true,
         isAlert: true,
@@ -457,7 +457,7 @@ function StudentsContent() {
           toast.success(`Deleted ${currentSelected.length} student account(s).`);
         } catch (err) {
           console.error("Failed to delete selected students:", err);
-          toast.error(formatAuthError(err, "Failed to delete selected students."));
+          toast.error(formatAuthError(err));
         }
       }
     });
@@ -476,11 +476,14 @@ function StudentsContent() {
         variant: "warning",
         onConfirm: async () => {
           try {
+            optimisticUpdateStudent(student.id, { status: newStatus });
             await updateStudentProfile(student.id, { status: newStatus });
+            await refreshCache();
             toast.success(`Account for "${student.name}" restricted.`);
           } catch (err) {
             console.error("Failed to restrict account:", err);
-            toast.error(formatAuthError(err, "Failed to restrict account."));
+            await refreshCache();
+            toast.error(formatAuthError(err));
           }
         }
       });
@@ -493,11 +496,14 @@ function StudentsContent() {
         variant: "info",
         onConfirm: async () => {
           try {
+            optimisticUpdateStudent(student.id, { status: newStatus });
             await updateStudentProfile(student.id, { status: newStatus });
+            await refreshCache();
             toast.success(`Account for "${student.name}" reactivated.`);
           } catch (err) {
             console.error("Failed to reactivate account:", err);
-            toast.error(formatAuthError(err, "Failed to reactivate account."));
+            await refreshCache();
+            toast.error(formatAuthError(err));
           }
         }
       });
@@ -520,7 +526,7 @@ function StudentsContent() {
           await deleteStudentProfile(student.id);
         } catch (err) {
           console.error("Failed to delete student on backend:", err);
-          toast.error(formatAuthError(err, "Failed to delete student on server. Refreshing..."));
+          toast.error(formatAuthError(err));
         }
       }
     });
@@ -1134,7 +1140,7 @@ function StudentsContent() {
                       onChange={(e) => setNewBatch(e.target.value)}
                       className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground font-semibold"
                     >
-                      <option value="General Cohort">General Cohort</option>
+                      <option value="">None (No Batch)</option>
                       {addModalBatches.length === 0
                         ? batches.map((b) => (
                             <option key={b.id} value={b.name}>{b.name || "Unnamed Batch"}</option>
@@ -1288,7 +1294,7 @@ function StudentsContent() {
                       onChange={(e) => setEditBatch(e.target.value)}
                       className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground"
                     >
-                      <option value="General Cohort">General Cohort</option>
+                      <option value="">None (No Batch)</option>
                       {editModalBatches.length === 0
                         ? batches.map((b) => (
                             <option key={b.id} value={b.name}>{b.name || "Unnamed Batch"}</option>

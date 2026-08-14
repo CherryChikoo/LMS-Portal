@@ -1,5 +1,5 @@
-import { doc, onSnapshot, getDoc, setDoc, serverTimestamp } from "@/lib/firebase/firestore";
-import { db } from "@/lib/firebase/config";
+import { supabase } from "@/lib/supabase/client";
+import { getCompanyBrandingAction, updateCompanyBrandingAction } from "@/lib/actions/branding-actions";
 
 export interface CompanyBranding {
   companyName: string;
@@ -13,10 +13,8 @@ const DOC_ID = "branding";
 
 export async function getCompanyBranding(): Promise<CompanyBranding> {
   try {
-    const docRef = doc(db, COLLECTION_NAME, DOC_ID);
-    const snap = await getDoc(docRef);
-    if (snap.exists()) {
-      const data = snap.data() as CompanyBranding;
+    const data = await getCompanyBrandingAction();
+    if (data) {
       return {
         companyName: data.companyName || "",
         companySubtitle: data.companySubtitle || "",
@@ -34,33 +32,36 @@ export async function getCompanyBranding(): Promise<CompanyBranding> {
 }
 
 export async function updateCompanyBranding(data: Partial<CompanyBranding>): Promise<void> {
-  const docRef = doc(db, COLLECTION_NAME, DOC_ID);
-  await setDoc(docRef, { ...data, updatedAt: serverTimestamp() }, { merge: true });
+  await updateCompanyBrandingAction(data);
 }
 
 export function subscribeToCompanyBranding(callback: (branding: CompanyBranding) => void): () => void {
-  const docRef = doc(db, COLLECTION_NAME, DOC_ID);
-  return onSnapshot(docRef, (snap) => {
-    if (snap.exists()) {
-      const data = snap.data() as CompanyBranding;
-      callback({
-        companyName: data.companyName || "",
-        companySubtitle: data.companySubtitle || "",
-        logoBase64: data.logoBase64 || "",
-      });
-    } else {
-      callback({
-        companyName: "",
-        companySubtitle: "",
-        logoBase64: "",
-      });
-    }
-  }, (err) => {
-    console.error("Error subscribing to company branding:", err);
-    callback({
-      companyName: "",
-      companySubtitle: "",
-      logoBase64: "",
-    });
-  });
+  const channel = supabase.channel('branding-changes')
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: COLLECTION_NAME,
+        filter: `id=eq.${DOC_ID}`
+      },
+      (payload) => {
+        const data = payload.new as any;
+        if (data) {
+          callback({
+            companyName: data.companyName || "",
+            companySubtitle: data.companySubtitle || "",
+            logoBase64: data.logoBase64 || "",
+          });
+        }
+      }
+    )
+    .subscribe();
+
+  // Initial fetch
+  getCompanyBranding().then(callback);
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
 }

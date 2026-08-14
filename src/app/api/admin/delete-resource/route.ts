@@ -1,8 +1,8 @@
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { prisma } from "@/lib/prisma";
 import 'server-only';
 import { getErrorMessage } from '@/lib/utils/error';
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminAuth, getAdminApp } from "@/lib/firebase/admin";
-import { getFirestore } from "firebase-admin/firestore";
 import { z } from "zod";
 import { deleteDocumentAdmin, deleteStorageFileByUrl } from '@/lib/services/cleanup-service';
 
@@ -20,22 +20,26 @@ export async function POST(request: NextRequest) {
     const adminIdToken = authHeader.split("Bearer ")[1];
 
     stage = "verifyAdminToken";
-    const auth = getAdminAuth();
-    let decodedToken;
-    try {
-      decodedToken = await auth.verifyIdToken(adminIdToken);
-    } catch (err: unknown) {
+    const { data: { user: adminUser }, error: verifyError } = await supabaseAdmin.auth.getUser(adminIdToken);
+    
+    if (verifyError || !adminUser) {
       return NextResponse.json({ success: false, stage, errorCode: "invalid-token", message: "Invalid or expired admin session." }, { status: 401 });
     }
 
-    const requesterUid = decodedToken.uid;
-    const db = getFirestore(getAdminApp());
+    const requesterUid = adminUser.id;
 
-    stage = "verifyAdminRole";
-    const requesterDoc = await db.collection("users").doc(requesterUid).get();
-    const requesterRole = requesterDoc.exists ? requesterDoc.data()?.role : undefined;
+    const requesterDoc = await prisma.users.findFirst({ 
+      where: { 
+        OR: [
+          { id: requesterUid },
+          { authId: requesterUid }
+        ]
+      }, 
+      select: { role: true, collegeId: true } 
+    });
+    const requesterRole = requesterDoc?.role;
     
-    if (requesterRole !== "main_admin" && requesterRole !== "admin" && requesterRole !== "college_admin" && requesterRole !== "trainer") {
+    if (requesterRole !== "main_admin" && requesterRole !== "admin" && requesterRole !== "college_admin" && requesterRole !== "trainer" && requesterRole !== "superadmin") {
       return NextResponse.json({ success: false, stage, errorCode: "permission-denied", message: "Permission denied." }, { status: 403 });
     }
 
@@ -48,28 +52,28 @@ export async function POST(request: NextRequest) {
     const { id: resourceId } = parseResult.data;
 
     stage = "fetchResource";
-    const resourceDoc = await db.collection("resources").doc(resourceId).get();
-    if (!resourceDoc.exists) {
+    const resourceDoc = await prisma.resources.findUnique({ where: { id: resourceId } });
+    if (!resourceDoc) {
       return NextResponse.json({ success: false, stage, errorCode: "not-found", message: "Resource not found." }, { status: 404 });
     }
 
-    const resourceData = resourceDoc.data();
+    const resourceData = resourceDoc;
 
     // BOLA Check: If college_admin, ensure they only delete their own college's resources
     if (requesterRole === "college_admin") {
-      const requesterCollegeId = requesterDoc.data()?.collegeId;
+      const requesterCollegeId = requesterDoc?.collegeId;
       if (resourceData?.collegeId !== requesterCollegeId) {
         return NextResponse.json({ success: false, stage, errorCode: "permission-denied", message: "You can only delete resources belonging to your college." }, { status: 403 });
       }
     }
 
     stage = "deleteStorageFile";
-    const fileUrl = resourceData?.url || resourceData?.fileUrl || resourceData?.downloadUrl;
+    const fileUrl = resourceData?.url;
     if (fileUrl) {
       await deleteStorageFileByUrl(fileUrl);
     }
 
-    stage = "deleteFirestoreDocument";
+    stage = "deleteDatabaseDocument";
     await deleteDocumentAdmin("resources", resourceId);
 
     return NextResponse.json({ 

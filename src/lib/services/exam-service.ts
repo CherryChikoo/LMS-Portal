@@ -1,70 +1,80 @@
-import {
-  getDocuments,
-  getDocument,
-  addDocument,
-  updateDocument,
-  deleteDocument,
-  where,
-  serverTimestamp,
-  type QueryOptions,
-  type PaginatedResult,
-} from "@/lib/firebase/firestore";
-import { auth } from "@/lib/firebase/config";
+import { supabase } from "@/lib/supabase/client";
+import { globalLoading } from "@/providers/global-loading-provider";
 import type { Exam, ExamResult, Student, ExamStatus, ExamAttempt } from "@/types";
 import { isAssignedToStudent } from "./assignment-engine";
 import { toMillis } from "@/lib/utils/date";
+import {
+  getAllExamsAction,
+  getAllExamsIncludingDeletedAction,
+  getExamByIdAction,
+  createExamAction,
+  updateExamAction,
+  getResultsByExamAction,
+  getResultsByStudentAction,
+  getStudentAttemptsAction,
+  getStudentAttemptsForCurrentUserAction,
+  submitExamResultAction,
+  deleteResultByIdAction
+} from "@/lib/actions/exam-actions";
 
-const EXAMS_COLLECTION = "exams";
-const RESULTS_COLLECTION = "exam_results";
-
-
-
-export async function getAllExams(options?: QueryOptions): Promise<PaginatedResult<Exam>> {
-  return getDocuments<Exam>(EXAMS_COLLECTION, [], false, { pageSize: 1000, ...options });
+export async function getAllExams(): Promise<{ data: Exam[], lastDoc: any }> {
+  const data = await getAllExamsAction();
+  const parsedData = JSON.parse(JSON.stringify(data));
+  return { data: parsedData as Exam[], lastDoc: parsedData.length > 0 ? parsedData[parsedData.length - 1] : null };
 }
 
-export async function getAllExamsIncludingDeleted(options?: QueryOptions): Promise<PaginatedResult<Exam>> {
-  return getDocuments<Exam>(EXAMS_COLLECTION, [], true, { pageSize: 1000, ...options });
+export async function getAllExamsIncludingDeleted(): Promise<{ data: Exam[], lastDoc: any }> {
+  const data = await getAllExamsIncludingDeletedAction();
+  const parsedData = JSON.parse(JSON.stringify(data));
+  return { data: parsedData as Exam[], lastDoc: parsedData.length > 0 ? parsedData[parsedData.length - 1] : null };
 }
 
 export async function getExamById(id: string): Promise<Exam | null> {
-  const exam = await getDocument<Exam>(EXAMS_COLLECTION, id);
-  if (exam?.deletedAt) return null;
+  const data = await getExamByIdAction(id);
+  if (!data) return null;
+  const exam = JSON.parse(JSON.stringify(data)) as Exam;
+  if (exam.deletedAt) return null;
   return exam;
 }
 
 export async function createExam(data: Omit<Exam, "id">): Promise<string> {
-  return addDocument<Exam>(EXAMS_COLLECTION, data);
+  return await globalLoading.wrap(async () => {
+    return await createExamAction(data);
+  }, `Publishing assessment "${data.title}"...`);
 }
 
 export async function updateExam(id: string, data: Partial<Exam>): Promise<void> {
-  return updateDocument<Exam>(EXAMS_COLLECTION, id, data);
+  return await globalLoading.wrap(async () => {
+    await updateExamAction(id, data);
+  }, "Updating assessment details...");
 }
 
 export async function deleteExam(id: string): Promise<void> {
-  const user = auth.currentUser;
-  if (!user) throw new Error("Must be logged in to delete exam");
-  
-  const token = await user.getIdToken();
-  const res = await fetch("/api/admin/delete-exam", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`
-    },
-    body: JSON.stringify({ id })
-  });
+  return await globalLoading.wrap(async () => {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const session = sessionData.session;
+    if (!session) throw new Error("Must be logged in to delete exam");
+    
+    const res = await fetch("/api/admin/delete-exam", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`
+      },
+      body: JSON.stringify({ id })
+    });
 
-  const data = await res.json();
-  if (!res.ok || !data.success) {
-    throw new Error(data.message || "Failed to delete exam via Admin API");
-  }
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.message || "Failed to delete exam via Admin API");
+    }
+  }, "Deleting assessment...");
 }
 
 export async function expireExam(id: string): Promise<void> {
-  return updateDocument<Exam>(EXAMS_COLLECTION, id, {
-    status: "expired",
-  });
+  return await globalLoading.wrap(async () => {
+    await updateExam(id, { status: "expired" });
+  }, "Closing assessment...");
 }
 
 export function getEffectiveExamStatus(exam: Exam): ExamStatus {
@@ -83,91 +93,68 @@ export function getEffectiveExamStatus(exam: Exam): ExamStatus {
   return "active";
 }
 
-/**
- * Filter exams assigned to a specific student based on hierarchy or direct student target.
- */
 export function filterExamsForStudent(exams: Exam[], student: Student): Exam[] {
   const studentCreatedMillis = toMillis(student.createdAt) ?? 0;
 
   return exams.filter((exam) => {
     if (!isAssignedToStudent(exam.targets, student, (exam as any).sharedWith)) return false;
 
-    // A newly created student shouldn't see ANY exams that were last modified/assigned before they existed.
-    // We add a 24-hour grace period to completely avoid clock-skew or same-day assignment issues.
-    const examUpdatedMillis = toMillis(exam.updatedAt || exam.createdAt) ?? 0;
-    const wasAssignedBeforeStudent = examUpdatedMillis > 0 && studentCreatedMillis > 0 && (examUpdatedMillis + 24 * 60 * 60 * 1000) < studentCreatedMillis;
-
-    if (wasAssignedBeforeStudent) {
-      return false;
+    if (studentCreatedMillis > 0) {
+      const examTimeMillis = toMillis(exam.createdAt || exam.startTime || exam.scheduledAt) ?? 0;
+      if (examTimeMillis > 0 && examTimeMillis < studentCreatedMillis) {
+        return false;
+      }
     }
 
     return true;
   });
 }
 
-// Results
-export async function getResultsByExam(examId: string, options?: QueryOptions, collegeId?: string): Promise<PaginatedResult<ExamResult>> {
-  const constraints = [where("examId", "==", examId)];
-  if (collegeId && collegeId !== "ALL" && collegeId !== "global") {
-    constraints.push(where("collegeId", "==", collegeId));
-  }
-  return getDocuments<ExamResult>(RESULTS_COLLECTION, constraints, false, options);
+export async function getResultsByExam(examId: string, collegeId?: string): Promise<{ data: ExamResult[], lastDoc: any }> {
+  const data = await getResultsByExamAction(examId, collegeId);
+  const parsedData = JSON.parse(JSON.stringify(data));
+  return { data: parsedData as ExamResult[], lastDoc: parsedData.length > 0 ? parsedData[parsedData.length - 1] : null };
 }
 
 export async function getResultsByStudent(studentId: string): Promise<ExamResult[]> {
-  const res = await getDocuments<ExamResult>(RESULTS_COLLECTION, [where("studentId", "==", studentId)]);
-  return res.data;
+  const data = await getResultsByStudentAction(studentId);
+  return JSON.parse(JSON.stringify(data)) as ExamResult[];
 }
 
 export async function getStudentAttempts(studentId?: string): Promise<ExamResult[]> {
-  if (studentId) {
-    return getResultsByStudent(studentId);
-  }
-  // If no studentId provided, apply a safe limit of 500 to prevent massive read costs
-  // For full exports or larger views, paginated methods should be used instead
-  const res = await getDocuments<ExamResult>(RESULTS_COLLECTION, [], false, { pageSize: 500 });
-  return res.data;
+  const data = await getStudentAttemptsAction(studentId);
+  return JSON.parse(JSON.stringify(data)) as ExamResult[];
 }
 
 export async function getStudentAttemptsForCurrentUser(
   uid: string,
   _email?: string
 ): Promise<ExamResult[]> {
-  if (!uid) return [];
-  const attempts = new Map<string, ExamResult>();
-
-  try {
-    const byStudentId = await getDocuments<ExamResult>(RESULTS_COLLECTION, [
-      where("studentId", "==", uid),
-    ]);
-    byStudentId.data.forEach((a) => attempts.set(a.id, a));
-  } catch (err) {
-    console.error("[Firestore Index / Query Failure - Check Console Link]:", err);
-  }
-
-  return Array.from(attempts.values());
+  const data = await getStudentAttemptsForCurrentUserAction(uid);
+  return JSON.parse(JSON.stringify(data)) as ExamResult[];
 }
 
 export async function submitExamResult(data: Omit<ExamResult, "id">): Promise<string> {
-  return addDocument<ExamResult>(RESULTS_COLLECTION, data);
+  return await submitExamResultAction(data);
 }
 
 export async function submitExamAttempt(data: Omit<ExamResult, "id">): Promise<string> {
-  return submitExamResult(data);
+  return await submitExamResultAction(data);
 }
 
 export async function deleteResultById(id: string): Promise<void> {
-  return deleteDocument(RESULTS_COLLECTION, id);
+  await deleteResultByIdAction(id);
 }
 
 export async function clearAllResults(): Promise<void> {
-  const token = await auth.currentUser?.getIdToken();
-  if (!token) throw new Error("Unauthorized");
+  const { data: sessionData } = await supabase.auth.getSession();
+  const session = sessionData.session;
+  if (!session) throw new Error("Unauthorized");
 
   const res = await fetch("/api/admin/clear-all-results", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${session.access_token}`,
     },
   });
 
@@ -177,11 +164,6 @@ export async function clearAllResults(): Promise<void> {
   }
 }
 
-/**
- * Find a student's attempt for a given exam from a pre-fetched attempts array.
- * Matches by uid, email, or name (case-insensitive). This is a pure synchronous
- * filter — no Firebase calls.
- */
 export function isAttemptOwnedByStudent(
   att: ExamResult | ExamAttempt,
   student: { id?: string; email?: string; name?: string; uid?: string } | null

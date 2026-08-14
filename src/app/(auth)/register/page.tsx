@@ -1,18 +1,13 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { GraduationCap, ArrowRight, Eye, EyeOff, Sparkles, CheckCircle2, AlertCircle, Building2, Mail, Lock, User, Check, X, ShieldAlert } from "lucide-react";
 import Link from "next/link";
 import { APP_NAME } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
-import { studentRegister, studentGoogleSignUp, completeStudentAcademicDetails, formatAuthError, verifyEmailRegistration, unifiedLogin } from "@/lib/services/auth-service";
-import { setAuthSession } from "@/lib/utils/auth-session";
-import { toMillis } from "@/lib/utils/date";
-import type { UserRole } from "@/types";
-import { auth } from "@/lib/firebase/config";
-import { signOut as firebaseSignOut } from "firebase/auth";
+import { studentRegister, unifiedGoogleLogin, formatAuthError } from "@/lib/services/auth-service";
 import { useBranding } from "@/providers/branding-provider";
 
 export default function RegisterPage() {
@@ -20,14 +15,14 @@ export default function RegisterPage() {
   const router = useRouter();
   const [step, setStep] = useState<"auth" | "details">("auth");
   const [registeredUid, setRegisteredUid] = useState<string>("");
-  const isSubmittedRef = useRef(false);
 
+  // Step 1 Credentials
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
-  // Step 2 academic details
+  // Step 2 Academic Details
   const [fullName, setFullName] = useState("");
   const [collegeName, setCollegeName] = useState("");
   const [department, setDepartment] = useState("Computer Science & Engineering");
@@ -38,85 +33,16 @@ export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [registered, setRegistered] = useState(false);
 
-  const [linkModalOpen, setLinkModalOpen] = useState(false);
-  const [linkEmail, setLinkEmail] = useState("");
-  const [linkPassword, setLinkPassword] = useState("");
-  const [linkCredentialJson, setLinkCredentialJson] = useState("");
+  // Touched validation feedback
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
 
-  // Safe helper to purge ghost accounts and sign out even if auth token is expired
-  const purgeGhostUser = async (u: any) => {
-    try {
-      await u.delete();
-    } catch (e: unknown) {
-      console.warn("[GHOST PURGE] Client delete warning (token expired):", e instanceof Error ? e.message : e);
-    } finally {
-      await firebaseSignOut(auth).catch(() => {});
-      setRegisteredUid("");
-      setStep("auth");
-    }
-  };
-
-  // TIER 3: FAIL-SAFE GHOST PURGE ON MOUNT
-  // Checks if currentUser exists on mount. If currentUser has NO Firestore document, purge it!
-  useEffect(() => {
-    const purgeGhostOnMount = async () => {
-      const u = auth.currentUser;
-      if (!u || !u.email) return;
-
-      try {
-        const verifyResult = await verifyEmailRegistration(u.email);
-        if (!verifyResult.exists) {
-          console.log("[FAIL-SAFE GHOST PURGE] Found unresolved ghost account on mount. Purging...", u.email);
-          await purgeGhostUser(u);
-        } else {
-          // If valid account exists, pre-fill for onboarding
-          if (u.displayName && u.displayName !== "Student") setFullName(u.displayName);
-          setEmail(u.email);
-          setRegisteredUid(u.uid);
-          setStep("details");
-        }
-      } catch (e) {
-        console.error("[FAIL-SAFE GHOST PURGE] Error checking ghost account", e);
-      }
-    };
-    purgeGhostOnMount();
-  }, []);
-
-  // TIER 2: SWIPE-BACK TRAP & UNMOUNT CLEANUP FOR STEP 2
-  // Traps trackpad swipe-back / browser back navigation during Step 2
-  useEffect(() => {
-    if (step !== "details") return;
-
-    const handlePopState = async () => {
-      if (!isSubmittedRef.current && auth.currentUser) {
-        console.log("[SWIPE-BACK TRAP] Purging incomplete Google Auth user on browser back swipe...");
-        await purgeGhostUser(auth.currentUser);
-      } else {
-        setRegisteredUid("");
-        setStep("auth");
-      }
-    };
-
-    window.addEventListener("popstate", handlePopState);
-    return () => {
-      window.removeEventListener("popstate", handlePopState);
-      if (!isSubmittedRef.current && auth.currentUser) {
-        console.log("[UNMOUNT TRAP] Purging incomplete Google Auth user on unmount...");
-        purgeGhostUser(auth.currentUser).catch(() => {});
-      }
-    };
-  }, [step]);
-
-  // Auto-dismiss red error warning after 4 seconds
+  // Auto-dismiss red error warning after 5 seconds
   useEffect(() => {
     if (error) {
-      const timer = setTimeout(() => setError(null), 4000);
+      const timer = setTimeout(() => setError(null), 5000);
       return () => clearTimeout(timer);
     }
   }, [error]);
-
-  // Touched state for real-time visual validation feedback
-  const [touched, setTouched] = useState<Record<string, boolean>>({});
 
   // Validation Check Rules
   const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
@@ -136,75 +62,14 @@ export default function RegisterPage() {
     setGoogleLoading(true);
     setError(null);
     try {
-      const res = await studentGoogleSignUp();
-      setRegisteredUid(res.user.uid);
-      if (res.user.displayName && res.user.displayName !== "Student") {
-        setFullName(res.user.displayName);
-      }
-      if (res.user.email) setEmail(res.user.email);
-      setStep("details");
+      await unifiedGoogleLogin();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.startsWith("LINK_REQUIRED:")) {
-        const parts = msg.split(":");
-        const email = parts[1];
-        const credJson = parts.slice(2).join(":");
-        setLinkEmail(email);
-        setLinkCredentialJson(credJson);
-        setLinkModalOpen(true);
-      } else {
-        setError(formatAuthError(err, "Failed to sign up with Google."));
-      }
-    } finally {
+      setError(formatAuthError(err));
       setGoogleLoading(false);
     }
   };
 
-  const handleLinkSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setLinkModalOpen(false);
-    try {
-      const res = await unifiedLogin(linkEmail, linkPassword);
-      const { GoogleAuthProvider, linkWithCredential } = await import("firebase/auth");
-      const parsedCred = JSON.parse(linkCredentialJson);
-      const cred = GoogleAuthProvider.credential(parsedCred.idToken, parsedCred.accessToken);
-      if (cred) {
-        await linkWithCredential(res.user, cred);
-      }
-      
-      const uObj = {
-        id: res.user.uid,
-        name: res.profile?.displayName || res.user.displayName || linkEmail.split("@")[0] || "User",
-        email: res.profile?.email || res.user.email || linkEmail,
-        role: res.role,
-        department: res.profile?.department || "General",
-        collegeId: res.profile?.collegeId || "",
-        collegeName: res.profile?.collegeName || "",
-        academicYear: res.profile?.academicYear,
-        section: res.profile?.section,
-        batchIds: res.profile?.batchIds,
-        createdAt: toMillis(res.profile?.createdAt) || Date.now(),
-      };
-      
-      await setAuthSession(uObj, res.role as UserRole);
-
-      if (res.role === "student") {
-        window.location.assign("/student");
-      } else if (res.role === "college_admin") {
-        window.location.assign("/");
-      } else {
-        window.location.assign("/admin");
-      }
-    } catch (err: unknown) {
-      setError(formatAuthError(err, "Invalid password for linking account."));
-    } finally {
-      setLoading(false);
-      setLinkPassword("");
-    }
-  };
-
-  // 1. DEFERRED AUTH CREATION: Step 1 is purely client-side state machine
+  // STEP 1: Local Client-Side Validation — No Supabase Account Created Yet
   const handleSubmitAuth = (e: React.FormEvent) => {
     e.preventDefault();
     setTouched({ email: true, password: true, confirm: true });
@@ -226,29 +91,19 @@ export default function RegisterPage() {
     setStep("details");
   };
 
-  // 2. CANCEL & ROLLBACK: Delete Firebase Auth user if user backs out of onboarding
-  const handleCancelRegistration = async () => {
-    setLoading(true);
-    try {
-      if (auth.currentUser) {
-        await purgeGhostUser(auth.currentUser);
-      }
-    } catch (e) {
-      console.error("[ROLLBACK] Error deleting incomplete user on cancel", e);
-    } finally {
-      setLoading(false);
-      setRegisteredUid("");
-      setStep("auth");
-    }
+  // CANCEL / RESET: User can return to Step 1 at any time without creating an account
+  const handleCancelRegistration = () => {
+    setError(null);
+    setStep("auth");
   };
 
-  // 3. ATOMIC FINALIZATION: Auth + Firestore document creation in final step
+  // STEP 2: Atomic Creation — Supabase Auth + Database Account Created ONLY after completing all details
   const handleSubmitDetails = async (e: React.FormEvent) => {
     e.preventDefault();
     setTouched({ name: true, college: true, department: true, section: true });
 
     if (!nameValid) {
-      setError("Please enter a valid Full Name (at least 2 alphabetic characters).");
+      setError("Please enter a valid Full Name (at least 2 characters).");
       return;
     }
     if (!collegeValid) {
@@ -262,34 +117,24 @@ export default function RegisterPage() {
 
     setLoading(true);
     setError(null);
-    let currentUid = registeredUid || auth.currentUser?.uid;
 
     try {
-      if (!currentUid) {
-        // Email/Password Signup: Execute Auth + Firestore atomically
-        const res = await studentRegister(
-          fullName.trim(),
-          email.trim(),
-          password,
-          collegeName.trim(),
-          department.trim(),
-          section.trim() || "A"
-        );
-        currentUid = res.user.uid;
-      } else {
-        // Google SSO / Pre-authenticated Flow: Complete Academic Profile
-        await completeStudentAcademicDetails(currentUid, {
-          fullName: fullName.trim(),
-          collegeName: collegeName.trim(),
-          department: department.trim(),
-          section: section.trim(),
-        });
-      }
+      const res = await studentRegister(
+        fullName.trim(),
+        email.trim(),
+        password,
+        collegeName.trim(),
+        department.trim(),
+        section.trim() || "A"
+      );
+
+      const uid = res.user?.id;
+      setRegisteredUid(uid || "");
 
       const uObj = {
-        id: currentUid,
+        id: uid,
         name: fullName.trim(),
-        email: email.trim() || auth.currentUser?.email || "",
+        email: email.trim() || "",
         role: "student",
         department: department.trim(),
         collegeName: collegeName.trim(),
@@ -298,23 +143,14 @@ export default function RegisterPage() {
         academicYear: "1st Year",
         createdAt: Date.now()
       };
-      isSubmittedRef.current = true;
+      
       localStorage.setItem("lms_role", "student");
       localStorage.setItem("lms_user", JSON.stringify(uObj));
       localStorage.setItem("user", JSON.stringify(uObj));
       window.dispatchEvent(new Event("storage"));
       setRegistered(true);
     } catch (err: unknown) {
-      // ATOMIC ROLLBACK: If creation or Firestore write fails, delete Auth user immediately
-      if (auth.currentUser) {
-        try {
-          await auth.currentUser.delete();
-          await firebaseSignOut(auth);
-        } catch (delErr) {
-          console.error("[ATOMIC ROLLBACK] Failed to delete Auth user", delErr);
-        }
-      }
-      setError(formatAuthError(err, "Failed to complete enrollment. Please try again."));
+      setError(formatAuthError(err));
     } finally {
       setLoading(false);
     }
@@ -328,67 +164,102 @@ export default function RegisterPage() {
       className="double-bezel-outer p-2 sm:p-3"
     >
       <div className="double-bezel-inner grid grid-cols-1 lg:grid-cols-12 overflow-hidden min-h-[660px]">
-        {/* Left Canvas */}
-        <div className="lg:col-span-6 relative p-8 sm:p-12 flex flex-col justify-between overflow-hidden bg-zinc-950 text-white">
-          <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
-            <div className="absolute -top-24 -left-24 w-96 h-96 bg-brand/30 rounded-full blur-3xl" />
-            <div className="absolute top-1/3 -right-20 w-80 h-80 bg-blue-500/20 rounded-full blur-2xl" />
-            <div className="absolute -bottom-20 left-10 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl" />
-          </div>
+        
+        {/* Left Side: Brand Visual Panel */}
+        <div className="lg:col-span-5 bg-card/60 p-8 sm:p-12 flex flex-col justify-between relative border-b lg:border-b-0 lg:border-r border-border overflow-hidden">
+          <div className="absolute -top-24 -left-24 w-96 h-96 bg-brand/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-brand/5 rounded-full blur-3xl pointer-events-none" />
 
-          <div className="relative z-10 flex items-center gap-3">
-            <span className="text-[10px] uppercase font-semibold tracking-[0.25em] text-brand-foreground/80 flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5" />
-              STUDENT REGISTRATION
-            </span>
-            <div className="h-px w-12 bg-gradient-to-r from-brand/50 to-transparent" />
-          </div>
-
-          <div className="relative z-10 my-auto py-8 space-y-5 max-w-md">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 border border-white/10 text-xs font-medium text-white/90">
-              <CheckCircle2 className="w-3.5 h-3.5 text-brand-foreground" />
-              <span>Secure Student Enrollment</span>
+          <div className="relative z-10">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-brand/15 border border-brand/30 flex items-center justify-center text-brand">
+                <GraduationCap className="w-5 h-5 stroke-[2.5]" />
+              </div>
+              <div>
+                <span className="text-base font-bold tracking-tight text-foreground block font-heading">
+                  {branding.companyName || APP_NAME}
+                </span>
+                <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest block">
+                  Student Enrollment
+                </span>
+              </div>
             </div>
-            <h1 className="text-3xl sm:text-4xl font-bold tracking-tight leading-[1.1] font-sans text-transparent bg-clip-text bg-gradient-to-b from-white via-white to-white/60">
-              Create Your Academic Account
-            </h1>
-            <p className="text-sm text-white/60 leading-relaxed font-light">
-              Join your college workspace to access lecture resources, complete online assessments, and participate in academic Q&A discussions.
-            </p>
+
+            <div className="mt-12 space-y-3">
+              <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground font-heading leading-tight">
+                Join your campus <br />
+                <span className="text-brand">learning ecosystem.</span>
+              </h2>
+              <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
+                Create your student account to access real-time evaluations, department study resources, and automated academic progress tracking.
+              </p>
+            </div>
           </div>
 
-          <div className="relative z-10 pt-6 border-t border-white/10 flex items-center justify-between text-xs text-white/50">
-            <span className="font-medium text-white/70">Verified Identity Engine</span>
-            <span className="font-mono text-[11px] text-brand-foreground/70">Secure Enrollment</span>
+          {/* Registration Progress Indicator */}
+          <div className="relative z-10 mt-8 pt-6 border-t border-border/50">
+            <div className="flex items-center gap-3">
+              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
+                step === "auth" ? "bg-brand text-brand-foreground" : "bg-emerald-500 text-white"
+              }`}>
+                {step === "details" || registered ? <Check className="w-3.5 h-3.5" /> : "1"}
+              </div>
+              <div className="flex-1 h-1 bg-border/60 rounded-full overflow-hidden">
+                <div className={`h-full bg-brand transition-all duration-500 ${
+                  step === "details" || registered ? "w-full" : "w-1/2"
+                }`} />
+              </div>
+              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
+                step === "details" ? "bg-brand text-brand-foreground" : "bg-muted text-muted-foreground"
+              }`}>
+                2
+              </div>
+            </div>
+            <div className="flex justify-between text-[11px] text-muted-foreground mt-2 font-medium">
+              <span>Account Credentials</span>
+              <span>Academic Details</span>
+            </div>
           </div>
         </div>
 
-        {/* Right Canvas: Registration Form */}
-        <div className="lg:col-span-6 p-6 sm:p-10 flex flex-col justify-center bg-card/80 relative overflow-y-auto max-h-[90vh] lg:max-h-none">
+        {/* Right Side: Step-by-Step Form */}
+        <div className="lg:col-span-7 p-6 sm:p-10 flex flex-col justify-center relative bg-background/40">
           {registered ? (
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="space-y-6 text-center py-6">
-              <div className="w-16 h-16 rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 flex items-center justify-center mx-auto">
-                <CheckCircle2 className="w-8 h-8" />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="text-center py-8 space-y-6"
+            >
+              <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 flex items-center justify-center mx-auto">
+                <CheckCircle2 className="w-8 h-8 stroke-[2.5]" />
               </div>
               <div className="space-y-2">
-                <h2 className="text-2xl font-bold text-foreground">Account Created Successfully!</h2>
-                <p className="text-xs text-muted-foreground max-w-sm mx-auto leading-relaxed">
-                  We have sent a mandatory verification link to <strong className="text-foreground">{email}</strong>. Please verify your email before accessing your classroom.
+                <h3 className="text-2xl font-bold text-foreground font-heading">Registration Successful!</h3>
+                <p className="text-sm text-muted-foreground max-w-md mx-auto">
+                  Welcome to {branding.companyName || APP_NAME}! Your student profile has been created and verified.
                 </p>
               </div>
               <div className="pt-4">
-                <Link href="/login">
-                  <Button className="w-full bg-brand text-brand-foreground hover:bg-brand/90 h-11">
-                    Return to Student Sign In
-                  </Button>
-                </Link>
+                <Button
+                  onClick={() => window.location.assign("/student")}
+                  className="h-11 px-8 rounded-xl bg-brand text-brand-foreground font-bold hover:bg-brand/90 transition-all shadow-lg shadow-brand/20"
+                >
+                  <span>Launch Student Dashboard</span>
+                  <ArrowRight className="w-4 h-4 ml-2" />
+                </Button>
               </div>
             </motion.div>
           ) : step === "auth" ? (
-            <div className="max-w-sm w-full mx-auto space-y-5">
-              <div className="space-y-1">
-                <h2 className="text-2xl font-bold tracking-tight text-foreground">Student Sign Up</h2>
-                <p className="text-xs text-muted-foreground">Enter your college email and password to start.</p>
+            <motion.div
+              key="step-auth"
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 10 }}
+              className="space-y-6 max-w-md mx-auto w-full"
+            >
+              <div>
+                <h3 className="text-xl font-bold text-foreground font-heading">Step 1: Set Credentials</h3>
+                <p className="text-xs text-muted-foreground mt-1">Enter your email and choose a strong password</p>
               </div>
 
               {error && (
@@ -398,13 +269,13 @@ export default function RegisterPage() {
                 </div>
               )}
 
-              <form onSubmit={handleSubmitAuth} className="space-y-3.5">
-                {/* College Email ID */}
-                <div className="space-y-1">
+              <form onSubmit={handleSubmitAuth} className="space-y-4">
+                {/* Email Input */}
+                <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-foreground flex items-center justify-between">
                     <span className="flex items-center gap-1.5">
                       <Mail className="w-3.5 h-3.5 text-muted-foreground" />
-                      <span>College Email ID</span>
+                      <span>Academic / College Email</span>
                     </span>
                     {touched.email && !emailValid && (
                       <span className="text-[10px] text-destructive font-medium">Invalid email format</span>
@@ -417,7 +288,7 @@ export default function RegisterPage() {
                     onBlur={() => handleBlur("email")}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="student@college.edu"
-                    className={`w-full h-10 px-3 rounded-xl border bg-background/80 text-sm text-foreground focus:outline-none transition-all ${
+                    className={`w-full h-11 px-3.5 rounded-xl border bg-background/80 text-sm text-foreground focus:outline-none transition-all ${
                       touched.email && !emailValid
                         ? "border-destructive ring-1 ring-destructive/40"
                         : "border-border focus:ring-2 focus:ring-brand/40"
@@ -425,13 +296,16 @@ export default function RegisterPage() {
                   />
                 </div>
 
-                {/* Password */}
-                <div className="space-y-1">
+                {/* Password Input */}
+                <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-foreground flex items-center justify-between">
                     <span className="flex items-center gap-1.5">
                       <Lock className="w-3.5 h-3.5 text-muted-foreground" />
-                      <span>Create Password</span>
+                      <span>Password</span>
                     </span>
+                    {touched.password && !passValid && (
+                      <span className="text-[10px] text-destructive font-medium">Min 6 characters</span>
+                    )}
                   </label>
                   <div className="relative">
                     <input
@@ -440,42 +314,32 @@ export default function RegisterPage() {
                       value={password}
                       onBlur={() => handleBlur("password")}
                       onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Enter password (any 6+ chars)"
-                      className={`w-full h-10 pl-3 pr-10 rounded-xl border bg-background/80 text-sm text-foreground focus:outline-none transition-all ${
+                      placeholder="••••••••"
+                      className={`w-full h-11 pl-3.5 pr-10 rounded-xl border bg-background/80 text-sm text-foreground focus:outline-none transition-all ${
                         touched.password && !passValid
-                          ? "border-amber-500/70"
+                          ? "border-destructive ring-1 ring-destructive/40"
                           : "border-border focus:ring-2 focus:ring-brand/40"
                       }`}
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
                     >
                       {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
-
-                  {/* Interactive Password Strength Indicator */}
-                  {password.length > 0 && (
-                    <div className="flex items-center gap-1.5 p-2 rounded-lg bg-muted/40 border border-border mt-1 text-[11px]">
-                      <div className={`flex items-center gap-1 font-semibold ${passValid ? "text-emerald-500" : "text-amber-500"}`}>
-                        {passValid ? <Check className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5 text-amber-500" />}
-                        <span>{passValid ? "Valid password (6+ chars)" : "At least 6 characters required"}</span>
-                      </div>
-                    </div>
-                  )}
                 </div>
 
-                {/* Confirm Password */}
-                <div className="space-y-1">
+                {/* Confirm Password Input */}
+                <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-foreground flex items-center justify-between">
                     <span className="flex items-center gap-1.5">
                       <Lock className="w-3.5 h-3.5 text-muted-foreground" />
                       <span>Confirm Password</span>
                     </span>
-                    {touched.confirm && !matchValid && confirmPassword.length > 0 && (
-                      <span className="text-[10px] text-destructive font-medium">Passwords don&apos;t match</span>
+                    {touched.confirm && !matchValid && (
+                      <span className="text-[10px] text-destructive font-medium">Passwords do not match</span>
                     )}
                   </label>
                   <input
@@ -484,9 +348,9 @@ export default function RegisterPage() {
                     value={confirmPassword}
                     onBlur={() => handleBlur("confirm")}
                     onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="Re-enter password"
-                    className={`w-full h-10 px-3 rounded-xl border bg-background/80 text-sm text-foreground focus:outline-none transition-all ${
-                      touched.confirm && !matchValid && confirmPassword.length > 0
+                    placeholder="••••••••"
+                    className={`w-full h-11 px-3.5 rounded-xl border bg-background/80 text-sm text-foreground focus:outline-none transition-all ${
+                      touched.confirm && !matchValid
                         ? "border-destructive ring-1 ring-destructive/40"
                         : "border-border focus:ring-2 focus:ring-brand/40"
                     }`}
@@ -496,97 +360,70 @@ export default function RegisterPage() {
                 <div className="pt-2">
                   <Button
                     type="submit"
-                    disabled={loading}
-                    className="w-full h-11 rounded-xl bg-brand text-brand-foreground font-semibold hover:bg-brand/90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-brand/20"
+                    className="w-full h-11 rounded-xl bg-brand text-brand-foreground font-semibold hover:bg-brand/90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-brand/20 cursor-pointer"
                   >
-                    {loading ? (
-                      <span className="flex items-center gap-2">
-                        <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                        </svg>
-                        Creating Account...
-                      </span>
-                    ) : (
-                      <>
-                        <span>Continue to Academic Setup</span>
-                        <ArrowRight className="w-4 h-4" />
-                      </>
-                    )}
+                    <span>Continue to Academic Details</span>
+                    <ArrowRight className="w-4 h-4" />
                   </Button>
                 </div>
-
-                <div className="relative my-4">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-border/60" />
-                  </div>
-                  <div className="relative flex justify-center text-xs uppercase">
-                    <span className="bg-background px-2 text-muted-foreground font-semibold">Or continue with</span>
-                  </div>
-                </div>
-
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleGoogleLogin}
-                  disabled={loading || googleLoading}
-                  className="w-full h-11 rounded-xl border border-border bg-card hover:bg-muted font-semibold text-foreground flex items-center justify-center gap-3 transition-all shadow-sm"
-                >
-                  {googleLoading ? (
-                    <span className="flex items-center gap-2 text-xs">
-                      <svg className="animate-spin h-4 w-4 text-foreground" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                      </svg>
-                      Connecting Google...
-                    </span>
-                  ) : (
-                    <>
-                      <svg className="w-4 h-4" viewBox="0 0 24 24">
-                        <path
-                          fill="#4285F4"
-                          d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                        />
-                        <path
-                          fill="#34A853"
-                          d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                        />
-                        <path
-                          fill="#FBBC05"
-                          d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                        />
-                        <path
-                          fill="#EA4335"
-                          d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                        />
-                      </svg>
-                      <span>Sign Up with Google</span>
-                    </>
-                  )}
-                </Button>
               </form>
 
-              <div className="text-center text-xs text-muted-foreground pt-1">
-                Already have a student account?{" "}
-                <Link href="/login" className="font-semibold text-brand hover:underline">
-                  Sign In Here
+              <div className="relative my-4">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-border" />
+                </div>
+                <div className="relative flex justify-center text-[10px] uppercase tracking-widest font-semibold">
+                  <span className="bg-background px-3 text-muted-foreground">Or</span>
+                </div>
+              </div>
+
+              {/* Google SSO Button */}
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleGoogleLogin}
+                disabled={googleLoading}
+                className="w-full h-11 rounded-xl border border-border bg-card hover:bg-accent font-semibold text-foreground flex items-center justify-center gap-3 transition-all cursor-pointer"
+              >
+                {googleLoading ? (
+                  <span className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <svg className="animate-spin h-4 w-4 text-foreground" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    Connecting Google...
+                  </span>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" viewBox="0 0 24 24">
+                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                    </svg>
+                    <span>Sign up with Google</span>
+                  </>
+                )}
+              </Button>
+
+              <div className="text-center pt-2">
+                <span className="text-xs text-muted-foreground">Already have an account? </span>
+                <Link href="/login" className="text-xs font-semibold text-brand hover:underline">
+                  Sign in here
                 </Link>
               </div>
-            </div>
+            </motion.div>
           ) : (
             <motion.div
-              initial={{ opacity: 0, x: 20 }}
+              key="step-details"
+              initial={{ opacity: 0, x: 10 }}
               animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.3 }}
-              className="max-w-sm w-full mx-auto space-y-5"
+              exit={{ opacity: 0, x: -10 }}
+              className="space-y-6 max-w-md mx-auto w-full"
             >
-              <div className="space-y-1">
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 text-[11px] font-semibold mb-1">
-                  <CheckCircle2 className="w-3 h-3" />
-                  <span>Step 2 of 2: Academic Setup</span>
-                </div>
-                <h2 className="text-2xl font-bold tracking-tight text-foreground">Academic Profile</h2>
-                <p className="text-xs text-muted-foreground">Please complete your academic details to enroll in classroom modules.</p>
+              <div>
+                <h3 className="text-xl font-bold text-foreground font-heading">Step 2: Academic Profile</h3>
+                <p className="text-xs text-muted-foreground mt-1">Please provide your institutional enrollment details</p>
               </div>
 
               {error && (
@@ -596,16 +433,16 @@ export default function RegisterPage() {
                 </div>
               )}
 
-              <form onSubmit={handleSubmitDetails} className="space-y-3.5">
+              <form onSubmit={handleSubmitDetails} className="space-y-4">
                 {/* Full Name */}
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-foreground flex items-center justify-between">
                     <span className="flex items-center gap-1.5">
                       <User className="w-3.5 h-3.5 text-muted-foreground" />
                       <span>Full Name</span>
                     </span>
                     {touched.name && !nameValid && (
-                      <span className="text-[10px] text-destructive font-medium">Must be 2+ alphabetic chars</span>
+                      <span className="text-[10px] text-destructive font-medium">Must be 2+ characters</span>
                     )}
                   </label>
                   <input
@@ -615,7 +452,7 @@ export default function RegisterPage() {
                     onBlur={() => handleBlur("name")}
                     onChange={(e) => setFullName(e.target.value)}
                     placeholder="e.g. John Doe"
-                    className={`w-full h-10 px-3 rounded-xl border bg-background/80 text-sm text-foreground focus:outline-none transition-all ${
+                    className={`w-full h-11 px-3.5 rounded-xl border bg-background/80 text-sm text-foreground focus:outline-none transition-all ${
                       touched.name && !nameValid
                         ? "border-destructive ring-1 ring-destructive/40"
                         : "border-border focus:ring-2 focus:ring-brand/40"
@@ -624,14 +461,14 @@ export default function RegisterPage() {
                 </div>
 
                 {/* College Name */}
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-foreground flex items-center justify-between">
                     <span className="flex items-center gap-1.5">
                       <Building2 className="w-3.5 h-3.5 text-muted-foreground" />
-                      <span>College Name</span>
+                      <span>College / Institution Name</span>
                     </span>
                     {touched.college && !collegeValid && (
-                      <span className="text-[10px] text-destructive font-medium">Minimum 3 characters</span>
+                      <span className="text-[10px] text-destructive font-medium">Min 3 characters</span>
                     )}
                   </label>
                   <input
@@ -640,8 +477,8 @@ export default function RegisterPage() {
                     value={collegeName}
                     onBlur={() => handleBlur("college")}
                     onChange={(e) => setCollegeName(e.target.value)}
-                    placeholder="e.g. Stanford Institute of Technology"
-                    className={`w-full h-10 px-3 rounded-xl border bg-background/80 text-sm text-foreground focus:outline-none transition-all ${
+                    placeholder="e.g. Stanford University"
+                    className={`w-full h-11 px-3.5 rounded-xl border bg-background/80 text-sm text-foreground focus:outline-none transition-all ${
                       touched.college && !collegeValid
                         ? "border-destructive ring-1 ring-destructive/40"
                         : "border-border focus:ring-2 focus:ring-brand/40"
@@ -650,7 +487,7 @@ export default function RegisterPage() {
                 </div>
 
                 {/* Department */}
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-foreground flex items-center justify-between">
                     <span className="flex items-center gap-1.5">
                       <GraduationCap className="w-3.5 h-3.5 text-muted-foreground" />
@@ -667,7 +504,7 @@ export default function RegisterPage() {
                     onBlur={() => handleBlur("department")}
                     onChange={(e) => setDepartment(e.target.value)}
                     placeholder="e.g. Computer Science & Engineering"
-                    className={`w-full h-10 px-3 rounded-xl border bg-background/80 text-sm text-foreground focus:outline-none transition-all ${
+                    className={`w-full h-11 px-3.5 rounded-xl border bg-background/80 text-sm text-foreground focus:outline-none transition-all ${
                       touched.department && !deptValid
                         ? "border-destructive ring-1 ring-destructive/40"
                         : "border-border focus:ring-2 focus:ring-brand/40"
@@ -675,12 +512,12 @@ export default function RegisterPage() {
                   />
                 </div>
 
-                {/* Section */}
-                <div className="space-y-1">
+                {/* Section / Batch */}
+                <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-foreground flex items-center justify-between">
                     <span className="flex items-center gap-1.5">
                       <Sparkles className="w-3.5 h-3.5 text-muted-foreground" />
-                      <span>Section / Batch</span>
+                      <span>Section / Class</span>
                     </span>
                     {touched.section && !sectionValid && (
                       <span className="text-[10px] text-destructive font-medium">Required</span>
@@ -693,7 +530,7 @@ export default function RegisterPage() {
                     onBlur={() => handleBlur("section")}
                     onChange={(e) => setSection(e.target.value)}
                     placeholder="e.g. A"
-                    className={`w-full h-10 px-3 rounded-xl border bg-background/80 text-sm text-foreground focus:outline-none transition-all ${
+                    className={`w-full h-11 px-3.5 rounded-xl border bg-background/80 text-sm text-foreground focus:outline-none transition-all ${
                       touched.section && !sectionValid
                         ? "border-destructive ring-1 ring-destructive/40"
                         : "border-border focus:ring-2 focus:ring-brand/40"
@@ -707,14 +544,14 @@ export default function RegisterPage() {
                     variant="outline"
                     onClick={handleCancelRegistration}
                     disabled={loading}
-                    className="h-11 rounded-xl border border-border hover:bg-muted text-xs font-semibold px-4"
+                    className="h-11 rounded-xl border border-border hover:bg-muted text-xs font-semibold px-4 cursor-pointer"
                   >
-                    Cancel & Reset
+                    Back to Step 1
                   </Button>
                   <Button
                     type="submit"
                     disabled={loading}
-                    className="flex-1 h-11 rounded-xl bg-brand text-brand-foreground font-semibold hover:bg-brand/90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-brand/20"
+                    className="flex-1 h-11 rounded-xl bg-brand text-brand-foreground font-semibold hover:bg-brand/90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-brand/20 cursor-pointer"
                   >
                     {loading ? (
                       <span className="flex items-center gap-2">
@@ -722,11 +559,11 @@ export default function RegisterPage() {
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                         </svg>
-                        Saving Details...
+                        Creating Account...
                       </span>
                     ) : (
                       <>
-                        <span>Complete Enrollment</span>
+                        <span>Complete Registration</span>
                         <ArrowRight className="w-4 h-4" />
                       </>
                     )}
@@ -737,59 +574,6 @@ export default function RegisterPage() {
           )}
         </div>
       </div>
-
-      <AnimatePresence>
-        {linkModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-              onClick={() => setLinkModalOpen(false)}
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="relative w-full max-w-md bg-card border border-border rounded-2xl p-6 shadow-2xl overflow-hidden"
-            >
-              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-brand to-brand/50" />
-              <div className="flex items-center gap-4 mb-6">
-                <div className="w-12 h-12 rounded-xl bg-brand/10 flex items-center justify-center text-brand shrink-0">
-                  <ShieldAlert className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-foreground">Link Account</h3>
-                  <p className="text-xs text-muted-foreground mt-1">An account with {linkEmail} already exists.</p>
-                </div>
-              </div>
-              <form onSubmit={handleLinkSubmit} className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-foreground/70">Enter your password to link your Google account:</label>
-                  <input
-                    type="password"
-                    value={linkPassword}
-                    onChange={(e) => setLinkPassword(e.target.value)}
-                    required
-                    className="w-full h-11 px-4 rounded-xl border border-border bg-background/50 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
-                    placeholder="••••••••"
-                  />
-                </div>
-                <div className="flex justify-end gap-3 pt-2">
-                  <Button type="button" variant="ghost" onClick={() => setLinkModalOpen(false)} className="text-muted-foreground hover:text-foreground">
-                    Cancel
-                  </Button>
-                  <Button type="submit" disabled={loading} className="bg-brand hover:bg-brand/90 text-brand-foreground">
-                    {loading ? "Linking..." : "Link & Sign In"}
-                  </Button>
-                </div>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
     </motion.div>
   );
 }

@@ -31,9 +31,16 @@ export const resolveEntity = (entitiesArray: any[], targetId: string | number | 
 
   if (!found) {
     const rawStr = String(targetId).trim();
-    const looksLikeHash = (rawStr.length === 20 || rawStr.length === 28) && !rawStr.includes(" ");
-    const displayName = (!looksLikeHash && rawStr) ? rawStr : (rawStr || `${entityType}`);
-    return { name: displayName, isResolved: !looksLikeHash, isDeleted: false };
+    const isInternalId = /^(batch|col|stud|exam|res|user|usr|att)-/i.test(rawStr) || 
+      ((rawStr.length === 20 || rawStr.length === 28 || rawStr.length === 36) && !rawStr.includes(" "));
+    
+    let displayName = rawStr;
+    if (isInternalId) {
+      if (entityType === "Batch") displayName = "Unassigned Batch";
+      else if (entityType === "Institution") displayName = "Unassigned";
+      else displayName = `Unassigned ${entityType}`;
+    }
+    return { name: displayName, isResolved: !isInternalId, isDeleted: false };
   }
 
   const isDeleted = found.isDeleted === true || found.status === 'deleted';

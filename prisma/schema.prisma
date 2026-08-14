@@ -1,0 +1,251 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model batches {
+  id              String            @id @default(cuid())
+  collegeId       String?
+  name            String
+  description     String?
+  department      String?
+  academicYear    String?
+  section         String?
+  status          String?           @default("active")
+  createdAt       DateTime?         @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime?         @default(now()) @db.Timestamptz(6)
+  colleges        colleges?         @relation(fields: [collegeId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "batches_college_id_fkey")
+  student_batches student_batches[]
+
+  @@index([collegeId], map: "idx_batches_college")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model colleges {
+  id           String      @id @default(cuid())
+  name         String
+  type         String?
+  code         String
+  departments  String[]
+  location     String?
+  studentCount Int?        @default(0)
+  adminEmail   String?
+  status       String?
+  branding     Json?
+  origin       String?
+  createdAt    DateTime?   @default(now()) @db.Timestamptz(6)
+  updatedAt    DateTime?   @default(now()) @db.Timestamptz(6)
+  deletedAt    DateTime?   @db.Timestamptz(6)
+  isDeleted    Boolean?    @default(false)
+  batches      batches[]
+  doubts       doubts[]
+  exams        exams[]
+  resources    resources[]
+  students     students[]
+  users        users[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model doubt_replies {
+  id        String    @id @default(cuid())
+  doubtId   String
+  authorId  String
+  role      String?
+  text      String
+  createdAt DateTime? @default(now()) @db.Timestamptz(6)
+  users     users     @relation(fields: [authorId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "doubt_replies_author_id_fkey")
+  doubts    doubts    @relation(fields: [doubtId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "doubt_replies_doubt_id_fkey")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model doubts {
+  id            String          @id @default(cuid())
+  studentId     String
+  collegeId     String?
+  resourceId    String?
+  subject       String
+  topic         String?
+  question      String
+  status        String?         @default("open")
+  createdAt     DateTime?       @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime?       @default(now()) @db.Timestamptz(6)
+  doubt_replies doubt_replies[]
+  colleges      colleges?       @relation(fields: [collegeId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "doubts_college_id_fkey")
+  resources     resources?      @relation(fields: [resourceId], references: [id], onUpdate: NoAction, map: "doubts_resource_id_fkey")
+  students      students        @relation(fields: [studentId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "doubts_student_id_fkey")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model exam_results {
+  id               String    @id @default(cuid())
+  examId           String
+  studentId        String
+  score            Int       @default(0)
+  totalMarks       Int
+  percentage       Decimal?  @db.Decimal(5, 2)
+  passed           Boolean?
+  status           String
+  correctCount     Int?
+  incorrectCount   Int?
+  answers          Json?
+  aiSummary        Json?
+  timeTakenMinutes Int?
+  startTime        DateTime? @db.Timestamptz(6)
+  submittedAt      DateTime? @db.Timestamptz(6)
+  createdAt        DateTime? @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime? @default(now()) @db.Timestamptz(6)
+  exams            exams     @relation(fields: [examId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "exam_results_exam_id_fkey")
+  students         students  @relation(fields: [studentId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "exam_results_student_id_fkey")
+
+  @@index([examId], map: "idx_exam_results_exam")
+  @@index([studentId], map: "idx_exam_results_student")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model exams {
+  id              String         @id @default(cuid())
+  collegeId       String?
+  title           String
+  description     String?
+  durationMinutes Int
+  totalMarks      Int
+  passingMarks    Int?
+  status          String
+  targets         Json?
+  settings        Json?
+  scheduledAt     DateTime?      @db.Timestamptz(6)
+  startTime       DateTime?      @db.Timestamptz(6)
+  endTime         DateTime?      @db.Timestamptz(6)
+  createdBy       String?
+  createdAt       DateTime?      @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime?      @default(now()) @db.Timestamptz(6)
+  deletedAt       DateTime?      @db.Timestamptz(6)
+  exam_results    exam_results[]
+  colleges        colleges?      @relation(fields: [collegeId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "exams_college_id_fkey")
+  users           users?         @relation(fields: [createdBy], references: [id], onUpdate: NoAction, map: "exams_created_by_fkey")
+  questions       questions[]
+
+  @@index([collegeId], map: "idx_exams_college")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model questions {
+  id            String    @id @default(cuid())
+  examId        String
+  text          String
+  type          String
+  options       String[]
+  correctAnswer Json?
+  marks         Int
+  explanation   String?
+  aiExplanation Json?
+  subject       String?
+  topic         String?
+  difficulty    String?
+  sortOrder     Int
+  createdAt     DateTime? @default(now()) @db.Timestamptz(6)
+  exams         exams     @relation(fields: [examId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "questions_exam_id_fkey")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model resources {
+  id          String    @id @default(cuid())
+  collegeId   String?
+  title       String
+  description String?
+  type        String
+  url         String
+  category    String?
+  tags        String[]
+  targets     Json?
+  createdBy   String?
+  createdAt   DateTime? @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime? @default(now()) @db.Timestamptz(6)
+  doubts      doubts[]
+  colleges    colleges? @relation(fields: [collegeId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "resources_college_id_fkey")
+  users       users?    @relation(fields: [createdBy], references: [id], onUpdate: NoAction, map: "resources_created_by_fkey")
+
+  @@index([collegeId], map: "idx_resources_college")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model settings {
+  id              String    @id @default(cuid())
+  companyName     String?
+  companySubtitle String?
+  logoBase64      String?
+  updatedAt       DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model student_batches {
+  studentId String
+  batchId   String
+  batches   batches  @relation(fields: [batchId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "student_batches_batch_id_fkey")
+  students  students @relation(fields: [studentId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "student_batches_student_id_fkey")
+
+  @@id([studentId, batchId])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model students {
+  id                 String            @id @default(cuid())
+  collegeId          String?
+  phone              String?
+  department         String?
+  academicYear       String?
+  semester           Int?
+  section            String?
+  rollNumber         String?
+  enrollmentNo       String?
+  mustChangePassword Boolean?          @default(true)
+  enrollmentType     String?
+  createdAt          DateTime?         @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime?         @default(now()) @db.Timestamptz(6)
+  authId             String?           @db.Uuid
+  doubts             doubts[]
+  exam_results       exam_results[]
+  student_batches    student_batches[]
+  colleges           colleges?         @relation(fields: [collegeId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "students_college_id_fkey")
+  users              users             @relation(fields: [id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  trainer_notes      trainer_notes[]
+
+  @@index([collegeId], map: "idx_students_college")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model trainer_notes {
+  id         String    @id @default(cuid())
+  studentId  String
+  authorName String?
+  text       String
+  createdAt  DateTime? @default(now()) @db.Timestamptz(6)
+  students   students  @relation(fields: [studentId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "trainer_notes_student_id_fkey")
+
+  @@index([studentId], map: "idx_trainer_notes_student")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model users {
+  id            String          @id @default(cuid())
+  email         String          @unique
+  displayName   String
+  role          String
+  collegeId     String?
+  status        String?
+  createdAt     DateTime?       @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime?       @default(now()) @db.Timestamptz(6)
+  authId        String?         @db.Uuid
+  doubt_replies doubt_replies[]
+  exams         exams[]
+  resources     resources[]
+  students      students?
+  colleges      colleges?       @relation(fields: [collegeId], references: [id], onUpdate: NoAction, map: "users_college_id_fkey")
+
+  @@index([collegeId], map: "idx_users_college")
+}

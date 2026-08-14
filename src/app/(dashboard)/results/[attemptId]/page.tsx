@@ -19,7 +19,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/shared/empty-state";
 import { PageHeader } from "@/components/shared/page-header";
 import { QuestionReview } from "@/components/assessment/question-review";
-import { getDocument } from "@/lib/firebase/firestore";
+import { supabase } from "@/lib/supabase/client";
 import {
   getExamById,
   getAllExamsIncludingDeleted,
@@ -89,7 +89,7 @@ export default function AttemptAnswerSheetPage({
     async function loadAttempt() {
       setLoading(true);
       try {
-        const fetched = await getDocument<ExamResult>("exam_results", attemptId);
+        const { data: fetched } = await supabase.from('exam_results').select('*').eq('id', attemptId).single();
         if (cancelled) return;
 
         if (!fetched) {

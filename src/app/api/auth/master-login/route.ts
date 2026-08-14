@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminAuth } from "@/lib/firebase/admin";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { prisma } from "@/lib/prisma";
 
 export async function POST(request: NextRequest) {
   try {
@@ -17,58 +18,46 @@ export async function POST(request: NextRequest) {
     }
 
     if (email.toLowerCase().trim() === masterEmail.toLowerCase().trim() && password === masterPassword) {
-      const auth = getAdminAuth();
       
-      // We must retrieve the UID of the trainer/admin account from Firebase Auth
+      // Ensure master admin exists in Auth
       try {
-        const user = await auth.getUserByEmail(masterEmail);
+        const { data: usersData } = await supabaseAdmin.auth.admin.listUsers();
+        let masterUser = usersData?.users?.find(u => u.email === masterEmail);
         
-        // Ensure master admin has the correct custom claims in Auth
-        await auth.setCustomUserClaims(user.uid, { role: "trainer", collegeId: "GLOBAL" });
-        
-        // Include claims in custom token so they are immediately available on the client
-        const customToken = await auth.createCustomToken(user.uid, { role: "trainer", collegeId: "GLOBAL" });
-        
-        // Ensure Firestore users document exists so frontend unifiedLogin succeeds
-        const { getFirestore } = await import("firebase-admin/firestore");
-        const { getAdminApp } = await import("@/lib/firebase/admin");
-        const db = getFirestore(getAdminApp());
-        await db.collection("users").doc(user.uid).set({
-          id: user.uid,
-          email: masterEmail.toLowerCase().trim(),
-          displayName: "Master Admin",
-          role: "trainer",
-          updatedAt: new Date()
-        }, { merge: true });
-        
-        return NextResponse.json({ success: true, customToken });
-      } catch (err: unknown) {
-        // If the master admin account doesn't actually exist in Firebase Auth yet, we can create it
-        if ((err as any)?.code === "auth/user-not-found") {
-          const newUser = await auth.createUser({
+        if (!masterUser) {
+          const { data: newUser } = await supabaseAdmin.auth.admin.createUser({
             email: masterEmail,
             password: masterPassword,
-            displayName: "Master Admin"
+            email_confirm: true,
+            user_metadata: { role: "main_admin", full_name: "Master Admin" }
           });
-          
-          await auth.setCustomUserClaims(newUser.uid, { role: "trainer", collegeId: "GLOBAL" });
-          
-          // Ensure Firestore users document exists so frontend unifiedLogin succeeds
-          const { getFirestore } = await import("firebase-admin/firestore");
-          const { getAdminApp } = await import("@/lib/firebase/admin");
-          const db = getFirestore(getAdminApp());
-          await db.collection("users").doc(newUser.uid).set({
-            id: newUser.uid,
+          if (newUser.user) {
+            masterUser = newUser.user;
+          }
+        } else {
+          // Ensure role is set
+          await supabaseAdmin.auth.admin.updateUserById(masterUser.id, {
+            password: masterPassword, // Sync password just in case
+            user_metadata: { role: "main_admin", full_name: "Master Admin" }
+          });
+        }
+        
+        if (masterUser) {
+          const userDoc = {
             email: masterEmail.toLowerCase().trim(),
             displayName: "Master Admin",
-            role: "trainer",
-            createdAt: new Date(),
+            role: "main_admin",
             updatedAt: new Date()
-          }, { merge: true });
-
-          const customToken = await auth.createCustomToken(newUser.uid, { role: "trainer", collegeId: "GLOBAL" });
-          return NextResponse.json({ success: true, customToken });
+          };
+          await prisma.users.upsert({
+            where: { id: masterUser.id },
+            update: userDoc,
+            create: { id: masterUser.id, ...userDoc }
+          });
         }
+        
+        return NextResponse.json({ success: true, message: "Master account synchronized. Please login via standard UI." });
+      } catch (err: unknown) {
         throw err;
       }
     }

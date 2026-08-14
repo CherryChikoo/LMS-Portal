@@ -1,11 +1,13 @@
-import { getErrorMessage } from '@/lib/utils/error';
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminAuth } from "@/lib/firebase/admin";
-import { getFirestore } from "firebase-admin/firestore";
 
 export async function POST(request: NextRequest) {
   try {
-    const { email, adminIdToken } = await request.json();
+    const authHeader = request.headers.get("authorization");
+    const adminIdToken = authHeader && authHeader.startsWith("Bearer ") ? authHeader.split("Bearer ")[1] : null;
+
+    const { email } = await request.json();
 
     if (!adminIdToken || typeof adminIdToken !== "string") {
       return NextResponse.json({ error: "Admin authorization token is required." }, { status: 401 });
@@ -16,91 +18,79 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify admin
-    const auth = getAdminAuth();
-    try {
-      await auth.verifyIdToken(adminIdToken);
-    } catch {
+    const { data: { user: adminUser }, error: verifyError } = await supabaseAdmin.auth.getUser(adminIdToken);
+    
+    if (verifyError || !adminUser) {
       return NextResponse.json({ error: "Invalid or expired admin session." }, { status: 401 });
     }
 
     const normalizedEmail = email.toLowerCase().trim();
 
-    // Check if email exists in Firestore (only active records)
-    const db = getFirestore();
-    
     // Check for active users
-    const existingUsersSnapshot = await db.collection("users")
-      .where("email", "==", normalizedEmail)
-      .limit(1)
-      .get();
-    
-    // Filter for truly active users
-    const activeUsers = existingUsersSnapshot.docs.filter(doc => {
-      const data = doc.data();
-      return data.isActive !== false && data.isDeleted !== true;
+    const activeUser = await prisma.users.findFirst({
+      where: { email: normalizedEmail },
+      select: { id: true }
     });
     
-    if (activeUsers.length > 0) {
+    if (activeUser) {
       return NextResponse.json({
         exists: true,
-        uid: activeUsers[0].id,
-        provider: "firestore",
+        uid: activeUser.id,
+        provider: "supabase",
         reason: "active_user"
       });
     }
     
     // Check for active colleges with this admin email
-    const existingCollegesSnapshot = await db.collection("colleges")
-      .where("adminEmail", "==", normalizedEmail)
-      .limit(1)
-      .get();
-      
-    const activeColleges = existingCollegesSnapshot.docs.filter(doc => {
-      const data = doc.data();
-      return data.isDeleted !== true && data.status !== 'deleted';
+    const activeCollege = await prisma.colleges.findFirst({
+      where: { 
+        adminEmail: normalizedEmail,
+        status: { not: "deleted" }
+      },
+      select: { id: true }
     });
-    
-    if (activeColleges.length > 0) {
+      
+    if (activeCollege) {
       return NextResponse.json({
         exists: true,
-        uid: activeColleges[0].id,
-        provider: "firestore",
+        uid: activeCollege.id,
+        provider: "supabase",
         reason: "college_admin"
       });
     }
     
     // Check for active students
-    const existingStudentsSnapshot = await db.collection("students")
-      .where("email", "==", normalizedEmail)
-      .limit(1)
-      .get();
-      
-    const activeStudents = existingStudentsSnapshot.docs.filter(doc => {
-      const data = doc.data();
-      return data.isActive !== false && data.isDeleted !== true;
+    const activeStudent = await prisma.students.findFirst({
+      where: {
+        users: { email: normalizedEmail }
+      },
+      select: { id: true }
     });
-    
-    if (activeStudents.length > 0) {
+      
+    if (activeStudent) {
       return NextResponse.json({
         exists: true,
-        uid: activeStudents[0].id,
-        provider: "firestore",
+        uid: activeStudent.id,
+        provider: "supabase",
         reason: "student"
       });
     }
 
-    // Check if email exists in Firebase Auth
+    // Check if email exists in Supabase Auth
     try {
-      const existingUser = await auth.getUserByEmail(normalizedEmail);
-      return NextResponse.json({
-        exists: true,
-        uid: existingUser.uid,
-        provider: existingUser.providerData[0]?.providerId || "password"
-      });
-    } catch (err: unknown) {
-      if ((err as any)?.code === "auth/user-not-found") {
+      const { data: usersData } = await supabaseAdmin.auth.admin.listUsers();
+      const existingUser = usersData?.users?.find(u => u.email === normalizedEmail);
+      
+      if (existingUser) {
+        return NextResponse.json({
+          exists: true,
+          uid: existingUser.id,
+          provider: "supabase"
+        });
+      } else {
         return NextResponse.json({ exists: false });
       }
+    } catch (err: unknown) {
       throw err;
     }
   } catch (err: unknown) {

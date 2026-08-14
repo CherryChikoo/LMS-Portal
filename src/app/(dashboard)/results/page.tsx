@@ -308,7 +308,7 @@ export default function ResultsPage() {
   const filteredAttempts = useMemo(() => {
     return filteredAttemptsByHierarchy
       .filter((att) => {
-        const name = getStudentName(att);
+        const name = getStudentName(att) || "";
         const isAdminAttempt =
           name.toLowerCase().includes("admin") ||
           name.toLowerCase().includes("simulator") ||
@@ -523,27 +523,16 @@ export default function ResultsPage() {
             </Button>
 
             {actualRole !== "student" && (
-              <>
-                <Button
-                  onClick={handleExportCSV}
-                  variant="default"
-                  size="sm"
-                  disabled={filteredAttempts.length === 0}
-                  className="h-9 px-4 bg-brand hover:bg-brand/90 text-brand-foreground font-bold flex items-center gap-1.5 shadow-sm"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  Export Results
-                </Button>
-                <Button
-                  onClick={handlePurgeAllResults}
-                  variant="destructive"
-                  size="sm"
-                  className="h-9 px-4 bg-destructive hover:bg-destructive/90 text-white font-bold flex items-center gap-1.5 shadow-sm"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  Remove All Data
-                </Button>
-              </>
+              <Button
+                onClick={handleExportCSV}
+                variant="default"
+                size="sm"
+                disabled={filteredAttempts.length === 0}
+                className="h-9 px-4 bg-brand hover:bg-brand/90 text-brand-foreground font-bold flex items-center gap-1.5 shadow-sm"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Export Results
+              </Button>
             )}
           </div>
         }
