@@ -43,16 +43,30 @@ function LoginContent() {
   const [linkCredentialJson, setLinkCredentialJson] = useState("");
 
   useEffect(() => {
-    if (searchParams.get("error") === "restricted") {
+    const errorParam = searchParams.get("error");
+    if (errorParam === "restricted") {
       setRestrictedModalOpen(true);
+    } else if (errorParam === "already_registered") {
+      setAlertConfig({
+        isOpen: true,
+        title: "Account Already Exists",
+        message: "This Google account is already registered. Please sign in below or continue with Google Sign In.",
+        type: "warning",
+      });
+    } else if (errorParam === "account_deleted") {
+      setAlertConfig({
+        isOpen: true,
+        title: "Account Deleted",
+        message: "This account has been permanently removed by an administrator.",
+        type: "error",
+      });
     }
   }, [searchParams]);
-
 
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
     try {
-      await unifiedGoogleLogin();
+      await unifiedGoogleLogin("login");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       const title = msg.toLowerCase().includes("access denied") ? "Access Denied" : "Authentication Failed";

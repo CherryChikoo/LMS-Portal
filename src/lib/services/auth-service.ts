@@ -149,10 +149,13 @@ export async function studentRegister(
   return { user: result.user };
 }
 
-export async function unifiedGoogleLogin(): Promise<void> {
+export async function unifiedGoogleLogin(mode: "login" | "register" = "login"): Promise<void> {
+  if (typeof window !== "undefined") {
+    localStorage.setItem("oauth_mode", mode);
+  }
   const redirectUrl = typeof window !== "undefined"
-    ? `${window.location.origin}/auth/callback`
-    : "http://localhost:3000/auth/callback";
+    ? `${window.location.origin}/auth/callback?mode=${mode}`
+    : `http://localhost:3000/auth/callback?mode=${mode}`;
 
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
@@ -170,9 +173,9 @@ export async function unifiedGoogleLogin(): Promise<void> {
   }
 }
 
-export const studentGoogleLogin = unifiedGoogleLogin;
-export const studentGoogleSignUp = unifiedGoogleLogin;
-export const trainerGoogleLogin = unifiedGoogleLogin;
+export const studentGoogleLogin = () => unifiedGoogleLogin("login");
+export const studentGoogleSignUp = () => unifiedGoogleLogin("register");
+export const trainerGoogleLogin = () => unifiedGoogleLogin("login");
 export async function completeStudentAcademicDetails() {
   return { resolvedCollegeId: "", resolvedCollegeName: "" };
 }

@@ -22,13 +22,22 @@ function CallbackHandler() {
 
       setStatus("Setting up your student profile...");
       try {
-        const syncRes = await syncGoogleUserAction(user);
+        const mode = (searchParams.get("mode") || (typeof window !== "undefined" ? localStorage.getItem("oauth_mode") : null) || "login") as "login" | "register";
+        
+        const syncRes = await syncGoogleUserAction(user, mode);
 
+        if (syncRes.error === "already_registered") {
+          await supabase.auth.signOut().catch(() => {});
+          window.location.replace("/login?error=already_registered");
+          return;
+        }
         if (syncRes.error === "restricted") {
+          await supabase.auth.signOut().catch(() => {});
           window.location.replace("/login?error=restricted");
           return;
         }
         if (syncRes.error === "account_deleted") {
+          await supabase.auth.signOut().catch(() => {});
           window.location.replace("/login?error=account_deleted");
           return;
         }

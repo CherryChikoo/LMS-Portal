@@ -6,7 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 const isUUID = (str?: string | null): boolean => 
   Boolean(str && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str));
 
-export async function syncGoogleUserAction(authUser: any) {
+export async function syncGoogleUserAction(authUser: any, mode: "login" | "register" = "login") {
   if (!authUser || !authUser.id) {
     throw new Error("Invalid auth user payload");
   }
@@ -42,6 +42,11 @@ export async function syncGoogleUserAction(authUser: any) {
   }
   if (existingUser?.status === "deleted" || existingStudent?.users?.status === "deleted") {
     return { error: "account_deleted" };
+  }
+
+  // If registering from the Registration page and the account already exists, reject!
+  if (mode === "register" && (existingUser || existingStudent)) {
+    return { error: "already_registered" };
   }
 
   // Link authId to existing user/student

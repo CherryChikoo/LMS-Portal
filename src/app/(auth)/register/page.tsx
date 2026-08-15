@@ -64,7 +64,7 @@ export default function RegisterPage() {
     setGoogleLoading(true);
     setError(null);
     try {
-      await unifiedGoogleLogin();
+      await unifiedGoogleLogin("register");
     } catch (err: unknown) {
       setError(formatAuthError(err));
       setGoogleLoading(false);
