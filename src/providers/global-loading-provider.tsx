@@ -27,17 +27,15 @@ export const globalLoading = {
     if (typeof window === "undefined") return;
     listeners.forEach((l) => l(false));
   },
+  reset: () => {
+    if (typeof window === "undefined") return;
+    listeners.forEach((l) => l(false, "__RESET__"));
+  },
   wrap: async <T,>(fn: () => Promise<T>, message: string = "Processing request..."): Promise<T> => {
-    const startTime = Date.now();
     globalLoading.start(message);
     try {
       return await fn();
     } finally {
-      const elapsed = Date.now() - startTime;
-      const minDisplayTime = 500; // minimum 500ms ensures smooth visual feedback instead of flashing
-      if (elapsed < minDisplayTime) {
-        await new Promise((r) => setTimeout(r, minDisplayTime - elapsed));
-      }
       globalLoading.stop();
     }
   }
@@ -58,16 +56,10 @@ export function GlobalLoadingProvider({ children }: { children: React.ReactNode 
 
   const withLoading = useCallback(
     async <T,>(fn: () => Promise<T>, msg: string = "Processing request..."): Promise<T> => {
-      const startTime = Date.now();
       startLoading(msg);
       try {
         return await fn();
       } finally {
-        const elapsed = Date.now() - startTime;
-        const minDisplayTime = 500;
-        if (elapsed < minDisplayTime) {
-          await new Promise((r) => setTimeout(r, minDisplayTime - elapsed));
-        }
         stopLoading();
       }
     },
@@ -75,17 +67,28 @@ export function GlobalLoadingProvider({ children }: { children: React.ReactNode 
   );
 
   useEffect(() => {
+    let safetyTimer: ReturnType<typeof setTimeout> | null = null;
     const handler: LoadingListener = (loading, msg) => {
+      if (safetyTimer) clearTimeout(safetyTimer);
       if (loading) {
         if (msg) setMessage(msg);
         setLoadingCount((c) => c + 1);
+        // Safety timeout: auto-clear after 6 seconds if any background promise hung
+        safetyTimer = setTimeout(() => {
+          setLoadingCount(0);
+        }, 6000);
       } else {
-        setLoadingCount((c) => Math.max(0, c - 1));
+        if (msg === "__RESET__") {
+          setLoadingCount(0);
+        } else {
+          setLoadingCount((c) => Math.max(0, c - 1));
+        }
       }
     };
     listeners.add(handler);
     return () => {
       listeners.delete(handler);
+      if (safetyTimer) clearTimeout(safetyTimer);
     };
   }, []);
 

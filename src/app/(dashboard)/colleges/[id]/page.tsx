@@ -463,7 +463,7 @@ function getYearBadgeStyle(year?: string) {
       setStudName("");
       setStudEmail("");
       setCustomStudSection("");
-      await refreshData();
+      refreshData().catch(() => {});
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("already exists")) {
