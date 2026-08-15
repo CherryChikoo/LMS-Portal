@@ -216,19 +216,20 @@ function StudentsContent() {
       const res = await updateStudentProfile(editingStudent.id, payload);
       if (!res.success) {
         toast.error(res.error || "Failed to update student profile.");
-        await fetchStudents();
+        fetchStudents().catch(() => {});
+        setSavingEdit(false);
         return;
       }
+      setEditingStudent(null);
+      setSavingEdit(false);
       if (isCollegeChanged) {
         toast.success("Student profile updated. Unassigned from previous college batches.");
       } else {
         toast.success("Student profile updated successfully.");
       }
-      await fetchStudents();
-      setEditingStudent(null);
+      fetchStudents().catch(() => {});
     } catch (err) {
       toast.error(formatAuthError(err));
-    } finally {
       setSavingEdit(false);
     }
   };

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
+import { toast } from "sonner";
 import { motion, AnimatePresence } from "motion/react";
 import { 
   FolderOpen, 
@@ -126,15 +127,16 @@ export default function ResourcesPage() {
         updatedAt: new Date(),
       });
       
-      await refreshCache();
       setShowUploadModal(false);
       setTitle("");
       setLinks([""]);
       setDesc("");
       modalHierarchy.reset();
+      setCreating(false);
+      toast.success("Resource uploaded successfully.");
+      refreshCache().catch(() => {});
     } catch (err) {
       console.error("Failed to create resource", err);
-    } finally {
       setCreating(false);
     }
   };

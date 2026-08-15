@@ -565,8 +565,6 @@ export default function CollegesPage() {
         }
       }
 
-      toast.success(`College "${name}" created successfully.`);
-      await refreshCache(); // Immediate UI update
       setShowAddModal(false);
       setName("");
       setSelectedDepts(["Computer Science & Engineering (CSE)", "General"]);
@@ -574,9 +572,11 @@ export default function CollegesPage() {
       setAdminEmail("");
       setInitialPassword("");
       setLoginEnabled(false);
+      setCreating(false);
+      toast.success(`College "${name}" created successfully.`);
+      refreshCache().catch(() => {});
     } catch (err) {
       console.error("Failed to create college", err);
-    } finally {
       setCreating(false);
     }
   };
@@ -597,14 +597,14 @@ export default function CollegesPage() {
           false
         );
       }
-      await refreshCache();
-      toast.success(`College renamed to "${renameCollegeName.trim()}" successfully.`);
       setRenamingCollege(null);
       setRenameCollegeName("");
+      setRenamingLoading(false);
+      toast.success(`College renamed to "${renameCollegeName.trim()}" successfully.`);
+      refreshCache().catch(() => {});
     } catch (err: any) {
       console.error("Failed to rename college", err);
       showError(err);
-    } finally {
       setRenamingLoading(false);
     }
   };
@@ -620,6 +620,7 @@ export default function CollegesPage() {
       const token = session?.access_token;
       if (!token) {
         showError({ message: "Session expired. Please sign in again." });
+        setCredsLoading(false);
         return;
       }
 
@@ -646,18 +647,19 @@ export default function CollegesPage() {
           data = { message: "Failed to update college auth details." };
         }
         showError(data);
+        setCredsLoading(false);
         return;
       }
 
-      await refreshCache();
-      toast.success("College admin credentials updated successfully.");
       setCredsCollege(null);
       setCredsAdminEmail("");
       setCredsPassword("");
+      setCredsLoading(false);
+      toast.success("College admin credentials updated successfully.");
+      refreshCache().catch(() => {});
     } catch (err: any) {
       console.error("Failed to update credentials", err);
       showError(err);
-    } finally {
       setCredsLoading(false);
     }
   };
@@ -673,20 +675,20 @@ export default function CollegesPage() {
       if (!newName || oldName === newName) {
         setEditingExternal(null);
         setEditExternalName("");
+        setUpdatingExternal(false);
         return;
       }
 
       await renameCollegeAndMigrate(colId, oldName, newName, true);
-      await refreshCache(); // Immediate UI update
-      toast.success("Outside institution updated successfully.");
-
       setEditingExternal(null);
       setEditExternalName("");
+      setUpdatingExternal(false);
       setSelectedExternalIds((prev) => prev.map((id) => (id === oldName || id === colId ? newName : id)));
+      toast.success("Outside institution updated successfully.");
+      refreshCache().catch(() => {});
     } catch (err) {
       console.error("Failed to update outside institution", err);
       toast.error("Failed to update outside institution.");
-    } finally {
       setUpdatingExternal(false);
     }
   };

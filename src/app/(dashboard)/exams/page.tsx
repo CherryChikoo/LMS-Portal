@@ -386,11 +386,8 @@ export default function ExamsPage() {
       if (startDt) examData.scheduledAt = startDt;
 
       const newExamId = await createExam(examData as Omit<Exam, "id">);
-      await refreshCache();
-
-      toast.success("Assessment & AI Explanations created successfully!");
-
       setCreationMode("none");
+      setIsPublishing(false);
       setTitle("");
       setQuestions([]);
       modalHierarchy.setFilters({
@@ -401,6 +398,8 @@ export default function ExamsPage() {
         batchId: "",
         studentId: "",
       });
+      toast.success("Assessment & AI Explanations created successfully!");
+      refreshCache().catch(() => {});
 
       // Background Gemini upgrade (non-blocking)
       const { supabase } = await import('@/lib/supabase/client');
