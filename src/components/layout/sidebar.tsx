@@ -170,10 +170,12 @@ export function Sidebar() {
             ) : (
               <>
                 <span className="font-bold text-base text-brand tracking-tight truncate">
-                  {branding.companyName || userCollegeName || (userRole === "admin" || userRole === "trainer" || userRole === "main_admin" ? "Enterprise LMS" : "College Admin Portal")}
+                  {(userRole === "admin" || userRole === "trainer" || userRole === "master_admin" || userRole === "main_admin" || userRole === "superadmin")
+                    ? (branding.companyName || "Enterprise LMS")
+                    : (branding.companyName || userCollegeName || "College Admin Portal")}
                 </span>
                 <span className="text-[9px] font-bold text-brand/60 uppercase tracking-widest truncate">
-                  {branding.companySubtitle || (userRole === "admin" || userRole === "trainer" || userRole === "main_admin" ? "Master Admin" : userRole === "student" ? "Student Portal" : "College Admin Portal")}
+                  {branding.companySubtitle || ((userRole === "admin" || userRole === "trainer" || userRole === "master_admin" || userRole === "main_admin" || userRole === "superadmin") ? "Master Admin" : userRole === "student" ? "Student Portal" : "College Admin Portal")}
                 </span>
               </>
             )}

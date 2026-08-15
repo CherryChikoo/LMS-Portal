@@ -34,7 +34,18 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
       if (storedUser) {
         const parsed = JSON.parse(storedUser);
         const pRole = (parsed.role || role || "").toLowerCase().trim();
-        if (pRole === "admin" || pRole === "master_admin" || pRole === "main_admin" || pRole === "superadmin" || !parsed.collegeId || parsed.collegeId === "global") {
+        const enrollmentType = (parsed.enrollmentType || "").toLowerCase().trim();
+        if (
+          pRole === "admin" ||
+          pRole === "master_admin" ||
+          pRole === "main_admin" ||
+          pRole === "superadmin" ||
+          pRole === "super_admin" ||
+          enrollmentType === "self" ||
+          parsed.isExternal ||
+          !parsed.collegeId ||
+          parsed.collegeId === "global"
+        ) {
           localStorage.removeItem("lms_college_branding");
           return null;
         }
@@ -73,6 +84,7 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
           const profile = JSON.parse(storedUser);
           const collegeId = profile.collegeId;
           const normalizedRole = (profile.role || userRole || "").toLowerCase().trim();
+          const enrollmentType = (profile.enrollmentType || "").toLowerCase().trim();
           const isMainAdmin = normalizedRole === "admin" || 
                               normalizedRole === "master_admin" || 
                               normalizedRole === "main_admin" || 
@@ -80,11 +92,19 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
                               normalizedRole === "super_admin" || 
                               (!collegeId || collegeId === "global");
 
-          if (!isMainAdmin && collegeId && collegeId !== "global") {
+          // Outside colleges and self-registered students must see the canonical Main Admin Portal Name
+          const isOutsideOrSelf = enrollmentType === "self" || profile.isExternal;
+
+          if (!isMainAdmin && !isOutsideOrSelf && collegeId && collegeId !== "global") {
             try {
               const data = await fetchCollegeByIdAction(collegeId);
               if (isCancelled) return;
-              if (data) {
+              
+              if (data && (data.type === "external" || (data as any).origin === "student" || (data as any).type === "outside")) {
+                // Outside / self-registered college: clear tenant branding to display main admin portal name
+                setTenantBranding(null);
+                localStorage.removeItem("lms_college_branding");
+              } else if (data && data.type === "registered") {
                 const officialColName = data.name?.trim() || profile.collegeName?.trim() || "College Portal";
                 const cBrand: CompanyBranding = {
                   companyName: officialColName,
@@ -94,18 +114,14 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
                 setTenantBranding(cBrand);
                 localStorage.setItem("lms_college_branding", JSON.stringify({ collegeId: collegeId, branding: cBrand }));
               } else {
-                const fallbackName = profile.collegeName?.trim() || "College Portal";
-                setTenantBranding({
-                  companyName: fallbackName,
-                  companySubtitle: `${fallbackName} Portal`,
-                  logoBase64: "",
-                });
+                setTenantBranding(null);
+                localStorage.removeItem("lms_college_branding");
               }
             } catch (err) {
               console.error("College branding fetch error:", err);
             }
           } else {
-            // Main admin or global admin: clear tenant branding completely
+            // Main admin, self registered, or outside college: canonical Main Admin portal name
             setTenantBranding(null);
             localStorage.removeItem("lms_college_branding");
           }
