@@ -65,9 +65,11 @@ export function setLMSStoreState(nextState: Partial<LMSStoreState> | ((prev: LMS
   if (!changed) return;
 
   storeState = updated;
-  setTimeout(() => {
-    listeners.forEach((listener) => listener());
-  }, 0);
+  listeners.forEach((listener) => {
+    try {
+      listener();
+    } catch (_) {}
+  });
 }
 
 export function getLMSStoreState(): LMSStoreState {

@@ -120,6 +120,7 @@ function hydrateCacheFromStorage() {
       if (cache.colleges || cache.students || cache.batches || cache.exams || cache.resources || cache.attempts) {
         cache.loading = false;
         recomputeScopedData();
+        computeExportedState();
       }
     }
   } catch (_) {}

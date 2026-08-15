@@ -43,6 +43,7 @@ function LoginContent() {
   const [linkCredentialJson, setLinkCredentialJson] = useState("");
 
   useEffect(() => {
+    document.title = `${branding.companyName || "Masters Academy"} | Sign In`;
     const errorParam = searchParams.get("error");
     if (errorParam === "no_account") {
       setAlertConfig({
@@ -68,7 +69,7 @@ function LoginContent() {
         type: "error",
       });
     }
-  }, [searchParams]);
+  }, [searchParams, branding.companyName]);
 
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);

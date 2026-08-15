@@ -7,8 +7,8 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    template: "%s",
-    default: "Portal",
+    template: "%s | Masters Academy",
+    default: "Masters Academy",
   },
   icons: {
     icon: "/api/branding/favicon",
@@ -43,7 +43,7 @@ export default function RootLayout({
           id="branding-initializer"
           suppressHydrationWarning
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var bStr=localStorage.getItem("lms_branding");if(bStr){var b=JSON.parse(bStr);if(b.companyName)document.title=b.companyName;if(b.logoBase64){var l=document.querySelector("link[rel*='icon']");if(l)l.href=b.logoBase64;}}}catch(e){}})()`,
+            __html: `(function(){try{var bStr=localStorage.getItem("lms_branding");var title="Masters Academy";if(bStr){var b=JSON.parse(bStr);if(b&&b.companyName)title=b.companyName;if(b&&b.logoBase64){var l=document.querySelectorAll("link[rel*='icon']");l.forEach(function(el){el.href=b.logoBase64;});}}document.title=title;}catch(e){document.title="Masters Academy";}})()`,
           }}
         />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
