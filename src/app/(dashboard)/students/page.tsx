@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState, useRef, Suspense, useDeferredValue } from
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
-import { Users, Plus, Upload, Download, Search, FileSpreadsheet, FolderOpen, Sparkles, Trash2, StopCircle, Edit2, Ban, CheckCircle2, BarChart3 } from "lucide-react";
+import { Users, Plus, Upload, Download, Search, FileSpreadsheet, FolderOpen, Sparkles, Trash2, StopCircle, Edit2, Ban, CheckCircle2, BarChart3, AlertTriangle } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
@@ -173,13 +173,6 @@ function StudentsContent() {
     setEditDepartment(student.department || "Computer Science");
     setEditYear(student.academicYear || "1st Year");
     setEditSection(student.section || "A");
-    
-    // Accurately resolve batch ID from student profile
-    const rawBatchId = student.batchIds?.[0] || (student.batches && student.batches[0]?.id) || "";
-    const matchedBatch = batches.find(
-      (b) => b.id === rawBatchId || b.name === rawBatchId || (student.batchNames && student.batchNames.includes(b.name))
-    );
-    setEditBatch(matchedBatch?.id || rawBatchId || "");
     setEditPassword(""); // Leave empty to keep unchanged
   };
 
@@ -187,6 +180,9 @@ function StudentsContent() {
     if (!editingStudent) return;
     setSavingEdit(true);
     try {
+      const originalCollege = editingStudent.collegeId || "GLOBAL";
+      const isCollegeChanged = originalCollege !== editCollegeId;
+
       const selectedColObj = colleges.find((c) => c.id === editCollegeId);
       const colName = selectedColObj ? selectedColObj.name : (editCollegeId === "UNASSIGNED" ? "Unassigned" : "");
       const payload: Partial<Student> = {
@@ -196,8 +192,12 @@ function StudentsContent() {
         department: editDepartment.trim(),
         academicYear: editYear,
         section: editSection.trim(),
-        batchIds: editBatch ? [editBatch] : [],
       };
+
+      if (isCollegeChanged) {
+        // Automatically unassign and remove from all previous batches when college is changed
+        payload.batchIds = [];
+      }
 
       const newEmail = editEmail.toLowerCase().trim();
       if (newEmail !== editingStudent.email?.toLowerCase().trim()) {
@@ -219,7 +219,11 @@ function StudentsContent() {
         await fetchStudents();
         return;
       }
-      toast.success("Student profile updated successfully.");
+      if (isCollegeChanged) {
+        toast.success("Student profile updated. Unassigned from previous college batches.");
+      } else {
+        toast.success("Student profile updated successfully.");
+      }
       await fetchStudents();
       setEditingStudent(null);
     } catch (err) {
@@ -1259,7 +1263,19 @@ function StudentsContent() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3">
+                {editingStudent && (editingStudent.collegeId || "GLOBAL") !== editCollegeId && (
+                  <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-2.5 text-amber-600 dark:text-amber-400 text-xs">
+                    <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold">College / Scope Changed</p>
+                      <p className="text-[11px] opacity-90">
+                        Changing the college will automatically unassign and remove this student from all previously assigned batches and cohorts.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <label className="font-semibold text-foreground">Academic Year</label>
                     <select
@@ -1294,21 +1310,6 @@ function StudentsContent() {
                           </option>
                         ))
                       )}
-                    </select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="font-semibold text-foreground">Cohort Batch</label>
-                    <select
-                      value={editBatch}
-                      onChange={(e) => setEditBatch(e.target.value)}
-                      className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground font-semibold"
-                    >
-                      <option value="">None (No Batch)</option>
-                      {availableBatchesForEdit.map((b) => (
-                        <option key={b.id} value={b.id}>
-                          {b.name || "Unnamed Batch"}
-                        </option>
-                      ))}
                     </select>
                   </div>
                 </div>

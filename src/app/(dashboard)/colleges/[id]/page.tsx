@@ -524,7 +524,6 @@ function getYearBadgeStyle(year?: string) {
         department: editStudDept.trim(),
         academicYear: editStudYear,
         section: editStudSection === "CUSTOM" ? editStudCustomSection.trim() || "A" : editStudSection,
-        batchIds: editStudBatch ? [editStudBatch] : [],
         updatedAt: new Date(),
       };
 
@@ -1365,45 +1364,30 @@ function getYearBadgeStyle(year?: string) {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <label className="font-semibold text-foreground">Section</label>
-                    <select
-                      value={editStudSection}
-                      onChange={(e) => setEditStudSection(e.target.value)}
-                      className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground"
-                    >
-                      {sectionsList.map((sec) => (
-                        <option key={sec} value={sec}>
-                          {sec}
-                        </option>
-                      ))}
-                      <option value="CUSTOM">+ Custom Section...</option>
-                    </select>
-                    {editStudSection === "CUSTOM" && (
-                      <input
-                        type="text"
-                        value={editStudCustomSection}
-                        onChange={(e) => setEditStudCustomSection(e.target.value)}
-                        required
-                        placeholder="Type custom section"
-                        className="w-full h-9 px-3 mt-1.5 rounded-xl border border-brand bg-background text-foreground text-xs"
-                      />
-                    )}
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="font-semibold text-foreground">Custom Batch / Cohort</label>
-                    <select
-                      value={editStudBatch}
-                      onChange={(e) => setEditStudBatch(e.target.value)}
-                      className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground font-semibold"
-                    >
-                      <option value="">None (No Batch)</option>
-                      {batches.map((b) => (
-                        <option key={b.id} value={b.id}>{b.name || "Unnamed Batch"}</option>
-                      ))}
-                    </select>
-                  </div>
+                <div className="space-y-1.5">
+                  <label className="font-semibold text-foreground">Section</label>
+                  <select
+                    value={editStudSection}
+                    onChange={(e) => setEditStudSection(e.target.value)}
+                    className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground"
+                  >
+                    {sectionsList.map((sec) => (
+                      <option key={sec} value={sec}>
+                        {sec}
+                      </option>
+                    ))}
+                    <option value="CUSTOM">+ Custom Section...</option>
+                  </select>
+                  {editStudSection === "CUSTOM" && (
+                    <input
+                      type="text"
+                      value={editStudCustomSection}
+                      onChange={(e) => setEditStudCustomSection(e.target.value)}
+                      required
+                      placeholder="Type custom section"
+                      className="w-full h-9 px-3 mt-1.5 rounded-xl border border-brand bg-background text-foreground text-xs"
+                    />
+                  )}
                 </div>
 
                 <div className="space-y-1.5 pt-1">
