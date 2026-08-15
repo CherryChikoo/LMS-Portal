@@ -8,6 +8,7 @@ import Link from "next/link";
 import { APP_NAME } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { studentRegister, unifiedGoogleLogin, formatAuthError } from "@/lib/services/auth-service";
+import { checkEmailExistsAction } from "@/lib/actions/auth-actions";
 import { useBranding } from "@/providers/branding-provider";
 
 export default function RegisterPage() {
@@ -21,6 +22,7 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [step1Checking, setStep1Checking] = useState(false);
 
   // Step 2 Academic Details
   const [fullName, setFullName] = useState("");
@@ -39,7 +41,7 @@ export default function RegisterPage() {
   // Auto-dismiss red error warning after 5 seconds
   useEffect(() => {
     if (error) {
-      const timer = setTimeout(() => setError(null), 5000);
+      const timer = setTimeout(() => setError(null), 6000);
       return () => clearTimeout(timer);
     }
   }, [error]);
@@ -69,8 +71,8 @@ export default function RegisterPage() {
     }
   };
 
-  // STEP 1: Local Client-Side Validation — No Supabase Account Created Yet
-  const handleSubmitAuth = (e: React.FormEvent) => {
+  // STEP 1: Local Client-Side Validation + Server Email Existence Verification
+  const handleSubmitAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setTouched({ email: true, password: true, confirm: true });
 
@@ -87,8 +89,23 @@ export default function RegisterPage() {
       return;
     }
 
+    setStep1Checking(true);
     setError(null);
-    setStep("details");
+
+    try {
+      const emailExists = await checkEmailExistsAction(email.trim());
+      if (emailExists) {
+        setError("An account with this email address already exists. Please sign in instead.");
+        setStep1Checking(false);
+        return;
+      }
+      setStep("details");
+    } catch (err: any) {
+      console.error("Email pre-check error:", err);
+      setStep("details");
+    } finally {
+      setStep1Checking(false);
+    }
   };
 
   // CANCEL / RESET: User can return to Step 1 at any time without creating an account
@@ -177,10 +194,10 @@ export default function RegisterPage() {
               </div>
               <div>
                 <span className="text-base font-bold tracking-tight text-foreground block font-heading">
-                  {branding.companyName || APP_NAME}
+                  {branding.companyName || "Student Registration"}
                 </span>
                 <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest block">
-                  Student Enrollment
+                  Student Registration
                 </span>
               </div>
             </div>
@@ -360,10 +377,20 @@ export default function RegisterPage() {
                 <div className="pt-2">
                   <Button
                     type="submit"
-                    className="w-full h-11 rounded-xl bg-brand text-brand-foreground font-semibold hover:bg-brand/90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-brand/20 cursor-pointer"
+                    disabled={step1Checking}
+                    className="w-full h-11 rounded-xl bg-brand text-brand-foreground font-semibold hover:bg-brand/90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-brand/20 cursor-pointer disabled:opacity-60"
                   >
-                    <span>Continue to Academic Details</span>
-                    <ArrowRight className="w-4 h-4" />
+                    {step1Checking ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-brand-foreground/30 border-t-brand-foreground rounded-full animate-spin" />
+                        <span>Verifying Email...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Continue to Academic Details</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
                   </Button>
                 </div>
               </form>

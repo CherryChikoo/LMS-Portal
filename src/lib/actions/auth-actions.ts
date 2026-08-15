@@ -194,6 +194,34 @@ export async function clearMustChangePasswordAction(authId: string) {
   });
 }
 
+export async function checkEmailExistsAction(email: string): Promise<boolean> {
+  const cleanEmail = email.toLowerCase().trim();
+  if (!cleanEmail) return false;
+
+  // 1. Check PostgreSQL users table
+  const existingUser = await prisma.users.findFirst({
+    where: { email: { equals: cleanEmail, mode: "insensitive" } }
+  });
+  if (existingUser) return true;
+
+  // 2. Check Supabase Auth
+  try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://rramkmudzrxaipukueuq.supabase.co";
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+      auth: { autoRefreshToken: false, persistSession: false }
+    });
+
+    const { data: listData } = await supabaseAdmin.auth.admin.listUsers();
+    const authFound = listData?.users?.some((u: any) => u.email?.toLowerCase() === cleanEmail);
+    if (authFound) return true;
+  } catch (e) {
+    console.error("Error checking auth email exists:", e);
+  }
+
+  return false;
+}
+
 export async function studentRegisterServerAction(payload: {
   fullName: string;
   email: string;
@@ -205,15 +233,22 @@ export async function studentRegisterServerAction(payload: {
   const { fullName, email, password, collegeName, department = "Computer Science & Engineering", section = "A" } = payload;
   const cleanEmail = email.toLowerCase().trim();
 
-  // 1. Initialize Supabase Admin client with service role key
+  // 1. Strict check: reject if email already registered in DB
+  const existingUser = await prisma.users.findFirst({
+    where: { email: { equals: cleanEmail, mode: "insensitive" } }
+  });
+  if (existingUser) {
+    throw new Error("This email is already registered. Please sign in instead.");
+  }
+
+  // 2. Initialize Supabase Admin client with service role key
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://rramkmudzrxaipukueuq.supabase.co";
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
   const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false }
   });
 
-  // 2. Check if auth user already exists or create new pre-confirmed user (bypasses email rate limit)
-  let authUser: any = null;
+  // 3. Create pre-confirmed user in Supabase Auth
   const { data: createRes, error: createErr } = await supabaseAdmin.auth.admin.createUser({
     email: cleanEmail,
     password: password,
@@ -223,24 +258,12 @@ export async function studentRegisterServerAction(payload: {
 
   if (createErr) {
     if (createErr.message?.toLowerCase().includes("already") || createErr.status === 422) {
-      const { data: listData } = await supabaseAdmin.auth.admin.listUsers();
-      authUser = listData?.users?.find((u: any) => u.email?.toLowerCase() === cleanEmail);
-      if (authUser) {
-        await supabaseAdmin.auth.admin.updateUserById(authUser.id, {
-          password: password,
-          email_confirm: true,
-          user_metadata: { full_name: fullName.trim() }
-        });
-      } else {
-        throw new Error("An account with this email address already exists. Please sign in.");
-      }
-    } else {
-      throw new Error(createErr.message || "Failed to create authentication user.");
+      throw new Error("An account with this email address already exists. Please sign in instead.");
     }
-  } else {
-    authUser = createRes.user;
+    throw new Error(createErr.message || "Failed to create authentication user.");
   }
 
+  const authUser = createRes.user;
   const uid = authUser.id;
 
   // 3. Resolve or Create College
