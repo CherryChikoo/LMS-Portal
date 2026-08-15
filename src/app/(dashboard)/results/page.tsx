@@ -895,7 +895,9 @@ export default function ResultsPage() {
                   </div>
                   <div>
                     <h3 className="font-bold text-base text-foreground">Performance Audit Breakdown</h3>
-                    <p className="text-xs text-muted-foreground font-mono">ID: {selectedAttempt.id}</p>
+                    <p className="text-xs text-muted-foreground font-medium">
+                      {examTitleMap[selectedAttempt.examId] || selectedAttempt.examTitle || "Assessment Evaluation"}
+                    </p>
                   </div>
                 </div>
                 <button onClick={() => setSelectedAttempt(null)} className="p-2 rounded-lg text-muted-foreground hover:bg-muted">
