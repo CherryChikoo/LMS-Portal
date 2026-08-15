@@ -3,21 +3,35 @@
 import { useEffect, useMemo, useState, use } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
-import { ArrowLeft, BookOpen, Users, Trash2, Search, Building2, UserPlus, Ban, CheckCircle2, Edit2, X, Check } from "lucide-react";
+import { 
+  ArrowLeft, 
+  BookOpen, 
+  Users, 
+  Trash2, 
+  Search, 
+  Building2, 
+  UserPlus, 
+  CheckCircle2, 
+  Edit2, 
+  X, 
+  Check,
+  Filter,
+  RotateCcw,
+  Sparkles,
+  GraduationCap
+} from "lucide-react";
 import { toast } from "sonner";
 import { useErrorHandler } from "@/providers/error-provider";
-import { PageHeader } from "@/components/shared/page-header";
 import { FilterDropdown } from "@/components/shared/filter-dropdown";
-import { useAcademicHierarchy } from "@/lib/hierarchy/use-academic-hierarchy";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
 import { uniqueOptions } from "@/lib/utils/array";
-import { getBatchById, updateBatch, updateStudentProfile, bulkAddStudentsToBatch, bulkRemoveStudentsFromBatch } from "@/lib/services";
+import { getBatchById, updateBatch, bulkAddStudentsToBatch, bulkRemoveStudentsFromBatch } from "@/lib/services";
 import { useLMSDataSelector } from "@/lib/data/use-lms-data";
 import { refreshCache } from "@/lib/data/lms-data-cache";
-import { globalLoading } from "@/providers/global-loading-provider";
+import { formatDisplayName } from "@/lib/utils";
 import type { Batch, Student, College } from "@/types";
 
 interface PageProps {
@@ -34,7 +48,14 @@ export default function BatchDetailPage({ params }: PageProps) {
   const [isSavingName, setIsSavingName] = useState(false);
   const [colleges, setColleges] = useState<College[]>([]);
   const [loading, setLoading] = useState(true);
-  const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm?: () => void; confirmText?: string; variant?: "destructive" | "warning" | "info" | "success" } | null>(null);
+  const [confirmConfig, setConfirmConfig] = useState<{ 
+    isOpen: boolean; 
+    title: string; 
+    message: string; 
+    onConfirm?: () => void; 
+    confirmText?: string; 
+    variant?: "destructive" | "warning" | "info" | "success" 
+  } | null>(null);
 
   // Search and Filters for enrolled students
   const [searchQuery, setSearchQuery] = useState("");
@@ -91,52 +112,95 @@ export default function BatchDetailPage({ params }: PageProps) {
     }
   };
 
-  // Cascading filter option lists for the "Add Students" modal.
-  // Hooks must run unconditionally, so they live above any early returns below.
-  const filteredStudentsByCollege = useMemo(
-    () =>
-      selectedCollegeFilter === "ALL"
-        ? allStudents
-        : allStudents.filter(
-            (s) => s.collegeId === selectedCollegeFilter || s.collegeName === selectedCollegeFilter
-          ),
-    [allStudents, selectedCollegeFilter]
-  );
-
-  const deptsList = useMemo(() => {
-    const base = filteredStudentsByCollege.map((s) => s.department);
-    if (selectedCollegeFilter === "ALL") {
-      base.push(...colleges.flatMap((c) => c.departments || []));
+  // Resolve matching college for this batch
+  const batchCollege = useMemo(() => {
+    if (!batch?.collegeId || batch.collegeId === "global" || batch.collegeId === "ALL" || batch.collegeId === "GLOBAL") {
+      return null;
     }
-    return uniqueOptions(base.filter(Boolean));
-  }, [filteredStudentsByCollege, colleges, selectedCollegeFilter]);
+    const target = batch.collegeId.toLowerCase();
+    return colleges.find(
+      (c) => c.id.toLowerCase() === target || (c.name && c.name.toLowerCase() === target)
+    ) || null;
+  }, [batch, colleges]);
+
+  const batchCollegeDisplayName = useMemo(() => {
+    if (!batch) return "All Institutions";
+    if (batchCollege?.name) return batchCollege.name;
+    if ((batch as any).collegeName) return (batch as any).collegeName;
+    if (batch.collegeId && batch.collegeId !== "global" && batch.collegeId !== "ALL" && batch.collegeId !== "GLOBAL") {
+      return batch.collegeId.replace(/^col-/, "");
+    }
+    return "All Institutions";
+  }, [batchCollege, batch]);
+
+  const isCollegeSpecificBatch = useMemo(() => {
+    return Boolean(
+      batch?.collegeId && 
+      batch.collegeId !== "global" && 
+      batch.collegeId !== "ALL" && 
+      batch.collegeId !== "GLOBAL"
+    );
+  }, [batch]);
+
+  // STAGE 1: Scoped candidate students strictly for this batch's college
+  const eligibleStudents = useMemo(() => {
+    if (!isCollegeSpecificBatch) return allStudents;
+
+    const targetId = (batchCollege?.id || batch?.collegeId || "").toLowerCase();
+    const targetName = (batchCollege?.name || (batch as any)?.collegeName || batch?.collegeId || "").toLowerCase();
+
+    return allStudents.filter((s) => {
+      const sId = (s.collegeId || "").toLowerCase();
+      const sName = (s.collegeName || "").toLowerCase();
+      if (!sId && !sName) return false;
+      return (sId && (sId === targetId || sId === targetName)) || 
+             (sName && (sName === targetName || sName === targetId));
+    });
+  }, [allStudents, isCollegeSpecificBatch, batchCollege, batch]);
+
+  // Filter option lists derived strictly from the eligible student pool
+  const deptsList = useMemo(() => {
+    const list = eligibleStudents.map((s) => s.department);
+    if (batchCollege?.departments) {
+      list.push(...batchCollege.departments);
+    }
+    return uniqueOptions(list.filter(Boolean));
+  }, [eligibleStudents, batchCollege]);
 
   const yearsList = useMemo(() => {
-    const base = filteredStudentsByCollege.map((s) => s.academicYear);
-    if (selectedCollegeFilter === "ALL") base.push("1st Year", "2nd Year", "3rd Year", "4th Year");
-    return uniqueOptions(base.filter(Boolean));
-  }, [filteredStudentsByCollege, selectedCollegeFilter]);
+    const list = eligibleStudents.map((s) => s.academicYear);
+    if (list.length === 0) list.push("1st Year", "2nd Year", "3rd Year", "4th Year");
+    return uniqueOptions(list.filter(Boolean));
+  }, [eligibleStudents]);
 
   const sectionsList = useMemo(() => {
-    const base = filteredStudentsByCollege.map((s) => s.section);
-    if (selectedCollegeFilter === "ALL") base.push("A", "B", "C", "D");
-    return uniqueOptions(base.filter(Boolean));
-  }, [filteredStudentsByCollege, selectedCollegeFilter]);
+    const list = eligibleStudents.map((s) => s.section);
+    if (list.length === 0) list.push("A", "B", "C", "D");
+    return uniqueOptions(list.filter(Boolean));
+  }, [eligibleStudents]);
 
-  // Reset child filters when the parent College selection (or the option lists) makes them invalid.
+  // Reset child filters if options change
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- cascading reset: child filters must reset when the parent filter narrows the available options
     if (selectedDeptFilter !== "ALL" && !deptsList.includes(selectedDeptFilter)) setSelectedDeptFilter("ALL");
     if (selectedYearFilter !== "ALL" && !yearsList.includes(selectedYearFilter)) setSelectedYearFilter("ALL");
     if (selectedSectionFilter !== "ALL" && !sectionsList.includes(selectedSectionFilter)) setSelectedSectionFilter("ALL");
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally exclude selected* values so the reset only fires when the parent filter narrows the option list
-  }, [selectedCollegeFilter, deptsList, yearsList, sectionsList]);
+  }, [deptsList, yearsList, sectionsList, selectedDeptFilter, selectedYearFilter, selectedSectionFilter]);
+
+  const resetModalFilters = () => {
+    setModalSearch("");
+    setSelectedCollegeFilter("ALL");
+    setSelectedDeptFilter("ALL");
+    setSelectedYearFilter("ALL");
+    setSelectedSectionFilter("ALL");
+  };
+
+  const hasActiveModalFilters = modalSearch || selectedDeptFilter !== "ALL" || selectedYearFilter !== "ALL" || selectedSectionFilter !== "ALL" || (!isCollegeSpecificBatch && selectedCollegeFilter !== "ALL");
 
   if (loading) {
     return (
       <div className="p-16 text-center flex flex-col items-center justify-center space-y-3">
         <div className="w-8 h-8 rounded-full border-2 border-brand border-t-transparent animate-spin" />
-        <p className="text-sm text-muted-foreground">Loading custom batch cohort hub...</p>
+        <p className="text-sm text-muted-foreground font-medium">Loading cohort batch hub...</p>
       </div>
     );
   }
@@ -165,34 +229,43 @@ export default function BatchDetailPage({ params }: PageProps) {
   });
 
   const filteredEnrolled = enrolledStudents.filter((s) => {
-    const q = searchQuery.toLowerCase();
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return true;
     return (
-      s.name.toLowerCase().includes(q) ||
-      s.email.toLowerCase().includes(q) ||
-      (s.rollNumber && s.rollNumber.toLowerCase().includes(q))
+      (s.name && s.name.toLowerCase().includes(q)) ||
+      (s.email && s.email.toLowerCase().includes(q)) ||
+      (s.rollNumber && s.rollNumber.toLowerCase().includes(q)) ||
+      (s.department && s.department.toLowerCase().includes(q))
     );
   });
 
-  // Students not yet in this batch (available to be added) — with all filters
-  const availableStudents = allStudents.filter((s) => {
+  // Students available to be added: only from eligible pool, not already in batch, matching active filters
+  const availableStudents = eligibleStudents.filter((s) => {
     const alreadyIn = s.batchIds && (s.batchIds.includes(batch.id) || s.batchIds.includes(batch.name));
     if (alreadyIn) return false;
 
-    const matchesCol = selectedCollegeFilter === "ALL" || s.collegeId === selectedCollegeFilter || s.collegeName === selectedCollegeFilter;
-    const matchesDept = selectedDeptFilter === "ALL" || s.department === selectedDeptFilter;
-    const matchesYear = selectedYearFilter === "ALL" || s.academicYear === selectedYearFilter;
-    const matchesSection = selectedSectionFilter === "ALL" || s.section === selectedSectionFilter;
-    const q = modalSearch.toLowerCase();
-    const matchesSearch =
-      !q ||
-      s.name.toLowerCase().includes(q) ||
-      s.email.toLowerCase().includes(q) ||
-      (s.rollNumber && s.rollNumber.toLowerCase().includes(q));
+    if (!isCollegeSpecificBatch && selectedCollegeFilter !== "ALL") {
+      const matchesCol = s.collegeId === selectedCollegeFilter || s.collegeName === selectedCollegeFilter;
+      if (!matchesCol) return false;
+    }
 
-    return matchesCol && matchesDept && matchesSearch && matchesYear && matchesSection;
+    if (selectedDeptFilter !== "ALL" && s.department !== selectedDeptFilter) return false;
+    if (selectedYearFilter !== "ALL" && s.academicYear !== selectedYearFilter) return false;
+    if (selectedSectionFilter !== "ALL" && s.section !== selectedSectionFilter) return false;
+
+    const q = modalSearch.toLowerCase().trim();
+    if (q) {
+      const matchesSearch =
+        (s.name && s.name.toLowerCase().includes(q)) ||
+        (s.email && s.email.toLowerCase().includes(q)) ||
+        (s.rollNumber && s.rollNumber.toLowerCase().includes(q)) ||
+        (s.department && s.department.toLowerCase().includes(q));
+      if (!matchesSearch) return false;
+    }
+
+    return true;
   });
 
-  // Only count selected students that are currently visible and available
   const validSelectedStudents = availableStudents.filter((s) => selectedForBulk.has(s.id));
 
   const handleAddStudentToBatch = async (student: Student) => {
@@ -200,152 +273,94 @@ export default function BatchDetailPage({ params }: PageProps) {
     setAddingId(student.id);
     try {
       await bulkAddStudentsToBatch(batch.id, [student.id]);
-      const currentBatches = student.batchIds || [];
-      const updatedBatches = Array.from(new Set([...currentBatches, batch.id, batch.name]));
-
-      // Locally update state for instantaneous feedback
+      
       setAllStudents((prev) =>
-        prev.map((s) => (s.id === student.id ? { ...s, batchIds: updatedBatches } : s))
+        prev.map((s) =>
+          s.id === student.id
+            ? { ...s, batchIds: Array.from(new Set([...(s.batchIds || []), batch.id])) }
+            : s
+        )
       );
-      setSelectedForBulk((prev) => {
-        const next = new Set(prev);
-        next.delete(student.id);
-        return next;
-      });
-      await refreshCache();
-      toast.success(`Enrolled "${student.name}" into batch.`);
+
+      toast.success(`${formatDisplayName(student.name)} added to ${batch.name}`);
+      refreshCache().catch(() => {});
     } catch (err) {
       console.error("Failed to add student to batch:", err);
-      toast.error(`Failed to add "${student.name}" to batch.`);
+      toast.error("Failed to add student to batch.");
     } finally {
       setAddingId(null);
     }
   };
 
-  const handleBulkAddToBatch = () => {
-    const studentsToAdd = validSelectedStudents;
-    if (studentsToAdd.length === 0 || !batch) return;
-    setConfirmConfig({
-      isOpen: true,
-      title: "Enroll Students in Batch",
-      message: `Are you sure you want to enroll ${studentsToAdd.length} selected student(s) into batch "${batch.name}"?`,
-      confirmText: "Enroll Students",
-      variant: "info",
-      onConfirm: async () => {
-        setBulkAdding(true);
-        try {
-          const studentIds = studentsToAdd.map((s) => s.id);
-          await bulkAddStudentsToBatch(batch.id, studentIds);
-
-          const studentIdSet = new Set(studentIds);
-          setAllStudents((prev) =>
-            prev.map((s) =>
-              studentIdSet.has(s.id)
-                ? { ...s, batchIds: Array.from(new Set([...(s.batchIds || []), batch.id, batch.name])) }
-                : s
-            )
-          );
-          setSelectedForBulk(new Set());
-          await refreshCache();
-          toast.success(`Enrolled ${studentsToAdd.length} students into batch.`);
-        } catch (err) {
-          console.error("Bulk add failed:", err);
-          toast.error("Failed to enroll selected students into the batch.");
-        } finally {
-          setBulkAdding(false);
-        }
+  const toggleStudentSelection = (studentId: string) => {
+    setSelectedForBulk((prev) => {
+      const next = new Set(prev);
+      if (next.has(studentId)) {
+        next.delete(studentId);
+      } else {
+        next.add(studentId);
       }
+      return next;
     });
   };
 
   const toggleSelectAll = () => {
     if (validSelectedStudents.length === availableStudents.length && availableStudents.length > 0) {
-      setSelectedForBulk((prev) => {
-        const next = new Set(prev);
-        availableStudents.forEach((s) => next.delete(s.id));
-        return next;
-      });
+      setSelectedForBulk(new Set());
     } else {
-      setSelectedForBulk((prev) => {
-        const next = new Set(prev);
-        availableStudents.forEach((s) => next.add(s.id));
-        return next;
-      });
+      setSelectedForBulk(new Set(availableStudents.map((s) => s.id)));
     }
   };
 
-  const toggleStudentSelection = (id: string) => {
-    setSelectedForBulk((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
+  const handleBulkAddToBatch = async () => {
+    if (!batch || validSelectedStudents.length === 0) return;
+    const studentIds = validSelectedStudents.map((s) => s.id);
+    setBulkAdding(true);
+    try {
+      await bulkAddStudentsToBatch(batch.id, studentIds);
 
-  const handleToggleStatus = (stud: Student) => {
-    const isRestricted = stud.status === "restricted";
-    const newStatus = isRestricted ? "active" : "restricted";
+      setAllStudents((prev) =>
+        prev.map((s) =>
+          studentIds.includes(s.id)
+            ? { ...s, batchIds: Array.from(new Set([...(s.batchIds || []), batch.id])) }
+            : s
+        )
+      );
 
-    if (!isRestricted) {
-      setConfirmConfig({
-        isOpen: true,
-        title: "Restrict Student Account",
-        message: `Are you sure you want to restrict "${stud.name}"'s account? The student will not be able to log in until the account is reactivated.`,
-        confirmText: "Restrict",
-        variant: "warning",
-        onConfirm: async () => {
-          try {
-            await updateStudentProfile(stud.id, { status: newStatus });
-            setAllStudents((prev) =>
-              prev.map((s) => (s.id === stud.id ? { ...s, status: newStatus } : s))
-            );
-          } catch (err) {
-            console.error("Failed to restrict account:", err);
-          }
-        }
-      });
-    } else {
-      setConfirmConfig({
-        isOpen: true,
-        title: "Reactivate Student Account",
-        message: `Are you sure you want to reactivate "${stud.name}"'s account? They will immediately regain access to the LMS.`,
-        confirmText: "Reactivate",
-        variant: "info",
-        onConfirm: async () => {
-          try {
-            await updateStudentProfile(stud.id, { status: newStatus });
-            setAllStudents((prev) =>
-              prev.map((s) => (s.id === stud.id ? { ...s, status: newStatus } : s))
-            );
-          } catch (err) {
-            console.error("Failed to reactivate account:", err);
-          }
-        }
-      });
+      toast.success(`Enrolled ${studentIds.length} student(s) into ${batch.name}`);
+      setSelectedForBulk(new Set());
+      refreshCache().catch(() => {});
+    } catch (err) {
+      console.error("Bulk add failed:", err);
+      toast.error("Failed to add selected students to batch.");
+    } finally {
+      setBulkAdding(false);
     }
   };
 
-  const handleRemoveFromBatch = (student: Student) => {
+  const handleRemoveStudent = (student: Student) => {
     if (!batch) return;
     setConfirmConfig({
       isOpen: true,
       title: "Remove Student from Batch",
-      message: `Are you sure you want to remove ${student.name} from batch "${batch.name}"?`,
+      message: `Are you sure you want to remove ${student.name} from "${batch.name}"? The student account will remain in the database.`,
       confirmText: "Remove",
       variant: "destructive",
       onConfirm: async () => {
         setRemovingId(student.id);
         try {
           await bulkRemoveStudentsFromBatch(batch.id, [student.id]);
-          const currentBatches = student.batchIds || [];
-          const updatedBatches = currentBatches.filter((b) => b !== batch.id && b !== batch.name);
 
           setAllStudents((prev) =>
-            prev.map((s) => (s.id === student.id ? { ...s, batchIds: updatedBatches } : s))
+            prev.map((s) =>
+              s.id === student.id
+                ? { ...s, batchIds: (s.batchIds || []).filter((bId) => bId !== batch.id && bId !== batch.name) }
+                : s
+            )
           );
-          await refreshCache();
-          toast.success(`Removed "${student.name}" from batch.`);
+
+          toast.success(`Removed ${student.name} from ${batch.name}`);
+          refreshCache().catch(() => {});
         } catch (err) {
           console.error("Failed to remove student from batch:", err);
           toast.error("Failed to remove student from batch.");
@@ -359,7 +374,7 @@ export default function BatchDetailPage({ params }: PageProps) {
   return (
     <motion.div initial="hidden" animate="visible" variants={fadeInUp} className="space-y-6">
       {/* Navigation & Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="space-y-1">
           <Link
             href="/batches"
@@ -375,14 +390,14 @@ export default function BatchDetailPage({ params }: PageProps) {
                   type="text"
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  className="h-10 px-3 rounded-lg border border-border bg-background text-lg font-bold text-foreground focus:outline-none focus:border-brand w-full max-w-sm"
+                  className="h-10 px-3 rounded-xl border border-border bg-card text-lg font-bold text-foreground focus:outline-none focus:border-brand w-full max-w-sm"
                   autoFocus
                   onKeyDown={(e) => e.key === "Enter" && handleRenameBatch()}
                 />
-                <Button size="icon" onClick={handleRenameBatch} disabled={isSavingName} className="h-10 w-10 bg-brand hover:bg-brand/90 text-brand-foreground rounded-lg shrink-0">
+                <Button size="icon" onClick={handleRenameBatch} disabled={isSavingName} className="h-10 w-10 bg-brand hover:bg-brand/90 text-brand-foreground rounded-xl shrink-0">
                   <Check className="w-4 h-4" />
                 </Button>
-                <Button size="icon" variant="outline" onClick={() => setIsRenaming(false)} disabled={isSavingName} className="h-10 w-10 rounded-lg shrink-0">
+                <Button size="icon" variant="outline" onClick={() => setIsRenaming(false)} disabled={isSavingName} className="h-10 w-10 rounded-xl shrink-0">
                   <X className="w-4 h-4" />
                 </Button>
               </div>
@@ -393,7 +408,7 @@ export default function BatchDetailPage({ params }: PageProps) {
           ) : (
             <div className="flex flex-col gap-1 mt-2">
               <div className="flex items-center gap-3">
-                <h1 className="text-3xl font-extrabold text-foreground tracking-tight">{batch.name}</h1>
+                <h1 className="text-2xl sm:text-3xl font-extrabold text-foreground tracking-tight">{batch.name}</h1>
                 <Button 
                   size="icon" 
                   variant="ghost" 
@@ -411,41 +426,41 @@ export default function BatchDetailPage({ params }: PageProps) {
           )}
         </div>
 
-        <Button onClick={() => setShowAddModal(true)} className="gap-2 bg-brand hover:bg-brand/90 text-brand-foreground shadow-lg shadow-brand/20">
-          <UserPlus className="w-4 h-4" /> Add Students from Colleges
+        <Button onClick={() => setShowAddModal(true)} className="h-11 px-5 rounded-full bg-brand hover:bg-brand/90 text-brand-foreground font-bold shadow-lg shadow-brand/20 gap-2 shrink-0">
+          <UserPlus className="w-4 h-4 stroke-[2.5]" /> Enroll Students
         </Button>
       </div>
 
       {/* Cohort Stats Bar */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="p-4 rounded-2xl bg-card border border-border shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-brand/10 text-brand flex items-center justify-center">
+          <div className="w-12 h-12 rounded-xl bg-brand/10 text-brand flex items-center justify-center shrink-0">
             <Users className="w-6 h-6" />
           </div>
-          <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Total Enrolled</p>
-            <p className="text-2xl font-black text-foreground">{enrolledStudents.length} Students</p>
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Total Enrolled</p>
+            <p className="text-xl font-extrabold text-foreground">{enrolledStudents.length} Students</p>
           </div>
         </div>
 
         <div className="p-4 rounded-2xl bg-card border border-border shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-purple-500/10 text-purple-600 flex items-center justify-center">
+          <div className="w-12 h-12 rounded-xl bg-purple-500/10 text-purple-600 flex items-center justify-center shrink-0">
             <Building2 className="w-6 h-6" />
           </div>
-          <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">College Name</p>
-            <p className="text-sm font-bold text-foreground truncate">
-              {(batch as any).collegeName || colleges.find((c) => c.id === batch.collegeId)?.name || batch.collegeId || "All Colleges"}
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Institution</p>
+            <p className="text-sm font-bold text-foreground truncate" title={batchCollegeDisplayName}>
+              {batchCollegeDisplayName}
             </p>
           </div>
         </div>
 
         <div className="p-4 rounded-2xl bg-card border border-border shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-blue-500/10 text-blue-600 flex items-center justify-center">
+          <div className="w-12 h-12 rounded-xl bg-blue-500/10 text-blue-600 flex items-center justify-center shrink-0">
             <BookOpen className="w-6 h-6" />
           </div>
-          <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Academic Year</p>
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Academic Year</p>
             <p className="text-sm font-bold text-foreground">{batch.academicYear || "All Years"}</p>
           </div>
         </div>
@@ -464,7 +479,7 @@ export default function BatchDetailPage({ params }: PageProps) {
           />
         </div>
         <div className="text-xs font-semibold text-muted-foreground">
-          Showing <span className="text-foreground">{filteredEnrolled.length}</span> of {enrolledStudents.length} cohort members
+          Showing <span className="text-foreground font-bold">{filteredEnrolled.length}</span> of {enrolledStudents.length} cohort members
         </div>
       </div>
 
@@ -472,85 +487,52 @@ export default function BatchDetailPage({ params }: PageProps) {
       <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
         {filteredEnrolled.length > 0 ? (
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-border bg-muted/40 text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-                  <th className="py-3.5 px-4">Student Name & Email</th>
-                  <th className="py-3.5 px-4">Roll Number</th>
-                  <th className="py-3.5 px-4">College</th>
-                  <th className="py-3.5 px-4">Department & Year</th>
-                  <th className="py-3.5 px-4">Section</th>
-                  <th className="py-3.5 px-4">Status</th>
-                  <th className="py-3.5 px-4 text-right">Actions</th>
+            <table className="w-full text-left text-sm">
+              <thead className="bg-muted/40 border-b border-border text-xs uppercase tracking-wider text-muted-foreground font-bold">
+                <tr>
+                  <th className="px-6 py-4">Student Name</th>
+                  <th className="px-6 py-4">Email</th>
+                  <th className="px-6 py-4">Department</th>
+                  <th className="px-6 py-4">Academic Year</th>
+                  <th className="px-6 py-4">Section</th>
+                  <th className="px-6 py-4 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border text-xs">
-                {filteredEnrolled.map((stud) => (
-                  <tr key={stud.id} className="hover:bg-muted/30 transition-colors">
-                    <td className="py-3 px-4">
-                      <div className="font-bold text-foreground text-sm">{stud.name}</div>
-                      <div className="text-muted-foreground">{stud.email}</div>
+              <tbody className="divide-y divide-border">
+                {filteredEnrolled.map((student) => (
+                  <tr key={student.id} className="hover:bg-muted/20 transition-colors">
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-brand/10 text-brand flex items-center justify-center font-bold text-xs uppercase">
+                          {student.name ? student.name.slice(0, 2) : "ST"}
+                        </div>
+                        <div>
+                          <p className="font-bold text-foreground">{student.name}</p>
+                          {student.rollNumber && (
+                            <p className="text-[11px] text-muted-foreground">Roll: {student.rollNumber}</p>
+                          )}
+                        </div>
+                      </div>
                     </td>
-                    <td className="py-3 px-4 font-mono font-semibold text-foreground">{stud.rollNumber || "—"}</td>
-                    <td className="py-3 px-4">
-                      <span className="px-2.5 py-1 rounded-lg bg-accent/60 text-foreground font-semibold">
-                        {stud.collegeName || "Unassigned"}
+                    <td className="px-6 py-4 text-muted-foreground text-xs">{student.email}</td>
+                    <td className="px-6 py-4">
+                      <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-brand/10 text-brand">
+                        {student.department || "General"}
                       </span>
                     </td>
-                    <td className="py-3 px-4">
-                      <div className="font-semibold text-foreground">{stud.department}</div>
-                      <div className="text-muted-foreground text-[11px]">{stud.academicYear}</div>
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className="px-2 py-0.5 rounded bg-brand/10 text-brand font-bold">Sec {stud.section || "A"}</span>
-                    </td>
-                    <td className="py-3 px-4">
-                      {stud.status === "restricted" ? (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-500/15 text-rose-500 border border-rose-500/30">
-                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
-                          Restricted
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                          Active
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        {stud.status === "restricted" ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleToggleStatus(stud)}
-                            className="h-8 w-8 p-0 text-emerald-500 hover:text-emerald-600 hover:bg-emerald-500/10 rounded-lg"
-                            title="Reactivate Account"
-                          >
-                            <CheckCircle2 className="w-4 h-4" />
-                          </Button>
-                        ) : (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleToggleStatus(stud)}
-                            className="h-8 w-8 p-0 text-amber-500 hover:text-amber-600 hover:bg-amber-500/10 rounded-lg"
-                            title="Restrict Account"
-                          >
-                            <Ban className="w-4 h-4" />
-                          </Button>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={removingId === stud.id}
-                          onClick={() => handleRemoveFromBatch(stud)}
-                          className="h-8 px-2 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10"
-                          title="Remove student from this batch"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
+                    <td className="px-6 py-4 text-xs font-medium text-foreground">{student.academicYear || "—"}</td>
+                    <td className="px-6 py-4 text-xs font-medium text-foreground">{student.section || "—"}</td>
+                    <td className="px-6 py-4 text-right">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        disabled={removingId === student.id}
+                        onClick={() => handleRemoveStudent(student)}
+                        className="w-8 h-8 rounded-lg text-rose-500 hover:text-rose-600 hover:bg-rose-500/10 transition-colors"
+                        title="Remove from batch"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
                     </td>
                   </tr>
                 ))}
@@ -561,174 +543,242 @@ export default function BatchDetailPage({ params }: PageProps) {
           <EmptyState
             icon={Users}
             title="No Students in Cohort"
-            description="Click 'Add Students from Colleges' above to enroll existing students into this batch."
-            actionLabel="Add Students"
+            description="Click 'Enroll Students' above to select and assign students from your institution into this batch."
+            actionLabel="Enroll Students"
             onAction={() => setShowAddModal(true)}
           />
         )}
       </div>
 
-      {/* Add Existing Students Modal */}
+      {/* Modern High-End Add Students Modal */}
       <AnimatePresence>
         {showAddModal && (
-          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 sm:p-6 bg-black/80 backdrop-blur-md">
             <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-4xl bg-card rounded-3xl border border-border shadow-2xl overflow-hidden flex flex-col max-h-[85vh]"
+              initial={{ opacity: 0, scale: 0.96, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 10 }}
+              className="w-full max-w-4xl bg-card rounded-3xl border border-border shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
             >
               {/* Modal Header */}
-              <div className="p-6 border-b border-border bg-muted/30 flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-bold text-foreground">Enroll Existing Students into {batch.name}</h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Select students from your existing college database to assign them to this batch for tests & resource sharing.
+              <div className="p-6 border-b border-border bg-muted/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <h3 className="text-xl font-black text-foreground tracking-tight">
+                      Enroll Students into {batch.name}
+                    </h3>
+                    <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-brand/10 text-brand border border-brand/20 flex items-center gap-1">
+                      <Building2 className="w-3 h-3" />
+                      {batchCollegeDisplayName}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Assign eligible students from {batchCollegeDisplayName} to this batch cohort for targeted assessments and resources.
                   </p>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => setShowAddModal(false)} className="rounded-xl">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => setShowAddModal(false)} 
+                  className="rounded-full px-5 font-bold h-9 border-border bg-card hover:bg-accent text-foreground shrink-0"
+                >
                   Done
                 </Button>
               </div>
 
-              {/* Filters & Search */}
-              <div className="p-4 border-b border-border bg-background space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-6 gap-2.5 w-full">
-                  <div className="relative w-full md:col-span-2">
-                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                    <input
-                      type="text"
-                      placeholder="Search by name, email or roll..."
-                      value={modalSearch}
-                      onChange={(e) => setModalSearch(e.target.value)}
-                      className="w-full h-12 pl-10 pr-4 rounded-xl bg-card border border-border text-sm font-semibold focus:outline-none focus:border-brand transition-all shadow-sm"
-                    />
-                  </div>
-
-                  <FilterDropdown
-                    label="College"
-                    value={selectedCollegeFilter === "ALL" ? "" : selectedCollegeFilter}
-                    onChange={(val) => setSelectedCollegeFilter(val === "" ? "ALL" : val)}
-                    options={colleges.map(c => ({ value: c.name, label: c.name || "Unnamed College" }))}
+              {/* Filters & Search Toolbar */}
+              <div className="p-5 border-b border-border bg-background/50 space-y-4">
+                {/* Search Bar */}
+                <div className="relative w-full">
+                  <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    type="text"
+                    placeholder="Search by name, email, department or roll number..."
+                    value={modalSearch}
+                    onChange={(e) => setModalSearch(e.target.value)}
+                    className="w-full h-11 pl-10 pr-10 rounded-xl bg-card border border-border text-sm font-semibold text-foreground focus:outline-none focus:border-brand transition-all shadow-sm"
                   />
+                  {modalSearch && (
+                    <button 
+                      onClick={() => setModalSearch("")}
+                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Filter Dropdowns Grid */}
+                <div className={`grid grid-cols-1 sm:grid-cols-2 ${isCollegeSpecificBatch ? "md:grid-cols-3" : "md:grid-cols-4"} gap-3`}>
+                  {!isCollegeSpecificBatch && (
+                    <FilterDropdown
+                      label="College"
+                      value={selectedCollegeFilter === "ALL" ? "" : selectedCollegeFilter}
+                      onChange={(val) => setSelectedCollegeFilter(val === "" ? "ALL" : val)}
+                      options={colleges.map((c) => ({ value: c.name, label: c.name || "Unnamed College" }))}
+                    />
+                  )}
 
                   <FilterDropdown
                     label="Department"
                     value={selectedDeptFilter === "ALL" ? "" : selectedDeptFilter}
                     onChange={(val) => setSelectedDeptFilter(val === "" ? "ALL" : val)}
-                    options={deptsList.map(d => ({ value: d, label: d }))}
+                    options={deptsList.map((d) => ({ value: d, label: d }))}
                   />
 
                   <FilterDropdown
-                    label="Year"
+                    label="Academic Year"
                     value={selectedYearFilter === "ALL" ? "" : selectedYearFilter}
                     onChange={(val) => setSelectedYearFilter(val === "" ? "ALL" : val)}
-                    options={yearsList.map(y => ({ value: y, label: y }))}
+                    options={yearsList.map((y) => ({ value: y, label: y }))}
                   />
 
                   <FilterDropdown
                     label="Section"
                     value={selectedSectionFilter === "ALL" ? "" : selectedSectionFilter}
                     onChange={(val) => setSelectedSectionFilter(val === "" ? "ALL" : val)}
-                    options={sectionsList.map(sec => ({ value: sec, label: sec }))}
+                    options={sectionsList.map((sec) => ({ value: sec, label: sec }))}
                   />
                 </div>
                 
-                <div className="flex items-center justify-between pt-2 w-full">
-                  <div className="flex-1" />
-                  <label className="flex items-center gap-2 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={availableStudents.length > 0 && validSelectedStudents.length === availableStudents.length}
-                      onChange={toggleSelectAll}
-                      className="w-4 h-4 rounded border-border text-brand focus:ring-brand accent-[var(--color-brand)]"
-                    />
-                    <span className="text-xs font-bold text-foreground">
-                      Select All ({availableStudents.length})
-                    </span>
-                  </label>
-                </div>
+                {/* Actions Bar */}
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-2 cursor-pointer select-none bg-card px-3 py-1.5 rounded-xl border border-border hover:border-brand/40 transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={availableStudents.length > 0 && validSelectedStudents.length === availableStudents.length}
+                        onChange={toggleSelectAll}
+                        disabled={availableStudents.length === 0}
+                        className="w-4 h-4 rounded border-border text-brand focus:ring-brand accent-[var(--color-brand)]"
+                      />
+                      <span className="text-xs font-bold text-foreground">
+                        Select All
+                      </span>
+                      <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-full bg-brand/10 text-brand">
+                        {availableStudents.length}
+                      </span>
+                    </label>
 
-                <div className="flex justify-end pt-2">
+                    {hasActiveModalFilters && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={resetModalFilters}
+                        className="h-8 px-2.5 text-xs text-muted-foreground hover:text-foreground gap-1.5"
+                      >
+                        <RotateCcw className="w-3 h-3" /> Reset Filters
+                      </Button>
+                    )}
+                  </div>
+
                   {validSelectedStudents.length > 0 && (
                     <Button
                       size="sm"
                       disabled={bulkAdding}
                       onClick={handleBulkAddToBatch}
-                      className="h-8 px-4 rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground text-xs font-bold gap-1.5 shadow-lg shadow-brand/20"
+                      className="h-9 px-5 rounded-full bg-brand hover:bg-brand/90 text-brand-foreground text-xs font-extrabold gap-1.5 shadow-lg shadow-brand/20 transition-all"
                     >
-                      <UserPlus className="w-3.5 h-3.5" />
+                      <UserPlus className="w-4 h-4 stroke-[2.5]" />
                       {bulkAdding
-                        ? "Adding..."
-                        : `Add ${validSelectedStudents.length} Selected to Batch`}
+                        ? "Enrolling Students..."
+                        : `Enroll ${validSelectedStudents.length} Selected Student${validSelectedStudents.length > 1 ? "s" : ""}`}
                     </Button>
                   )}
                 </div>
               </div>
 
-              {/* Available Students List */}
-              <div className="p-6 overflow-y-auto flex-1 space-y-2">
+              {/* Candidate Students Grid List */}
+              <div className="p-6 overflow-y-auto flex-1 space-y-3">
                 {availableStudents.length > 0 ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {availableStudents.map((stud) => (
-                      <div
-                        key={stud.id}
-                        className={`p-3.5 rounded-2xl border bg-background flex items-center justify-between transition-colors cursor-pointer ${
-                          selectedForBulk.has(stud.id)
-                            ? "border-brand bg-brand/5 ring-1 ring-brand/30"
-                            : "border-border hover:border-brand/40"
-                        }`}
-                        onClick={() => toggleStudentSelection(stud.id)}
-                      >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <input
-                            type="checkbox"
-                            checked={selectedForBulk.has(stud.id)}
-                            onChange={() => toggleStudentSelection(stud.id)}
-                            onClick={(e) => e.stopPropagation()}
-                            className="w-4 h-4 rounded border-border text-brand focus:ring-brand accent-[var(--color-brand)] shrink-0"
-                          />
-                          <div className="min-w-0">
-                            <p className="font-bold text-foreground text-sm truncate">{stud.name}</p>
-                            <p className="text-xs text-muted-foreground truncate">{stud.email}</p>
-                            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                              <span className="text-[10px] px-2 py-0.5 rounded bg-accent/80 font-semibold text-foreground">
-                                {stud.collegeName || "Unassigned"}
-                              </span>
-                              <span className="text-[10px] px-2 py-0.5 rounded bg-brand/10 text-brand font-semibold">
-                                {stud.department}
-                              </span>
-                              {stud.academicYear && (
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-600 font-semibold">
-                                  {stud.academicYear}
+                    {availableStudents.map((stud) => {
+                      const isSelected = selectedForBulk.has(stud.id);
+                      return (
+                        <div
+                          key={stud.id}
+                          onClick={() => toggleStudentSelection(stud.id)}
+                          className={`p-4 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
+                            isSelected
+                              ? "border-brand bg-brand/5 ring-2 ring-brand/30 shadow-sm"
+                              : "border-border bg-card hover:border-brand/40 hover:bg-muted/10"
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleStudentSelection(stud.id)}
+                              onClick={(e) => e.stopPropagation()}
+                              className="w-4 h-4 rounded border-border text-brand focus:ring-brand accent-[var(--color-brand)] shrink-0"
+                            />
+                            
+                            <div className="w-9 h-9 rounded-full bg-brand/10 text-brand flex items-center justify-center font-black text-xs uppercase shrink-0">
+                              {stud.name ? stud.name.slice(0, 2) : "ST"}
+                            </div>
+
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="font-bold text-foreground text-sm truncate">{stud.name}</p>
+                                {stud.rollNumber && (
+                                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-muted font-bold text-muted-foreground">
+                                    {stud.rollNumber}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-muted-foreground truncate">{stud.email}</p>
+                              
+                              <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                                <span className="text-[10px] px-2 py-0.5 rounded-md bg-brand/10 text-brand font-bold">
+                                  {stud.department || "General"}
                                 </span>
-                              )}
-                              {stud.section && (
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 font-semibold">
-                                  Sec {stud.section}
-                                </span>
-                              )}
+                                {stud.academicYear && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-purple-500/10 text-purple-600 font-bold">
+                                    {stud.academicYear}
+                                  </span>
+                                )}
+                                {stud.section && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-600 font-bold">
+                                    Sec {stud.section}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </div>
 
-                        <Button
-                          size="sm"
-                          disabled={addingId === stud.id}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleAddStudentToBatch(stud);
-                          }}
-                          className="h-8 px-3 rounded-xl bg-brand hover:bg-brand/90 text-brand-foreground text-xs font-bold shrink-0 gap-1"
-                        >
-                          {addingId === stud.id ? "Adding..." : "+ Add"}
-                        </Button>
-                      </div>
-                    ))}
+                          <Button
+                            size="sm"
+                            disabled={addingId === stud.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleAddStudentToBatch(stud);
+                            }}
+                            className="h-8 px-3 rounded-full bg-brand hover:bg-brand/90 text-brand-foreground text-xs font-bold shrink-0 gap-1"
+                          >
+                            {addingId === stud.id ? "Adding..." : "+ Add"}
+                          </Button>
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : (
-                  <div className="py-12 text-center text-muted-foreground text-xs">
-                    No matching students found from existing colleges. Try adjusting filters or search query.
+                  <div className="py-16 text-center space-y-3">
+                    <div className="w-12 h-12 rounded-2xl bg-muted/50 text-muted-foreground flex items-center justify-center mx-auto">
+                      <Users className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <p className="font-bold text-foreground text-sm">No Eligible Students Found</p>
+                      <p className="text-xs text-muted-foreground max-w-sm mx-auto mt-1">
+                        {hasActiveModalFilters
+                          ? "No students matched your search or filters. Try adjusting the department, year, or search criteria."
+                          : `All eligible students in ${batchCollegeDisplayName} are already enrolled in this batch.`}
+                      </p>
+                    </div>
+                    {hasActiveModalFilters && (
+                      <Button size="sm" variant="outline" onClick={resetModalFilters} className="rounded-full text-xs font-bold">
+                        Clear All Filters
+                      </Button>
+                    )}
                   </div>
                 )}
               </div>
