@@ -26,7 +26,13 @@ export function middleware(request: NextRequest) {
   const authCookie = request.cookies.get("lms_auth")?.value;
   const roleCookie = request.cookies.get("lms_role")?.value;
   const statusCookie = request.cookies.get("lms_status")?.value;
-  const isAuth = authCookie === "true";
+  
+  // Check for any Supabase auth session token cookie as a reliable fallback
+  const allCookies = request.cookies.getAll();
+  const hasSbCookie = allCookies.some(
+    (c) => (c.name.startsWith("sb-") && c.name.endsWith("-auth-token") && Boolean(c.value)) || c.name === "supabase-auth-token"
+  );
+  const isAuth = authCookie === "true" || hasSbCookie;
 
   // Allow OAuth callback route to process token exchanges
   if (pathname.startsWith("/auth/callback")) {

@@ -45,7 +45,7 @@ export default function DashboardLayout({
         return;
       }
 
-      let uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      let uStr = typeof window !== "undefined" ? (localStorage.getItem("lms_user") || localStorage.getItem("user")) : null;
       if (!uStr) {
         try {
           const { supabase } = await import("@/lib/supabase/client");
@@ -84,9 +84,15 @@ export default function DashboardLayout({
 
       const hasAuthCookie = typeof document !== "undefined" && document.cookie.includes("lms_auth=true");
       if (!uStr && !hasAuthCookie) {
-        import("@/lib/utils/auth-session").then(({ clearAuthSession }) => {
-          clearAuthSession("/login");
-        });
+        try {
+          const { supabase } = await import("@/lib/supabase/client");
+          const { data } = await supabase.auth.getSession();
+          if (!data?.session?.user) {
+            window.location.replace("/login");
+          }
+        } catch {
+          // Network fluctuation, avoid logging user out
+        }
       } else if (uStr) {
         try {
           const parsed = JSON.parse(uStr);
@@ -101,10 +107,8 @@ export default function DashboardLayout({
     };
 
     verifyAuth();
-    window.addEventListener("pageshow", verifyAuth);
     return () => {
       isCancelled = true;
-      window.removeEventListener("pageshow", verifyAuth);
     };
   }, [pathname]);
 

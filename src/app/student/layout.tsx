@@ -13,9 +13,14 @@ export default async function StudentRootLayout({
   // Server-Side Auth Guard: Catch unauthorized users before rendering HTML (Eliminates FOUC)
   const cookieStore = await cookies();
   const role = cookieStore.get("lms_role")?.value;
+  const authCookie = cookieStore.get("lms_auth")?.value;
+  const allCookies = cookieStore.getAll();
+  const hasSbCookie = allCookies.some(
+    (c) => (c.name.startsWith("sb-") && c.name.endsWith("-auth-token") && Boolean(c.value)) || c.name === "supabase-auth-token"
+  );
 
-  // The fallback is purely to protect the layout. API routes handle actual token verification.
-  if (!role || (role !== "student" && role !== "admin" && role !== "superadmin" && role !== "college_admin")) {
+  const isPossiblyAuth = authCookie === "true" || hasSbCookie || Boolean(role);
+  if (!isPossiblyAuth) {
     redirect("/login?redirect=/student");
   }
 
