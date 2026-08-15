@@ -190,18 +190,10 @@ export default function RegisterPage() {
           <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-brand/5 rounded-full blur-3xl pointer-events-none" />
 
           <div className="relative z-10">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-brand/15 border border-brand/30 flex items-center justify-center text-brand">
-                <GraduationCap className="w-5 h-5 stroke-[2.5]" />
-              </div>
-              <div>
-                <span className="text-base font-bold tracking-tight text-foreground block font-heading">
-                  {branding.companyName || "Student Registration"}
-                </span>
-                <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest block">
-                  Student Registration
-                </span>
-              </div>
+            <div>
+              <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground font-heading">
+                Student Registration
+              </h1>
             </div>
 
             <div className="mt-12 space-y-3">
