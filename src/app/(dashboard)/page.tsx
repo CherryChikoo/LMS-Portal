@@ -323,33 +323,45 @@ export default function DashboardPage() {
   const [userName, setUserName] = useState<string>("User");
 
   useEffect(() => {
-    try {
-      const role = localStorage.getItem("lms_role");
-      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-      if (uStr) {
-        const parsed = JSON.parse(uStr);
-        if (parsed.collegeId) {
-          setUserCollegeId(parsed.collegeId);
-        }
-        if (parsed.role) {
-          setUserRole(parsed.role.toLowerCase());
+    const syncUser = () => {
+      try {
+        const role = localStorage.getItem("lms_role");
+        const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+        if (uStr) {
+          const parsed = JSON.parse(uStr);
+          if (parsed.collegeId) {
+            setUserCollegeId(parsed.collegeId);
+          }
+          if (parsed.role) {
+            setUserRole(parsed.role.toLowerCase());
+          } else if (role) {
+            setUserRole(role.toLowerCase());
+          }
+          const n = parsed.displayName || parsed.name || "";
+          if (n) {
+            setUserName(formatDisplayName(n));
+          } else if (parsed.role === "college_admin" || (parsed.collegeId && parsed.collegeId !== "global")) {
+            setUserName(parsed.collegeName || branding.companyName || "Admin");
+          } else {
+            setUserName(branding.companyName || "Admin");
+          }
         } else if (role) {
           setUserRole(role.toLowerCase());
+        } else {
+          setUserRole("student");
         }
-        const n = parsed.name || parsed.displayName || "";
-        if (parsed.role === "college_admin" || (parsed.collegeId && parsed.collegeId !== "global")) {
-          setUserName(n && !n.toLowerCase().includes("admin") ? formatDisplayName(n) : (branding.companyName || parsed.collegeName || "Admin"));
-        } else if (n) {
-          setUserName(formatDisplayName(n));
-        }
-      } else if (role) {
-        setUserRole(role.toLowerCase());
-      } else {
+      } catch (e) {
         setUserRole("student");
       }
-    } catch (e) {
-      setUserRole("student");
-    }
+    };
+
+    syncUser();
+    window.addEventListener("storage", syncUser);
+    window.addEventListener("pageshow", syncUser);
+    return () => {
+      window.removeEventListener("storage", syncUser);
+      window.removeEventListener("pageshow", syncUser);
+    };
   }, [branding]);
 
   const displayBatches = useMemo(() => {
