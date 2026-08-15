@@ -108,36 +108,19 @@ export function GlobalLoadingProvider({ children }: { children: React.ReactNode 
       <AnimatePresence>
         {isLoading && (
           <motion.div
-            key="global-loading-overlay"
+            key="global-top-loading-bar"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.18 }}
-            className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/65 backdrop-blur-md select-none cursor-wait"
-            aria-live="assertive"
-            role="status"
+            transition={{ duration: 0.15 }}
+            className="fixed top-0 left-0 right-0 z-[99999] h-[3px] bg-transparent pointer-events-none overflow-hidden"
           >
             <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              transition={{ type: "spring", stiffness: 350, damping: 25 }}
-              className="flex flex-col items-center gap-5 p-8 rounded-3xl bg-card/90 border border-border/80 shadow-2xl max-w-sm w-full mx-4 text-center backdrop-blur-xl"
-            >
-              <div className="relative flex items-center justify-center py-1">
-                {/* Single clean spinning brand ring */}
-                <div className="w-12 h-12 rounded-full border-[3px] border-brand/20 border-t-brand animate-spin" />
-              </div>
-
-              <div className="space-y-1.5">
-                <h3 className="text-base font-bold text-foreground tracking-tight">
-                  {message}
-                </h3>
-                <p className="text-xs text-muted-foreground animate-pulse">
-                  Please wait while the portal updates...
-                </p>
-              </div>
-            </motion.div>
+              initial={{ x: "-100%" }}
+              animate={{ x: "100%" }}
+              transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut" }}
+              className="h-full w-1/2 bg-gradient-to-r from-transparent via-brand to-transparent shadow-[0_0_8px_var(--brand)]"
+            />
           </motion.div>
         )}
       </AnimatePresence>

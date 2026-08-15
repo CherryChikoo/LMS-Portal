@@ -78,9 +78,7 @@ export function StudentSidebar() {
       <div className="flex items-center h-20 px-4 shrink-0 relative group/brand overflow-hidden">
         <Link href="/student" className="flex items-center w-full min-w-0">
           <div className="w-11 h-11 flex items-center justify-center shrink-0">
-            {!mounted || loading ? (
-              <div className="w-9 h-9 rounded-xl bg-brand/10 animate-pulse border border-brand/20 shrink-0" />
-            ) : branding.logoBase64 ? (
+            {branding.logoBase64 ? (
               <img
                 src={branding.logoBase64}
                 alt="Logo"
@@ -102,21 +100,12 @@ export function StudentSidebar() {
               transition: 'opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
             }}
           >
-            {!mounted || loading ? (
-              <div className="space-y-1.5 py-1">
-                <div className="h-4 w-32 bg-brand/10 animate-pulse rounded-md" />
-                <div className="h-2.5 w-20 bg-brand/10 animate-pulse rounded-md" />
-              </div>
-            ) : (
-              <>
-                <span className="font-bold text-base text-brand tracking-tight truncate">
-                  {branding.companyName || APP_NAME}
-                </span>
-                <span className="text-[9px] font-bold text-brand/60 uppercase tracking-widest truncate">
-                  {branding.companySubtitle || "Student Portal"}
-                </span>
-              </>
-            )}
+            <span className="font-bold text-base text-brand tracking-tight truncate">
+              {branding.companyName || APP_NAME}
+            </span>
+            <span className="text-[9px] font-bold text-brand/60 uppercase tracking-widest truncate">
+              {branding.companySubtitle || "Student Portal"}
+            </span>
           </div>
         </Link>
       </div>

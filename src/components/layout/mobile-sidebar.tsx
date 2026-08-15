@@ -161,9 +161,7 @@ export function MobileSidebar() {
         {/* Header */}
         <div className="flex items-center justify-between h-20 px-5 shrink-0 border-b border-border/40">
           <Link href="/" className="flex items-center gap-3 overflow-hidden" onClick={closeMobile}>
-            {!mounted || loading ? (
-              <div className="w-9 h-9 rounded-xl bg-brand/10 animate-pulse border border-brand/20 shrink-0" />
-            ) : userRole === "college_admin" ? (
+            {userRole === "college_admin" ? (
               <div className="w-9 h-9 rounded-xl bg-brand/15 text-brand flex items-center justify-center font-black text-base shrink-0 border border-brand/30 shadow-sm">
                 {(userCollegeName || "C").charAt(0).toUpperCase()}
               </div>
@@ -179,12 +177,7 @@ export function MobileSidebar() {
               </div>
             )}
             <div className="flex flex-col min-w-0">
-              {!mounted || loading ? (
-                <div className="space-y-1 py-1">
-                  <div className="h-4 w-28 bg-brand/10 animate-pulse rounded-md" />
-                  <div className="h-2.5 w-16 bg-brand/10 animate-pulse rounded-md" />
-                </div>
-              ) : userRole === "college_admin" ? (
+              {userRole === "college_admin" ? (
                 <>
                   <span className="font-bold text-base text-brand tracking-tight truncate">
                     {userCollegeName || "College Portal"}

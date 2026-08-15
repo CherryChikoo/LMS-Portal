@@ -117,7 +117,7 @@ export function parseLmsError(error: unknown): ParsedError {
     return {
       title: "Connection Error",
       message: "Unable to reach the server.",
-      cause: "Internet connection lost, or Firebase service is unavailable.",
+      cause: "Internet connection lost, or server service is unavailable.",
       action: "Check your Wi-Fi or mobile data, then try again.",
       category: "network",
       isRetryable: true,
