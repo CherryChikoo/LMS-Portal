@@ -114,19 +114,8 @@ export function getEffectiveExamStatus(exam: Exam): ExamStatus {
 }
 
 export function filterExamsForStudent(exams: Exam[], student: Student): Exam[] {
-  const studentCreatedMillis = toMillis(student.createdAt) ?? 0;
-
   return exams.filter((exam) => {
-    if (!isAssignedToStudent(exam.targets, student, (exam as any).sharedWith)) return false;
-
-    if (studentCreatedMillis > 0) {
-      const examTimeMillis = toMillis(exam.createdAt || exam.startTime || exam.scheduledAt) ?? 0;
-      if (examTimeMillis > 0 && examTimeMillis < studentCreatedMillis) {
-        return false;
-      }
-    }
-
-    return true;
+    return isAssignedToStudent(exam.targets, student, (exam as any).sharedWith);
   });
 }
 

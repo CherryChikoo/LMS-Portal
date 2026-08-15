@@ -65,12 +65,20 @@ export function StudentPortalDashboard({
           const parsed = JSON.parse(uStr);
           const sId = parsed.id || parsed.uid;
           const sEmail = parsed.email;
-          const canonical = students.find((s) => s.id === sId || (sEmail && s.email === sEmail));
+          const canonical = students.find((s) => (sId && s.id === sId) || (sEmail && s.email?.toLowerCase() === String(sEmail).toLowerCase()));
           
           if (canonical) {
             setStudentProfile({
               ...parsed,
               ...canonical,
+              id: canonical.id || sId || "",
+              email: canonical.email || sEmail || "",
+              collegeId: canonical.collegeId || parsed.collegeId || parsed.college || "",
+              collegeName: canonical.collegeName || parsed.collegeName || parsed.college || "",
+              batchIds: canonical.batchIds || parsed.batchIds || [],
+              department: canonical.department || parsed.department || "",
+              academicYear: canonical.academicYear || parsed.academicYear || "",
+              section: canonical.section || parsed.section || "",
               createdAt: canonical.createdAt || parsed.createdAt,
             });
           } else {

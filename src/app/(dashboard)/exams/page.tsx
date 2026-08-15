@@ -98,24 +98,14 @@ export default function ExamsPage() {
   const [examSearch, setExamSearch] = useState("");
   const [examSearchRaw, setExamSearchRaw] = useState("");
 
-  // Single centralized hierarchy hook drives both the page filter bar and the
-  // test-assignment modal in the create/publish flow. Using a unified hook
-  // ensures the institution dropdown lists official colleges, self-registered
-  // (external) institutions, and the GLOBAL catch-all.
-  const {
-    hierarchy,
-    filters: examFilters,
-    setFilters: setExamFilters,
-    institutionOptions: examInstitutionOptions,
-    collegeOptions: examCollegeOptions,
-    departmentOptions: examDepartmentOptions,
-    academicYearOptions: examYearOptions,
-    sectionOptions: examSectionOptions,
-    batchOptions: examBatchOptions,
-    buildAssignmentTarget,
-    getInstitutionName,
-  } = useAcademicHierarchy({
-    levels: ["institution", "department", "academicYear", "section", "batch"],
+  // Page search and filter hierarchy hook
+  const pageHierarchy = useAcademicHierarchy({
+    levels: currentRole === "college_admin" ? ["department", "academicYear", "section", "batch"] : ["institution", "department", "academicYear", "section", "batch"],
+  });
+
+  // Modal exam-assignment targeting hierarchy hook (independent state)
+  const modalHierarchy = useAcademicHierarchy({
+    levels: currentRole === "college_admin" ? ["department", "academicYear", "section", "batch"] : ["institution", "department", "academicYear", "section", "batch"],
   });
 
   // Modal State
@@ -144,8 +134,6 @@ export default function ExamsPage() {
   const [aiSelections, setAiSelections] = useState<Record<string, "original" | "suggested">>({});
   const [isPublishing, setIsPublishing] = useState(false);
 
-
-
   const getStudentAttemptForExam = (examId: string) =>
     findStudentAttemptForExam(attempts, examId, studentUser);
 
@@ -160,20 +148,27 @@ export default function ExamsPage() {
         const parsed = JSON.parse(uStr);
         const sId = parsed.id || parsed.uid;
         const sEmail = parsed.email;
-        const canonical = students.find((s: Student) => s.id === sId || (sEmail && s.email === sEmail));
+        const canonical = (students as Student[]).find((s: Student) => 
+          (sId && s.id === sId) || 
+          (sEmail && s.email?.toLowerCase() === String(sEmail).toLowerCase())
+        );
         const mergedStudent: Student = {
           ...(parsed || {}),
           ...(canonical || {}),
+          id: canonical?.id || sId || "",
+          email: canonical?.email || sEmail || "",
           collegeId: canonical?.collegeId || parsed?.collegeId || parsed?.college || "",
           collegeName: canonical?.collegeName || parsed?.collegeName || parsed?.college || canonical?.collegeId || parsed?.collegeId || "",
+          batchIds: canonical?.batchIds || parsed?.batchIds || [],
+          department: canonical?.department || parsed?.department || "",
+          academicYear: canonical?.academicYear || parsed?.academicYear || "",
+          section: canonical?.section || parsed?.section || "",
         } as Student;
         setStudentUser(mergedStudent);
       } else {
         setStudentUser({ id: "", name: "", email: "", department: "", collegeId: "", collegeName: "", batchIds: [], semester: 0, section: "", rollNumber: "", status: "active" as const, createdAt: new Date(), updatedAt: new Date() } as unknown as Student);
       }
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    } catch (_err) {
-    }
+    } catch (_err) {}
   }, [students]);
 
   // Compute the target details route for an exam card. Students always go
@@ -289,7 +284,7 @@ export default function ExamsPage() {
 
     const totalMarks = questions.reduce((acc, q) => acc + (q.marks || 2), 0);
     // Build the assignment target using the centralized helper
-    const builtTarget = buildAssignmentTarget();
+    const builtTarget = modalHierarchy.buildAssignmentTarget();
     
     let targetCollegeId = builtTarget.collegeId;
     let targetCollegeName = builtTarget.collegeName;
@@ -397,7 +392,7 @@ export default function ExamsPage() {
       setCreationMode("none");
       setTitle("");
       setQuestions([]);
-      setExamFilters({
+      modalHierarchy.setFilters({
         collegeId: "",
         department: "",
         academicYear: "",
@@ -632,32 +627,34 @@ export default function ExamsPage() {
             </div>
             {userRole !== "student" && (
               <div className="text-xs font-semibold text-muted-foreground">
-                Showing <span className="text-foreground font-extrabold">
+Showing <span className="text-foreground font-extrabold">
                   {exams.filter(exam => {
                     const tCol = (exam as any).collegeId || exam.targets?.[0]?.collegeId;
                     const isGlobal = !tCol || tCol === "global" || tCol === "GLOBAL" || tCol === "all" || tCol === "ALL";
                     
-                    const hasSubCollegeFilter = !!(examFilters.department || examFilters.academicYear || examFilters.section || examFilters.batchId);
+                    const hasSubCollegeFilter = !!(pageHierarchy.filters.department || pageHierarchy.filters.academicYear || pageHierarchy.filters.section || pageHierarchy.filters.batchId);
 
                     if (isGlobal) {
                       if (hasSubCollegeFilter) return false;
-                      if (userRole === "admin" && examFilters.collegeId && examFilters.collegeId !== "GLOBAL") return false;
+                      if (userRole === "admin" && pageHierarchy.filters.collegeId && pageHierarchy.filters.collegeId !== "GLOBAL") return false;
                       return true;
                     }
 
-                    if (examFilters.collegeId) {
-                      const matchesRoot = (exam as any).collegeId === examFilters.collegeId;
+                    if (pageHierarchy.filters.collegeId && pageHierarchy.filters.collegeId !== "ALL") {
+                      const filterCol = pageHierarchy.filters.collegeId.toLowerCase();
+                      const matchesRoot = (exam as any).collegeId && String((exam as any).collegeId).toLowerCase() === filterCol;
                       const matchesCollege = matchesRoot || exam.targets?.some(target => 
-                        target.collegeId === examFilters.collegeId || 
-                        target.ids?.includes(examFilters.collegeId)
+                        (target.collegeId && String(target.collegeId).toLowerCase() === filterCol) ||
+                        (target.collegeName && String(target.collegeName).toLowerCase() === filterCol) ||
+                        (target.ids && target.ids.some(id => String(id).toLowerCase() === filterCol))
                       );
                       if (!matchesCollege) return false;
                     }
                     const t = exam.targets?.[0];
-                    if (examFilters.department && (t?.department || "").trim().toLowerCase() !== (examFilters.department || "").trim().toLowerCase()) return false;
-                    if (examFilters.academicYear && t?.academicYear && t.academicYear !== examFilters.academicYear) return false;
-                    if (examFilters.section && (t?.section || "").trim().toLowerCase() !== (examFilters.section || "").trim().toLowerCase()) return false;
-                    if (examFilters.batchId && t?.batchId && t.batchId !== examFilters.batchId) return false;
+                    if (pageHierarchy.filters.department && pageHierarchy.filters.department !== "ALL" && (t?.department || "").trim().toLowerCase() !== (pageHierarchy.filters.department || "").trim().toLowerCase()) return false;
+                    if (pageHierarchy.filters.academicYear && pageHierarchy.filters.academicYear !== "ALL" && t?.academicYear && t.academicYear !== pageHierarchy.filters.academicYear) return false;
+                    if (pageHierarchy.filters.section && pageHierarchy.filters.section !== "ALL" && (t?.section || "").trim().toLowerCase() !== (pageHierarchy.filters.section || "").trim().toLowerCase()) return false;
+                    if (pageHierarchy.filters.batchId && pageHierarchy.filters.batchId !== "ALL" && t?.batchId && t.batchId !== pageHierarchy.filters.batchId && t?.batchName !== pageHierarchy.filters.batchId) return false;
                     return true;
                   }).length}
                 </span> of {exams.length} Assessments
@@ -668,16 +665,16 @@ export default function ExamsPage() {
           {userRole !== "student" && (
             <div className="pt-3 border-t border-border/60">
               <AcademicHierarchyFilters
-                showInstitution
-                levels={["institution", "department", "academicYear", "section", "batch"]}
-                filters={examFilters}
-                onChange={setExamFilters}
-                institutionOptions={examInstitutionOptions}
-                collegeOptions={examCollegeOptions}
-                departmentOptions={examDepartmentOptions}
-                academicYearOptions={examYearOptions}
-                sectionOptions={examSectionOptions}
-                batchOptions={examBatchOptions}
+                showInstitution={currentRole !== "college_admin"}
+                levels={currentRole === "college_admin" ? ["department", "academicYear", "section", "batch"] : ["institution", "department", "academicYear", "section", "batch"]}
+                filters={pageHierarchy.filters}
+                onChange={pageHierarchy.setFilters}
+                institutionOptions={pageHierarchy.institutionOptions}
+                collegeOptions={pageHierarchy.collegeOptions}
+                departmentOptions={pageHierarchy.departmentOptions}
+                academicYearOptions={pageHierarchy.academicYearOptions}
+                sectionOptions={pageHierarchy.sectionOptions}
+                batchOptions={pageHierarchy.batchOptions}
                 studentOptions={[]}
               />
             </div>
@@ -746,46 +743,56 @@ export default function ExamsPage() {
                 const t = exam.targets?.[0];
 
                 // 1. Institution / College filter
-                if (examFilters.collegeId && examFilters.collegeId !== "ALL" && examFilters.collegeId !== "global" && examFilters.collegeId !== "GLOBAL") {
-                  const matchesRoot = (exam as any).collegeId === examFilters.collegeId;
-                  const matchesTarget = exam.targets?.some(target => 
-                    target.collegeId === examFilters.collegeId || 
-                    target.ids?.includes(examFilters.collegeId)
+                if (pageHierarchy.filters.collegeId && pageHierarchy.filters.collegeId !== "ALL" && pageHierarchy.filters.collegeId !== "global" && pageHierarchy.filters.collegeId !== "GLOBAL") {
+                  const filterCol = pageHierarchy.filters.collegeId.toLowerCase();
+                  const targetCol = ((exam as any).collegeId || t?.collegeId || "").toLowerCase();
+                  const targetColName = (t?.collegeName || "").toLowerCase();
+                  
+                  const isMatch = targetCol === filterCol || targetColName === filterCol || exam.targets?.some(target => 
+                    (target.collegeId && target.collegeId.toLowerCase() === filterCol) ||
+                    (target.collegeName && target.collegeName.toLowerCase() === filterCol) ||
+                    (target.ids && target.ids.some((id: string) => id.toLowerCase() === filterCol))
                   );
-                  if (!matchesRoot && !matchesTarget) {
-                    const hasExplicitCollege = !!((exam as any).collegeId || t?.collegeId);
-                    if (hasExplicitCollege) return false;
+                  if (!isMatch && targetCol && targetCol !== "global" && targetCol !== "all") {
+                    return false;
                   }
                 }
 
                 // 2. Department filter
-                if (examFilters.department && examFilters.department !== "ALL") {
-                  if (t?.department && t.department.toLowerCase() !== examFilters.department.toLowerCase()) {
+                if (pageHierarchy.filters.department && pageHierarchy.filters.department !== "ALL") {
+                  const filterDept = pageHierarchy.filters.department.toLowerCase();
+                  const targetDept = (t?.department || "").toLowerCase();
+                  if (targetDept && targetDept !== "all" && targetDept !== filterDept) {
                     return false;
                   }
                 }
 
                 // 3. Academic Year filter
-                if (examFilters.academicYear && examFilters.academicYear !== "ALL") {
-                  if (t?.academicYear && t.academicYear.toLowerCase() !== examFilters.academicYear.toLowerCase()) {
+                if (pageHierarchy.filters.academicYear && pageHierarchy.filters.academicYear !== "ALL") {
+                  const filterYear = pageHierarchy.filters.academicYear.toLowerCase();
+                  const targetYear = (t?.academicYear || "").toLowerCase();
+                  if (targetYear && targetYear !== "all" && targetYear !== filterYear) {
                     return false;
                   }
                 }
 
                 // 4. Section filter
-                if (examFilters.section && examFilters.section !== "ALL") {
-                  if (t?.section && t.section.toLowerCase() !== examFilters.section.toLowerCase()) {
+                if (pageHierarchy.filters.section && pageHierarchy.filters.section !== "ALL") {
+                  const filterSec = pageHierarchy.filters.section.toLowerCase();
+                  const targetSec = (t?.section || "").toLowerCase();
+                  if (targetSec && targetSec !== "all" && targetSec !== filterSec) {
                     return false;
                   }
                 }
 
                 // 5. Batch filter
-                if (examFilters.batchId && examFilters.batchId !== "ALL") {
-                  const filterBatch = examFilters.batchId.toLowerCase();
-                  const tBatchId = t?.batchId?.toLowerCase();
-                  const tBatchName = t?.batchName?.toLowerCase();
-                  if (!tBatchId && !tBatchName) return false;
-                  if (tBatchId !== filterBatch && tBatchName !== filterBatch) return false;
+                if (pageHierarchy.filters.batchId && pageHierarchy.filters.batchId !== "ALL") {
+                  const filterBatch = pageHierarchy.filters.batchId.toLowerCase();
+                  const tBatchId = (t?.batchId || "").toLowerCase();
+                  const tBatchName = (t?.batchName || "").toLowerCase();
+                  if (tBatchId !== filterBatch && tBatchName !== filterBatch) {
+                    return false;
+                  }
                 }
               }
               return true;
@@ -1725,17 +1732,17 @@ Marks: 1`}
 
                 <AcademicHierarchyFilters
                   layout="grid-2"
-                  showInstitution
+                  showInstitution={currentRole !== "college_admin"}
                   showBatchToggle={true}
-                  levels={["institution", "department", "academicYear", "section", "batch"]}
-                  filters={examFilters}
-                  onChange={setExamFilters}
-                  institutionOptions={examInstitutionOptions}
-                  collegeOptions={examCollegeOptions}
-                  departmentOptions={examDepartmentOptions}
-                  academicYearOptions={examYearOptions}
-                  sectionOptions={examSectionOptions}
-                  batchOptions={examBatchOptions}
+                  levels={currentRole === "college_admin" ? ["department", "academicYear", "section", "batch"] : ["institution", "department", "academicYear", "section", "batch"]}
+                  filters={modalHierarchy.filters}
+                  onChange={modalHierarchy.setFilters}
+                  institutionOptions={modalHierarchy.institutionOptions}
+                  collegeOptions={modalHierarchy.collegeOptions}
+                  departmentOptions={modalHierarchy.departmentOptions}
+                  academicYearOptions={modalHierarchy.academicYearOptions}
+                  sectionOptions={modalHierarchy.sectionOptions}
+                  batchOptions={modalHierarchy.batchOptions}
                   studentOptions={[]}
                 />
 
@@ -1745,9 +1752,10 @@ Marks: 1`}
                   <span className="text-muted-foreground">Targeting:</span>
                   <span className="font-bold text-foreground">
                     {(() => {
-                      const institutionLabel = examFilters.collegeId ? resolveInstitution(examFilters.collegeId) : null;
-                      const batchLabel = (examFilters.batchId === "ALL" || !examFilters.batchId) ? null : resolveBatch(examFilters.batchId);
-                      return [institutionLabel, examFilters.department || null, examFilters.academicYear || null, examFilters.section ? `Sec ${examFilters.section}` : null, batchLabel].filter(Boolean).join(" → ") || "All Students";
+                      const effectiveCollegeId = modalHierarchy.filters.collegeId || (currentRole === "college_admin" ? userCollegeId : undefined);
+                      const institutionLabel = effectiveCollegeId ? resolveInstitution(effectiveCollegeId) : null;
+                      const batchLabel = (modalHierarchy.filters.batchId === "ALL" || !modalHierarchy.filters.batchId) ? null : resolveBatch(modalHierarchy.filters.batchId);
+                      return [institutionLabel, modalHierarchy.filters.department || null, modalHierarchy.filters.academicYear || null, modalHierarchy.filters.section ? `Sec ${modalHierarchy.filters.section}` : null, batchLabel].filter(Boolean).join(" → ") || "All Students";
                     })()}
                   </span>
                 </div>

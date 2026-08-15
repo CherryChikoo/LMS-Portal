@@ -295,37 +295,33 @@ function recomputeScopedData() {
         // 1. Assigned to their college (collegeId matches)
         // 2. Global exams (collegeId === "global" or "GLOBAL" or targets includes "global")
         // 3. Exams with targets array that includes their college
-        const currentUserAsStudent = { ...parsed, id: parsed.id || parsed.uid || "" } as Student;
-        const userCollegeId = parsed.collegeId;
-        const userCollegeName = parsed.collegeName;
+        const matchedInDb = studentsData.find(
+          (s) =>
+            (parsed.id && s.id === parsed.id) ||
+            (parsed.uid && s.id === parsed.uid) ||
+            (parsed.email && s.email?.toLowerCase() === String(parsed.email).toLowerCase())
+        );
 
-        let studentCreatedAtMillis: number = 0;
-        if (r === "student") {
-          const sCreated = parsed.createdAt || currentUserAsStudent.createdAt;
-          if (sCreated) {
-            studentCreatedAtMillis = toMillis(sCreated) || 0;
-          }
-          if (!studentCreatedAtMillis && (currentUserAsStudent.id || currentUserAsStudent.email)) {
-            const matchedInDb = studentsData.find(s => s.id === currentUserAsStudent.id || (currentUserAsStudent.email && s.email === currentUserAsStudent.email));
-            if (matchedInDb?.createdAt) {
-              studentCreatedAtMillis = toMillis(matchedInDb.createdAt) || 0;
-            }
-          }
-        }
+        const currentUserAsStudent: Student = {
+          ...parsed,
+          ...(matchedInDb || {}),
+          id: matchedInDb?.id || parsed.id || parsed.uid || "",
+          email: matchedInDb?.email || parsed.email || "",
+          collegeId: matchedInDb?.collegeId || parsed.collegeId || parsed.college || "",
+          collegeName: matchedInDb?.collegeName || parsed.collegeName || parsed.college || "",
+          batchIds: matchedInDb?.batchIds || parsed.batchIds || [],
+          department: matchedInDb?.department || parsed.department || "",
+          academicYear: matchedInDb?.academicYear || parsed.academicYear || "",
+          section: matchedInDb?.section || parsed.section || "",
+        } as Student;
+
+        const userCollegeId = parsed.collegeId || matchedInDb?.collegeId;
+        const userCollegeName = parsed.collegeName || matchedInDb?.collegeName;
         
         // Filter exams for college admins and students
         fExams = fExams.filter((exam) => {
           if (r === "student") {
-            if (!isAssignedToStudent(exam.targets, currentUserAsStudent, (exam as any).sharedWith)) {
-              return false;
-            }
-            if (studentCreatedAtMillis > 0) {
-              const examTimeMillis = toMillis(exam.createdAt || exam.startTime || exam.scheduledAt) || 0;
-              if (examTimeMillis > 0 && examTimeMillis < studentCreatedAtMillis) {
-                return false;
-              }
-            }
-            return true;
+            return isAssignedToStudent(exam.targets, currentUserAsStudent, (exam as any).sharedWith);
           }
           
           // For college admin:
@@ -363,16 +359,7 @@ function recomputeScopedData() {
         // Filter resources for college admins and students
         fResources = fResources.filter((resource) => {
           if (r === "student") {
-            if (!isAssignedToStudent(resource.targets, currentUserAsStudent, resource.sharedWith)) {
-              return false;
-            }
-            if (studentCreatedAtMillis > 0) {
-              const resTimeMillis = toMillis(resource.createdAt) || 0;
-              if (resTimeMillis > 0 && resTimeMillis < studentCreatedAtMillis) {
-                return false;
-              }
-            }
-            return true;
+            return isAssignedToStudent(resource.targets, currentUserAsStudent, resource.sharedWith);
           }
           
           const tCol = resource.collegeId || resource.targets?.[0]?.collegeId;
