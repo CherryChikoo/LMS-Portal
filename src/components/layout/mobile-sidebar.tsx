@@ -163,6 +163,10 @@ export function MobileSidebar() {
           <Link href="/" className="flex items-center gap-3 overflow-hidden" onClick={closeMobile}>
             {!mounted || loading ? (
               <div className="w-9 h-9 rounded-xl bg-brand/10 animate-pulse border border-brand/20 shrink-0" />
+            ) : userRole === "college_admin" ? (
+              <div className="w-9 h-9 rounded-xl bg-brand/15 text-brand flex items-center justify-center font-black text-base shrink-0 border border-brand/30 shadow-sm">
+                {(userCollegeName || "C").charAt(0).toUpperCase()}
+              </div>
             ) : branding.logoBase64 ? (
               <img
                 src={branding.logoBase64}
@@ -180,15 +184,22 @@ export function MobileSidebar() {
                   <div className="h-4 w-28 bg-brand/10 animate-pulse rounded-md" />
                   <div className="h-2.5 w-16 bg-brand/10 animate-pulse rounded-md" />
                 </div>
+              ) : userRole === "college_admin" ? (
+                <>
+                  <span className="font-bold text-base text-brand tracking-tight truncate">
+                    {userCollegeName || "College Portal"}
+                  </span>
+                  <span className="text-[10px] font-bold text-brand/60 uppercase tracking-widest truncate">
+                    College Admin Portal
+                  </span>
+                </>
               ) : (
                 <>
                   <span className="font-bold text-base text-brand tracking-tight truncate">
-                    {(userRole === "college_admin" || userRole === "student") && userCollegeId && !userCollegeId.startsWith("ext-") && userCollegeName 
-                      ? userCollegeName 
-                      : (branding.companyName || (userRole === "admin" || userRole === "trainer" ? "Enterprise LMS" : "College Admin Portal"))}
+                    {branding.companyName || "Enterprise LMS"}
                   </span>
                   <span className="text-[10px] font-bold text-brand/60 uppercase tracking-widest truncate">
-                    {branding.companySubtitle || (userRole === "admin" || userRole === "trainer" ? "Master Admin" : userRole === "student" ? "Student Portal" : "College Admin Portal")}
+                    {branding.companySubtitle || "Master Admin"}
                   </span>
                 </>
               )}
