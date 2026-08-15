@@ -101,12 +101,45 @@ export async function POST(request: NextRequest) {
     stage = "checkEmailUniqueness";
     const normalizedEmail = email.toLowerCase().trim();
     const studentName = name.trim();
-    const finalCollegeName = (collegeName || "").trim().toLowerCase();
-    const finalCollegeId = collegeId ? collegeId.trim() : collegeNameToId(finalCollegeName);
+    const rawCollegeName = (collegeName || "").trim();
+    const rawCollegeId = (collegeId || "").trim();
     const finalDepartment = (department || "Computer Science").trim();
     const finalAcademicYear = (academicYear || "1st Year").trim();
     const finalSection = (section || "A").toString().trim();
     const finalBatch = (batch || "").trim();
+
+    // Clean and resolve collegeId to guarantee foreign key integrity
+    let resolvedCollegeId: string | null = null;
+    const isUnassignedOrGlobal = !rawCollegeId || ["global", "all", "unassigned", "col-unassigned"].includes(rawCollegeId.toLowerCase());
+
+    if (!isUnassignedOrGlobal) {
+      const colSnap = await prisma.colleges.findFirst({
+        where: {
+          OR: [
+            { id: rawCollegeId },
+            { name: { equals: rawCollegeName || rawCollegeId, mode: "insensitive" } }
+          ]
+        },
+        select: { id: true }
+      });
+
+      if (colSnap) {
+        resolvedCollegeId = colSnap.id;
+      } else {
+        // Create the college record before creating user and student
+        const newCol = await prisma.colleges.create({
+          data: {
+            id: rawCollegeId,
+            name: rawCollegeName || rawCollegeId,
+            code: rawCollegeId.substring(0, 6).toUpperCase().replace(/[^A-Z0-9]/g, "") || "COL",
+            type: "external",
+            departments: [finalDepartment, "General"],
+          },
+          select: { id: true }
+        });
+        resolvedCollegeId = newCol.id;
+      }
+    }
 
     // PRE-FLIGHT CHECK: Check if an active profile doc exists in Prisma for any role (students or users)
     const [existingUserRecord, existingStudent, existingCollege] = await Promise.all([
@@ -141,7 +174,7 @@ export async function POST(request: NextRequest) {
       stage = "updateExistingAuthUser";
       const { data: updatedUser, error: updateError } = await supabaseAdmin.auth.admin.updateUserById(existingUser.id, {
         password: generateSecurePassword(),
-        user_metadata: { full_name: studentName, role: 'student', collegeId: finalCollegeId },
+        user_metadata: { full_name: studentName, role: 'student', collegeId: resolvedCollegeId },
       });
       if (updateError) {
         return NextResponse.json(
@@ -156,7 +189,7 @@ export async function POST(request: NextRequest) {
         email: normalizedEmail,
         password: generateSecurePassword(),
         email_confirm: true,
-        user_metadata: { full_name: studentName, role: 'student', collegeId: finalCollegeId },
+        user_metadata: { full_name: studentName, role: 'student', collegeId: resolvedCollegeId },
       });
 
       if (createError) {
@@ -176,21 +209,18 @@ export async function POST(request: NextRequest) {
       email: normalizedEmail,
       displayName: studentName,
       role: "student",
-      collegeId: finalCollegeId,
+      collegeId: resolvedCollegeId,
     };
 
     const studentDoc = {
       id: uid,
       authId: uid,
-      // name and email are not in students Prisma schema
-      collegeId: finalCollegeId,
-      // collegeName is not in Prisma schema
+      collegeId: resolvedCollegeId,
       department: finalDepartment,
       academicYear: finalAcademicYear,
       semester: 1,
       section: finalSection,
       rollNumber: `ROLL-${Math.floor(1000 + Math.random() * 9000)}`,
-      // batchIds not in Prisma schema, student_batches needs to be used but we'll ignore for now
       mustChangePassword: true,
       enrollmentType: "manual",
     };
@@ -201,21 +231,6 @@ export async function POST(request: NextRequest) {
         prisma.users.upsert({ where: { id: uid }, update: userDoc, create: userDoc }),
         prisma.students.upsert({ where: { id: uid }, update: studentDoc, create: studentDoc })
       ]);
-      
-      // Ensure the external college document exists
-      if (finalCollegeId && finalCollegeId !== "col-unassigned") {
-        const colSnap = await prisma.colleges.findUnique({ where: { id: finalCollegeId }, select: { id: true } });
-        if (!colSnap) {
-          await prisma.colleges.create({
-            data: {
-              id: finalCollegeId,
-              name: finalCollegeName,
-              code: finalCollegeId.substring(0, 6).toUpperCase(),
-              type: "external",
-            }
-          });
-        }
-      }
 
       // Assign student to batch in student_batches
       if (finalBatch && finalBatch !== "Unassigned" && finalBatch !== "None" && finalBatch !== "General Cohort") {
@@ -232,8 +247,8 @@ export async function POST(request: NextRequest) {
         // Filter out batches that belong to a different college
         matchingBatches = matchingBatches.filter((b: any) => {
           if (!b.collegeId || b.collegeId === "GLOBAL" || b.collegeId === "global") return true;
-          if (!finalCollegeId) return false;
-          return b.collegeId.toLowerCase() === finalCollegeId.toLowerCase();
+          if (!resolvedCollegeId) return false;
+          return b.collegeId.toLowerCase() === resolvedCollegeId.toLowerCase();
         });
 
         if (matchingBatches.length === 0) {
@@ -242,7 +257,7 @@ export async function POST(request: NextRequest) {
             data: {
               id: newBatchId,
               name: finalBatch,
-              collegeId: finalCollegeId || null,
+              collegeId: resolvedCollegeId || null,
               department: department || null,
               academicYear: academicYear || null,
               section: section || null,

@@ -246,18 +246,52 @@ export async function checkStudentEmailExistsAction(email: string) {
 }
 
 export async function resilientStudentFallbackAction(docId: string, cleanEmail: string, studentName: string, studentDoc: any, userDoc: any) {
+  const rawColId = studentDoc.collegeId || userDoc.collegeId;
+  const isSpecial = !rawColId || ["global", "all", "unassigned", "col-unassigned"].includes(String(rawColId).toLowerCase());
+  let validColId: string | null = null;
+
+  if (!isSpecial) {
+    const colExists = await prisma.colleges.findFirst({
+      where: {
+        OR: [
+          { id: String(rawColId) },
+          { name: { equals: String(rawColId), mode: "insensitive" } }
+        ]
+      },
+      select: { id: true }
+    });
+    if (colExists) {
+      validColId = colExists.id;
+    } else {
+      const newCol = await prisma.colleges.create({
+        data: {
+          id: String(rawColId),
+          name: String(rawColId),
+          code: String(rawColId).substring(0, 6).toUpperCase().replace(/[^A-Z0-9]/g, "") || "COL",
+          type: "external",
+          departments: ["General"],
+        },
+        select: { id: true }
+      });
+      validColId = newCol.id;
+    }
+  }
+
+  const cleanUserDoc = { ...userDoc, collegeId: validColId };
+  const cleanStudentDoc = { ...studentDoc, collegeId: validColId };
+
   await prisma.$transaction(async (tx: any) => {
     // Upsert user
     await tx.users.upsert({
       where: { id: docId },
-      update: userDoc,
-      create: userDoc
+      update: cleanUserDoc,
+      create: cleanUserDoc
     });
     // Upsert student
     await tx.students.upsert({
       where: { id: docId },
-      update: studentDoc,
-      create: studentDoc
+      update: cleanStudentDoc,
+      create: cleanStudentDoc
     });
   });
 }
