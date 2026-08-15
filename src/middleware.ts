@@ -48,10 +48,15 @@ export function middleware(request: NextRequest) {
       if (statusCookie === "restricted") {
         return NextResponse.next();
       }
-      const target =
-        roleCookie === "admin" || roleCookie === "trainer" || roleCookie === "college_admin"
-          ? "/"
-          : "/student";
+      const isStaff =
+        roleCookie === "admin" ||
+        roleCookie === "trainer" ||
+        roleCookie === "college_admin" ||
+        roleCookie === "college" ||
+        roleCookie === "superadmin" ||
+        roleCookie === "master_admin" ||
+        roleCookie === "main_admin";
+      const target = isStaff ? "/" : "/student";
       return NextResponse.redirect(new URL(target, request.url));
     }
     return NextResponse.next();
@@ -68,7 +73,13 @@ export function middleware(request: NextRequest) {
   }
 
   const isAdminOrTrainer =
-    roleCookie === "admin" || roleCookie === "trainer" || roleCookie === "college_admin";
+    roleCookie === "admin" ||
+    roleCookie === "trainer" ||
+    roleCookie === "college_admin" ||
+    roleCookie === "college" ||
+    roleCookie === "superadmin" ||
+    roleCookie === "master_admin" ||
+    roleCookie === "main_admin";
 
   // Handle student role route restrictions
   if (!isAdminOrTrainer && roleCookie === "student") {

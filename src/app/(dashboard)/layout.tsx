@@ -66,16 +66,15 @@ export default function DashboardLayout({
             const role = dbUser?.role || "student";
             const uObj = {
               id: studentDoc?.id || dbUser?.id || user.id,
+              authId: user.id,
               name: dbUser?.displayName || user.user_metadata?.full_name || email.split("@")[0] || "User",
               email: email,
               role: role,
               collegeId: studentDoc?.collegeId || dbUser?.collegeId || null,
               createdAt: Date.now(),
             };
-            localStorage.setItem("lms_auth", "true");
-            localStorage.setItem("lms_role", role);
-            localStorage.setItem("lms_user", JSON.stringify(uObj));
-            localStorage.setItem("user", JSON.stringify(uObj));
+            const { setAuthSession } = await import("@/lib/utils/auth-session");
+            await setAuthSession(uObj, role);
             uStr = JSON.stringify(uObj);
           }
         } catch (_) {}

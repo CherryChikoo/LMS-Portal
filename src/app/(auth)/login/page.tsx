@@ -87,10 +87,13 @@ function LoginContent() {
     try {
       const res = await unifiedLogin(email, password);
       
+      const resolvedId = (res as any)?.profile?.id || (res as any)?.user?.id || (res as any)?.user?.uid;
+      const resolvedAuthId = (res as any)?.user?.id || (res as any)?.profile?.authId || resolvedId;
       const uObj = {
-        id: (res as any)?.user.uid,
-        name: (res as any)?.profile?.displayName || (res as any)?.user.displayName || email.split("@")[0] || "User",
-        email: (res as any)?.profile?.email || (res as any)?.user.email || email,
+        id: resolvedId,
+        authId: resolvedAuthId,
+        name: (res as any)?.profile?.displayName || (res as any)?.user?.user_metadata?.full_name || (res as any)?.user?.displayName || email.split("@")[0] || "User",
+        email: (res as any)?.profile?.email || (res as any)?.user?.email || email,
         role: (res as any)?.role,
         department: (res as any)?.profile?.department || "General",
         collegeId: (res as any)?.profile?.collegeId || "",

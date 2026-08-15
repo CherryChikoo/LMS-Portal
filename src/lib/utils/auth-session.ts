@@ -24,37 +24,48 @@ function getLogoutRole(): "student" | "admin" | "college_admin" {
 
 export async function setAuthSession(
   session: string | Record<string, unknown>,
-  role: UserRole,
+  role: UserRole | string,
   user?: Record<string, unknown>
 ): Promise<void> {
-  const normalizedRole = role === "trainer" ? "admin" : role;
+  const roleStr = String(role || "student").toLowerCase();
+  const normalizedRole = 
+    (roleStr === "trainer" || roleStr === "superadmin" || roleStr === "master_admin" || roleStr === "main_admin" || roleStr === "admin")
+      ? "admin"
+      : (roleStr === "college_admin" || roleStr === "college" ? "college_admin" : "student");
+
   const isSecure = typeof window !== "undefined" && window.location.protocol === "https:";
   // 30 days session persistence (2592000 seconds)
   const cookieOptions = `path=/; max-age=2592000; SameSite=Lax${isSecure ? "; Secure" : ""}`;
 
+  let userToStore: Record<string, unknown> | null = null;
   if (typeof session === "string") {
-    // session is an ID token
     localStorage.setItem("lms_token", session);
     localStorage.setItem("lms_auth", "true");
+    if (user) {
+      userToStore = user;
+    }
   } else {
-    // session is a user profile object
-    localStorage.setItem("lms_user", JSON.stringify(session));
-    localStorage.setItem("user", JSON.stringify(session));
-    localStorage.setItem("lms_auth", "true");
+    userToStore = session;
   }
 
-  if (user) {
-    localStorage.setItem("lms_user", JSON.stringify(user));
-    localStorage.setItem("user", JSON.stringify(user));
+  if (userToStore) {
+    localStorage.setItem("lms_user", JSON.stringify(userToStore));
+    localStorage.setItem("user", JSON.stringify(userToStore));
+    localStorage.setItem("lms_auth", "true");
   }
 
   localStorage.setItem("lms_role", normalizedRole);
 
-  // Set secure cookies for Next.js middleware verification with consistent attributes
-  document.cookie = `lms_auth=true; ${cookieOptions}`;
-  document.cookie = `lms_role=${normalizedRole}; ${cookieOptions}`;
+  if (typeof document !== "undefined") {
+    // Set secure cookies for Next.js middleware verification
+    document.cookie = `lms_auth=true; ${cookieOptions}`;
+    document.cookie = `lms_role=${normalizedRole}; ${cookieOptions}`;
+  }
 
-  window.dispatchEvent(new Event("storage"));
+  if (typeof window !== "undefined") {
+    (window as any).__isLoggingOut = false;
+    window.dispatchEvent(new Event("storage"));
+  }
 }
 
 /**
