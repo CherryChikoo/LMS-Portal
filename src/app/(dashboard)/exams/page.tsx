@@ -823,12 +823,21 @@ export default function ExamsPage() {
               const effStatus = getEffectiveExamStatus(exam);
               const att = getStudentAttemptForExam(exam.id);
 
-              const tCol = (exam as any).collegeId || exam.targets?.[0]?.collegeId;
-              const isGlobalAssignment = !tCol || tCol === "global" || tCol === "GLOBAL" || tCol === "all" || tCol === "ALL";
+              const t = exam.targets?.[0];
+              const targetCollege = (exam as any).collegeId || t?.collegeId;
+              const isExplicitGlobal = !targetCollege || targetCollege === "global" || targetCollege === "GLOBAL" || targetCollege === "all" || targetCollege === "ALL";
+
+              const hasSpecificCollege = Boolean(targetCollege && !isExplicitGlobal);
+              const hasSpecificDept = Boolean(t?.department && t.department !== "ALL" && t.department !== "all");
+              const hasSpecificYear = Boolean(t?.academicYear && t.academicYear !== "ALL" && t.academicYear !== "all");
+              const hasSpecificSection = Boolean(t?.section && t.section !== "ALL" && t.section !== "all");
+              const hasSpecificBatch = Boolean(t?.batchId && t.batchId !== "ALL" && t.batchId !== "all");
+              const hasSpecificStudent = Boolean((t as any)?.studentId || (t as any)?.studentName);
+
+              const isGlobalAssignment = !hasSpecificCollege && !hasSpecificDept && !hasSpecificYear && !hasSpecificSection && !hasSpecificBatch && !hasSpecificStudent;
 
               const getExamTargetDisplay = () => {
                 if (isGlobalAssignment) return "Global Assignment (All Colleges)";
-                const t = exam.targets?.[0];
                 if (!t) return "All Students";
                 // New hierarchy shape: targets carry a `level` field (global /
                 // institution / department / academicYear / section / batch /

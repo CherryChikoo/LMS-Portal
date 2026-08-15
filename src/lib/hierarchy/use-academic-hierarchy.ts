@@ -385,17 +385,22 @@ export function useAcademicHierarchy(options: UseAcademicHierarchyOptions = {}):
       ? (hierarchy?.students as Student[])?.find((s: Student) => s.id === studentId)
       : undefined;
 
+    const effectiveCollegeId = collegeId || (batch?.collegeId && batch.collegeId !== "GLOBAL" && batch.collegeId !== "global" && batch.collegeId !== "ALL" && batch.collegeId !== "all" ? batch.collegeId : undefined) || (isScopedRole && userCollegeId ? userCollegeId : undefined);
+    const effectiveCollegeName = collegeName || (effectiveCollegeId ? hierarchy?.collegeMap.get(effectiveCollegeId)?.name || resolveInstitutionName(hierarchy, effectiveCollegeId) : undefined) || (isScopedRole && userCollegeName ? userCollegeName : undefined);
+
     const target: AssignmentTarget = {
       level,
       type: "composite", 
       ids: ["composite"] 
     };
+
+    if (effectiveCollegeId) target.collegeId = effectiveCollegeId;
+    if (effectiveCollegeName) target.collegeName = effectiveCollegeName;
+
     if (filters.batchOnlyMode) {
       if (batchId) target.batchId = batchId;
       if (batch?.name) target.batchName = batch.name;
     } else {
-      if (collegeId) target.collegeId = collegeId;
-      if (collegeName) target.collegeName = collegeName;
       if (dept) target.department = dept;
       if (year) target.academicYear = year;
       if (sec) target.section = sec;
@@ -414,6 +419,9 @@ export function useAcademicHierarchy(options: UseAcademicHierarchyOptions = {}):
     filters.batchOnlyMode,
     filters.studentId,
     hierarchy,
+    isScopedRole,
+    userCollegeId,
+    userCollegeName,
   ]);
 
   // Read-only validation: compute which filter values are valid in the

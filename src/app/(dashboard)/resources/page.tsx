@@ -2,7 +2,28 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { FolderOpen, Upload, Link as LinkIcon, FileText, FileSpreadsheet, Video, Image as ImageIcon, Download, Eye, ExternalLink, Trash2, Search, CheckCircle2, Target, Loader2, File, CalendarDays, User, Plus, X, Globe } from "lucide-react";
+import { 
+  FolderOpen, 
+  Upload, 
+  Link as LinkIcon, 
+  FileText, 
+  FileSpreadsheet, 
+  Video, 
+  Image as ImageIcon, 
+  ExternalLink, 
+  Trash2, 
+  Search, 
+  CheckCircle2, 
+  Target, 
+  Loader2, 
+  CalendarDays, 
+  User, 
+  Plus, 
+  X, 
+  Globe,
+  Building2,
+  Users
+} from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
@@ -10,12 +31,12 @@ import { AcademicHierarchyFilters } from "@/components/shared/academic-hierarchy
 import { useAcademicHierarchy } from "@/lib/hierarchy/use-academic-hierarchy";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
-import { getAllResources, createResource, deleteResource, filterResourcesForStudent } from "@/lib/services";
+import { createResource, deleteResource, filterResourcesForStudent } from "@/lib/services";
 import { getCurrentUser } from "@/lib/utils/auth-session";
 import { formatTimestamp } from "@/lib/utils/date";
 import { useLMSData } from "@/lib/data/use-lms-data";
 import { refreshCache } from "@/lib/data/lms-store";
-import { ResourcePreviewModal, isPreviewable } from "@/components/resources/resource-preview-modal";
+import { ResourcePreviewModal } from "@/components/resources/resource-preview-modal";
 import { useEntityResolution } from "@/lib/data/use-entity-resolution";
 import type { Resource, ResourceType, AssignmentTarget, Student } from "@/types";
 
@@ -31,6 +52,7 @@ export default function ResourcesPage() {
       if (role) setUserRole(role.toLowerCase());
     } catch {}
   }, []);
+
   const [currentUser, setCurrentUser] = useState<{ uid: string; email: string; profile: Record<string, unknown> } | null>(null);
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm?: () => void; isAlert?: boolean; variant?: "destructive" | "warning" | "info" | "success" } | null>(null);
 
@@ -45,22 +67,13 @@ export default function ResourcesPage() {
   const [resourceSearch, setResourceSearch] = useState("");
   const { resolveInstitution } = useEntityResolution();
 
-  // Single shared cascading hierarchy used by both the page filter bar and the
-  // upload/assignment modal. Avoids duplicate subscriptions and ensures the
-  // institution dropdown surfaces official, external (self-registered), and
-  // Global entries.
-  const {
-    filters: resourceFilters,
-    setFilters: setResourceFilters,
-    reset: resetResourceFilters,
-    institutionOptions,
-    collegeOptions,
-    departmentOptions,
-    academicYearOptions,
-    sectionOptions,
-    batchOptions,
-    buildAssignmentTarget,
-  } = useAcademicHierarchy({
+  // Page filter hierarchy
+  const pageHierarchy = useAcademicHierarchy({
+    levels: userRole === "college_admin" ? ["department", "academicYear", "section", "batch"] : ["institution", "department", "academicYear", "section", "batch"],
+  });
+
+  // Modal target selector hierarchy (independent state so it doesn't clash with page filter)
+  const modalHierarchy = useAcademicHierarchy({
     levels: userRole === "college_admin" ? ["department", "academicYear", "section", "batch"] : ["institution", "department", "academicYear", "section", "batch"],
   });
 
@@ -68,9 +81,7 @@ export default function ResourcesPage() {
     try {
       const storedRole = localStorage.getItem("lms_role");
       if (storedRole) setUserRole(storedRole.toLowerCase());
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    } catch (_) {
-    }
+    } catch (_) {}
     getCurrentUser().then((u) => {
       if (u) setCurrentUser(u);
     });
@@ -82,18 +93,24 @@ export default function ResourcesPage() {
     if (!title || validLinks.length === 0) return;
     setCreating(true);
     try {
-      const target = buildAssignmentTarget();
+      const target = modalHierarchy.buildAssignmentTarget();
+      const rawCollegeId = target.collegeId || modalHierarchy.filters.collegeId;
+      const cleanCollegeId = (!rawCollegeId || rawCollegeId === "GLOBAL" || rawCollegeId === "ALL" || rawCollegeId === "all" || rawCollegeId === "global" || rawCollegeId === "UNASSIGNED")
+        ? null
+        : rawCollegeId;
+
       const compositeTarget: AssignmentTarget = {
         type: "composite",
         ids: ["composite"],
-        collegeId: target.collegeId,
-        collegeName: target.collegeName,
+        collegeId: cleanCollegeId || undefined,
+        collegeName: target.collegeName || (cleanCollegeId ? resolveInstitution(cleanCollegeId) : undefined),
         department: target.department,
         academicYear: target.academicYear,
         section: target.section,
         batchId: target.batchId,
         batchName: target.batchName,
       };
+
       await createResource({
         title,
         description: desc,
@@ -103,17 +120,18 @@ export default function ResourcesPage() {
         tags: ["LINK", "Shared Resource"],
         sharedWith: ["all"],
         targets: [compositeTarget],
-        collegeId: target.collegeId,
-        collegeName: target.collegeName,
+        collegeId: cleanCollegeId || undefined,
+        collegeName: target.collegeName || (cleanCollegeId ? resolveInstitution(cleanCollegeId) : undefined),
         createdAt: new Date(),
         updatedAt: new Date(),
       });
+      
       await refreshCache();
       setShowUploadModal(false);
       setTitle("");
       setLinks([""]);
       setDesc("");
-      resetResourceFilters();
+      modalHierarchy.reset();
     } catch (err) {
       console.error("Failed to create resource", err);
     } finally {
@@ -148,56 +166,42 @@ export default function ResourcesPage() {
       case "doc": return <FileText className="w-5 h-5 text-blue-500" />;
       case "video": return <Video className="w-5 h-5 text-purple-500" />;
       case "image": return <ImageIcon className="w-5 h-5 text-emerald-500" />;
-      case "other": return <File className="w-5 h-5 text-gray-500" />;
       default: return <LinkIcon className="w-5 h-5 text-brand" />;
     }
   };
 
-  // Filter if student view using the resolved Firebase uid/email so students
-  // only see resources assigned to them by hierarchy or direct targeting.
-  // For trainers/admins, also apply the cascading hierarchy filter bar.
   const displayResources = useMemo(() => {
     if (userRole !== "student") {
       return (resources as Resource[]).filter((res: Resource) => {
         const t = res.targets?.[0];
-        
-        // 1. Institution / College filter
-        if (resourceFilters.collegeId && resourceFilters.collegeId !== "ALL" && resourceFilters.collegeId !== "global" && resourceFilters.collegeId !== "GLOBAL") {
-          const matchesRoot = res.collegeId === resourceFilters.collegeId;
-          const matchesTarget = res.targets?.some(target => 
-            target.collegeId === resourceFilters.collegeId || 
-            target.ids?.includes(resourceFilters.collegeId)
-          );
-          if (!matchesRoot && !matchesTarget) {
-            const hasExplicitCollege = !!(res.collegeId || t?.collegeId);
-            if (hasExplicitCollege) return false;
-          }
-        }
+        const resColId = res.collegeId || t?.collegeId;
 
-        // 2. Department filter
-        if (resourceFilters.department && resourceFilters.department !== "ALL") {
-          if (t?.department && t.department.toLowerCase() !== resourceFilters.department.toLowerCase()) {
+        if (pageHierarchy.filters.collegeId && pageHierarchy.filters.collegeId !== "ALL") {
+          if (resColId && resColId !== pageHierarchy.filters.collegeId && resColId !== "GLOBAL" && resColId !== "ALL") {
             return false;
           }
         }
 
-        // 3. Academic Year filter
-        if (resourceFilters.academicYear && resourceFilters.academicYear !== "ALL") {
-          if (t?.academicYear && t.academicYear.toLowerCase() !== resourceFilters.academicYear.toLowerCase()) {
+        if (pageHierarchy.filters.department && pageHierarchy.filters.department !== "ALL") {
+          if (t?.department && t.department !== "ALL" && t.department !== pageHierarchy.filters.department) {
             return false;
           }
         }
 
-        // 4. Section filter
-        if (resourceFilters.section && resourceFilters.section !== "ALL") {
-          if (t?.section && t.section.toLowerCase() !== resourceFilters.section.toLowerCase()) {
+        if (pageHierarchy.filters.academicYear && pageHierarchy.filters.academicYear !== "ALL") {
+          if (t?.academicYear && t.academicYear !== "ALL" && t.academicYear !== pageHierarchy.filters.academicYear) {
             return false;
           }
         }
 
-        // 5. Batch filter
-        if (resourceFilters.batchId && resourceFilters.batchId !== "ALL") {
-          const filterBatch = resourceFilters.batchId.toLowerCase();
+        if (pageHierarchy.filters.section && pageHierarchy.filters.section !== "ALL") {
+          if (t?.section && t.section !== "ALL" && t.section !== pageHierarchy.filters.section) {
+            return false;
+          }
+        }
+
+        if (pageHierarchy.filters.batchId && pageHierarchy.filters.batchId !== "ALL") {
+          const filterBatch = pageHierarchy.filters.batchId.toLowerCase();
           const tBatchId = t?.batchId?.toLowerCase();
           const tBatchName = t?.batchName?.toLowerCase();
           if (!tBatchId && !tBatchName) return false;
@@ -207,6 +211,7 @@ export default function ResourcesPage() {
         return true;
       });
     }
+
     const baseProfile = {
       id: currentUser?.uid || "",
       name: "",
@@ -237,20 +242,18 @@ export default function ResourcesPage() {
           collegeName: canonical?.collegeName || parsed?.collegeName || parsed?.college || canonical?.collegeId || parsed?.collegeId || "",
         };
       }
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    } catch (_) {
-    }
+    } catch (_) {}
     return filterResourcesForStudent(resources, studentProfile as Student);
   }, [
     resources,
     students,
     userRole,
     currentUser,
-    resourceFilters.collegeId,
-    resourceFilters.department,
-    resourceFilters.academicYear,
-    resourceFilters.section,
-    resourceFilters.batchId,
+    pageHierarchy.filters.collegeId,
+    pageHierarchy.filters.department,
+    pageHierarchy.filters.academicYear,
+    pageHierarchy.filters.section,
+    pageHierarchy.filters.batchId,
   ]);
 
   if (!mounted) return null;
@@ -289,14 +292,14 @@ export default function ResourcesPage() {
             <AcademicHierarchyFilters
               showInstitution={userRole !== "college_admin"}
               levels={userRole === "college_admin" ? ["department", "academicYear", "section", "batch"] : ["institution", "department", "academicYear", "section", "batch"]}
-              filters={resourceFilters}
-              onChange={setResourceFilters}
-              institutionOptions={institutionOptions}
-              collegeOptions={collegeOptions}
-              departmentOptions={departmentOptions}
-              academicYearOptions={academicYearOptions}
-              sectionOptions={sectionOptions}
-              batchOptions={batchOptions}
+              filters={pageHierarchy.filters}
+              onChange={pageHierarchy.setFilters}
+              institutionOptions={pageHierarchy.institutionOptions}
+              collegeOptions={pageHierarchy.collegeOptions}
+              departmentOptions={pageHierarchy.departmentOptions}
+              academicYearOptions={pageHierarchy.academicYearOptions}
+              sectionOptions={pageHierarchy.sectionOptions}
+              batchOptions={pageHierarchy.batchOptions}
               studentOptions={[]}
             />
           )}
@@ -322,17 +325,30 @@ export default function ResourcesPage() {
         />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {displayResources
-            .filter((res) => {
-              const q = resourceSearch.toLowerCase();
+          {(displayResources as Resource[])
+            .filter((res: Resource) => {
+              const q = resourceSearch.toLowerCase().trim();
               const matchesSearch = !q || res.title.toLowerCase().includes(q) || (res.category || "").toLowerCase().includes(q) || (res.description || "").toLowerCase().includes(q);
               return matchesSearch;
             })
-            .map((res) => {
-              const parsedLinks = res.type === "link" && res.url ? res.url.split(",").filter(Boolean) : [res.url].filter(Boolean);
+            .map((res: Resource) => {
+              const parsedLinks: string[] = res.type === "link" && res.url ? res.url.split(",").filter(Boolean) : [res.url].filter(Boolean);
               
-              const tCol = res.collegeId || res.targets?.[0]?.collegeId;
-              const isGlobal = !tCol || tCol === "global" || tCol === "GLOBAL" || tCol === "all" || tCol === "ALL";
+              const t = res.targets?.[0];
+              const targetCollege = res.collegeId || t?.collegeId;
+              const isExplicitGlobal = !targetCollege || targetCollege === "global" || targetCollege === "GLOBAL" || targetCollege === "all" || targetCollege === "ALL";
+              
+              const hasSpecificCollege = Boolean(targetCollege && !isExplicitGlobal);
+              const hasSpecificDept = Boolean(t?.department && t.department !== "ALL" && t.department !== "all");
+              const hasSpecificYear = Boolean(t?.academicYear && t.academicYear !== "ALL" && t.academicYear !== "all");
+              const hasSpecificSection = Boolean(t?.section && t.section !== "ALL" && t.section !== "all");
+              const hasSpecificBatch = Boolean(t?.batchId && t.batchId !== "ALL" && t.batchId !== "all");
+              const hasSpecificStudent = Boolean(t?.studentId);
+              
+              // Only truly global if NO specific targeting dimension exists
+              const isGlobal = !hasSpecificCollege && !hasSpecificDept && !hasSpecificYear && !hasSpecificSection && !hasSpecificBatch && !hasSpecificStudent;
+
+              const collegeLabel = hasSpecificCollege ? (t?.collegeName || resolveInstitution(targetCollege!)) : "";
 
               return (
                 <motion.div
@@ -358,6 +374,22 @@ export default function ResourcesPage() {
                               </span>
                             );
                           }
+                          if (hasSpecificCollege && userRole !== "student") {
+                            return (
+                              <span className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-500/10 text-purple-600 text-[10px] font-bold uppercase tracking-widest border border-purple-500/20 shadow-sm truncate max-w-[140px]" title={collegeLabel}>
+                                <Building2 className="w-3 h-3 shrink-0" />
+                                <span className="truncate">{collegeLabel}</span>
+                              </span>
+                            );
+                          }
+                          if (hasSpecificBatch && userRole !== "student") {
+                            return (
+                              <span className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 text-amber-600 text-[10px] font-bold uppercase tracking-widest border border-amber-500/20 shadow-sm">
+                                <Users className="w-3 h-3" />
+                                Cohort
+                              </span>
+                            );
+                          }
                           return null;
                         })()}
                       </div>
@@ -380,15 +412,13 @@ export default function ResourcesPage() {
                         Attached Links
                       </div>
                       <div className="flex flex-col gap-2">
-                        {parsedLinks.map((link, idx) => {
+                        {parsedLinks.map((link: string, idx: number) => {
                           let displayLink = link;
                           try {
                             if (link.startsWith("http://") || link.startsWith("https://")) {
                               displayLink = new URL(link).hostname.replace("www.", "");
                             }
-                          } catch (e) {
-                            // Keep raw link if parsing fails
-                          }
+                          } catch (e) {}
                           
                           return (
                           <a
@@ -433,25 +463,17 @@ export default function ResourcesPage() {
                         <span className="font-medium text-foreground leading-relaxed truncate">
                           {(() => {
                             if (isGlobal) return "Global Assignment (All Colleges)";
-
-                            const t = res.targets?.[0];
-                            if (!t) return "All Students";
-                            if (t.type === "composite") {
-                              const parts = [
-                                t.collegeId && t.collegeId !== "ALL" ? resolveInstitution(t.collegeId) : null,
-                                t.department && t.department !== "ALL" ? t.department : null,
-                                t.academicYear && t.academicYear !== "ALL" ? t.academicYear : null,
-                                t.section && t.section !== "ALL" ? `Sec ${t.section}` : null,
-                                t.batchId && t.batchId !== "ALL" ? (!t.batchName || t.batchName === t.batchId ? "Unknown Batch" : t.batchName) : null,
-                              ].filter(Boolean);
-                              return parts.length > 0 ? parts.join(" → ") : "All Students";
+                            const parts: string[] = [];
+                            if (hasSpecificCollege) parts.push(collegeLabel || targetCollege!);
+                            if (hasSpecificDept) parts.push(t!.department!);
+                            if (hasSpecificYear) parts.push(t!.academicYear!);
+                            if (hasSpecificSection) parts.push(`Sec ${t!.section}`);
+                            if (hasSpecificBatch) {
+                              const bName = t?.batchName && t.batchName !== t.batchId ? t.batchName : "Cohort Batch";
+                              parts.push(`Cohort: ${bName}`);
                             }
-                            // Legacy target shape — resolve IDs to names
-                            const resolvedNames = (t.ids || []).map(rawId => {
-                              if (rawId === "ALL") return "All Institutions";
-                              return resolveInstitution(rawId);
-                            });
-                            return `${t.type} • ${resolvedNames.join(", ")}`;
+                            if (hasSpecificStudent) parts.push(t?.studentName || "Specific Student");
+                            return parts.length > 0 ? parts.join(" → ") : "All Students";
                           })()}
                         </span>
                       </div>
@@ -489,7 +511,7 @@ export default function ResourcesPage() {
               <div className="flex items-center justify-between border-b border-border/50 pb-4">
                 <div>
                   <h3 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight">Distribute Learning Resource</h3>
-                  <p className="text-xs sm:text-sm text-muted-foreground mt-1">Share resources and materials with your students</p>
+                  <p className="text-xs sm:text-sm text-muted-foreground mt-1">Share resources and materials with targeted institutions, departments, or cohorts</p>
                 </div>
                 <button onClick={() => setShowUploadModal(false)} className="w-8 h-8 flex items-center justify-center rounded-full bg-secondary/50 text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
                   <X className="w-4 h-4" />
@@ -575,21 +597,21 @@ export default function ResourcesPage() {
                     </div>
                     <span>Resource Target Audience</span>
                   </div>
-                  <p className="text-xs sm:text-sm text-muted-foreground">Select filters to target specific students. Leave as &ldquo;All&rdquo; to share with everyone in that category.</p>
+                  <p className="text-xs sm:text-sm text-muted-foreground">Select filters to target specific institutions or cohorts. Leave as &ldquo;All&rdquo; for global distribution.</p>
 
                   <AcademicHierarchyFilters
                     layout="grid-2"
                     showInstitution={userRole !== "college_admin"}
                     showBatchToggle={true}
                     levels={userRole === "college_admin" ? ["department", "academicYear", "section", "batch"] : ["institution", "department", "academicYear", "section", "batch"]}
-                    filters={resourceFilters}
-                    onChange={setResourceFilters}
-                    institutionOptions={institutionOptions}
-                    collegeOptions={collegeOptions}
-                    departmentOptions={departmentOptions}
-                    academicYearOptions={academicYearOptions}
-                    sectionOptions={sectionOptions}
-                    batchOptions={batchOptions}
+                    filters={modalHierarchy.filters}
+                    onChange={modalHierarchy.setFilters}
+                    institutionOptions={modalHierarchy.institutionOptions}
+                    collegeOptions={modalHierarchy.collegeOptions}
+                    departmentOptions={modalHierarchy.departmentOptions}
+                    academicYearOptions={modalHierarchy.academicYearOptions}
+                    sectionOptions={modalHierarchy.sectionOptions}
+                    batchOptions={modalHierarchy.batchOptions}
                     studentOptions={[]}
                   />
 
@@ -598,9 +620,11 @@ export default function ResourcesPage() {
                     <CheckCircle2 className="w-4 h-4 text-brand" />
                     <span className="text-muted-foreground">Targeting:</span>
                     <span className="font-bold text-foreground bg-accent px-2 py-0.5 rounded-md">
-                      {resourceFilters.batchId && resourceFilters.batchId !== "ALL"
-                        ? "Specific Batch"
-                        : "Hierarchy Target"}
+                      {modalHierarchy.filters.batchId && modalHierarchy.filters.batchId !== "ALL"
+                        ? "Specific Cohort Batch"
+                        : modalHierarchy.filters.collegeId && modalHierarchy.filters.collegeId !== "ALL" && modalHierarchy.filters.collegeId !== "GLOBAL"
+                        ? "Specific Institution"
+                        : "Global Distribution"}
                     </span>
                   </div>
                 </div>
