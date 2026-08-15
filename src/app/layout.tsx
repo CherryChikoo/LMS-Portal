@@ -10,6 +10,11 @@ export const metadata: Metadata = {
     template: "%s",
     default: "Portal",
   },
+  icons: {
+    icon: "/api/branding/favicon",
+    shortcut: "/api/branding/favicon",
+    apple: "/api/branding/favicon",
+  },
   description:
     "A modern Learning Management System for trainers to manage colleges, students, learning resources, and online examinations.",
   keywords: ["LMS", "learning management", "education", "online exams", "training"],
@@ -32,6 +37,13 @@ export default function RootLayout({
           suppressHydrationWarning
           dangerouslySetInnerHTML={{
             __html: `(function(){try{var t=localStorage.getItem("theme");if(t==="light"){document.documentElement.classList.remove("dark");}else{document.documentElement.classList.add("dark");}}catch(e){document.documentElement.classList.add("dark");}})()`,
+          }}
+        />
+        <script
+          id="branding-initializer"
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var bStr=localStorage.getItem("lms_branding");if(bStr){var b=JSON.parse(bStr);if(b.companyName)document.title=b.companyName;if(b.logoBase64){var l=document.querySelector("link[rel*='icon']");if(l)l.href=b.logoBase64;}}}catch(e){}})()`,
           }}
         />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
