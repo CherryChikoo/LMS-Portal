@@ -633,9 +633,20 @@ async function performFetchLMSData(force = false): Promise<void> {
     return;
   }
 
-  cache.loading = true;
-  cache.error = null;
-  notifyListeners();
+  const hasExistingData = Boolean(
+    (cache.colleges?.data && cache.colleges.data.length > 0) ||
+    (cache.students?.data && cache.students.data.length > 0) ||
+    (cache.exams?.data && cache.exams.data.length > 0) ||
+    (cache.batches?.data && cache.batches.data.length > 0)
+  );
+
+  // Only display initial loading spinner if we have no existing cached data.
+  // Background revalidation runs seamlessly without flickering or unmounting components.
+  if (!hasExistingData) {
+    cache.loading = true;
+    cache.error = null;
+    notifyListeners();
+  }
 
   const isCollegeAdmin = role === "college_admin" && collegeId;
   const isStudent = role === "student" && parsed?.id;
@@ -757,7 +768,8 @@ function startAuthListener() {
           localStorage.setItem("lms_role", role);
           
           const isSecure = window.location.protocol === "https:";
-          const cookieOptions = `path=/; max-age=86400; SameSite=Lax${isSecure ? "; Secure" : ""}`;
+          const cookieOptions = `path=/; max-age=2592000; SameSite=Lax${isSecure ? "; Secure" : ""}`;
+          document.cookie = `lms_auth=true; ${cookieOptions}`;
           document.cookie = `lms_role=${role}; ${cookieOptions}`;
         }
       }

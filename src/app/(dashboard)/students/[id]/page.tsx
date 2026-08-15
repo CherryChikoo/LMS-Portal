@@ -31,7 +31,7 @@ export default function StudentEvaluationPage({ params }: { params: Promise<{ id
   const studentId = resolvedParams.id;
   const router = useRouter();
 
-  const { students, attempts: allAttempts, exams: allExams, loading } = useLMSData();
+  const { students, attempts: allAttempts, exams: allExams, rawBatches, batches, loading } = useLMSData();
   const { resolveInstitution, resolveBatch } = useEntityResolution();
 
   // Find target student
@@ -42,16 +42,39 @@ export default function StudentEvaluationPage({ params }: { params: Promise<{ id
   // Resolve assigned batches list
   const assignedBatches = useMemo(() => {
     if (!student) return [];
-    if (student.batches && student.batches.length > 0) {
-      return student.batches;
+    
+    // First, check if student has pre-populated batches with valid names
+    const preBatches = (student.batches || []).filter((b: any) => b && b.name && b.name !== "Unknown Batch");
+    if (preBatches.length > 0) {
+      return preBatches;
     }
-    const ids = Array.from(new Set(student.batchIds || []));
-    return ids.map((bId) => ({
-      id: bId,
-      name: resolveBatch(bId),
-      section: student.section,
-    }));
-  }, [student, resolveBatch]);
+
+    // Collect batch IDs from batchIds, student_batches, or batchNames
+    const allBatchesSource = (rawBatches?.length ? rawBatches : batches) || [];
+    const rawIds = [
+      ...(student.batchIds || []),
+      ...((student as any).student_batches || []).map((sb: any) => sb.batchId || sb.batches?.id)
+    ].filter(Boolean);
+
+    const uniqueIds = Array.from(new Set(rawIds));
+    if (uniqueIds.length === 0 && (student.batchNames?.length || (student as any).batchesList?.length)) {
+      const fallbackList = (student as any).batchesList || (student.batchNames || []).map((n: string) => ({ id: n, name: n, section: student.section }));
+      return fallbackList;
+    }
+
+    return uniqueIds.map((bId) => {
+      const matchedBatch = (allBatchesSource as any[]).find((rb: any) => rb.id === bId || rb.name === bId);
+      let name = matchedBatch?.name || resolveBatch(bId);
+      if (name === "Unknown Batch" || !name) {
+        name = student.batchNames?.[0] || bId;
+      }
+      return {
+        id: bId,
+        name,
+        section: matchedBatch?.section || student.section,
+      };
+    });
+  }, [student, resolveBatch, rawBatches, batches]);
 
   // Filter attempts for this student
   const attempts = useMemo(() => {
@@ -180,22 +203,24 @@ export default function StudentEvaluationPage({ params }: { params: Promise<{ id
               </span>
             </div>
 
-            {assignedBatches.length > 0 && (
-              <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-border/40 text-xs mt-2">
-                <span className="font-bold text-foreground text-xs flex items-center gap-1.5">
-                  <Layers className="w-3.5 h-3.5 text-brand" /> Assigned Batches:
-                </span>
-                {assignedBatches.map((b) => (
+            <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-border/40 text-xs mt-2">
+              <span className="font-bold text-foreground text-xs flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5 text-brand" /> Assigned Batches:
+              </span>
+              {assignedBatches.length > 0 ? (
+                assignedBatches.map((b: any) => (
                   <span
-                    key={b.id}
+                    key={b.id || b.name}
                     className="px-2.5 py-1 rounded-lg bg-brand/10 border border-brand/20 text-brand font-semibold text-xs flex items-center gap-1.5"
                   >
                     <span>{b.name}</span>
                     {b.section && <span className="text-[10px] opacity-75">({b.section})</span>}
                   </span>
-                ))}
-              </div>
-            )}
+                ))
+              ) : (
+                <span className="text-muted-foreground italic text-xs">No batches assigned</span>
+              )}
+            </div>
           </div>
         </div>
       </div>
