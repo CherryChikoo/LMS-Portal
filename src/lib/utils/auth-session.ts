@@ -28,8 +28,9 @@ export async function setAuthSession(
   user?: Record<string, unknown>
 ): Promise<void> {
   const normalizedRole = role === "trainer" ? "admin" : role;
-  const isSecure = window.location.protocol === "https:";
-  const cookieOptions = `path=/; max-age=86400; SameSite=Lax${isSecure ? "; Secure" : ""}`;
+  const isSecure = typeof window !== "undefined" && window.location.protocol === "https:";
+  // 30 days session persistence (2592000 seconds)
+  const cookieOptions = `path=/; max-age=2592000; SameSite=Lax${isSecure ? "; Secure" : ""}`;
 
   if (typeof session === "string") {
     // session is an ID token
@@ -79,6 +80,14 @@ export async function getCurrentUser(): Promise<{ uid: string; email: string; pr
       uid: session.user.id,
       email: session.user.email || (profile?.email as string) || "",
       profile: profile || {},
+    };
+  }
+
+  if (profile && (profile.id || profile.email)) {
+    return {
+      uid: (profile.id as string) || (profile.authId as string) || "",
+      email: (profile.email as string) || "",
+      profile: profile,
     };
   }
 

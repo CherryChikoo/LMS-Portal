@@ -38,7 +38,13 @@ export default function DashboardLayout({
 
   // Auth verification effect - runs when pathname changes
   useEffect(() => {
+    let isCancelled = false;
+
     const verifyAuth = async () => {
+      if (typeof window !== "undefined" && (window as any).__isLoggingOut) {
+        return;
+      }
+
       let uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
       if (!uStr) {
         try {
@@ -47,15 +53,23 @@ export default function DashboardLayout({
           if (data?.session?.user) {
             const user = data.session.user;
             const email = user.email?.toLowerCase().trim() || "";
-            const { getUserByIdAction } = await import("@/lib/actions/auth-actions");
-            const dbUser = await getUserByIdAction(user.id);
+            const { getUserByIdAction, getStudentByIdAction } = await import("@/lib/actions/auth-actions");
+            let dbUser = await getUserByIdAction(user.id);
+            if (!dbUser && email) {
+              dbUser = await getUserByIdAction(email);
+            }
+            let studentDoc = null;
+            if (!dbUser || dbUser.role === "student") {
+              studentDoc = (await getStudentByIdAction(user.id)) || (await getStudentByIdAction(email));
+            }
+
             const role = dbUser?.role || "student";
             const uObj = {
-              id: dbUser?.id || user.id,
+              id: studentDoc?.id || dbUser?.id || user.id,
               name: dbUser?.displayName || user.user_metadata?.full_name || email.split("@")[0] || "User",
               email: email,
               role: role,
-              collegeId: dbUser?.collegeId || null,
+              collegeId: studentDoc?.collegeId || dbUser?.collegeId || null,
               createdAt: Date.now(),
             };
             localStorage.setItem("lms_auth", "true");
@@ -67,11 +81,14 @@ export default function DashboardLayout({
         } catch (_) {}
       }
 
-      if (!uStr) {
+      if (isCancelled) return;
+
+      const hasAuthCookie = typeof document !== "undefined" && document.cookie.includes("lms_auth=true");
+      if (!uStr && !hasAuthCookie) {
         import("@/lib/utils/auth-session").then(({ clearAuthSession }) => {
           clearAuthSession("/login");
         });
-      } else {
+      } else if (uStr) {
         try {
           const parsed = JSON.parse(uStr);
           if (parsed.role === "college_admin") {
@@ -83,9 +100,13 @@ export default function DashboardLayout({
         } catch (_) {}
       }
     };
+
     verifyAuth();
     window.addEventListener("pageshow", verifyAuth);
-    return () => window.removeEventListener("pageshow", verifyAuth);
+    return () => {
+      isCancelled = true;
+      window.removeEventListener("pageshow", verifyAuth);
+    };
   }, [pathname]);
 
   // Firebase real-time sync effect - runs once on mount
