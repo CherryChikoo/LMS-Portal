@@ -173,7 +173,13 @@ function StudentsContent() {
     setEditDepartment(student.department || "Computer Science");
     setEditYear(student.academicYear || "1st Year");
     setEditSection(student.section || "A");
-    setEditBatch(student.batchIds?.[0] || "");
+    
+    // Accurately resolve batch ID from student profile
+    const rawBatchId = student.batchIds?.[0] || (student.batches && student.batches[0]?.id) || "";
+    const matchedBatch = batches.find(
+      (b) => b.id === rawBatchId || b.name === rawBatchId || (student.batchNames && student.batchNames.includes(b.name))
+    );
+    setEditBatch(matchedBatch?.id || rawBatchId || "");
     setEditPassword(""); // Leave empty to keep unchanged
   };
 
@@ -190,7 +196,7 @@ function StudentsContent() {
         department: editDepartment.trim(),
         academicYear: editYear,
         section: editSection.trim(),
-        batchIds: [editBatch],
+        batchIds: editBatch ? [editBatch] : [],
       };
 
       const newEmail = editEmail.toLowerCase().trim();
@@ -419,10 +425,12 @@ function StudentsContent() {
     () => (hierarchy ? getSectionsForYear(hierarchy, newCollegeId, newDepartment, newYear) : []),
     [hierarchy, newCollegeId, newDepartment, newYear]
   );
-  const addModalBatches = useMemo(
-    () => (hierarchy ? getBatchesForSection(hierarchy, newCollegeId, newDepartment, newYear, newSection) : []),
-    [hierarchy, newCollegeId, newDepartment, newYear, newSection]
-  );
+  const availableBatchesForAdd = useMemo(() => {
+    if (!newCollegeId || newCollegeId === "GLOBAL" || newCollegeId === "ALL" || newCollegeId === "UNASSIGNED") {
+      return batches;
+    }
+    return batches.filter((b) => !b.collegeId || b.collegeId === "global" || b.collegeId === newCollegeId);
+  }, [batches, newCollegeId]);
 
   // Cascading options for the edit modal.
   const editModalDepartments = useMemo(
@@ -437,10 +445,12 @@ function StudentsContent() {
     () => (hierarchy ? getSectionsForYear(hierarchy, editCollegeId, editDepartment, editYear) : []),
     [hierarchy, editCollegeId, editDepartment, editYear]
   );
-  const editModalBatches = useMemo(
-    () => (hierarchy ? getBatchesForSection(hierarchy, editCollegeId, editDepartment, editYear, editSection) : []),
-    [hierarchy, editCollegeId, editDepartment, editYear, editSection]
-  );
+  const availableBatchesForEdit = useMemo(() => {
+    if (!editCollegeId || editCollegeId === "GLOBAL" || editCollegeId === "ALL" || editCollegeId === "UNASSIGNED") {
+      return batches;
+    }
+    return batches.filter((b) => !b.collegeId || b.collegeId === "global" || b.collegeId === editCollegeId);
+  }, [batches, editCollegeId]);
 
   const handleDeleteSelected = () => {
     if (selectedIds.length === 0) return;
@@ -1142,13 +1152,11 @@ function StudentsContent() {
                       className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground font-semibold"
                     >
                       <option value="">None (No Batch)</option>
-                      {addModalBatches.length === 0
-                        ? batches.map((b) => (
-                            <option key={b.id} value={b.name}>{b.name || "Unnamed Batch"}</option>
-                          ))
-                        : addModalBatches.map((b) => (
-                            <option key={b.id} value={b.name}>{b.name || "Unnamed Batch"}</option>
-                          ))}
+                      {availableBatchesForAdd.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.name || "Unnamed Batch"}
+                        </option>
+                      ))}
                     </select>
                   </div>
                 </div>
@@ -1293,16 +1301,14 @@ function StudentsContent() {
                     <select
                       value={editBatch}
                       onChange={(e) => setEditBatch(e.target.value)}
-                      className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground"
+                      className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground font-semibold"
                     >
                       <option value="">None (No Batch)</option>
-                      {editModalBatches.length === 0
-                        ? batches.map((b) => (
-                            <option key={b.id} value={b.name}>{b.name || "Unnamed Batch"}</option>
-                          ))
-                        : editModalBatches.map((b) => (
-                            <option key={b.id} value={b.name}>{b.name || "Unnamed Batch"}</option>
-                          ))}
+                      {availableBatchesForEdit.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.name || "Unnamed Batch"}
+                        </option>
+                      ))}
                     </select>
                   </div>
                 </div>

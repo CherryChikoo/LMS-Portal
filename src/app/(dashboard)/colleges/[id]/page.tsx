@@ -487,7 +487,13 @@ function getYearBadgeStyle(year?: string) {
     const isKnownSection = ["A", "B", "C", "D"].includes(section);
     setEditStudSection(isKnownSection ? section : "CUSTOM");
     setEditStudCustomSection(isKnownSection ? "" : section);
-    setEditStudBatch(stud.batchIds?.[0] || "");
+    
+    // Accurately resolve batch ID
+    const rawBatchId = stud.batchIds?.[0] || (stud.batches && stud.batches[0]?.id) || "";
+    const matchedBatch = batches.find(
+      (b) => b.id === rawBatchId || b.name === rawBatchId || (stud.batchNames && stud.batchNames.includes(b.name))
+    );
+    setEditStudBatch(matchedBatch?.id || rawBatchId || "");
     setEditStudPassword("");
     setEditStudentError(null);
   };
@@ -518,7 +524,7 @@ function getYearBadgeStyle(year?: string) {
         department: editStudDept.trim(),
         academicYear: editStudYear,
         section: editStudSection === "CUSTOM" ? editStudCustomSection.trim() || "A" : editStudSection,
-        batchIds: [editStudBatch],
+        batchIds: editStudBatch ? [editStudBatch] : [],
         updatedAt: new Date(),
       };
 
@@ -1348,7 +1354,7 @@ function getYearBadgeStyle(year?: string) {
                     >
                       <option value="">None (No Batch)</option>
                       {batches.map((b) => (
-                        <option key={b.id} value={b.name}>{b.name || "Unnamed Batch"}</option>
+                        <option key={b.id} value={b.id}>{b.name || "Unnamed Batch"}</option>
                       ))}
                     </select>
                   </div>
