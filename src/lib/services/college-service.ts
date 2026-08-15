@@ -88,30 +88,33 @@ export async function updateCollege(
       updateData.name = updateData.name.trim().toLowerCase();
     }
 
-    if (data.adminEmail || data.name) {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const session = sessionData.session;
-      if (!session) {
-        throw new Error("Cannot update college authentication: Session token expired. Please sign in again.");
-      }
-      const payload: Record<string, unknown> = { collegeId: id };
+    // Only invoke update-college-auth API if admin credentials (email or password) are explicitly provided
+    if (data.adminEmail || data.initialPassword) {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const session = sessionData?.session;
+        if (session) {
+          const payload: Record<string, unknown> = { collegeId: id };
+          if (data.adminEmail) payload.adminEmail = data.adminEmail;
+          if (data.name) payload.collegeName = data.name;
+          if (data.initialPassword) payload.password = data.initialPassword;
 
-      if (data.adminEmail) payload.adminEmail = data.adminEmail;
-      if (data.name) payload.collegeName = data.name;
-      if (data.initialPassword) payload.password = data.initialPassword;
+          const response = await fetch("/api/admin/update-college-auth", {
+            method: "POST",
+            headers: { 
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${session.access_token}`
+            },
+            body: JSON.stringify(payload),
+          });
 
-      const response = await fetch("/api/admin/update-college-auth", {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session.access_token}`
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        throw new Error(body.error || "Update failed: Could not update College Admin Auth account.");
+          if (!response.ok) {
+            const body = await response.json().catch(() => ({}));
+            console.warn("College auth update warning:", body.error);
+          }
+        }
+      } catch (authErr) {
+        console.warn("Could not sync college admin auth credentials:", authErr);
       }
     }
 

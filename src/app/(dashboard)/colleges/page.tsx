@@ -286,28 +286,6 @@ export default function CollegesPage() {
     });
   };
 
-  const handleRenameCollegeSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!renamingCollege || !renameCollegeName.trim()) return;
-    const newName = renameCollegeName.trim().toLowerCase();
-    setRenamingLoading(true);
-    try {
-      await updateCollege(renamingCollege.id, { name: newName });
-      if (renamingCollege.name.toLowerCase() !== newName) {
-        await renameCollegeAndMigrate(renamingCollege.id, renamingCollege.name, newName, false);
-      }
-      await refreshCache();
-      toast.success(`College renamed to "${renameCollegeName.trim()}".`);
-      setRenamingCollege(null);
-      setRenameCollegeName("");
-    } catch (err: unknown) {
-      console.error("Failed to rename college:", err);
-      toast.error(err instanceof Error ? err.message : "Failed to rename college");
-    } finally {
-      setRenamingLoading(false);
-    }
-  };
-
   const handleDeleteSelectedAdminColleges = () => {
     if (selectedAdminIds.length === 0) return;
     setConfirmConfig({
@@ -1447,66 +1425,6 @@ export default function CollegesPage() {
                   </Button>
                   <Button type="submit" disabled={credsLoading} className="bg-brand text-brand-foreground hover:bg-brand/90">
                     {credsLoading ? "Saving..." : "Save Credentials"}
-                  </Button>
-                </div>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Rename Official College Modal */}
-      <AnimatePresence>
-        {renamingCollege && (
-          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-5"
-            >
-              <div className="flex items-center justify-between border-b border-border pb-3">
-                <div>
-                  <h3 className="text-lg font-bold text-foreground">Rename College</h3>
-                  <p className="text-xs text-muted-foreground">Updates the institution name across the entire portal.</p>
-                </div>
-                <button
-                  onClick={() => {
-                    setRenamingCollege(null);
-                    setRenameCollegeName("");
-                  }}
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <form onSubmit={handleRenameCollegeSubmit} className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-foreground">College Name</label>
-                  <input
-                    type="text"
-                    value={renameCollegeName}
-                    onChange={(e) => setRenameCollegeName(e.target.value)}
-                    required
-                    placeholder="e.g. IIT Patna"
-                    className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/50"
-                  />
-                </div>
-
-                <div className="flex justify-end gap-2 pt-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setRenamingCollege(null);
-                      setRenameCollegeName("");
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                  <Button type="submit" disabled={renamingLoading} className="bg-brand text-brand-foreground hover:bg-brand/90">
-                    {renamingLoading ? "Saving..." : "Save Changes"}
                   </Button>
                 </div>
               </form>
