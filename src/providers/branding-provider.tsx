@@ -29,6 +29,16 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
   const [tenantBranding, setTenantBranding] = useState<CompanyBranding | null>(() => {
     if (typeof window === "undefined") return null;
     try {
+      const storedUser = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      const role = (localStorage.getItem("lms_role") || "").toLowerCase().trim();
+      if (storedUser) {
+        const parsed = JSON.parse(storedUser);
+        const pRole = (parsed.role || role || "").toLowerCase().trim();
+        if (pRole === "admin" || pRole === "master_admin" || pRole === "main_admin" || pRole === "superadmin" || !parsed.collegeId || parsed.collegeId === "global") {
+          localStorage.removeItem("lms_college_branding");
+          return null;
+        }
+      }
       const cached = localStorage.getItem("lms_college_branding");
       if (cached) {
         const parsed = JSON.parse(cached);
@@ -51,19 +61,10 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
       try {
         await getCurrentUser();
         
-        const { data: authData } = await supabase.auth.getUser();
-        if (!authData.user) {
-          const mBrand = await getCompanyBranding();
-          if (!isCancelled) {
-            setMasterBranding(mBrand);
-            setLoading(false);
-          }
-          return;
+        const mBrand = await getCompanyBranding();
+        if (!isCancelled) {
+          setMasterBranding(mBrand);
         }
-
-        getCompanyBranding().then(mBrand => {
-          if (!isCancelled) setMasterBranding(mBrand);
-        });
 
         const storedUser = localStorage.getItem("lms_user") || localStorage.getItem("user");
         const userRole = localStorage.getItem("lms_role");
@@ -71,8 +72,15 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
         if (storedUser) {
           const profile = JSON.parse(storedUser);
           const collegeId = profile.collegeId;
+          const normalizedRole = (profile.role || userRole || "").toLowerCase().trim();
+          const isMainAdmin = normalizedRole === "admin" || 
+                              normalizedRole === "master_admin" || 
+                              normalizedRole === "main_admin" || 
+                              normalizedRole === "superadmin" || 
+                              normalizedRole === "super_admin" || 
+                              (!collegeId || collegeId === "global");
 
-          if (collegeId && collegeId !== "global") {
+          if (!isMainAdmin && collegeId && collegeId !== "global") {
             try {
               const data = await fetchCollegeByIdAction(collegeId);
               if (isCancelled) return;
@@ -96,7 +104,14 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
             } catch (err) {
               console.error("College branding fetch error:", err);
             }
+          } else {
+            // Main admin or global admin: clear tenant branding completely
+            setTenantBranding(null);
+            localStorage.removeItem("lms_college_branding");
           }
+        } else {
+          setTenantBranding(null);
+          localStorage.removeItem("lms_college_branding");
         }
 
         if (!isCancelled) setLoading(false);
