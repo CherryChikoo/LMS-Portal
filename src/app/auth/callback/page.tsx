@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, Suspense } from "react";
+import { useEffect, useState, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { syncGoogleUserAction } from "@/lib/actions/auth-actions";
@@ -11,65 +11,89 @@ function CallbackHandler() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [status, setStatus] = useState<string>("Authenticating with Google...");
+  const processedRef = useRef(false);
 
   useEffect(() => {
     let mounted = true;
 
-    async function handleAuth() {
+    async function processUser(user: any) {
+      if (processedRef.current) return;
+      processedRef.current = true;
+
+      setStatus("Setting up your student profile...");
       try {
-        const code = searchParams.get("code");
-        if (code) {
-          await supabase.auth.exchangeCodeForSession(code);
+        const syncRes = await syncGoogleUserAction(user);
+
+        if (syncRes.error === "restricted") {
+          window.location.replace("/login?error=restricted");
+          return;
         }
-
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-
-        if (sessionError || !session?.user) {
-          // Listen to onAuthStateChange for hash fragment token exchange
-          const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
-            if (currentSession?.user && mounted) {
-              await processUser(currentSession.user);
-            }
-          });
-
-          // Timeout fallback if no session after 6 seconds
-          setTimeout(() => {
-            if (mounted && !session?.user) {
-              window.location.replace("/login?error=oauth_timeout");
-            }
-          }, 6000);
+        if (syncRes.error === "account_deleted") {
+          window.location.replace("/login?error=account_deleted");
           return;
         }
 
-        if (mounted) {
-          await processUser(session.user);
+        const role = (syncRes.role || "student") as UserRole;
+        if (syncRes.userProfile) {
+          await setAuthSession(syncRes.userProfile, role);
         }
+
+        setStatus("Redirecting to your dashboard...");
+        const targetPath = syncRes.targetPath || (role === "student" ? "/student" : (role === "college_admin" ? "/" : "/admin"));
+        window.location.replace(targetPath);
       } catch (err: any) {
-        console.error("Auth callback error:", err);
-        window.location.replace(`/login?error=${encodeURIComponent(err?.message || "oauth_failed")}`);
+        console.error("Profile sync error:", err);
+        window.location.replace(`/login?error=${encodeURIComponent(err?.message || "sync_failed")}`);
       }
     }
 
-    async function processUser(user: any) {
-      setStatus("Setting up your profile...");
-      const syncRes = await syncGoogleUserAction(user);
-
-      if (syncRes.error === "restricted") {
-        window.location.replace("/login?error=restricted");
-        return;
-      }
-      if (syncRes.error === "account_deleted") {
-        window.location.replace("/login?error=account_deleted");
+    async function handleAuth() {
+      // 1. Check for URL error parameters
+      const urlError = searchParams.get("error_description") || searchParams.get("error");
+      if (urlError) {
+        window.location.replace(`/login?error=${encodeURIComponent(urlError)}`);
         return;
       }
 
-      const role = (syncRes.role || "student") as UserRole;
-      if (syncRes.userProfile) {
-        await setAuthSession(syncRes.userProfile, role);
+      // 2. Check for PKCE query code
+      const code = searchParams.get("code");
+      if (code) {
+        try {
+          const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+          if (data?.session?.user && mounted) {
+            await processUser(data.session.user);
+            return;
+          }
+        } catch (e) {
+          console.warn("exchangeCodeForSession error, checking getSession:", e);
+        }
       }
 
-      setStatus("Redirecting to dashboard...");
-      window.location.replace(syncRes.targetPath || "/student");
+      // 3. Check for existing session or hash fragment tokens
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user && mounted) {
+        await processUser(session.user);
+        return;
+      }
+
+      // 4. Set up onAuthStateChange listener for implicit hash flow
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
+        if (currentSession?.user && mounted) {
+          await processUser(currentSession.user);
+        }
+      });
+
+      // 5. Fallback timer if OAuth token takes too long
+      const timeout = setTimeout(() => {
+        if (mounted && !processedRef.current) {
+          window.location.replace("/login?error=oauth_timeout");
+        }
+      }, 7000);
+
+      return () => {
+        subscription.unsubscribe();
+        clearTimeout(timeout);
+      };
     }
 
     handleAuth();

@@ -28,6 +28,11 @@ export function middleware(request: NextRequest) {
   const statusCookie = request.cookies.get("lms_status")?.value;
   const isAuth = authCookie === "true";
 
+  // Allow OAuth callback route to process token exchanges
+  if (pathname.startsWith("/auth/callback")) {
+    return NextResponse.next();
+  }
+
   // Public authentication routes
   const isPublicRoute = pathname === "/login" || pathname === "/register";
 
