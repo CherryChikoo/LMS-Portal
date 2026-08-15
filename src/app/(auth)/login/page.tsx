@@ -44,7 +44,14 @@ function LoginContent() {
 
   useEffect(() => {
     const errorParam = searchParams.get("error");
-    if (errorParam === "restricted") {
+    if (errorParam === "no_account") {
+      setAlertConfig({
+        isOpen: true,
+        title: "Account Not Found",
+        message: "No account was found with this Google email. Please register for an account first or contact your administrator.",
+        type: "error",
+      });
+    } else if (errorParam === "restricted") {
       setRestrictedModalOpen(true);
     } else if (errorParam === "already_registered") {
       setAlertConfig({

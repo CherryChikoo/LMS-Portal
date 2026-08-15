@@ -32,7 +32,8 @@ export async function POST(request: NextRequest) {
       where: { 
         OR: [
           { id: requesterUid },
-          { authId: requesterUid }
+          { authId: requesterUid },
+          ...(adminUser.email ? [{ email: { equals: adminUser.email.toLowerCase().trim(), mode: "insensitive" as const } }] : [])
         ]
       }, 
       select: { role: true } 

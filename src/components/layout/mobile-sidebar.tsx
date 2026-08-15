@@ -189,7 +189,7 @@ export function MobileSidebar() {
               ) : (
                 <>
                   <span className="font-bold text-base text-brand tracking-tight truncate">
-                    {branding.companyName || "Enterprise LMS"}
+                    {branding.companyName || "Masters Academy"}
                   </span>
                   <span className="text-[10px] font-bold text-brand/60 uppercase tracking-widest truncate">
                     {branding.companySubtitle || "Master Admin"}

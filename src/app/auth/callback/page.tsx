@@ -26,6 +26,11 @@ function CallbackHandler() {
         
         const syncRes = await syncGoogleUserAction(user, mode);
 
+        if (syncRes.error === "no_account_found") {
+          await supabase.auth.signOut().catch(() => {});
+          window.location.replace("/login?error=no_account");
+          return;
+        }
         if (syncRes.error === "already_registered") {
           await supabase.auth.signOut().catch(() => {});
           window.location.replace("/login?error=already_registered");

@@ -46,12 +46,14 @@ export function BrandingHeadUpdater() {
   });
 
   useEffect(() => {
-    if (loading) return;
-
     // 1. Update document title
-    const siteName = (userRole === "college_admin" || userRole === "student") && userCollegeId && !userCollegeId.startsWith("ext-") && userCollegeName
+    const isAdminRoute = pathname.startsWith("/admin");
+    const isMainAdmin = userRole === "admin" || userRole === "master_admin" || userRole === "main_admin" || userRole === "superadmin" || userRole === "super_admin" || userRole === "trainer";
+    const isCollegeSpecific = !isAdminRoute && !isMainAdmin && (userRole === "college_admin" || userRole === "student") && userCollegeId && !userCollegeId.startsWith("ext-") && userCollegeName;
+
+    const siteName = isCollegeSpecific
       ? userCollegeName
-      : (branding.companyName || APP_NAME);
+      : (branding.companyName || "Masters Academy");
     
     if (siteName) {
       const currentTitle = document.title;

@@ -64,8 +64,14 @@ export async function syncGoogleUserAction(authUser: any, mode: "login" | "regis
     }).catch(() => {});
   }
 
-  // If brand new student logging in with Google
+  // If no account exists in LMS database:
   if (!existingUser && !existingStudent) {
+    if (mode === "login") {
+      // User is logging in from Sign In page: do NOT auto-create account!
+      return { error: "no_account_found" };
+    }
+
+    // User is registering from the Student Registration page
     const studentId = `stud-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const newUser = await prisma.users.create({
       data: {

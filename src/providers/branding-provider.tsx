@@ -26,6 +26,18 @@ const BrandingContext = createContext<BrandingContextType>({
 
 export function BrandingProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const [masterBranding, setMasterBranding] = useState<CompanyBranding | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const cached = localStorage.getItem("lms_branding");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.companyName || parsed.logoBase64) return parsed;
+      }
+    } catch {}
+    return null;
+  });
+
   const [tenantBranding, setTenantBranding] = useState<CompanyBranding | null>(() => {
     if (typeof window === "undefined") return null;
     try {
@@ -41,6 +53,7 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
           pRole === "main_admin" ||
           pRole === "superadmin" ||
           pRole === "super_admin" ||
+          pRole === "trainer" ||
           enrollmentType === "self" ||
           parsed.isExternal ||
           !parsed.collegeId ||
@@ -58,11 +71,12 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
     } catch {}
     return null;
   });
-  const [masterBranding, setMasterBranding] = useState<CompanyBranding | null>(null);
+
   const [loading, setLoading] = useState<boolean>(() => {
     if (typeof window === "undefined") return true;
-    const cached = localStorage.getItem("lms_college_branding");
-    return !cached;
+    const cachedMaster = localStorage.getItem("lms_branding");
+    const cachedCollege = localStorage.getItem("lms_college_branding");
+    return !cachedMaster && !cachedCollege;
   });
 
   useEffect(() => {
@@ -73,12 +87,15 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
         await getCurrentUser();
         
         const mBrand = await getCompanyBranding();
-        if (!isCancelled) {
+        if (!isCancelled && mBrand && (mBrand.companyName || mBrand.logoBase64)) {
           setMasterBranding(mBrand);
+          try {
+            localStorage.setItem("lms_branding", JSON.stringify(mBrand));
+          } catch (_) {}
         }
 
         const storedUser = localStorage.getItem("lms_user") || localStorage.getItem("user");
-        const userRole = localStorage.getItem("lms_role");
+        const userRole = (localStorage.getItem("lms_role") || "").toLowerCase().trim();
 
         if (storedUser) {
           const profile = JSON.parse(storedUser);
@@ -90,6 +107,7 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
                               normalizedRole === "main_admin" || 
                               normalizedRole === "superadmin" || 
                               normalizedRole === "super_admin" || 
+                              normalizedRole === "trainer" ||
                               (!collegeId || collegeId === "global");
 
           // Outside colleges and self-registered students must see the canonical Main Admin Portal Name
@@ -101,7 +119,6 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
               if (isCancelled) return;
               
               if (data && (data.type === "external" || (data as any).origin === "student" || (data as any).type === "outside")) {
-                // Outside / self-registered college: clear tenant branding to display main admin portal name
                 setTenantBranding(null);
                 localStorage.removeItem("lms_college_branding");
               } else if (data && data.type === "registered") {
@@ -153,7 +170,11 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const activeBranding = tenantBranding || masterBranding || emptyBranding;
+  // For Admin routes or when tenant branding is null, strictly enforce masterBranding
+  const isAdminPath = pathname.startsWith("/admin");
+  const activeBranding = (isAdminPath || !tenantBranding)
+    ? (masterBranding || { companyName: "Masters Academy", companySubtitle: "Master Admin", logoBase64: "" })
+    : tenantBranding;
 
   return (
     <BrandingContext.Provider value={{ branding: activeBranding, loading }}>
