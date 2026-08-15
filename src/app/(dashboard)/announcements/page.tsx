@@ -62,13 +62,13 @@ export default function AnnouncementsPage() {
           const me = await getCurrentUser();
           if (me) {
             const result = await getAnnouncementsForCurrentUser(me.uid, me.email);
-            setAnnouncements(result);
+            setAnnouncements(result.sort((a, b) => (toMillis(b.createdAt) || 0) - (toMillis(a.createdAt) || 0)));
           } else {
             setAnnouncements([]);
           }
         } else {
           const result = await getAllAnnouncements();
-          setAnnouncements(result.data);
+          setAnnouncements(result.data.sort((a, b) => (toMillis(b.createdAt) || 0) - (toMillis(a.createdAt) || 0)));
         }
       } catch (err) {
         console.error("Failed to fetch announcements", err);

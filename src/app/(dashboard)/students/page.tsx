@@ -395,12 +395,9 @@ function StudentsContent() {
           return matchesSearch && matchesHierarchy && matchesTime;
         })
         .sort((a, b) => {
-          if (timeFilter === "RECENT_24H" || timeFilter === "RECENT_7D") {
-            const timeA = getCreatedTime(a.createdAt);
-            const timeB = getCreatedTime(b.createdAt);
-            return timeB - timeA;
-          }
-          return 0;
+          const timeA = getCreatedTime(a.createdAt);
+          const timeB = getCreatedTime(b.createdAt);
+          return timeB - timeA;
         }),
     [students, debouncedSearch, academicFilters, timeFilter]
   );

@@ -77,7 +77,7 @@ export default function ExamsPage() {
         );
       });
     }
-    return list;
+    return list.sort((a, b) => (toMillis(b.createdAt) || 0) - (toMillis(a.createdAt) || 0));
   }, [allExams, currentRole, userCollegeId]);
   
   const pathname = usePathname();

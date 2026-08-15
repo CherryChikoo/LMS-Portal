@@ -33,7 +33,7 @@ import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
 import { createResource, deleteResource, filterResourcesForStudent } from "@/lib/services";
 import { getCurrentUser } from "@/lib/utils/auth-session";
-import { formatTimestamp } from "@/lib/utils/date";
+import { formatTimestamp, toMillis } from "@/lib/utils/date";
 import { useLMSData } from "@/lib/data/use-lms-data";
 import { refreshCache } from "@/lib/data/lms-store";
 import { ResourcePreviewModal } from "@/components/resources/resource-preview-modal";
@@ -209,7 +209,7 @@ export default function ResourcesPage() {
         }
 
         return true;
-      });
+      }).sort((a, b) => (toMillis(b.createdAt) || 0) - (toMillis(a.createdAt) || 0));
     }
 
     const baseProfile = {
@@ -244,7 +244,7 @@ export default function ResourcesPage() {
         };
       }
     } catch (_) {}
-    return filterResourcesForStudent(resources, studentProfile as Student);
+    return filterResourcesForStudent(resources, studentProfile as Student).sort((a, b) => (toMillis(b.createdAt) || 0) - (toMillis(a.createdAt) || 0));
   }, [
     resources,
     students,

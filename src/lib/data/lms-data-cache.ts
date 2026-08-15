@@ -462,13 +462,18 @@ function recomputeScopedData() {
     studentCount: filteredStudentCountByBatchId.get(b.id) || (b.name ? filteredStudentCountByBatchId.get(b.name) : 0) || b.studentCount || 0,
   }));
 
+  // Helper to ensure latest created items are shown at the start
+  const sortByLatest = <T extends { createdAt?: any }>(arr: T[]): T[] => {
+    return [...arr].sort((a, b) => (toMillis(b.createdAt) || 0) - (toMillis(a.createdAt) || 0));
+  };
+
   // Exclude external colleges from the main filteredColleges list used by the UI
-  cache.filteredColleges = fColleges.filter(c => c.type !== "external");
-  cache.filteredBatches = fBatches;
-  cache.filteredStudents = fStudents;
-  cache.filteredExams = fExams;
-  cache.filteredResources = fResources;
-  cache.filteredAttempts = fAttempts;
+  cache.filteredColleges = sortByLatest(fColleges.filter(c => c.type !== "external"));
+  cache.filteredBatches = sortByLatest(fBatches);
+  cache.filteredStudents = sortByLatest(fStudents);
+  cache.filteredExams = sortByLatest(fExams);
+  cache.filteredResources = sortByLatest(fResources);
+  cache.filteredAttempts = sortByLatest(fAttempts);
 
   // Include ALL colleges in hierarchy so computeExportedState can properly split them
   // Only rebuild hierarchy if the inputs actually changed (using lengths as a fast heuristic)

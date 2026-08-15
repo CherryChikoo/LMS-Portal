@@ -28,6 +28,7 @@ import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
 import { uniqueOptions } from "@/lib/utils/array";
+import { toMillis } from "@/lib/utils/date";
 import { getBatchById, updateBatch, bulkAddStudentsToBatch, bulkRemoveStudentsFromBatch } from "@/lib/services";
 import { useLMSDataSelector } from "@/lib/data/use-lms-data";
 import { refreshCache } from "@/lib/data/lms-data-cache";
@@ -230,7 +231,7 @@ export default function BatchDetailPage({ params }: PageProps) {
   const enrolledStudents = allStudents.filter((s) => {
     if (!s.batchIds) return false;
     return s.batchIds.includes(batch.id) || s.batchIds.includes(batch.name);
-  });
+  }).sort((a, b) => (toMillis(b.createdAt) || 0) - (toMillis(a.createdAt) || 0));
 
   const filteredEnrolled = enrolledStudents.filter((s) => {
     const q = searchQuery.toLowerCase().trim();
@@ -268,7 +269,7 @@ export default function BatchDetailPage({ params }: PageProps) {
     }
 
     return true;
-  });
+  }).sort((a, b) => (toMillis(b.createdAt) || 0) - (toMillis(a.createdAt) || 0));
 
   const validSelectedStudents = availableStudents.filter((s) => selectedForBulk.has(s.id));
 

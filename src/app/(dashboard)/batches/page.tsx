@@ -16,6 +16,7 @@ import { fadeInUp } from "@/lib/animations";
 import { createBatch, deleteBatch } from "@/lib/services";
 import { getCurrentUser } from "@/lib/utils/auth-session";
 import { useLMSData } from "@/lib/data/use-lms-data";
+import { toMillis } from "@/lib/utils/date";
 import type { Batch } from "@/types";
 
 function BatchesContent() {
@@ -136,7 +137,7 @@ function BatchesContent() {
       if (batchFilters.department && (b.department || "").trim().toLowerCase() !== (batchFilters.department || "").trim().toLowerCase()) return false;
       if (batchFilters.academicYear && (b.academicYear || "").trim().toLowerCase() !== (batchFilters.academicYear || "").trim().toLowerCase()) return false;
       return true;
-    });
+    }).sort((a, b) => (toMillis(b.createdAt) || 0) - (toMillis(a.createdAt) || 0));
   }, [cacheBatches, batchFilters, userRole, userCollegeId]);
 
   return (
