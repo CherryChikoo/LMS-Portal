@@ -60,6 +60,9 @@ export async function setAuthSession(
     // Set secure cookies for Next.js middleware verification
     document.cookie = `lms_auth=true; ${cookieOptions}`;
     document.cookie = `lms_role=${normalizedRole}; ${cookieOptions}`;
+    if (typeof session === "string") {
+      document.cookie = `lms_token=${encodeURIComponent(session)}; ${cookieOptions}`;
+    }
   }
 
   if (typeof window !== "undefined") {

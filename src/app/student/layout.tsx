@@ -14,12 +14,13 @@ export default async function StudentRootLayout({
   const cookieStore = await cookies();
   const role = cookieStore.get("lms_role")?.value;
   const authCookie = cookieStore.get("lms_auth")?.value;
+  const tokenCookie = cookieStore.get("lms_token")?.value;
   const allCookies = cookieStore.getAll();
   const hasSbCookie = allCookies.some(
     (c) => (c.name.startsWith("sb-") && c.name.endsWith("-auth-token") && Boolean(c.value)) || c.name === "supabase-auth-token"
   );
 
-  const isPossiblyAuth = authCookie === "true" || hasSbCookie || Boolean(role);
+  const isPossiblyAuth = authCookie === "true" || Boolean(role) || Boolean(tokenCookie) || hasSbCookie;
   if (!isPossiblyAuth) {
     redirect("/login?redirect=/student");
   }

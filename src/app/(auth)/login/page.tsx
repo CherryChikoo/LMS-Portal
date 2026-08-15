@@ -106,6 +106,9 @@ function LoginContent() {
       
       await setAuthSession(uObj, (res as any)?.role as UserRole);
 
+      // Brief delay to ensure browser cookie jar commits cookies before HTTP navigation
+      await new Promise((resolve) => setTimeout(resolve, 80));
+
       if ((res as any)?.role === "student") {
         window.location.assign("/student");
       } else if ((res as any)?.role === "college_admin") {
@@ -155,6 +158,9 @@ function LoginContent() {
       };
       
       await setAuthSession(uObj, (res as any)?.role as UserRole);
+
+      // Brief delay to ensure browser cookie jar commits cookies before HTTP navigation
+      await new Promise((resolve) => setTimeout(resolve, 80));
 
       if ((res as any)?.role === "student") {
         window.location.assign("/student");

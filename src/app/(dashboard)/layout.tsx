@@ -82,8 +82,9 @@ export default function DashboardLayout({
 
       if (isCancelled) return;
 
-      const hasAuthCookie = typeof document !== "undefined" && document.cookie.includes("lms_auth=true");
-      if (!uStr && !hasAuthCookie) {
+      const hasAuthCookie = typeof document !== "undefined" && (document.cookie.includes("lms_auth=true") || document.cookie.includes("lms_role=") || document.cookie.includes("lms_token="));
+      const hasLocalStorageAuth = typeof localStorage !== "undefined" && Boolean(localStorage.getItem("lms_user") || localStorage.getItem("user") || localStorage.getItem("lms_role") || localStorage.getItem("lms_auth"));
+      if (!uStr && !hasLocalStorageAuth && !hasAuthCookie) {
         try {
           const { supabase } = await import("@/lib/supabase/client");
           const { data } = await supabase.auth.getSession();
