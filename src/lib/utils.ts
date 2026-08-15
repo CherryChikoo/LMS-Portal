@@ -53,6 +53,19 @@ export function truncateText(text: string, maxLength: number): string {
   return text.slice(0, maxLength).trimEnd() + "...";
 }
 
+/**
+ * Formats a user display name to show at most 2 words (e.g. First and 2nd name)
+ * or 1 word if only one exists, preventing overly long multi-word names on the UI.
+ */
+export function formatDisplayName(fullName?: string | null, maxWords: number = 2): string {
+  if (!fullName) return "User";
+  const trimmed = fullName.trim();
+  if (!trimmed) return "User";
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  if (words.length <= maxWords) return words.join(" ");
+  return words.slice(0, maxWords).join(" ");
+}
+
 export function generateId(): string {
   return (
     Math.random().toString(36).substring(2, 15) +

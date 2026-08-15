@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { logoutUser } from "@/lib/services/auth-service";
+import { formatDisplayName } from "@/lib/utils";
 import { NAVIGATION } from "@/lib/constants";
 
 export function StudentHeader() {
@@ -42,7 +43,7 @@ export function StudentHeader() {
       try {
         const u = JSON.parse(savedUser);
         const name = u.name || u.displayName || "User";
-        setUserName(name);
+        setUserName(formatDisplayName(name));
         const parts = name.split(" ").filter(Boolean);
         const init = parts.length > 1 ? `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase() : parts[0]?.slice(0, 2).toUpperCase() || "US";
         setInitials(init);

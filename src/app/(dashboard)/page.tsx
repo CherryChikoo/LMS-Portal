@@ -33,6 +33,7 @@ import { useMounted } from "@/hooks/use-mounted";
 import { staggerContainer, staggerItem } from "@/lib/animations";
 import { getAllExamsIncludingDeleted, getAllStudents, getAllColleges, getAllResources, getEffectiveExamStatus, getStudentAttempts, filterResourcesForStudent, filterExamsForStudent, getAllBatches, isAttemptOwnedByStudent } from "@/lib/services";
 import { toDate, toMillis } from "@/lib/utils/date";
+import { formatDisplayName } from "@/lib/utils";
 import type { Exam, Student, College, Resource, ExamAttempt, Batch, AssignmentTarget } from "@/types";
 import { useLMSData, useLMSDataSelector } from "@/lib/data/use-lms-data";
 import { useBranding } from "@/providers/branding-provider";
@@ -118,7 +119,7 @@ export function StudentPortalDashboard({
           <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
             <div className="space-y-3 max-w-2xl">
               <h1 className="text-2xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight font-heading text-foreground">
-                Welcome back, <span className="text-emerald-400">{studentProfile.name || "Student"}</span>
+                Welcome back, <span className="text-emerald-400">{formatDisplayName(studentProfile.name || "Student")}</span>
               </h1>
               <p className="text-sm sm:text-base text-muted-foreground font-normal leading-relaxed">
                 Access assigned evaluation papers, study notes for your department, and review real-time academic grade transcripts.
@@ -337,9 +338,9 @@ export default function DashboardPage() {
         }
         const n = parsed.name || parsed.displayName || "";
         if (parsed.role === "college_admin" || (parsed.collegeId && parsed.collegeId !== "global")) {
-          setUserName(n && !n.toLowerCase().includes("admin") ? n : (branding.companyName || parsed.collegeName || "Admin"));
+          setUserName(n && !n.toLowerCase().includes("admin") ? formatDisplayName(n) : (branding.companyName || parsed.collegeName || "Admin"));
         } else if (n) {
-          setUserName(n);
+          setUserName(formatDisplayName(n));
         }
       } else if (role) {
         setUserRole(role.toLowerCase());
@@ -480,7 +481,7 @@ export default function DashboardPage() {
       <motion.div variants={staggerItem} className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 mt-2">
         <div className="space-y-3">
           <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight font-heading flex items-center gap-3">
-            Welcome back, {userName}!
+            Welcome back, {formatDisplayName(userName)}!
             <div className="relative w-8 h-8 sm:w-10 sm:h-10 ml-1 hidden sm:block">
               <div className="absolute inset-0 bg-emerald-400 rounded-lg -rotate-12 transform origin-bottom-left shadow-sm"></div>
               <div className="absolute inset-0 bg-rose-500 rounded-lg rotate-0 transform origin-bottom-left shadow-sm"></div>
