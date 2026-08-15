@@ -167,7 +167,7 @@ export async function importStudentsCSV(
   const currentUser = authData?.user;
   if (currentUser) {
     try {
-      const CHUNK_SIZE = 25; // 25 rows per request guarantees sub-1.5s responses and 0 Vercel 504 timeouts
+      const CHUNK_SIZE = 50; // 50 rows per batch
       const combinedSummary: CSVImportSummary = {
         total: rows.length,
         createdCount: 0,
@@ -185,7 +185,7 @@ export async function importStudentsCSV(
       }
 
       let processedCount = 0;
-      const MAX_CONCURRENT_REQUESTS = 3;
+      const MAX_CONCURRENT_REQUESTS = 2;
 
       const sendChunkWithRetry = async (chunk: CSVStudentRow[], retries = 3): Promise<any> => {
         for (let attempt = 1; attempt <= retries; attempt++) {
@@ -207,7 +207,6 @@ export async function importStudentsCSV(
               body: JSON.stringify({ adminIdToken, rows: chunk, enrollmentType }),
             });
 
-            // Proper error handling
             let data;
             try {
               data = await response.json();
@@ -222,13 +221,15 @@ export async function importStudentsCSV(
             const errReason = data.error || data.details || `HTTP ${response.status} ${response.statusText}`;
             if (attempt === retries) {
               console.error("Chunk import server error after retries:", errReason);
-              return { errorReason: errReason };
+              return { errorReason: errReason, failedRows: chunk };
             }
           } catch (fetchErr: unknown) {
-            return { errorReason: getErrorMessage(fetchErr) || "Network error" };
+            if (attempt === retries) {
+              return { errorReason: getErrorMessage(fetchErr) || "Network error", failedRows: chunk };
+            }
           }
           if (attempt < retries) {
-            await new Promise((r) => setTimeout(r, attempt * 500));
+            await new Promise((r) => setTimeout(r, attempt * 600));
           }
         }
         return null;
@@ -242,7 +243,8 @@ export async function importStudentsCSV(
 
         for (let sIdx = 0; sIdx < summaries.length; sIdx++) {
           const resSummary = summaries[sIdx];
-          const chunkSize = batchChunks[sIdx].length;
+          const currentChunk = batchChunks[sIdx];
+          const chunkSize = currentChunk.length;
 
           if (resSummary && !resSummary.errorReason) {
             processedCount += chunkSize;
@@ -254,15 +256,29 @@ export async function importStudentsCSV(
               combinedSummary.results.push(...resSummary.results);
             }
           } else {
-            const failReason = resSummary?.errorReason || "Server API unavailable";
-            throw new Error(`Server chunk failed: ${failReason}`);
+            // Gracefully record failure for this chunk and keep importing the rest
+            processedCount += chunkSize;
+            combinedSummary.failedCount += chunkSize;
+            const reason = resSummary?.errorReason || "Server batch timeout";
+            currentChunk.forEach((r) => {
+              combinedSummary.results.push({
+                name: r.studentName || "Unknown",
+                email: r.collegeEmail || "Unknown",
+                password: "",
+                status: "failed",
+                reason,
+              });
+            });
           }
         }
 
         if (onProgress) onProgress(processedCount, rows.length);
+        // Small throttle between batches to avoid connection limits
+        await new Promise((r) => setTimeout(r, 120));
       }
 
       if (onProgress) onProgress(rows.length, rows.length);
+      return combinedSummary;
       return combinedSummary;
     } catch (apiErr) {
       console.error("Server bulk import endpoint failed or returned error:", apiErr);

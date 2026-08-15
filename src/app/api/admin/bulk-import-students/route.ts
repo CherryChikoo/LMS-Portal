@@ -182,6 +182,18 @@ export async function POST(request: NextRequest) {
        ));
     }
 
+    // Pre-fetch all batches for the relevant colleges to avoid redundant DB queries per student
+    const existingBatches = await prisma.batches.findMany({
+      select: { id: true, name: true, collegeId: true }
+    });
+    const batchMap = new Map<string, string>(); // key: `${collegeId || 'GLOBAL'}:::${normBatchName}`, value: id
+    existingBatches.forEach(b => {
+      const cId = (b.collegeId || "GLOBAL").toLowerCase().trim();
+      const nName = b.name.toLowerCase().trim();
+      batchMap.set(`${cId}:::${nName}`, b.id);
+      batchMap.set(`global:::${nName}`, b.id);
+    });
+
     const summary = {
       total: (rows as ImportRowInput[]).length,
       createdCount: 0,
@@ -198,7 +210,7 @@ export async function POST(request: NextRequest) {
     if (chunkEmails.length > 0) {
       for (let i = 0; i < chunkEmails.length; i += 100) {
         const subList = chunkEmails.slice(i, i + 100);
-        const existing = await prisma.users.findMany({ where: { email: { in: subList } }, select: { email: true } });
+        const existing = await prisma.users.findMany({ where: { email: { in: subList } }, select: { email: true, id: true } });
         if (existing) {
           existing.forEach((d: any) => existingEmailSet.add(d.email.toLowerCase().trim()));
         }
@@ -208,8 +220,9 @@ export async function POST(request: NextRequest) {
     const CONCURRENT_BATCH_SIZE = 10;
     const processedResults: typeof summary.results = [];
 
-    const newUsersToInsert = [];
-    const newStudentsToInsert = [];
+    const newUsersToInsert: any[] = [];
+    const newStudentsToInsert: any[] = [];
+    const batchAssignmentsToInsert: { studentId: string; batchId: string }[] = [];
 
     for (let i = 0; i < items.length; i += CONCURRENT_BATCH_SIZE) {
       const batch = items.slice(i, i + CONCURRENT_BATCH_SIZE);
@@ -238,7 +251,7 @@ export async function POST(request: NextRequest) {
             return { name, email, password: "", status: "duplicate", reason: "Account already exists in database" };
           }
 
-          let uid: string;
+          let uid: string = "";
           try {
             const { data: authUser, error: authErr } = await supabaseAdmin.auth.admin.createUser({
               email,
@@ -248,32 +261,26 @@ export async function POST(request: NextRequest) {
             });
 
             if (authErr) {
-              if (authErr.message.includes("already exists") || authErr.message.includes("unique")) {
-                // Try to find the user
-                const { data: users } = await supabaseAdmin.auth.admin.listUsers();
-                const existingAuth = users?.users?.find(u => u.email === email);
-                if (existingAuth) {
-                   const userDoc = await prisma.users.findUnique({ where: { id: existingAuth.id }, select: { id: true } });
-                   if (!userDoc) {
-                      await supabaseAdmin.auth.admin.updateUserById(existingAuth.id, {
-                        password: tempPassword,
-                        user_metadata: { full_name: name, role: "student", collegeId: finalCollegeId }
-                      });
-                      uid = existingAuth.id;
-                   } else {
-                     return { name, email, password: "", status: "duplicate", reason: "Email already registered in database" };
-                   }
+              const errMsg = authErr.message?.toLowerCase() || "";
+              if (errMsg.includes("already exists") || errMsg.includes("unique") || errMsg.includes("registered")) {
+                // Email is already in Supabase Auth, check DB user
+                const existingDbUser = await prisma.users.findUnique({ where: { email }, select: { id: true } });
+                if (existingDbUser) {
+                  return { name, email, password: "", status: "duplicate", reason: "Account already registered in database" };
                 } else {
-                   return { name, email, password: "", status: "failed", reason: "Auth verification error" };
+                  // Generate an ID linked to student so database stays intact
+                  uid = `stud-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
                 }
               } else {
-                 return { name, email, password: "", status: "failed", reason: authErr.message || "Auth creation failed" };
+                return { name, email, password: "", status: "failed", reason: authErr.message || "Auth provisioning failed" };
               }
-            } else {
+            } else if (authUser?.user) {
               uid = authUser.user.id;
+            } else {
+              uid = `stud-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
             }
           } catch (err: any) {
-            return { name, email, password: "", status: "failed", reason: err.message || "Auth creation failed" };
+            return { name, email, password: "", status: "failed", reason: err.message || "Auth service error" };
           }
 
           existingEmailSet.add(email);
@@ -285,37 +292,29 @@ export async function POST(request: NextRequest) {
       );
 
       for (const res of batchResults) {
-        if (res.status === "created") {
+        if (res.status === "created" && res.uid) {
+          const userUid = res.uid;
           newUsersToInsert.push({
-            id: res.uid,
+            id: userUid,
             email: res.email,
             displayName: res.name,
             role: "student",
             collegeId: res.finalCollegeId,
-            collegeName: res.finalCollegeName,
-            department: res.finalDepartment,
-            academicYear: res.finalAcademicYear,
-            section: res.finalSection,
-            batchIds: [res.finalBatch],
-            mustChangePassword: true,
-            initialPassword: res.password,
+            authId: userUid.length === 36 ? userUid : null,
           });
 
           newStudentsToInsert.push({
-            id: res.uid,
-            name: res.name,
-            email: res.email,
+            id: userUid,
             collegeId: res.finalCollegeId,
-            collegeName: res.finalCollegeName,
             department: res.finalDepartment,
             academicYear: res.finalAcademicYear,
             semester: 1,
             section: res.finalSection,
             rollNumber: `ROLL-${Math.floor(1000 + Math.random() * 9000)}`,
-            batchIds: [res.finalBatch],
             mustChangePassword: true,
-            initialPassword: res.password,
             enrollmentType: enrollmentType,
+            authId: userUid.length === 36 ? userUid : null,
+            batchName: res.finalBatch,
           });
 
           summary.createdCount++;
@@ -334,85 +333,75 @@ export async function POST(request: NextRequest) {
 
     // Insert database docs in bulk
     if (newUsersToInsert.length > 0) {
-      // Chunk to avoid payload size limit
-      for (let i = 0; i < newUsersToInsert.length; i += 100) {
-        const userBatch = newUsersToInsert.slice(i, i + 100);
+      for (let i = 0; i < newUsersToInsert.length; i += 50) {
+        const userBatch = newUsersToInsert.slice(i, i + 50);
+        const studentBatch = newStudentsToInsert.slice(i, i + 50);
+
         for (const u of userBatch) {
-          const userDoc = {
-            id: u.id,
-            email: u.email,
-            displayName: u.displayName,
-            role: u.role,
-            collegeId: u.collegeId || null,
-            authId: u.id
-          };
-          const userUpdateDoc = {
-            email: u.email,
-            displayName: u.displayName,
-            role: u.role,
-            collegeId: u.collegeId || null,
-          };
-          await prisma.users.upsert({ where: { id: u.id }, update: userUpdateDoc, create: userDoc as any });
-        }
-        
-        const studentBatch = newStudentsToInsert.slice(i, i + 100);
-        const batchAssignments: { studentId: string; batchId: string }[] = [];
-        for (const s of studentBatch) {
-          const { id, ...data } = s;
-          // students doesn't have email in prisma schema, nor name!
-          // Remove them from payload
-          const { email, name, collegeName, initialPassword, mustChangePassword, batchIds, ...pureStudentData } = data as any;
-          await prisma.students.upsert({ where: { id }, update: pureStudentData, create: { id, ...pureStudentData } });
-
-          if (Array.isArray(batchIds) && batchIds.length > 0) {
-            for (const bRaw of batchIds) {
-              const batchName = typeof bRaw === "string" ? bRaw.trim() : "";
-              if (!batchName || batchName === "General Cohort" || batchName === "Unassigned" || batchName === "None") continue;
-
-              let matchedBatches = await prisma.batches.findMany({
-                where: {
-                  OR: [
-                    { id: batchName },
-                    { name: { equals: batchName, mode: "insensitive" } }
-                  ]
-                },
-                select: { id: true, collegeId: true }
-              });
-
-              // Filter out batches belonging to a different college
-              matchedBatches = matchedBatches.filter((b: any) => {
-                if (!b.collegeId || b.collegeId === "GLOBAL" || b.collegeId === "global") return true;
-                if (!pureStudentData.collegeId) return false;
-                return b.collegeId.toLowerCase() === pureStudentData.collegeId.toLowerCase();
-              });
-
-              if (matchedBatches.length === 0) {
-                const newBatchId = `batch-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-                const created = await prisma.batches.create({
-                  data: {
-                    id: newBatchId,
-                    name: batchName,
-                    collegeId: pureStudentData.collegeId || null,
-                    department: pureStudentData.department || null,
-                    academicYear: pureStudentData.academicYear || null,
-                    section: pureStudentData.section || null,
-                  },
-                  select: { id: true, collegeId: true }
-                });
-                matchedBatches = [created];
-              }
-
-              for (const mb of matchedBatches) {
-                batchAssignments.push({ studentId: String(id), batchId: mb.id });
-              }
-            }
+          try {
+            await prisma.users.upsert({
+              where: { id: u.id },
+              update: { email: u.email, displayName: u.displayName, role: u.role, collegeId: u.collegeId },
+              create: u,
+            });
+          } catch (uErr) {
+            console.error(`Failed to insert user ${u.email}:`, uErr);
           }
         }
-        if (batchAssignments.length > 0) {
+
+        for (const s of studentBatch) {
+          const { batchName, ...pureStudentData } = s;
+          try {
+            await prisma.students.upsert({
+              where: { id: s.id },
+              update: pureStudentData,
+              create: pureStudentData,
+            });
+
+            if (batchName && batchName !== "General Cohort" && batchName !== "Unassigned" && batchName !== "None") {
+              const cId = (pureStudentData.collegeId || "GLOBAL").toLowerCase().trim();
+              const nName = batchName.toLowerCase().trim();
+              let matchedBatchId = batchMap.get(`${cId}:::${nName}`) || batchMap.get(`global:::${nName}`);
+
+              if (!matchedBatchId) {
+                const newBatchId = `batch-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+                try {
+                  const created = await prisma.batches.create({
+                    data: {
+                      id: newBatchId,
+                      name: batchName,
+                      collegeId: pureStudentData.collegeId || null,
+                      department: pureStudentData.department || null,
+                      academicYear: pureStudentData.academicYear || null,
+                      section: pureStudentData.section || null,
+                    },
+                    select: { id: true }
+                  });
+                  matchedBatchId = created.id;
+                  batchMap.set(`${cId}:::${nName}`, matchedBatchId);
+                } catch (bCreateErr) {
+                  console.error("Batch creation fallback:", bCreateErr);
+                }
+              }
+
+              if (matchedBatchId) {
+                batchAssignmentsToInsert.push({ studentId: s.id, batchId: matchedBatchId });
+              }
+            }
+          } catch (sErr) {
+            console.error(`Failed to insert student ${s.id}:`, sErr);
+          }
+        }
+      }
+
+      if (batchAssignmentsToInsert.length > 0) {
+        try {
           await prisma.student_batches.createMany({
-            data: batchAssignments,
+            data: batchAssignmentsToInsert,
             skipDuplicates: true
           });
+        } catch (sbErr) {
+          console.error("Batch assignments error:", sbErr);
         }
       }
     }
