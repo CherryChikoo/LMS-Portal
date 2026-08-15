@@ -114,6 +114,7 @@ function getYearBadgeStyle(year?: string) {
   const [editStudSection, setEditStudSection] = useState("A");
   const [editStudCustomSection, setEditStudCustomSection] = useState("");
   const [editStudBatch, setEditStudBatch] = useState("");
+  const [editStudPassword, setEditStudPassword] = useState("");
   const [savingEditStudent, setSavingEditStudent] = useState(false);
   const [editStudentError, setEditStudentError] = useState<string | null>(null);
 
@@ -487,6 +488,7 @@ function getYearBadgeStyle(year?: string) {
     setEditStudSection(isKnownSection ? section : "CUSTOM");
     setEditStudCustomSection(isKnownSection ? "" : section);
     setEditStudBatch(stud.batchIds?.[0] || "");
+    setEditStudPassword("");
     setEditStudentError(null);
   };
 
@@ -510,7 +512,7 @@ function getYearBadgeStyle(year?: string) {
     setSavingEditStudent(true);
     setEditStudentError(null);
     try {
-      const res = await updateStudentProfile(editingStudent.id, {
+      const payload: Partial<Student> = {
         name: editStudName.trim(),
         email: normalizedEmail,
         department: editStudDept.trim(),
@@ -518,7 +520,18 @@ function getYearBadgeStyle(year?: string) {
         section: editStudSection === "CUSTOM" ? editStudCustomSection.trim() || "A" : editStudSection,
         batchIds: [editStudBatch],
         updatedAt: new Date(),
-      });
+      };
+
+      if (editStudPassword && editStudPassword.trim() !== "") {
+        if (editStudPassword.trim().length < 6) {
+          setEditStudentError("Password must be at least 6 characters.");
+          setSavingEditStudent(false);
+          return;
+        }
+        payload.initialPassword = editStudPassword.trim();
+      }
+
+      const res = await updateStudentProfile(editingStudent.id, payload);
       if (!res.success) {
         setEditStudentError(res.error || "Failed to update student profile.");
         return;
@@ -1339,6 +1352,19 @@ function getYearBadgeStyle(year?: string) {
                       ))}
                     </select>
                   </div>
+                </div>
+
+                <div className="space-y-1.5 pt-1">
+                  <label className="font-semibold text-foreground flex items-center gap-1.5 text-emerald-500">
+                    Login Password (Leave empty to keep unchanged)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Enter new login password for student..."
+                    value={editStudPassword}
+                    onChange={(e) => setEditStudPassword(e.target.value)}
+                    className="w-full h-9 px-3 rounded-xl border border-emerald-500/40 bg-background text-foreground font-mono text-xs"
+                  />
                 </div>
 
                 {editStudentError && (
