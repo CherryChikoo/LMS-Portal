@@ -680,24 +680,24 @@ export default function CollegesPage() {
     if (!editingExternal || !editExternalName.trim()) return;
     setUpdatingExternal(true);
     try {
+      const colId = editingExternal.id;
       const oldName = editingExternal.name;
-      const newName = editExternalName.trim().toLowerCase();
+      const newName = editExternalName.trim();
       if (!newName || oldName === newName) {
         setEditingExternal(null);
         setEditExternalName("");
         return;
       }
 
-      await renameCollegeAndMigrate(oldName, oldName, newName, true);
+      await renameCollegeAndMigrate(colId, oldName, newName, true);
       await refreshCache(); // Immediate UI update
       toast.success("Outside institution updated successfully.");
 
       setEditingExternal(null);
       setEditExternalName("");
-      setSelectedExternalIds((prev) => prev.map((id) => (id === oldName ? newName : id)));
+      setSelectedExternalIds((prev) => prev.map((id) => (id === oldName || id === colId ? newName : id)));
     } catch (err) {
       console.error("Failed to update outside institution", err);
-      toast.error("Failed to update outside institution.");
       toast.error("Failed to update outside institution.");
     } finally {
       setUpdatingExternal(false);

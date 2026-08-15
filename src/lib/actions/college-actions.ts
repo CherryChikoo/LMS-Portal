@@ -73,42 +73,65 @@ export async function renameCollegeAndMigrateAction(
   newName: string,
   isExternal: boolean = false
 ) {
-  const normalizedNewName = newName.trim().toLowerCase();
+  const normalizedNewName = newName.trim();
+  const normalizedOldName = oldName.trim();
 
   // Use Prisma transaction for atomicity!
   await prisma.$transaction(async (tx: any) => {
-    // Update the college name
-    if (!isExternal) {
+    // 1. Find the college record by ID or old name
+    const foundCol = await tx.colleges.findFirst({
+      where: {
+        OR: [
+          { id: collegeId },
+          { name: { equals: normalizedOldName, mode: 'insensitive' } },
+          { id: `col-${normalizedOldName.toLowerCase().replace(/[^a-z0-9]+/g, "")}` }
+        ]
+      }
+    });
+
+    if (foundCol) {
       await tx.colleges.update({
-        where: { id: collegeId },
-        data: { name: normalizedNewName, updatedAt: new Date() }
+        where: { id: foundCol.id },
+        data: { 
+          name: normalizedNewName, 
+          updatedAt: new Date() 
+        }
       });
     }
 
-    // For external colleges, we need to update collegeId references
-    // For internal colleges, the collegeId stays the same — only the name changes
-    if (isExternal) {
-      // External: collegeId was the old name, update to new name
-      await tx.students.updateMany({
-        where: { collegeId },
-        data: { collegeId: normalizedNewName, updatedAt: new Date() }
-      });
+    // 2. Identify all possible identifier strings that may have referenced this college
+    const matchKeys = Array.from(
+      new Set([
+        collegeId,
+        foundCol?.id,
+        normalizedOldName,
+        normalizedOldName.toLowerCase(),
+        `col-${normalizedOldName.toLowerCase().replace(/[^a-z0-9]+/g, "")}`
+      ].filter(Boolean))
+    );
 
-      await tx.users.updateMany({
-        where: { collegeId },
-        data: { collegeId: normalizedNewName, updatedAt: new Date() }
-      });
+    const targetCollegeId = foundCol?.id || collegeId;
 
-      await tx.exams.updateMany({
-        where: { collegeId },
-        data: { collegeId: normalizedNewName, updatedAt: new Date() }
-      });
+    // Update students referencing either the college ID or the old name
+    await tx.students.updateMany({
+      where: { collegeId: { in: matchKeys } },
+      data: { collegeId: targetCollegeId, updatedAt: new Date() }
+    });
 
-      await tx.resources.updateMany({
-        where: { collegeId },
-        data: { collegeId: normalizedNewName, updatedAt: new Date() }
-      });
-    }
+    await tx.users.updateMany({
+      where: { collegeId: { in: matchKeys } },
+      data: { collegeId: targetCollegeId, updatedAt: new Date() }
+    });
+
+    await tx.exams.updateMany({
+      where: { collegeId: { in: matchKeys } },
+      data: { collegeId: targetCollegeId, updatedAt: new Date() }
+    });
+
+    await tx.resources.updateMany({
+      where: { collegeId: { in: matchKeys } },
+      data: { collegeId: targetCollegeId, updatedAt: new Date() }
+    });
   });
 }
 
