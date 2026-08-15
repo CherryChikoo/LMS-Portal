@@ -114,7 +114,17 @@ export function getEffectiveExamStatus(exam: Exam): ExamStatus {
 }
 
 export function filterExamsForStudent(exams: Exam[], student: Student): Exam[] {
+  const studentCreatedMillis = toMillis(student.createdAt) ?? toMillis((student as any).users?.createdAt) ?? 0;
+
   return exams.filter((exam) => {
+    // 1. Enrollment timestamp protection: Newly created students cannot see past exams created before their enrollment
+    if (studentCreatedMillis > 0) {
+      const examCreatedMillis = toMillis(exam.createdAt) ?? toMillis((exam as any).assignedAt) ?? 0;
+      if (examCreatedMillis > 0 && examCreatedMillis < studentCreatedMillis) {
+        return false;
+      }
+    }
+
     return isAssignedToStudent(exam.targets, student, (exam as any).sharedWith);
   });
 }

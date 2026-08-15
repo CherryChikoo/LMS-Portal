@@ -78,18 +78,17 @@ export async function deleteResource(id: string): Promise<void> {
 }
 
 export function filterResourcesForStudent(resources: Resource[], student: Student): Resource[] {
-  const studentCreatedMillis = toMillis(student.createdAt) ?? 0;
+  const studentCreatedMillis = toMillis(student.createdAt) ?? toMillis((student as any).users?.createdAt) ?? 0;
 
   return resources.filter((res) => {
-    if (!isAssignedToStudent(res.targets, student, res.sharedWith)) return false;
-
+    // 1. Enrollment timestamp protection: Newly created students cannot see past resources created before their enrollment
     if (studentCreatedMillis > 0) {
-      const resTimeMillis = toMillis(res.createdAt) ?? 0;
+      const resTimeMillis = toMillis(res.createdAt) ?? toMillis((res as any).assignedAt) ?? 0;
       if (resTimeMillis > 0 && resTimeMillis < studentCreatedMillis) {
         return false;
       }
     }
 
-    return true;
+    return isAssignedToStudent(res.targets, student, res.sharedWith);
   });
 }

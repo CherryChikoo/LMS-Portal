@@ -42,6 +42,7 @@ import {
   getStudentAttemptsForCurrentUser,
   getStudentById,
   getStudentByEmail,
+  filterExamsForStudent,
 } from "@/lib/services";
 import { isAssignedToStudent } from "@/lib/services/assignment-engine";
 import { getCurrentUser } from "@/lib/utils/auth-session";
@@ -638,8 +639,7 @@ function StudentExamDetails({ exam, studentUser, studentChecked, nowMs }: Studen
 }
 
 function filterExamsForStudentLocal(exam: Exam, student: Student): boolean {
-  if (!exam.targets || exam.targets.length === 0) return true;
-  return isAssignedToStudent(exam.targets, student, (exam as any).sharedWith);
+  return filterExamsForStudent([exam], student).length > 0;
 }
 
 function buildDisabledReason(

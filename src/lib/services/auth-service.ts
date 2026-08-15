@@ -92,6 +92,7 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
     academicYear: profile.academicYear,
     section: profile.section,
     batchIds: profile.batchIds || [],
+    createdAt: (studentDoc as any)?.createdAt || profile.createdAt || Date.now(),
   };
 
   await setAuthSession(data.session.access_token, role as UserRole, sessionUser);

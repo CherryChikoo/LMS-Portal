@@ -163,6 +163,7 @@ export default function ExamsPage() {
           department: canonical?.department || parsed?.department || "",
           academicYear: canonical?.academicYear || parsed?.academicYear || "",
           section: canonical?.section || parsed?.section || "",
+          createdAt: canonical?.createdAt || parsed?.createdAt,
         } as Student;
         setStudentUser(mergedStudent);
       } else {

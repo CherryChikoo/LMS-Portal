@@ -222,7 +222,7 @@ export default function ResourcesPage() {
       section: "",
       rollNumber: "",
       batchIds: [] as string[],
-      createdAt: new Date(),
+      createdAt: undefined as any,
       updatedAt: new Date(),
     };
     let studentProfile = baseProfile;
@@ -240,6 +240,7 @@ export default function ResourcesPage() {
           ...(canonical || {}),
           collegeId: canonical?.collegeId || parsed?.collegeId || parsed?.college || "",
           collegeName: canonical?.collegeName || parsed?.collegeName || parsed?.college || canonical?.collegeId || parsed?.collegeId || "",
+          createdAt: canonical?.createdAt || parsed?.createdAt,
         };
       }
     } catch (_) {}
