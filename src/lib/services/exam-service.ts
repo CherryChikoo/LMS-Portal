@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase/client";
 import { globalLoading } from "@/providers/global-loading-provider";
+import { refreshCache, optimisticAddExamToCache, optimisticUpdateExamInCache, optimisticDeleteExamFromCache } from "@/lib/data/lms-data-cache";
 import type { Exam, ExamResult, Student, ExamStatus, ExamAttempt } from "@/types";
 import { isAssignedToStudent } from "./assignment-engine";
 import { toMillis } from "@/lib/utils/date";
@@ -39,18 +40,33 @@ export async function getExamById(id: string): Promise<Exam | null> {
 
 export async function createExam(data: Omit<Exam, "id">): Promise<string> {
   return await globalLoading.wrap(async () => {
-    return await createExamAction(data);
+    const id = await createExamAction(data);
+    try {
+      optimisticAddExamToCache({ id, ...data } as Exam);
+      refreshCache().catch(() => {});
+    } catch (_) {}
+    return id;
   }, `Publishing assessment "${data.title}"...`);
 }
 
 export async function updateExam(id: string, data: Partial<Exam>): Promise<void> {
   return await globalLoading.wrap(async () => {
+    try {
+      optimisticUpdateExamInCache(id, data);
+    } catch (_) {}
     await updateExamAction(id, data);
+    try {
+      refreshCache().catch(() => {});
+    } catch (_) {}
   }, "Updating assessment details...");
 }
 
 export async function deleteExam(id: string): Promise<void> {
   return await globalLoading.wrap(async () => {
+    try {
+      optimisticDeleteExamFromCache(id);
+    } catch (_) {}
+
     const { data: sessionData } = await supabase.auth.getSession();
     const session = sessionData.session;
     if (!session) throw new Error("Must be logged in to delete exam");
@@ -68,6 +84,10 @@ export async function deleteExam(id: string): Promise<void> {
     if (!res.ok || !data.success) {
       throw new Error(data.message || "Failed to delete exam via Admin API");
     }
+
+    try {
+      refreshCache().catch(() => {});
+    } catch (_) {}
   }, "Deleting assessment...");
 }
 

@@ -1,7 +1,7 @@
 import { supabase } from '@/lib/supabase/client';
 import { globalLoading } from "@/providers/global-loading-provider";
 import { getErrorMessage } from '@/lib/utils/error';
-import { refreshCache } from "@/lib/data/lms-data-cache";
+import { refreshCache, optimisticAddStudentToCache, optimisticUpdateStudentInCache, optimisticDeleteStudentFromCache } from "@/lib/data/lms-data-cache";
 import type { Student, User } from "@/types";
 import {
   getAllStudentsAction,
@@ -228,7 +228,12 @@ export async function getStudentByEmail(email: string): Promise<Student | null> 
 
 export async function createStudentProfile(data: Omit<Student, "id">): Promise<string> {
   return await globalLoading.wrap(async () => {
-    return await createStudentProfileAction(data);
+    const id = await createStudentProfileAction(data);
+    try {
+      optimisticAddStudentToCache({ id, ...data } as Student);
+      refreshCache().catch(() => {});
+    } catch (_) {}
+    return id;
   }, `Creating student profile for ${data.name}...`);
 }
 
@@ -252,6 +257,11 @@ export async function updateStudentProfile(
     if (data.initialPassword !== undefined) whitelistedData.initialPassword = data.initialPassword;
 
     whitelistedData.updatedAt = new Date().toISOString();
+
+    // Optimistically update cache right away for instant UI responsiveness
+    try {
+      optimisticUpdateStudentInCache(studentId, whitelistedData as Partial<Student>);
+    } catch (_) {}
 
     if (data.email || data.initialPassword || data.collegeId) {
       const { data: sessionData } = await supabase.auth.getSession();
@@ -288,7 +298,7 @@ export async function updateStudentProfile(
       await updateStudentProfileAction(studentId, whitelistedData);
       
       try {
-        refreshCache();
+        refreshCache().catch(() => {});
       } catch (_) {}
       
       if (whitelistedData.collegeName) {
@@ -308,6 +318,11 @@ export async function updateStudentProfile(
 
 export async function deleteStudentProfile(studentId: string): Promise<void> {
   return await globalLoading.wrap(async () => {
+    // Optimistic deletion
+    try {
+      optimisticDeleteStudentFromCache(studentId);
+    } catch (_) {}
+
     const { data: sessionData } = await supabase.auth.getSession();
     const session = sessionData.session;
     
@@ -328,6 +343,10 @@ export async function deleteStudentProfile(studentId: string): Promise<void> {
       const body = await response.json().catch(() => ({}));
       throw new Error(body.message || body.error || "Failed to delete student account.");
     }
+
+    try {
+      refreshCache().catch(() => {});
+    } catch (_) {}
   }, "Deleting student account...");
 }
 

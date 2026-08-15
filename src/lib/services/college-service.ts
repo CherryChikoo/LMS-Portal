@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase/client';
 import { globalLoading } from "@/providers/global-loading-provider";
+import { refreshCache, optimisticAddCollegeToCache, optimisticUpdateCollegeInCache, optimisticDeleteCollegeFromCache } from "@/lib/data/lms-data-cache";
 import type { College } from "@/types";
 import {
   fetchCollegesAction,
@@ -72,6 +73,10 @@ export async function createCollege(data: Partial<College>): Promise<string> {
     };
 
     const id = await createCollegeAction(collegeData);
+    try {
+      optimisticAddCollegeToCache({ id, ...collegeData } as College);
+      refreshCache().catch(() => {});
+    } catch (_) {}
     return id;
   }, `Registering institution "${data.name || "New College"}"...`);
 }
@@ -87,6 +92,10 @@ export async function updateCollege(
     if (updateData.name) {
       updateData.name = updateData.name.trim().toLowerCase();
     }
+
+    try {
+      optimisticUpdateCollegeInCache(id, updateData);
+    } catch (_) {}
 
     // Only invoke update-college-auth API if admin credentials (email or password) are explicitly provided
     if (data.adminEmail || data.initialPassword) {
@@ -119,11 +128,18 @@ export async function updateCollege(
     }
 
     await updateCollegeAction(id, updateData);
+    try {
+      refreshCache().catch(() => {});
+    } catch (_) {}
   }, "Updating institution details...");
 }
 
 export async function deleteCollege(id: string, onProgress?: (msg: string) => void, studentUids?: string[]): Promise<void> {
   return await globalLoading.wrap(async () => {
+    try {
+      optimisticDeleteCollegeFromCache(id);
+    } catch (_) {}
+
     const { data: sessionData } = await supabase.auth.getSession();
     const session = sessionData.session;
     
@@ -153,6 +169,10 @@ export async function deleteCollege(id: string, onProgress?: (msg: string) => vo
         `Failed to delete college: ${res.status} ${res.statusText}`
       );
     }
+
+    try {
+      refreshCache().catch(() => {});
+    } catch (_) {}
   }, "Deleting institution and cascading records...");
 }
 
@@ -166,12 +186,21 @@ export async function updateCollegeStudentCount(
 ): Promise<void> {
   if (!collegeId) return;
   await updateCollegeAction(collegeId, { studentCount: count });
+  try {
+    refreshCache().catch(() => {});
+  } catch (_) {}
 }
 
 export async function softDeleteCollege(id: string): Promise<void> {
   if (!id) return;
   return await globalLoading.wrap(async () => {
+    try {
+      optimisticDeleteCollegeFromCache(id);
+    } catch (_) {}
     await softDeleteCollegeAction(id);
+    try {
+      refreshCache().catch(() => {});
+    } catch (_) {}
   }, "Deleting institution...");
 }
 
@@ -179,6 +208,9 @@ export async function restoreCollege(id: string): Promise<void> {
   if (!id) return;
   return await globalLoading.wrap(async () => {
     await restoreCollegeAction(id);
+    try {
+      refreshCache().catch(() => {});
+    } catch (_) {}
   }, "Restoring institution...");
 }
 
@@ -189,7 +221,13 @@ export async function renameCollegeAndMigrate(
   isExternal: boolean = false
 ): Promise<void> {
   return await globalLoading.wrap(async () => {
+    try {
+      optimisticUpdateCollegeInCache(collegeId, { name: newName });
+    } catch (_) {}
     await renameCollegeAndMigrateAction(collegeId, oldName, newName, isExternal);
+    try {
+      refreshCache().catch(() => {});
+    } catch (_) {}
   }, `Renaming institution to "${newName}" and updating student links...`);
 }
 
@@ -198,6 +236,9 @@ export async function deleteDepartmentAndMigrate(
   departmentName: string
 ): Promise<void> {
   await deleteDepartmentAndMigrateAction(collegeId, departmentName);
+  try {
+    refreshCache().catch(() => {});
+  } catch (_) {}
 }
 
 export async function renameDepartmentAndMigrate(

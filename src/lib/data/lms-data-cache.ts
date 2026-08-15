@@ -526,6 +526,7 @@ export function subscribeToLMSCache(callback: () => void): () => void {
   callbacks.add(callback);
   if (cache.listeners === 0) {
     startAuthListener();
+    startRealtimeSubscription();
   }
   cache.listeners++;
 
@@ -536,22 +537,79 @@ export function subscribeToLMSCache(callback: () => void): () => void {
       cleanupTimer = setTimeout(() => {
         if (cache.listeners === 0) {
           stopAuthListener();
+          stopRealtimeSubscription();
         }
       }, 5000);
     }
   };
 }
 
-// ─── Data Fetching Engine (TTL Caching) ───────────────────────────────────────
+// ─── Realtime Database Sync ──────────────────────────────────────────────────
+
+let realtimeChannel: any = null;
+
+function startRealtimeSubscription() {
+  if (typeof window === "undefined" || realtimeChannel) return;
+
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  const triggerFastRefresh = () => {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      fetchLMSData(true).catch(() => {});
+    }, 250);
+  };
+
+  try {
+    realtimeChannel = supabase
+      .channel("lms-realtime-data-sync")
+      .on("postgres_changes", { event: "*", schema: "public", table: "students" }, triggerFastRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "colleges" }, triggerFastRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "batches" }, triggerFastRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "exams" }, triggerFastRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "resources" }, triggerFastRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "exam_attempts" }, triggerFastRefresh)
+      .subscribe();
+  } catch (err) {
+    console.warn("[REALTIME] Failed to subscribe to postgres changes:", err);
+  }
+}
+
+function stopRealtimeSubscription() {
+  if (realtimeChannel) {
+    try {
+      supabase.removeChannel(realtimeChannel);
+    } catch (_) {}
+    realtimeChannel = null;
+  }
+}
+
+// ─── Data Fetching Engine (Parallelized + Deduplicated) ──────────────────────
 
 let currentUserInfo: { uid: string; role: string; collegeId?: string; parsed: any } | null = null;
 let globalAuthUnsub: (() => void) | null = null;
+let activeFetchPromise: Promise<void> | null = null;
 
-export async function refreshCache() {
+export async function refreshCache(): Promise<void> {
   return fetchLMSData(true);
 }
 
-async function fetchLMSData(force = false) {
+async function fetchLMSData(force = false): Promise<void> {
+  if (activeFetchPromise && !force) {
+    return activeFetchPromise;
+  }
+
+  activeFetchPromise = (async () => {
+    try {
+      await performFetchLMSData(force);
+    } finally {
+      activeFetchPromise = null;
+    }
+  })();
+
+  return activeFetchPromise;
+}
+
+async function performFetchLMSData(force = false): Promise<void> {
   if (!currentUserInfo) {
     if (typeof window !== "undefined") {
       const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
@@ -577,8 +635,8 @@ async function fetchLMSData(force = false) {
 
   const { role, collegeId, parsed } = currentUserInfo;
   
-  // TTL Check: 5 minutes
-  const TTL = 5 * 60 * 1000;
+  // TTL Check: 15 seconds for cached data, or instant if forced
+  const TTL = 15 * 1000;
   const now = Date.now();
   if (!force && cache.colleges?.updatedAt && (now - cache.colleges.updatedAt < TTL)) {
     if (cache.loading) {
@@ -592,103 +650,71 @@ async function fetchLMSData(force = false) {
   cache.error = null;
   notifyListeners();
 
-  const isMainAdmin = role === "main_admin" || role === "admin" || role === "superadmin" || role === "trainer" || role === "master_admin";
   const isCollegeAdmin = role === "college_admin" && collegeId;
   const isStudent = role === "student" && parsed?.id;
 
-  console.time("[Supabase] Fetch LMS Data");
-  
-  const errors: string[] = [];
+  // Execute all 6 queries in PARALLEL via Promise.allSettled for maximum throughput
+  const collegesPromise = getAllColleges();
+  const batchesPromise = (isCollegeAdmin || isStudent) && collegeId 
+    ? getBatchesByCollege(collegeId)
+    : getAllBatches();
+  const studentsPromise = getAllStudents();
+  const examsPromise = getAllExams();
+  const resourcesPromise = getAllResources();
+  const attemptsPromise = (isStudent && parsed?.id)
+    ? getStudentAttempts(parsed.id).then((r) => r as ExamAttempt[])
+    : getStudentAttemptsAction().then((d) => (d || []) as unknown as ExamAttempt[]);
 
-  // 1. Colleges — isolated
-  try {
-    const collegesRes = await getAllColleges();
-    if (collegesRes && Array.isArray(collegesRes.data)) {
-      cache.colleges = { data: collegesRes.data, updatedAt: now };
-    }
-  } catch (err: any) {
-    console.error("[FETCH] Colleges failed:", err?.message || err);
-    errors.push(`Colleges: ${err?.message || "Unknown error"}`);
+  const [
+    collegesRes,
+    batchesRes,
+    studentsRes,
+    examsRes,
+    resourcesRes,
+    attemptsRes,
+  ] = await Promise.allSettled([
+    collegesPromise,
+    batchesPromise,
+    studentsPromise,
+    examsPromise,
+    resourcesPromise,
+    attemptsPromise,
+  ]);
+
+  if (collegesRes.status === "fulfilled" && collegesRes.value?.data) {
+    cache.colleges = { data: collegesRes.value.data, updatedAt: now };
+  } else if (collegesRes.status === "rejected") {
+    console.error("[FETCH] Colleges failed:", collegesRes.reason);
   }
 
-  // 2. Batches — isolated
-  try {
-    const batchesRes = (isCollegeAdmin || isStudent) && collegeId 
-      ? await getBatchesByCollege(collegeId)
-      : await getAllBatches();
-    if (batchesRes && Array.isArray(batchesRes.data)) {
-      cache.batches = { data: batchesRes.data, updatedAt: now };
-    }
-  } catch (err: any) {
-    console.error("[FETCH] Batches failed:", err?.message || err);
-    errors.push(`Batches: ${err?.message || "Unknown error"}`);
+  if (batchesRes.status === "fulfilled" && batchesRes.value?.data) {
+    cache.batches = { data: batchesRes.value.data, updatedAt: now };
+  } else if (batchesRes.status === "rejected") {
+    console.error("[FETCH] Batches failed:", batchesRes.reason);
   }
 
-  // 3. Students — isolated
-  try {
-    const studentsRes = await getAllStudents();
-    if (studentsRes && Array.isArray(studentsRes.data)) {
-      cache.students = { data: studentsRes.data, updatedAt: now };
-    }
-  } catch (err: any) {
-    console.error("[FETCH] Students failed:", err?.message || err);
-    errors.push(`Students: ${err?.message || "Unknown error"}`);
+  if (studentsRes.status === "fulfilled" && studentsRes.value?.data) {
+    cache.students = { data: studentsRes.value.data, updatedAt: now };
+  } else if (studentsRes.status === "rejected") {
+    console.error("[FETCH] Students failed:", studentsRes.reason);
   }
 
-  // 4. Exams
-  try {
-    const examsRes = await getAllExams();
-    if (examsRes && Array.isArray(examsRes.data)) {
-      cache.exams = { data: examsRes.data, updatedAt: now };
-    }
-  } catch (err: any) {
-    console.error("[FETCH] Exams failed:", err?.message || err);
-    errors.push(`Exams: ${err?.message || "Unknown error"}`);
+  if (examsRes.status === "fulfilled" && examsRes.value?.data) {
+    cache.exams = { data: examsRes.value.data, updatedAt: now };
+  } else if (examsRes.status === "rejected") {
+    console.error("[FETCH] Exams failed:", examsRes.reason);
   }
 
-  // 5. Resources
-  try {
-    const resourcesRes = await getAllResources();
-    if (resourcesRes && Array.isArray(resourcesRes.data)) {
-      cache.resources = { data: resourcesRes.data, updatedAt: now };
-    }
-  } catch (err: any) {
-    console.error("[FETCH] Resources failed:", err?.message || err);
-    errors.push(`Resources: ${err?.message || "Unknown error"}`);
+  if (resourcesRes.status === "fulfilled" && resourcesRes.value?.data) {
+    cache.resources = { data: resourcesRes.value.data, updatedAt: now };
+  } else if (resourcesRes.status === "rejected") {
+    console.error("[FETCH] Resources failed:", resourcesRes.reason);
   }
 
-  // 6. Attempts — isolated
-  try {
-    let attemptsRes: ExamAttempt[] = [];
-    if (isStudent && parsed?.id) {
-      const res = await getStudentAttempts(parsed.id);
-      attemptsRes = res as ExamAttempt[];
-    } else {
-      const data = await getStudentAttemptsAction();
-      if (data) attemptsRes = data as unknown as ExamAttempt[];
-    }
-    cache.attempts = { data: attemptsRes, updatedAt: now };
-  } catch (err: any) {
-    console.error("[FETCH] Attempts failed:", err?.message || err);
-    errors.push(`Attempts: ${err?.message || "Unknown error"}`);
-  }
-
-  console.timeEnd("[Supabase] Fetch LMS Data");
-
-  // Surface errors to UI only if ALL collections failed
-  if (errors.length > 0) {
-    console.warn(`[FETCH] ${errors.length} collection(s) had errors:`, errors);
-    if (errors.length >= 6) {
-      // Total failure — likely a permissions or network issue
-      const firstError = errors[0];
-      if (firstError.includes("Missing or insufficient permissions") || firstError.includes("permission-denied")) {
-        cache.error = new Error("Access Denied: You do not have permission to read this data. Please log out and log back in.");
-      } else if (firstError.includes("Quota exceeded") || firstError.includes("resource-exhausted")) {
-        cache.error = new Error("Firebase Quota Exceeded. The daily read limit has been reached.");
-      } else {
-        cache.error = new Error(`Data sync partially failed: ${errors.join("; ")}`);
-      }
-    }
+  if (attemptsRes.status === "fulfilled" && attemptsRes.value) {
+    cache.attempts = { data: attemptsRes.value, updatedAt: now };
+  } else if (attemptsRes.status === "rejected") {
+    console.error("[FETCH] Attempts failed:", attemptsRes.reason);
   }
 
   cache.loading = false;
@@ -696,14 +722,12 @@ async function fetchLMSData(force = false) {
   notifyListeners();
 }
 
-
 function recomputeAndNotify() {
   recomputeScopedData();
   notifyListeners();
 }
 
 function startAuthListener() {
-  // Always trigger data fetch to ensure fresh cache
   fetchLMSData();
 
   if (globalAuthUnsub) return;
@@ -713,13 +737,9 @@ function startAuthListener() {
   }
   cache.error = null;
 
-  // Use Supabase Auth listener
   const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
     const user = session?.user;
-    if (!user) {
-      // Do not clear user info during background token transitions
-      return;
-    }
+    if (!user) return;
 
     let parsed: any = null;
     let role: string = "";
@@ -771,15 +791,11 @@ function startAuthListener() {
       }
     }
 
-    // Derive collegeId if missing but collegeName is present
     if (parsed && !parsed.collegeId && parsed.collegeName) {
       parsed.collegeId = parsed.collegeName.toLowerCase().trim().replace(/[^a-z0-9]+/g, "");
     }
 
-    // Store user info for subscriptions
     currentUserInfo = { uid: user.id, role, collegeId: parsed?.collegeId, parsed };
-
-    // Fetch LMS Data directly
     fetchLMSData();
   });
   
@@ -801,14 +817,10 @@ function computeExportedState() {
   const colleges = hierarchy?.colleges || [];
   const students = hierarchy?.students || [];
 
-  // Colleges with type === "external" are real Firestore docs but represent outside institutions
   const officialFirestoreColleges = colleges.filter((c) => c.type !== "external");
   const externalFirestoreColleges = colleges.filter((c) => c.type === "external");
-
-  // Also include the legacy dynamically computed external institutions
   const dynamicExternals = getExternalInstitutions(students, officialFirestoreColleges);
 
-  // Pre-compute student counts for official and external colleges to avoid O(N*M) filtering
   const studentCountByColId = new Map<string, number>();
   const studentCountByColName = new Map<string, number>();
   
@@ -829,7 +841,6 @@ function computeExportedState() {
     return Math.max(byId, byName);
   };
 
-  // Filter out Firestore external colleges that already exist as official colleges (name match)
   const officialNames = new Set(officialFirestoreColleges.map((c) => String(c.name || "").toLowerCase()));
   const officialSlugs = new Set(officialFirestoreColleges.map((c) => cleanSlug(c.name)));
   const dedupedExternalFirestore = externalFirestoreColleges.filter((c) => {
@@ -838,7 +849,6 @@ function computeExportedState() {
     return !officialNames.has(name) && !officialSlugs.has(slug);
   });
 
-  // Merge Firestore external colleges with dynamic external institutions, avoiding duplicates
   const externals: Institution[] = [
     ...dedupedExternalFirestore.map((c) => ({
        id: c.id,
@@ -852,9 +862,7 @@ function computeExportedState() {
     ...dynamicExternals.filter(dyn => {
       const dynName = String(dyn.name || "").toLowerCase();
       const dynSlug = cleanSlug(dyn.name);
-      // Skip if matches any official college
       if (officialNames.has(dynName) || officialSlugs.has(dynSlug)) return false;
-      // Skip if matches any Firestore external college already in the list
       if (dedupedExternalFirestore.some(extC => 
            extC.id === dyn.id || String(extC.name || "").toLowerCase() === dynName
       )) return false;
@@ -872,12 +880,10 @@ function computeExportedState() {
     studentCount: getStudentCount(c),
   }));
 
-  // Deduplicate institutions globally to guarantee no duplicates in dropdowns
   const uniqueInstitutionsMap = new Map<string, Institution>();
   
   [...officialInstitutions, ...externals].forEach(inst => {
     const slug = cleanSlug(inst.name);
-    // Prefer official over external if there's a conflict
     if (!uniqueInstitutionsMap.has(slug) || inst.type === "official") {
       uniqueInstitutionsMap.set(slug, inst);
     }
@@ -924,9 +930,22 @@ export function getLMSCache() {
   return cache._exportedState;
 }
 
-
-
 // ─── Optimistic Updates ──────────────────────────────────────────────────────
+
+export function optimisticAddCollegeToCache(college: College): void {
+  if (!cache.colleges) cache.colleges = { data: [], updatedAt: Date.now() };
+  cache.colleges.data = [college, ...cache.colleges.data.filter((c) => c.id !== college.id)];
+  recomputeScopedData();
+  notifyListeners();
+}
+
+export function optimisticUpdateCollegeInCache(collegeId: string, updates: Partial<College>): void {
+  if (cache.colleges?.data) {
+    cache.colleges.data = cache.colleges.data.map((c) => (c.id === collegeId ? { ...c, ...updates } : c));
+    recomputeScopedData();
+    notifyListeners();
+  }
+}
 
 export function optimisticDeleteCollegeFromCache(collegeId: string): void {
   markCollegeAsDeleted(collegeId);
@@ -979,9 +998,16 @@ export function optimisticDeleteCollegeFromCache(collegeId: string): void {
   notifyListeners();
 }
 
-export function optimisticUpdateCollegeInCache(collegeId: string, updates: Partial<College>): void {
-  if (cache.colleges?.data) {
-    cache.colleges.data = cache.colleges.data.map((c) => (c.id === collegeId ? { ...c, ...updates } : c));
+export function optimisticAddStudentToCache(student: Student): void {
+  if (!cache.students) cache.students = { data: [], updatedAt: Date.now() };
+  cache.students.data = [student, ...cache.students.data.filter((s) => s.id !== student.id)];
+  recomputeScopedData();
+  notifyListeners();
+}
+
+export function optimisticUpdateStudentInCache(studentId: string, updates: Partial<Student>): void {
+  if (cache.students?.data) {
+    cache.students.data = cache.students.data.map((s) => (s.id === studentId ? { ...s, ...updates } : s));
     recomputeScopedData();
     notifyListeners();
   }
@@ -995,9 +1021,70 @@ export function optimisticDeleteStudentFromCache(studentId: string): void {
   }
 }
 
-export function optimisticUpdateStudentInCache(studentId: string, updates: Partial<Student>): void {
-  if (cache.students?.data) {
-    cache.students.data = cache.students.data.map((s) => (s.id === studentId ? { ...s, ...updates } : s));
+export function optimisticAddExamToCache(exam: Exam): void {
+  if (!cache.exams) cache.exams = { data: [], updatedAt: Date.now() };
+  cache.exams.data = [exam, ...cache.exams.data.filter((e) => e.id !== exam.id)];
+  recomputeScopedData();
+  notifyListeners();
+}
+
+export function optimisticUpdateExamInCache(examId: string, updates: Partial<Exam>): void {
+  if (cache.exams?.data) {
+    cache.exams.data = cache.exams.data.map((e) => (e.id === examId ? { ...e, ...updates } : e));
+    recomputeScopedData();
+    notifyListeners();
+  }
+}
+
+export function optimisticDeleteExamFromCache(examId: string): void {
+  if (cache.exams?.data) {
+    cache.exams.data = cache.exams.data.filter((e) => e.id !== examId);
+    recomputeScopedData();
+    notifyListeners();
+  }
+}
+
+export function optimisticAddBatchToCache(batch: Batch): void {
+  if (!cache.batches) cache.batches = { data: [], updatedAt: Date.now() };
+  cache.batches.data = [batch, ...cache.batches.data.filter((b) => b.id !== batch.id)];
+  recomputeScopedData();
+  notifyListeners();
+}
+
+export function optimisticUpdateBatchInCache(batchId: string, updates: Partial<Batch>): void {
+  if (cache.batches?.data) {
+    cache.batches.data = cache.batches.data.map((b) => (b.id === batchId ? { ...b, ...updates } : b));
+    recomputeScopedData();
+    notifyListeners();
+  }
+}
+
+export function optimisticDeleteBatchFromCache(batchId: string): void {
+  if (cache.batches?.data) {
+    cache.batches.data = cache.batches.data.filter((b) => b.id !== batchId);
+    recomputeScopedData();
+    notifyListeners();
+  }
+}
+
+export function optimisticAddResourceToCache(resource: Resource): void {
+  if (!cache.resources) cache.resources = { data: [], updatedAt: Date.now() };
+  cache.resources.data = [resource, ...cache.resources.data.filter((r) => r.id !== resource.id)];
+  recomputeScopedData();
+  notifyListeners();
+}
+
+export function optimisticUpdateResourceInCache(resourceId: string, updates: Partial<Resource>): void {
+  if (cache.resources?.data) {
+    cache.resources.data = cache.resources.data.map((r) => (r.id === resourceId ? { ...r, ...updates } : r));
+    recomputeScopedData();
+    notifyListeners();
+  }
+}
+
+export function optimisticDeleteResourceFromCache(resourceId: string): void {
+  if (cache.resources?.data) {
+    cache.resources.data = cache.resources.data.filter((r) => r.id !== resourceId);
     recomputeScopedData();
     notifyListeners();
   }
@@ -1005,6 +1092,7 @@ export function optimisticUpdateStudentInCache(studentId: string, updates: Parti
 
 export function invalidateLMSCache(): void {
   stopAuthListener();
+  stopRealtimeSubscription();
   cache.listeners = 0;
   cache.colleges = null;
   cache.batches = null;

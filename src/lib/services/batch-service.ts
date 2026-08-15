@@ -44,6 +44,8 @@ export async function getBatchesByCollege(collegeId: string): Promise<{ data: Ba
   return { data: mappedData, lastDoc: mappedData.length > 0 ? mappedData[mappedData.length - 1] : null };
 }
 
+import { refreshCache, optimisticAddBatchToCache, optimisticUpdateBatchInCache, optimisticDeleteBatchFromCache } from "@/lib/data/lms-data-cache";
+
 export async function createBatch(data: Partial<Batch>): Promise<string> {
   return await globalLoading.wrap(async () => {
     const batchData = {
@@ -52,7 +54,12 @@ export async function createBatch(data: Partial<Batch>): Promise<string> {
       createdAt: new Date(),
       updatedAt: new Date(),
     };
-    return await createBatchAction(batchData);
+    const id = await createBatchAction(batchData);
+    try {
+      optimisticAddBatchToCache({ ...batchData, id } as Batch);
+      refreshCache().catch(() => {});
+    } catch (_) {}
+    return id;
   }, `Creating batch "${data.name || "New Batch"}"...`);
 }
 
@@ -61,24 +68,42 @@ export async function updateBatch(
   data: Partial<Batch>
 ): Promise<void> {
   return await globalLoading.wrap(async () => {
+    try {
+      optimisticUpdateBatchInCache(id, data);
+    } catch (_) {}
     await updateBatchAction(id, { ...data, updatedAt: new Date() });
+    try {
+      refreshCache().catch(() => {});
+    } catch (_) {}
   }, "Updating batch details...");
 }
 
 export async function deleteBatch(id: string): Promise<void> {
   return await globalLoading.wrap(async () => {
+    try {
+      optimisticDeleteBatchFromCache(id);
+    } catch (_) {}
     await deleteBatchAction(id);
+    try {
+      refreshCache().catch(() => {});
+    } catch (_) {}
   }, "Deleting batch...");
 }
 
 export async function bulkAddStudentsToBatch(batchIdOrName: string, studentIds: string[]): Promise<void> {
   return await globalLoading.wrap(async () => {
     await bulkAddStudentsToBatchAction(batchIdOrName, studentIds);
+    try {
+      refreshCache().catch(() => {});
+    } catch (_) {}
   }, `Enrolling ${studentIds.length} student(s) into batch...`);
 }
 
 export async function bulkRemoveStudentsFromBatch(batchIdOrName: string, studentIds: string[]): Promise<void> {
   return await globalLoading.wrap(async () => {
     await bulkRemoveStudentsFromBatchAction(batchIdOrName, studentIds);
+    try {
+      refreshCache().catch(() => {});
+    } catch (_) {}
   }, `Removing ${studentIds.length} student(s) from batch...`);
 }
