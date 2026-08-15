@@ -647,6 +647,20 @@ function getYearBadgeStyle(year?: string) {
       return 0;
     });
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 25;
+
+  const totalPages = Math.ceil(filteredStudents.length / itemsPerPage);
+  const paginatedStudents = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    return filteredStudents.slice(start, start + itemsPerPage);
+  }, [filteredStudents, currentPage, itemsPerPage]);
+
+  // Reset page to 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedDeptFilter, selectedYearFilter, selectedSectionFilter, timeFilter]);
+
   const handleDeleteSelectedStudents = () => {
     if (selectedStudentIds.length === 0 || !college) return;
     setConfirmConfig({
@@ -779,7 +793,7 @@ function getYearBadgeStyle(year?: string) {
           <span className="text-xs text-muted-foreground">Click a department to filter or enroll students</span>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 max-h-[380px] overflow-y-auto pr-1.5 scrollbar-thin scrollbar-thumb-border/60 hover:scrollbar-thumb-border">
           {departments.map((dept, idx) => {
             const deptCount = students.filter((s) => s.department === dept).length;
             const isSelected = selectedDeptFilter === dept;
@@ -960,140 +974,172 @@ function getYearBadgeStyle(year?: string) {
               setShowEnrollModal(true);
             }}
           />
-        ) : (
-          <div className="rounded-2xl border border-border bg-card/60 backdrop-blur-md overflow-hidden">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-border bg-muted/40 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                  <th className="py-3.5 px-4 w-10">
-                    <input
-                      type="checkbox"
-                      checked={filteredStudents.length > 0 && selectedStudentIds.length === filteredStudents.length}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setSelectedStudentIds(filteredStudents.map((s) => s.id));
-                        } else {
-                          setSelectedStudentIds([]);
-                        }
-                      }}
-                      className="rounded border-border text-brand focus:ring-brand/50 cursor-pointer"
-                    />
-                  </th>
-                  <th className="py-3.5 px-4">Student Name</th>
-                  <th className="py-3.5 px-4">Email</th>
-                  <th className="py-3.5 px-4">Department & Year</th>
-                  <th className="py-3.5 px-4">Section / Cohort</th>
-                  <th className="py-3.5 px-4">Status</th>
-                  <th className="py-3.5 px-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border text-xs">
-                {filteredStudents.map((stud) => {
-                  const isSelected = selectedStudentIds.includes(stud.id);
-                  return (
-                    <tr 
-                      key={stud.id} 
-                      onClick={() => router.push(`/students/${stud.id}`)}
-                      className={`cursor-pointer hover:bg-muted/30 transition-colors ${isSelected ? "bg-brand/5" : ""}`}
-                    >
-                      <td className="py-3.5 px-4" onClick={(e) => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedStudentIds((prev) => [...prev, stud.id]);
-                            } else {
-                              setSelectedStudentIds((prev) => prev.filter((id) => id !== stud.id));
-                            }
-                          }}
-                          className="rounded border-border text-brand focus:ring-brand/50 cursor-pointer"
-                        />
-                      </td>
-                      <td className="py-3.5 px-4 font-bold text-foreground flex items-center gap-2.5">
-                        <div className="w-7 h-7 rounded-full bg-brand/10 text-brand flex items-center justify-center text-xs">
-                          {stud.name.slice(0, 2).toUpperCase()}
-                        </div>
-                        <span>{stud.name}</span>
-                      </td>
-                      <td className="py-3.5 px-4 font-mono text-muted-foreground">{stud.email}</td>
-                      <td className="py-3.5 px-4 flex items-center gap-2">
-                        <span className="font-semibold text-foreground">{stud.department}</span>
-                        <span className={`px-2 py-0.5 rounded-full font-bold text-[11px] ${getYearBadgeStyle(stud.academicYear)}`}>
-                          {stud.academicYear || "1st Year"}
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-4 text-xs">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="px-2 py-0.5 rounded-md bg-accent/80 border border-border/50 font-mono text-[11px] font-semibold text-foreground whitespace-nowrap">
-                            Sec {stud.section || "N/A"}
+        ) : (          <div className="rounded-2xl border border-border bg-card/60 backdrop-blur-md overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse min-w-[700px]">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    <th className="py-3.5 px-4 w-10">
+                      <input
+                        type="checkbox"
+                        checked={filteredStudents.length > 0 && selectedStudentIds.length === filteredStudents.length}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedStudentIds(filteredStudents.map((s) => s.id));
+                          } else {
+                            setSelectedStudentIds([]);
+                          }
+                        }}
+                        className="rounded border-border text-brand focus:ring-brand/50 cursor-pointer"
+                      />
+                    </th>
+                    <th className="py-3.5 px-4">Student Name</th>
+                    <th className="py-3.5 px-4">Email</th>
+                    <th className="py-3.5 px-4">Department & Year</th>
+                    <th className="py-3.5 px-4">Section / Cohort</th>
+                    <th className="py-3.5 px-4">Status</th>
+                    <th className="py-3.5 px-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border text-xs">
+                  {paginatedStudents.map((stud) => {
+                    const isSelected = selectedStudentIds.includes(stud.id);
+                    return (
+                      <tr 
+                        key={stud.id} 
+                        onClick={() => router.push(`/students/${stud.id}`)}
+                        className={`cursor-pointer hover:bg-muted/30 transition-colors ${isSelected ? "bg-brand/5" : ""}`}
+                      >
+                        <td className="py-3.5 px-4" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedStudentIds((prev) => [...prev, stud.id]);
+                              } else {
+                                setSelectedStudentIds((prev) => prev.filter((id) => id !== stud.id));
+                              }
+                            }}
+                            className="rounded border-border text-brand focus:ring-brand/50 cursor-pointer"
+                          />
+                        </td>
+                        <td className="py-3.5 px-4 font-bold text-foreground flex items-center gap-2.5">
+                          <div className="w-7 h-7 rounded-full bg-brand/10 text-brand flex items-center justify-center text-xs">
+                            {stud.name.slice(0, 2).toUpperCase()}
+                          </div>
+                          <span>{stud.name}</span>
+                        </td>
+                        <td className="py-3.5 px-4 font-mono text-muted-foreground">{stud.email}</td>
+                        <td className="py-3.5 px-4 flex items-center gap-2">
+                          <span className="font-semibold text-foreground">{stud.department}</span>
+                          <span className={`px-2 py-0.5 rounded-full font-bold text-[11px] ${getYearBadgeStyle(stud.academicYear)}`}>
+                            {stud.academicYear || "1st Year"}
                           </span>
-                          <span className="px-2 py-0.5 rounded-md bg-brand/10 border border-brand/20 font-mono text-[11px] font-semibold text-brand whitespace-nowrap">
-                            {stud.batchIds?.[0] ? (batches.find(b => b.id === stud.batchIds![0])?.name || "Unknown Batch") : "Unassigned"}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="py-3.5 px-4">
-                        {stud.status === "restricted" ? (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-500/15 text-rose-500 border border-rose-500/30">
-                            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
-                            Restricted
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                            Active
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-3.5 px-4 text-right" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-end gap-1">
+                        </td>
+                        <td className="py-3.5 px-4 text-xs">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="px-2 py-0.5 rounded-md bg-accent/80 border border-border/50 font-mono text-[11px] font-semibold text-foreground whitespace-nowrap">
+                              Sec {stud.section || "N/A"}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-md bg-brand/10 border border-brand/20 font-mono text-[11px] font-semibold text-brand whitespace-nowrap">
+                              {stud.batchIds?.[0] ? (batches.find(b => b.id === stud.batchIds![0])?.name || "Unknown Batch") : "Unassigned"}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4">
                           {stud.status === "restricted" ? (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleToggleStatus(stud)}
-                              className="h-8 w-8 p-0 text-emerald-500 hover:text-emerald-600 hover:bg-emerald-500/10 rounded-lg"
-                              title="Reactivate Account"
-                            >
-                              <CheckCircle2 className="w-4 h-4" />
-                            </Button>
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-500/15 text-rose-500 border border-rose-500/30">
+                              <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                              Restricted
+                            </span>
                           ) : (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleToggleStatus(stud)}
-                              className="h-8 w-8 p-0 text-amber-500 hover:text-amber-600 hover:bg-amber-500/10 rounded-lg"
-                              title="Restrict Account"
-                            >
-                              <Ban className="w-4 h-4" />
-                            </Button>
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                              Active
+                            </span>
                           )}
+                        </td>
+                        <td className="py-3.5 px-4 text-right" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center justify-end gap-1">
+                            {stud.status === "restricted" ? (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleToggleStatus(stud)}
+                                className="h-8 w-8 p-0 text-emerald-500 hover:text-emerald-600 hover:bg-emerald-500/10 rounded-lg"
+                                title="Reactivate Account"
+                              >
+                                <CheckCircle2 className="w-4 h-4" />
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleToggleStatus(stud)}
+                                className="h-8 w-8 p-0 text-amber-500 hover:text-amber-600 hover:bg-amber-500/10 rounded-lg"
+                                title="Restrict Account"
+                              >
+                                <Ban className="w-4 h-4" />
+                              </Button>
+                            )}
+                            <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleOpenEditStudent(stud)}
+                            className="h-8 w-8 p-0 text-brand hover:text-brand/90 hover:bg-brand/10 rounded-lg"
+                            title="Edit Student Profile"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </Button>
                           <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleOpenEditStudent(stud)}
-                          className="h-8 w-8 p-0 text-brand hover:text-brand/90 hover:bg-brand/10 rounded-lg"
-                          title="Edit Student Profile"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDeleteSingleStudent(stud)}
-                          className="h-8 w-8 p-0 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10 rounded-lg"
-                          title="Remove Student Profile"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteSingleStudent(stud)}
+                            className="h-8 w-8 p-0 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10 rounded-lg"
+                            title="Remove Student Profile"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-muted/20">
+                <span className="text-xs text-muted-foreground font-medium">
+                  Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredStudents.length)} of {filteredStudents.length} entries
+                </span>
+                <div className="flex gap-1">
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="h-8 text-xs font-semibold"
+                  >
+                    Previous
+                  </Button>
+                  <div className="flex items-center justify-center px-3 text-xs font-bold text-foreground">
+                    Page {currentPage} of {totalPages}
+                  </div>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    className="h-8 text-xs font-semibold"
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

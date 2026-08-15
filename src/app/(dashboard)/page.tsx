@@ -209,7 +209,7 @@ export function StudentPortalDashboard({
               </Link>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-3 max-h-[460px] overflow-y-auto pr-1.5 scrollbar-thin scrollbar-thumb-border/60 hover:scrollbar-thumb-border">
               {loading || !mounted ? (
                 <div className="space-y-3 py-2">
                   <div className="h-16 rounded-xl bg-card/60 border border-border/60 animate-pulse" />
@@ -285,13 +285,13 @@ export function StudentPortalDashboard({
               </Link>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-3 max-h-[460px] overflow-y-auto pr-1.5 scrollbar-thin scrollbar-thumb-border/60 hover:scrollbar-thumb-border">
               {!mounted ? (
                 <div className="text-center py-8 text-muted-foreground text-sm">Loading your completed tests...</div>
               ) : myAttempts.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground text-sm">No tests completed yet. Launch your first assessment above!</div>
               ) : (
-                myAttempts.slice(0, 4).map((att) => (
+                myAttempts.map((att) => (
                   <div key={att.id} className="p-3.5 rounded-xl bg-card/60 border border-border/60 flex items-center justify-between">
                     <div>
                       <h4 className="text-sm font-bold text-foreground">{att.examTitle || "Deleted Assessment"}</h4>
@@ -664,13 +664,13 @@ export default function DashboardPage() {
         {/* My Batches (Right Column) */}
         <motion.div variants={staggerItem} className="lg:col-span-1">
           <div className="rounded-2xl border border-border bg-card/50 shadow-sm p-6 h-full flex flex-col">
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold font-heading">My Batches</h2>
               <Link href="/admin/batches" className="text-xs font-bold text-muted-foreground hover:text-foreground transition-colors">
-                View All
+                View All ({displayBatches.length})
               </Link>
             </div>
-            <div className="space-y-3 flex-1">
+            <div className="space-y-3 flex-1 max-h-[360px] overflow-y-auto pr-1.5 scrollbar-thin scrollbar-thumb-border/60 hover:scrollbar-thumb-border">
             {displayBatches.length === 0 && loading ? (
               <div className="py-8 text-center text-xs text-muted-foreground">Loading batches...</div>
             ) : displayBatches.length === 0 ? (
@@ -678,7 +678,7 @@ export default function DashboardPage() {
                 No batches found.
               </GlassCard>
             ) : (
-              displayBatches.slice(0, 5).map((batch: Batch) => {
+              displayBatches.map((batch: Batch) => {
                 const college = (colleges as College[]).find((c: College) => c.id === batch.collegeId);
                 const batchStudents = (students as Student[]).filter((s: Student) => s.batchIds?.includes(batch.id)).length;
                 return (
