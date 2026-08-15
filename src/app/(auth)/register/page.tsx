@@ -9,6 +9,7 @@ import { APP_NAME } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { studentRegister, unifiedGoogleLogin, formatAuthError } from "@/lib/services/auth-service";
 import { checkEmailExistsAction } from "@/lib/actions/auth-actions";
+import { setAuthSession } from "@/lib/utils/auth-session";
 import { useBranding } from "@/providers/branding-provider";
 
 export default function RegisterPage() {
@@ -145,27 +146,28 @@ export default function RegisterPage() {
         section.trim() || "A"
       );
 
-      const uid = res.user?.id;
-      setRegisteredUid(uid || "");
+      const uid = res.uid || res.user?.id;
+      const actualCollegeId = res.collegeId || collegeName.toLowerCase().trim().replace(/[^a-z0-9]+/g, "");
 
       const uObj = {
         id: uid,
+        authId: uid,
         name: fullName.trim(),
         email: email.trim() || "",
         role: "student",
         department: department.trim(),
         collegeName: collegeName.trim(),
-        collegeId: collegeName.toLowerCase().trim().replace(/[^a-z0-9]+/g, ""),
+        collegeId: actualCollegeId,
         section: section.trim() || "A",
         academicYear: "1st Year",
         createdAt: Date.now()
       };
       
-      localStorage.setItem("lms_role", "student");
-      localStorage.setItem("lms_user", JSON.stringify(uObj));
-      localStorage.setItem("user", JSON.stringify(uObj));
-      window.dispatchEvent(new Event("storage"));
-      setRegistered(true);
+      // Establish full authenticated session cookies and local storage immediately
+      await setAuthSession(uObj, "student");
+      
+      // Launch directly into student dashboard
+      window.location.assign("/student");
     } catch (err: unknown) {
       setError(formatAuthError(err));
     } finally {

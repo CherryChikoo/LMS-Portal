@@ -342,7 +342,12 @@ export async function studentRegisterServerAction(payload: {
     });
   });
 
-  return { user: JSON.parse(JSON.stringify(authUser)), uid };
+  return { 
+    user: JSON.parse(JSON.stringify(authUser)), 
+    uid, 
+    collegeId,
+    success: true 
+  };
 }
 
 export async function registerStudentDocsAction(userDoc: any, studentDoc: any) {

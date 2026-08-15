@@ -129,7 +129,7 @@ export async function studentRegister(
   collegeName: string,
   department: string = "Computer Science & Engineering",
   section: string = "A"
-): Promise<{ user: any }> {
+): Promise<{ user: any; uid: string; collegeId: string | null }> {
   const result = await studentRegisterServerAction({
     fullName,
     email: collegeEmail,
@@ -146,7 +146,11 @@ export async function studentRegister(
     });
   } catch (_) {}
 
-  return { user: result.user };
+  return { 
+    user: result.user, 
+    uid: result.uid, 
+    collegeId: result.collegeId 
+  };
 }
 
 export async function unifiedGoogleLogin(mode: "login" | "register" = "login"): Promise<void> {
