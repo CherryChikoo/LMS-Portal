@@ -431,10 +431,29 @@ function StudentsContent() {
   );
   const availableBatchesForAdd = useMemo(() => {
     if (!newCollegeId || newCollegeId === "GLOBAL" || newCollegeId === "ALL" || newCollegeId === "UNASSIGNED") {
-      return batches;
+      return batches.filter((b) => !b.collegeId || b.collegeId === "global" || b.collegeId === "GLOBAL");
     }
-    return batches.filter((b) => !b.collegeId || b.collegeId === "global" || b.collegeId === newCollegeId);
-  }, [batches, newCollegeId]);
+    const selectedCol = colleges.find((c) => c.id === newCollegeId || c.name === newCollegeId);
+    const validColKeys = new Set<string>([newCollegeId.toLowerCase()]);
+    if (selectedCol) {
+      if (selectedCol.id) validColKeys.add(selectedCol.id.toLowerCase());
+      if (selectedCol.name) validColKeys.add(selectedCol.name.toLowerCase());
+    }
+
+    return batches.filter((b) => {
+      if (!b.collegeId || b.collegeId === "global" || b.collegeId === "GLOBAL") return true;
+      return validColKeys.has(b.collegeId.toLowerCase());
+    });
+  }, [batches, newCollegeId, colleges]);
+
+  useEffect(() => {
+    if (newBatch) {
+      const isAllowed = availableBatchesForAdd.some((b) => b.id === newBatch || b.name === newBatch);
+      if (!isAllowed) {
+        setNewBatch("");
+      }
+    }
+  }, [newCollegeId, availableBatchesForAdd, newBatch]);
 
   // Cascading options for the edit modal.
   const editModalDepartments = useMemo(
@@ -449,12 +468,6 @@ function StudentsContent() {
     () => (hierarchy ? getSectionsForYear(hierarchy, editCollegeId, editDepartment, editYear) : []),
     [hierarchy, editCollegeId, editDepartment, editYear]
   );
-  const availableBatchesForEdit = useMemo(() => {
-    if (!editCollegeId || editCollegeId === "GLOBAL" || editCollegeId === "ALL" || editCollegeId === "UNASSIGNED") {
-      return batches;
-    }
-    return batches.filter((b) => !b.collegeId || b.collegeId === "global" || b.collegeId === editCollegeId);
-  }, [batches, editCollegeId]);
 
   const handleDeleteSelected = () => {
     if (selectedIds.length === 0) return;

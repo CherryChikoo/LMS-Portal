@@ -226,7 +226,14 @@ export async function POST(request: NextRequest) {
               { name: { equals: finalBatch, mode: "insensitive" } }
             ]
           },
-          select: { id: true }
+          select: { id: true, collegeId: true }
+        });
+
+        // Filter out batches that belong to a different college
+        matchingBatches = matchingBatches.filter((b: any) => {
+          if (!b.collegeId || b.collegeId === "GLOBAL" || b.collegeId === "global") return true;
+          if (!finalCollegeId) return false;
+          return b.collegeId.toLowerCase() === finalCollegeId.toLowerCase();
         });
 
         if (matchingBatches.length === 0) {
@@ -240,7 +247,7 @@ export async function POST(request: NextRequest) {
               academicYear: academicYear || null,
               section: section || null,
             },
-            select: { id: true }
+            select: { id: true, collegeId: true }
           });
           matchingBatches = [created];
         }

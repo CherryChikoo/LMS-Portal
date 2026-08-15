@@ -105,13 +105,44 @@ export async function bulkAddStudentsToBatchAction(batchIdOrName: string, studen
         { name: batchIdOrName }
       ]
     },
-    select: { id: true }
+    select: { id: true, collegeId: true }
   });
   if (!batch) return;
 
+  let eligibleStudentIds = studentIds;
+  if (batch.collegeId && batch.collegeId !== "GLOBAL" && batch.collegeId !== "global" && batch.collegeId !== "ALL" && batch.collegeId !== "unassigned" && batch.collegeId !== "UNASSIGNED") {
+    // Look up the college to get both id and name
+    const college = await prisma.colleges.findFirst({
+      where: {
+        OR: [
+          { id: batch.collegeId },
+          { name: batch.collegeId }
+        ]
+      },
+      select: { id: true, name: true }
+    });
+
+    const validColIds = [batch.collegeId];
+    if (college) {
+      if (college.id) validColIds.push(college.id);
+      if (college.name) validColIds.push(college.name);
+    }
+
+    const matchingStudents = await prisma.students.findMany({
+      where: {
+        id: { in: studentIds },
+        collegeId: { in: validColIds },
+      },
+      select: { id: true }
+    });
+    eligibleStudentIds = matchingStudents.map((s) => s.id);
+  }
+
+  if (eligibleStudentIds.length === 0) return;
+
   const validBatchId = batch.id;
   await prisma.student_batches.createMany({
-    data: studentIds.map((sId) => ({
+    data: eligibleStudentIds.map((sId) => ({
       studentId: sId,
       batchId: validBatchId,
     })),

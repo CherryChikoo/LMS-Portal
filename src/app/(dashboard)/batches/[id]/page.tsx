@@ -114,7 +114,7 @@ export default function BatchDetailPage({ params }: PageProps) {
 
   // Resolve matching college for this batch
   const batchCollege = useMemo(() => {
-    if (!batch?.collegeId || batch.collegeId === "global" || batch.collegeId === "ALL" || batch.collegeId === "GLOBAL") {
+    if (!batch?.collegeId || batch.collegeId === "global" || batch.collegeId === "ALL" || batch.collegeId === "GLOBAL" || batch.collegeId === "unassigned" || batch.collegeId === "UNASSIGNED") {
       return null;
     }
     const target = batch.collegeId.toLowerCase();
@@ -127,7 +127,7 @@ export default function BatchDetailPage({ params }: PageProps) {
     if (!batch) return "All Institutions";
     if (batchCollege?.name) return batchCollege.name;
     if ((batch as any).collegeName) return (batch as any).collegeName;
-    if (batch.collegeId && batch.collegeId !== "global" && batch.collegeId !== "ALL" && batch.collegeId !== "GLOBAL") {
+    if (batch.collegeId && batch.collegeId !== "global" && batch.collegeId !== "ALL" && batch.collegeId !== "GLOBAL" && batch.collegeId !== "unassigned" && batch.collegeId !== "UNASSIGNED") {
       return batch.collegeId.replace(/^col-/, "");
     }
     return "All Institutions";
@@ -138,7 +138,9 @@ export default function BatchDetailPage({ params }: PageProps) {
       batch?.collegeId && 
       batch.collegeId !== "global" && 
       batch.collegeId !== "ALL" && 
-      batch.collegeId !== "GLOBAL"
+      batch.collegeId !== "GLOBAL" &&
+      batch.collegeId !== "unassigned" &&
+      batch.collegeId !== "UNASSIGNED"
     );
   }, [batch]);
 
@@ -146,15 +148,17 @@ export default function BatchDetailPage({ params }: PageProps) {
   const eligibleStudents = useMemo(() => {
     if (!isCollegeSpecificBatch) return allStudents;
 
-    const targetId = (batchCollege?.id || batch?.collegeId || "").toLowerCase();
-    const targetName = (batchCollege?.name || (batch as any)?.collegeName || batch?.collegeId || "").toLowerCase();
+    const validColKeys = new Set<string>();
+    if (batch?.collegeId) validColKeys.add(batch.collegeId.toLowerCase());
+    if (batchCollege?.id) validColKeys.add(batchCollege.id.toLowerCase());
+    if (batchCollege?.name) validColKeys.add(batchCollege.name.toLowerCase());
+    if ((batch as any)?.collegeName) validColKeys.add((batch as any).collegeName.toLowerCase());
 
     return allStudents.filter((s) => {
       const sId = (s.collegeId || "").toLowerCase();
       const sName = (s.collegeName || "").toLowerCase();
       if (!sId && !sName) return false;
-      return (sId && (sId === targetId || sId === targetName)) || 
-             (sName && (sName === targetName || sName === targetId));
+      return (sId && validColKeys.has(sId)) || (sName && validColKeys.has(sName));
     });
   }, [allStudents, isCollegeSpecificBatch, batchCollege, batch]);
 
