@@ -11,6 +11,7 @@ import {
 import { supabase } from "@/lib/supabase/client";
 import { getAuthProfileDataAction } from "@/lib/actions/auth-actions";
 import { getStudentAttemptsAction } from "@/lib/actions/exam-actions";
+import { fetchFullLMSStateAction } from "@/lib/actions/lms-sync-actions";
 import {
   buildHierarchy,
   getExternalInstitutions,
@@ -549,7 +550,7 @@ function startRealtimeSubscription() {
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
       fetchLMSData(true).catch(() => {});
-    }, 250);
+    }, 2000); // 2-second debounce prevents rapid-fire queries
   };
 
   try {
@@ -576,7 +577,78 @@ function stopRealtimeSubscription() {
   }
 }
 
-// ─── Data Fetching Engine (Parallelized + Deduplicated) ──────────────────────
+// ─── Data Fetching Engine (Unified Aggregate Single-Round-Trip) ──────────────
+
+function mapStudentRow(row: any): Student {
+  if (!row) return row;
+  const user = row.users || {};
+  const batchIds: string[] = [];
+  const batchNames: string[] = [];
+  const batchesList: Array<{ id: string; name: string; department?: string; section?: string }> = [];
+
+  if (Array.isArray(row.student_batches)) {
+    row.student_batches.forEach((sb: any) => {
+      const bId = sb.batchId || sb.batches?.id;
+      const bName = sb.batches?.name;
+      if (bId && !batchIds.includes(bId)) {
+        batchIds.push(bId);
+      }
+      if (bName && !batchNames.includes(bName)) {
+        batchNames.push(bName);
+      }
+      if (sb.batches) {
+        batchesList.push({
+          id: sb.batches.id,
+          name: sb.batches.name,
+          department: sb.batches.department,
+          section: sb.batches.section,
+        });
+      }
+    });
+  } else if (Array.isArray(row.batchIds)) {
+    row.batchIds.forEach((b: string) => {
+      if (b && !batchIds.includes(b)) batchIds.push(b);
+    });
+  }
+
+  const collegeName =
+    row.colleges?.name ||
+    row.collegeName ||
+    (!row.collegeId || row.collegeId === "col-unassigned" || row.collegeId === "unassigned"
+      ? "Unassigned"
+      : row.collegeId);
+
+  const mapped = {
+    ...row,
+    collegeName,
+    name: user.displayName || user.name || row.name || "Unnamed Student",
+    email: user.email || row.email || "",
+    role: user.role || row.role || "student",
+    displayName: user.displayName || user.name || row.displayName || "Unnamed Student",
+    status: user.status || row.status || "active",
+    batchIds,
+    batchNames,
+    batches: batchesList,
+    batchCount: batchIds.length,
+  };
+  delete mapped.users;
+  delete mapped.colleges;
+  return mapped as Student;
+}
+
+function mapBatchRow(row: any): Batch {
+  if (!row) return row;
+  const studentIds = Array.isArray(row.student_batches)
+    ? row.student_batches.map((sb: any) => sb.studentId)
+    : row.studentIds || [];
+  const studentCount =
+    row._count?.student_batches ?? row.student_batches?.length ?? row.studentCount ?? studentIds.length ?? 0;
+  return {
+    ...row,
+    studentCount,
+    studentIds,
+  } as Batch;
+}
 
 let currentUserInfo: { uid: string; role: string; collegeId?: string; parsed: any } | null = null;
 let globalAuthUnsub: (() => void) | null = null;
@@ -603,35 +675,10 @@ async function fetchLMSData(force = false): Promise<void> {
 }
 
 async function performFetchLMSData(force = false): Promise<void> {
-  if (!currentUserInfo) {
-    if (typeof window !== "undefined") {
-      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-      const r = localStorage.getItem("lms_role") || "admin";
-      if (uStr) {
-        try {
-          const parsed = JSON.parse(uStr);
-          currentUserInfo = { 
-            uid: parsed.id || parsed.uid || "", 
-            role: (parsed.role || r).toLowerCase(), 
-            collegeId: parsed.collegeId, 
-            parsed 
-          };
-        } catch (_) {}
-      }
-      if (!currentUserInfo) {
-        currentUserInfo = { uid: "system", role: r.toLowerCase(), parsed: null };
-      }
-    } else {
-      currentUserInfo = { uid: "system", role: "admin", parsed: null };
-    }
-  }
-
-  const { role, collegeId, parsed } = currentUserInfo;
-  
-  // TTL Check: 15 seconds for cached data, or instant if forced
-  const TTL = 15 * 1000;
+  // TTL Check: 60 seconds for cached data, or instant if forced
+  const TTL = 60 * 1000;
   const now = Date.now();
-  if (!force && cache.colleges?.updatedAt && (now - cache.colleges.updatedAt < TTL)) {
+  if (!force && cache.colleges?.updatedAt && now - cache.colleges.updatedAt < TTL) {
     if (cache.loading) {
       cache.loading = false;
       notifyListeners();
@@ -646,79 +693,34 @@ async function performFetchLMSData(force = false): Promise<void> {
     (cache.batches?.data && cache.batches.data.length > 0)
   );
 
-  // Only display initial loading spinner if we have no existing cached data.
-  // Background revalidation runs seamlessly without flickering or unmounting components.
+  // Only display initial loading spinner if we have zero cached data.
   if (!hasExistingData) {
     cache.loading = true;
     cache.error = null;
     notifyListeners();
   }
 
-  const isCollegeAdmin = role === "college_admin" && collegeId;
-  const isStudent = role === "student" && parsed?.id;
+  try {
+    const res = await fetchFullLMSStateAction();
+    if (res.success && res.data) {
+      const { colleges, batches, students, exams, resources, attempts } = res.data;
+      const parsedColleges = JSON.parse(JSON.stringify(colleges || [])) as College[];
+      const parsedBatches = (JSON.parse(JSON.stringify(batches || [])) as any[]).map(mapBatchRow);
+      const parsedStudents = (JSON.parse(JSON.stringify(students || [])) as any[]).map(mapStudentRow);
+      const parsedExams = JSON.parse(JSON.stringify(exams || [])) as Exam[];
+      const parsedResources = JSON.parse(JSON.stringify(resources || [])) as Resource[];
+      const parsedAttempts = JSON.parse(JSON.stringify(attempts || [])) as ExamAttempt[];
 
-  // Execute all 6 queries in PARALLEL via Promise.allSettled for maximum throughput
-  const collegesPromise = getAllColleges();
-  const batchesPromise = (isCollegeAdmin || isStudent) && collegeId 
-    ? getBatchesByCollege(collegeId)
-    : getAllBatches();
-  const studentsPromise = getAllStudents();
-  const examsPromise = getAllExams();
-  const resourcesPromise = getAllResources();
-  const attemptsPromise = (isStudent && parsed?.id)
-    ? getStudentAttempts(parsed.id).then((r) => r as ExamAttempt[])
-    : getStudentAttemptsAction().then((d) => (d || []) as unknown as ExamAttempt[]);
-
-  const [
-    collegesRes,
-    batchesRes,
-    studentsRes,
-    examsRes,
-    resourcesRes,
-    attemptsRes,
-  ] = await Promise.allSettled([
-    collegesPromise,
-    batchesPromise,
-    studentsPromise,
-    examsPromise,
-    resourcesPromise,
-    attemptsPromise,
-  ]);
-
-  if (collegesRes.status === "fulfilled" && collegesRes.value?.data) {
-    cache.colleges = { data: collegesRes.value.data, updatedAt: now };
-  } else if (collegesRes.status === "rejected") {
-    console.error("[FETCH] Colleges failed:", collegesRes.reason);
-  }
-
-  if (batchesRes.status === "fulfilled" && batchesRes.value?.data) {
-    cache.batches = { data: batchesRes.value.data, updatedAt: now };
-  } else if (batchesRes.status === "rejected") {
-    console.error("[FETCH] Batches failed:", batchesRes.reason);
-  }
-
-  if (studentsRes.status === "fulfilled" && studentsRes.value?.data) {
-    cache.students = { data: studentsRes.value.data, updatedAt: now };
-  } else if (studentsRes.status === "rejected") {
-    console.error("[FETCH] Students failed:", studentsRes.reason);
-  }
-
-  if (examsRes.status === "fulfilled" && examsRes.value?.data) {
-    cache.exams = { data: examsRes.value.data, updatedAt: now };
-  } else if (examsRes.status === "rejected") {
-    console.error("[FETCH] Exams failed:", examsRes.reason);
-  }
-
-  if (resourcesRes.status === "fulfilled" && resourcesRes.value?.data) {
-    cache.resources = { data: resourcesRes.value.data, updatedAt: now };
-  } else if (resourcesRes.status === "rejected") {
-    console.error("[FETCH] Resources failed:", resourcesRes.reason);
-  }
-
-  if (attemptsRes.status === "fulfilled" && attemptsRes.value) {
-    cache.attempts = { data: attemptsRes.value, updatedAt: now };
-  } else if (attemptsRes.status === "rejected") {
-    console.error("[FETCH] Attempts failed:", attemptsRes.reason);
+      cache.colleges = { data: parsedColleges, updatedAt: now };
+      cache.batches = { data: parsedBatches, updatedAt: now };
+      cache.students = { data: parsedStudents, updatedAt: now };
+      cache.exams = { data: parsedExams, updatedAt: now };
+      cache.resources = { data: parsedResources, updatedAt: now };
+      cache.attempts = { data: parsedAttempts, updatedAt: now };
+      cache.error = null;
+    }
+  } catch (err: any) {
+    console.error("[FETCH] Unified LMS sync failed:", err);
   }
 
   cache.loading = false;

@@ -22,11 +22,13 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { logoutUser } from "@/lib/services/auth-service";
 import { useBranding } from "@/providers/branding-provider";
 import { BrandingModal } from "@/components/shared/branding-modal";
+import { useGlobalLoading } from "@/providers/global-loading-provider";
 
 export function Sidebar() {
   const pathname = usePathname();
   const { isExpanded } = useSidebar();
   const { branding, loading } = useBranding();
+  const { isLoading: isGlobalLoading } = useGlobalLoading();
   const mounted = useMounted();
   const [showBrandModal, setShowBrandModal] = useState(false);
   const [userRole, setUserRole] = useState<string | null>(null);
@@ -125,8 +127,9 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "hidden lg:flex flex-col fixed left-0 top-0 bottom-0 z-30 bg-sidebar text-sidebar-foreground border-r border-border overflow-hidden",
-        isExpanded ? "w-[260px]" : "w-[80px]"
+        "hidden lg:flex flex-col fixed left-0 top-0 bottom-0 z-30 bg-sidebar text-sidebar-foreground border-r border-border overflow-hidden transition-all duration-300",
+        isExpanded ? "w-[260px]" : "w-[80px]",
+        isGlobalLoading && "pointer-events-none opacity-40 select-none cursor-not-allowed"
       )}
       style={{ 
         fontFamily: '"Montserrat", sans-serif',
@@ -134,6 +137,14 @@ export function Sidebar() {
         willChange: 'width'
       }}
     >
+      {/* Loading Blocker Overlay */}
+      {isGlobalLoading && (
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 z-50 bg-background/50 backdrop-blur-[1px] cursor-not-allowed pointer-events-auto"
+        />
+      )}
+
       {/* Brand Header */}
       <div className="flex items-center h-20 px-4 shrink-0 relative group/brand overflow-hidden">
         <Link href="/" className="flex items-center w-full min-w-0">

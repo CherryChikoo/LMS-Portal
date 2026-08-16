@@ -21,10 +21,12 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useBranding } from "@/providers/branding-provider";
 import { logoutUser } from "@/lib/services/auth-service";
 import { useMounted } from "@/hooks/use-mounted";
+import { useGlobalLoading } from "@/providers/global-loading-provider";
 
 export function MobileSidebar() {
   const pathname = usePathname();
   const { isMobileOpen, closeMobile } = useSidebar();
+  const { isLoading: isGlobalLoading } = useGlobalLoading();
   const mounted = useMounted();
   const [userRole, setUserRole] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
@@ -151,11 +153,14 @@ export function MobileSidebar() {
   }
 
   return (
-    <Sheet open={isMobileOpen} onOpenChange={closeMobile}>
+    <Sheet open={isMobileOpen && !isGlobalLoading} onOpenChange={closeMobile}>
       <SheetContent
         side="left"
         showCloseButton={false}
-        className="w-[280px] sm:w-[320px] p-0 bg-sidebar text-sidebar-foreground flex flex-col border-r border-border shadow-2xl"
+        className={cn(
+          "w-[280px] sm:w-[320px] p-0 bg-sidebar text-sidebar-foreground flex flex-col border-r border-border shadow-2xl transition-all duration-300",
+          isGlobalLoading && "pointer-events-none opacity-40 select-none cursor-not-allowed"
+        )}
         style={{ fontFamily: '"Montserrat", sans-serif' }}
       >
         {/* Header */}

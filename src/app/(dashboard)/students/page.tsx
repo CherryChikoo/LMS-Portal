@@ -25,6 +25,7 @@ import { fadeInUp } from "@/lib/animations";
 import { parseStudentsCSV, importStudentsCSV, generateCredentialsCSV, createStudentAuthProfile, updateCollege, deleteStudentProfile, updateStudentProfile, formatAuthError } from "@/lib/services";
 import { useLMSData, useLMSDataSelector } from "@/lib/data/use-lms-data";
 import { optimisticDeleteStudentFromCache as optimisticDeleteStudent, optimisticUpdateStudentInCache as optimisticUpdateStudent, refreshCache } from "@/lib/data/lms-data-cache";
+import { globalLoading } from "@/providers/global-loading-provider";
 import { StudentRow } from "@/components/students/student-row";
 import { StudentCard } from "@/components/students/student-card";
 import { useEntityResolution } from "@/lib/data/use-entity-resolution";
@@ -111,6 +112,14 @@ function StudentsContent() {
   const [cancelling, setCancelling] = useState(false);
   const [importProgress, setImportProgress] = useState<{ processed: number; total: number } | null>(null);
   const [importSummary, setImportSummary] = useState<CSVImportSummary | null>(null);
+
+  useEffect(() => {
+    if (importing) {
+      globalLoading.start("Importing student accounts in batches...");
+    } else {
+      globalLoading.stop();
+    }
+  }, [importing]);
 
   // Manual Add Student Modal states
   const [showAddModal, setShowAddModal] = useState(false);
