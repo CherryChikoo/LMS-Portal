@@ -8,6 +8,13 @@ export async function getCompanyBrandingAction() {
   });
 }
 
+export async function getCompanyBrandingLightAction() {
+  return await prisma.settings.findUnique({
+    where: { id: 'branding' },
+    select: { companyName: true, companySubtitle: true }
+  });
+}
+
 export async function updateCompanyBrandingAction(data: any) {
   const { companyName, companySubtitle, logoBase64 } = data;
   await prisma.settings.upsert({

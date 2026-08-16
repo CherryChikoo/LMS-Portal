@@ -1,5 +1,5 @@
 import { supabase } from "@/lib/supabase/client";
-import { getCompanyBrandingAction, updateCompanyBrandingAction } from "@/lib/actions/branding-actions";
+import { getCompanyBrandingAction, getCompanyBrandingLightAction, updateCompanyBrandingAction } from "@/lib/actions/branding-actions";
 
 export interface CompanyBranding {
   companyName: string;
@@ -13,12 +13,12 @@ const DOC_ID = "branding";
 
 export async function getCompanyBranding(): Promise<CompanyBranding> {
   try {
-    const data = await getCompanyBrandingAction();
+    const data = await getCompanyBrandingLightAction();
     if (data) {
       return {
         companyName: data.companyName || "",
         companySubtitle: data.companySubtitle || "",
-        logoBase64: data.logoBase64 || "",
+        logoBase64: "", // Omitted to save bandwidth
       };
     }
   } catch (err) {
