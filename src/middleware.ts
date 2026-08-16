@@ -115,7 +115,7 @@ export function middleware(request: NextRequest) {
     if (!isAdminOrTrainer && roleCookie === "student") {
       return NextResponse.redirect(new URL("/student", request.url));
     }
-    return applyNoCacheHeaders(NextResponse.next());
+    return NextResponse.next();
   }
 
   // For /student prefixed aliases
@@ -125,10 +125,10 @@ export function middleware(request: NextRequest) {
     if (!isAdminOrTrainer && trainerOnlyRoutes.some((r) => stripped === r || stripped.startsWith(`${r}/`))) {
       return NextResponse.redirect(new URL("/student", request.url));
     }
-    return applyNoCacheHeaders(NextResponse.next());
+    return NextResponse.next();
   }
 
-  return applyNoCacheHeaders(NextResponse.next());
+  return NextResponse.next();
 }
 
 export const config = {

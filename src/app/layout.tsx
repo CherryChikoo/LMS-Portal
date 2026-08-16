@@ -43,7 +43,7 @@ export default function RootLayout({
           id="branding-initializer"
           suppressHydrationWarning
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var bStr=localStorage.getItem("lms_branding");var title="Masters Academy";if(bStr){var b=JSON.parse(bStr);if(b&&b.companyName)title=b.companyName;if(b&&b.logoBase64){var l=document.querySelectorAll("link[rel*='icon']");l.forEach(function(el){el.href=b.logoBase64;});}}document.title=title;}catch(e){document.title="Masters Academy";}})()`,
+            __html: `(function(){try{var bStr=localStorage.getItem("lms_branding");if(bStr){var b=JSON.parse(bStr);if(b&&b.logoBase64){var l=document.querySelectorAll("link[rel*='icon']");l.forEach(function(el){el.href=b.logoBase64;});}}}catch(e){}})()`,
           }}
         />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
