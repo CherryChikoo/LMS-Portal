@@ -11,6 +11,8 @@ import { cn } from "@/lib/utils";
 import { subscribeToLMSCache } from "@/lib/data/lms-data-cache";
 import { getStudentByIdAction, getUserByIdAction } from "@/lib/actions/auth-actions";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { NAVIGATION } from "@/lib/constants";
+import { useBranding } from "@/providers/branding-provider";
 
 export default function DashboardLayout({
   children,
@@ -21,8 +23,29 @@ export default function DashboardLayout({
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   // Used to throttle the storage event dispatch to at most once per 2 seconds.
   const lastDispatchRef = useRef<number>(0);
+  const { branding } = useBranding();
 
   const pathname = usePathname();
+
+  // Dynamic Document Title based on current route
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    let pageTitle = "Dashboard";
+    const path = pathname || "";
+    
+    if (path !== "/" && path !== "/admin" && path !== "/student" && path !== "/college") {
+      for (const section of NAVIGATION) {
+        for (const item of section.items) {
+          if (path.includes(item.href) && item.href !== "/") {
+            pageTitle = item.title;
+            break;
+          }
+        }
+      }
+    }
+    const companyName = branding.companyName || "Masters Academy";
+    document.title = `${pageTitle} | ${companyName}`;
+  }, [pathname, branding.companyName]);
 
   // Listen for logout freeze trigger
   useEffect(() => {
