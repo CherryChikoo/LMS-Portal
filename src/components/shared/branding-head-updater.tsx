@@ -73,32 +73,16 @@ export function BrandingHeadUpdater() {
       }
     } catch (_) {}
 
-    // 3. Reliable Favicon Injection
+    // 3. Safe in-place Favicon update (Never remove nodes from head to prevent React 19 reconciler crash)
     const targetFavicon = branding.logoBase64 || "/api/branding/favicon";
-
-    // Remove all existing icon and shortcut icon links to force browser reload
-    const existingIcons = document.querySelectorAll("link[rel*='icon']");
-    existingIcons.forEach((el) => el.remove());
-
-    // Create fresh standard icon link
-    const iconLink = document.createElement("link");
-    iconLink.rel = "icon";
-    iconLink.type = targetFavicon.includes("svg") ? "image/svg+xml" : "image/png";
-    iconLink.href = targetFavicon;
-    document.head.appendChild(iconLink);
-
-    // Create shortcut icon link
-    const shortcutLink = document.createElement("link");
-    shortcutLink.rel = "shortcut icon";
-    shortcutLink.type = targetFavicon.includes("svg") ? "image/svg+xml" : "image/png";
-    shortcutLink.href = targetFavicon;
-    document.head.appendChild(shortcutLink);
-
-    // Create apple-touch-icon link
-    const appleLink = document.createElement("link");
-    appleLink.rel = "apple-touch-icon";
-    appleLink.href = targetFavicon;
-    document.head.appendChild(appleLink);
+    try {
+      const existingIcons = document.querySelectorAll("link[rel*='icon']");
+      if (existingIcons.length > 0) {
+        existingIcons.forEach((el) => {
+          (el as HTMLLinkElement).href = targetFavicon;
+        });
+      }
+    } catch (_) {}
   }, [branding, loading, userRole, userCollegeId, userCollegeName, pathname]);
 
   return null;
