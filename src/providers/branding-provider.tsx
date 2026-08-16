@@ -26,23 +26,25 @@ const BrandingContext = createContext<BrandingContextType>({
 
 export function BrandingProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const [masterBranding, setMasterBranding] = useState<CompanyBranding | null>(() => {
-    if (typeof window === "undefined") return null;
-    try {
-      const cached = localStorage.getItem("lms_branding");
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (parsed.companyName || parsed.logoBase64) return parsed;
-      }
-    } catch {}
-    return null;
-  });
+  const [masterBranding, setMasterBranding] = useState<CompanyBranding | null>(null);
+  const [tenantBranding, setTenantBranding] = useState<CompanyBranding | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
 
-  const [tenantBranding, setTenantBranding] = useState<CompanyBranding | null>(() => {
-    if (typeof window === "undefined") return null;
+  useEffect(() => {
+    // Load from localStorage on mount (client-side only) to avoid hydration mismatch
     try {
+      const cachedMaster = localStorage.getItem("lms_branding");
+      if (cachedMaster) {
+        const parsed = JSON.parse(cachedMaster);
+        if (parsed.companyName || parsed.logoBase64) {
+          setMasterBranding(parsed);
+        }
+      }
+
       const storedUser = localStorage.getItem("lms_user") || localStorage.getItem("user");
       const role = (localStorage.getItem("lms_role") || "").toLowerCase().trim();
+      let tenantAllowed = true;
+
       if (storedUser) {
         const parsed = JSON.parse(storedUser);
         const pRole = (parsed.role || role || "").toLowerCase().trim();
@@ -60,24 +62,21 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
           parsed.collegeId === "global"
         ) {
           localStorage.removeItem("lms_college_branding");
-          return null;
+          tenantAllowed = false;
         }
       }
-      const cached = localStorage.getItem("lms_college_branding");
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        return parsed.branding || null;
+
+      if (tenantAllowed) {
+        const cachedCollege = localStorage.getItem("lms_college_branding");
+        if (cachedCollege) {
+          const parsed = JSON.parse(cachedCollege);
+          if (parsed.branding) {
+            setTenantBranding(parsed.branding);
+          }
+        }
       }
     } catch {}
-    return null;
-  });
-
-  const [loading, setLoading] = useState<boolean>(() => {
-    if (typeof window === "undefined") return true;
-    const cachedMaster = localStorage.getItem("lms_branding");
-    const cachedCollege = localStorage.getItem("lms_college_branding");
-    return !cachedMaster && !cachedCollege;
-  });
+  }, []);
 
   useEffect(() => {
     let isCancelled = false;
