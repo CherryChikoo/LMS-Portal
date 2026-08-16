@@ -111,6 +111,7 @@ export async function getCurrentUser(): Promise<{ uid: string; email: string; pr
 export async function clearAuthSession(redirectPath?: string): Promise<void> {
   if (typeof window !== "undefined") {
     (window as any).__isLoggingOut = true;
+    window.dispatchEvent(new Event("lms_logout"));
   }
 
   const targetPath = redirectPath || "/login?logout=true";
@@ -137,6 +138,7 @@ export async function clearAuthSession(redirectPath?: string): Promise<void> {
   }
 
   window.dispatchEvent(new Event("storage"));
+  window.dispatchEvent(new Event("lms_logout"));
 
   // Allow a microtask for cookie deletion to propagate before navigation.
   await new Promise<void>((resolve) => queueMicrotask(resolve));

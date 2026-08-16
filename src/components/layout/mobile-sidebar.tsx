@@ -166,10 +166,8 @@ export function MobileSidebar() {
         {/* Header */}
         <div className="flex items-center justify-between h-20 px-5 shrink-0 border-b border-border/40">
           <Link href="/" className="flex items-center gap-3 overflow-hidden" onClick={closeMobile}>
-            {userRole === "college_admin" ? (
-              <div className="w-9 h-9 rounded-xl bg-brand/15 text-brand flex items-center justify-center font-black text-base shrink-0 border border-brand/30 shadow-sm">
-                {(userCollegeName || "C").charAt(0).toUpperCase()}
-              </div>
+            {!mounted ? (
+              <div className="w-9 h-9 rounded-xl bg-brand/10 animate-pulse shrink-0" />
             ) : branding.logoBase64 ? (
               <img
                 src={branding.logoBase64}
@@ -181,27 +179,21 @@ export function MobileSidebar() {
                 {(branding.companyName || "C").charAt(0).toUpperCase()}
               </div>
             )}
-            <div className="flex flex-col min-w-0">
-              {userRole === "college_admin" ? (
-                <>
-                  <span className="font-bold text-base text-brand tracking-tight truncate">
-                    {userCollegeName || "College Portal"}
-                  </span>
-                  <span className="text-[10px] font-bold text-brand/60 uppercase tracking-widest truncate">
-                    College Admin Portal
-                  </span>
-                </>
-              ) : (
-                <>
-                  <span className="font-bold text-base text-brand tracking-tight truncate">
-                    {branding.companyName || "Masters Academy"}
-                  </span>
-                  <span className="text-[10px] font-bold text-brand/60 uppercase tracking-widest truncate">
-                    {branding.companySubtitle || "Master Admin"}
-                  </span>
-                </>
-              )}
-            </div>
+            {!mounted ? (
+               <div className="flex flex-col gap-1.5 w-32 py-1">
+                 <div className="h-4 bg-brand/10 rounded animate-pulse w-full" />
+                 <div className="h-2 bg-brand/10 rounded animate-pulse w-2/3" />
+               </div>
+            ) : (
+              <div className="flex flex-col min-w-0">
+                <span className="font-bold text-base text-brand tracking-tight truncate">
+                  {branding.companyName || "Masters Academy"}
+                </span>
+                <span className="text-[10px] font-bold text-brand/60 uppercase tracking-widest truncate">
+                  {branding.companySubtitle || "Master Admin"}
+                </span>
+              </div>
+            )}
           </Link>
           <button
             onClick={closeMobile}

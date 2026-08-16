@@ -31,9 +31,41 @@ export function Sidebar() {
   const { isLoading: isGlobalLoading } = useGlobalLoading();
   const mounted = useMounted();
   const [showBrandModal, setShowBrandModal] = useState(false);
-  const [userRole, setUserRole] = useState<string | null>(null);
-  const [userCollegeId, setUserCollegeId] = useState<string | null>(null);
-  const [userCollegeName, setUserCollegeName] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const role = localStorage.getItem("lms_role") || localStorage.getItem("role");
+      if (role) return role.toLowerCase();
+      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      if (uStr) {
+        const parsed = JSON.parse(uStr);
+        if (parsed.role) return parsed.role.toLowerCase();
+      }
+    } catch {}
+    return "student";
+  });
+  const [userCollegeId, setUserCollegeId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      if (uStr) {
+        const parsed = JSON.parse(uStr);
+        return parsed.collegeId || null;
+      }
+    } catch {}
+    return null;
+  });
+  const [userCollegeName, setUserCollegeName] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      if (uStr) {
+        const parsed = JSON.parse(uStr);
+        return parsed.collegeName || null;
+      }
+    } catch {}
+    return null;
+  });
 
   const refreshUser = () => {
     try {
@@ -149,10 +181,8 @@ export function Sidebar() {
       <div className="flex items-center h-20 px-4 shrink-0 relative group/brand overflow-hidden">
         <Link href="/" className="flex items-center w-full min-w-0">
           <div className="w-11 h-11 flex items-center justify-center shrink-0">
-            {userRole === "college_admin" ? (
-              <div className="w-9 h-9 rounded-xl bg-brand/15 text-brand flex items-center justify-center font-black text-base shrink-0 border border-brand/30 shadow-sm">
-                {(userCollegeName || "C").charAt(0).toUpperCase()}
-              </div>
+            {!mounted ? (
+              <div className="w-9 h-9 rounded-xl bg-brand/10 animate-pulse shrink-0" />
             ) : branding.logoBase64 ? (
               <img
                 src={branding.logoBase64}
@@ -175,15 +205,11 @@ export function Sidebar() {
               transition: 'opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
             }}
           >
-            {userRole === "college_admin" ? (
-              <>
-                <span className="font-bold text-base text-brand tracking-tight truncate">
-                  {formatDisplayName(userCollegeName || "College Portal")}
-                </span>
-                <span className="text-[9px] font-bold text-brand/60 uppercase tracking-widest truncate">
-                  College Admin Portal
-                </span>
-              </>
+            {!mounted ? (
+               <div className="flex flex-col gap-1.5 w-32 py-1">
+                 <div className="h-4 bg-brand/10 rounded animate-pulse w-full" />
+                 <div className="h-2 bg-brand/10 rounded animate-pulse w-2/3" />
+               </div>
             ) : (
               <>
                 <span className="font-bold text-base text-brand tracking-tight truncate">

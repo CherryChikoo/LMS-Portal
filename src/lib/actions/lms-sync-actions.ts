@@ -105,7 +105,10 @@ export async function fetchFullLMSStateAction() {
           students,
           exams,
           resources,
-          attempts,
+          attempts: attempts.map((a: any) => ({
+            ...a,
+            percentage: a.percentage ? Number(a.percentage) : null,
+          })),
         },
       };
     } catch (err: any) {

@@ -120,7 +120,7 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
               if (data && (data.type === "external" || (data as any).origin === "student" || (data as any).type === "outside")) {
                 setTenantBranding(null);
                 localStorage.removeItem("lms_college_branding");
-              } else if (data && data.type === "registered") {
+              } else if (data) {
                 const officialColName = data.name?.trim() || profile.collegeName?.trim() || "College Portal";
                 const cBrand: CompanyBranding = {
                   companyName: officialColName,
@@ -129,9 +129,6 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
                 };
                 setTenantBranding(cBrand);
                 localStorage.setItem("lms_college_branding", JSON.stringify({ collegeId: collegeId, branding: cBrand }));
-              } else {
-                setTenantBranding(null);
-                localStorage.removeItem("lms_college_branding");
               }
             } catch (err) {
               console.error("College branding fetch error:", err);
@@ -169,11 +166,7 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // For Admin routes or when tenant branding is null, strictly enforce masterBranding
-  const isAdminPath = pathname.startsWith("/admin");
-  const activeBranding = (isAdminPath || !tenantBranding)
-    ? (masterBranding || { companyName: "Masters Academy", companySubtitle: "Master Admin", logoBase64: "" })
-    : tenantBranding;
+  const activeBranding = tenantBranding || masterBranding || emptyBranding;
 
   return (
     <BrandingContext.Provider value={{ branding: activeBranding, loading }}>

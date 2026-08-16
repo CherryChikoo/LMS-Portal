@@ -20,43 +20,38 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const { isExpanded } = useSidebar();
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(() => {
+    if (typeof window !== "undefined" && (window as any).__isLoggingOut) return true;
+    return false;
+  });
+
+  const [isInitializingAuth, setIsInitializingAuth] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const hasLocalUser = Boolean(localStorage.getItem("lms_user") || localStorage.getItem("user"));
+    const hasLocalAuth = Boolean(localStorage.getItem("lms_auth") || localStorage.getItem("lms_role"));
+    return !hasLocalUser && !hasLocalAuth;
+  });
+
   // Used to throttle the storage event dispatch to at most once per 2 seconds.
   const lastDispatchRef = useRef<number>(0);
   const { branding } = useBranding();
 
   const pathname = usePathname();
 
-  // Dynamic Document Title based on current route
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    let pageTitle = "Dashboard";
-    const path = pathname || "";
-    
-    if (path !== "/" && path !== "/admin" && path !== "/student" && path !== "/college") {
-      for (const section of NAVIGATION) {
-        for (const item of section.items) {
-          if (path.includes(item.href) && item.href !== "/") {
-            pageTitle = item.title;
-            break;
-          }
-        }
-      }
-    }
-    const companyName = branding.companyName || "Masters Academy";
-    document.title = `${pageTitle} | ${companyName}`;
-  }, [pathname, branding.companyName]);
-
   // Listen for logout freeze trigger
   useEffect(() => {
-    const checkLogout = () => {
+    const handleLogout = () => {
       if (typeof window !== "undefined" && (window as any).__isLoggingOut) {
         setIsLoggingOut(true);
       }
     };
-    checkLogout();
-    window.addEventListener("storage", checkLogout);
-    return () => window.removeEventListener("storage", checkLogout);
+    handleLogout();
+    window.addEventListener("lms_logout", () => setIsLoggingOut(true));
+    window.addEventListener("storage", handleLogout);
+    return () => {
+      window.removeEventListener("lms_logout", () => setIsLoggingOut(true));
+      window.removeEventListener("storage", handleLogout);
+    };
   }, []);
 
   // Auth verification effect - runs when pathname changes
@@ -104,6 +99,7 @@ export default function DashboardLayout({
       }
 
       if (isCancelled) return;
+      setIsInitializingAuth(false);
 
       const hasAuthCookie = typeof document !== "undefined" && (document.cookie.includes("lms_auth=true") || document.cookie.includes("lms_role=") || document.cookie.includes("lms_token="));
       const hasLocalStorageAuth = typeof localStorage !== "undefined" && Boolean(localStorage.getItem("lms_user") || localStorage.getItem("user") || localStorage.getItem("lms_role") || localStorage.getItem("lms_auth"));
@@ -322,11 +318,13 @@ export default function DashboardLayout({
     };
   }, []); // Run once on mount only
 
-  if (isLoggingOut) {
+  if (isLoggingOut || isInitializingAuth) {
     return (
       <div className="fixed inset-0 z-[99999] flex flex-col items-center justify-center bg-background text-foreground font-sans">
         <div className="w-10 h-10 border-4 border-brand border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="text-sm font-bold text-muted-foreground animate-pulse">Signing out securely...</p>
+        <p className="text-sm font-bold text-muted-foreground animate-pulse">
+          {isLoggingOut ? "Signing out securely..." : "Connecting to portal..."}
+        </p>
       </div>
     );
   }
@@ -346,7 +344,7 @@ export default function DashboardLayout({
         {/* Main content area */}
         <div
           className={cn(
-            "flex-1 flex flex-col min-h-[100dvh] relative z-10 min-w-0 w-full",
+            "flex-1 flex flex-col min-h-[100dvh] min-w-0 w-full",
             isExpanded ? "lg:ml-[260px]" : "lg:ml-[80px]"
           )}
           style={{

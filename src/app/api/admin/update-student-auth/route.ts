@@ -97,33 +97,37 @@ export async function POST(request: NextRequest) {
       authUid = studentUserDoc.authId;
     }
 
+    const isAuthUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(authUid);
+
     // Update the Auth user metadata if needed
-    if (role || collegeId) {
-      const { data: userRecord } = await supabaseAdmin.auth.admin.getUserById(authUid);
-      const currentMeta = userRecord.user?.user_metadata || {};
-      const updatedMeta = { ...currentMeta };
-      if (role) updatedMeta.role = role;
-      if (collegeId) updatedMeta.collegeId = collegeId;
-      authUpdateFields.user_metadata = updatedMeta;
+    if ((role || collegeId) && isAuthUuid) {
+      try {
+        const { data: userRecord } = await supabaseAdmin.auth.admin.getUserById(authUid);
+        const currentMeta = userRecord?.user?.user_metadata || {};
+        const updatedMeta = { ...currentMeta };
+        if (role) updatedMeta.role = role;
+        if (collegeId) updatedMeta.collegeId = collegeId;
+        authUpdateFields.user_metadata = updatedMeta;
+      } catch (e) {
+        console.warn("Failed to fetch Supabase user metadata:", e);
+      }
     }
 
     // Update the Supabase Auth user
-    if (Object.keys(authUpdateFields).length > 0) {
-      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(authUid)) {
-        const { error: authUpdateError } = await supabaseAdmin.auth.admin.updateUserById(authUid, authUpdateFields);
+    if (Object.keys(authUpdateFields).length > 0 && isAuthUuid) {
+      const { error: authUpdateError } = await supabaseAdmin.auth.admin.updateUserById(authUid, authUpdateFields);
 
-        if (authUpdateError) {
-          if (authUpdateError.message.includes("email already exists") || authUpdateError.message.includes("unique") || authUpdateError.message.includes("already been registered")) {
-            return NextResponse.json(
-              { error: "Update failed: This email address is already in use by another account.", errorCode: "auth/email-already-exists" },
-              { status: 409 }
-            );
-          }
+      if (authUpdateError) {
+        if (authUpdateError.message.includes("email already exists") || authUpdateError.message.includes("unique") || authUpdateError.message.includes("already been registered")) {
           return NextResponse.json(
-            { error: authUpdateError.message || "Failed to update Supabase Auth account." },
-            { status: 500 }
+            { error: "Update failed: This email address is already in use by another account.", errorCode: "auth/email-already-exists" },
+            { status: 409 }
           );
         }
+        return NextResponse.json(
+          { error: authUpdateError.message || "Failed to update Supabase Auth account." },
+          { status: 500 }
+        );
       }
     }
 
@@ -149,11 +153,11 @@ export async function POST(request: NextRequest) {
     }
 
     if (Object.keys(userUpdates).length > 0) {
-      await prisma.users.update({ where: { id: uid }, data: userUpdates });
+      await prisma.users.updateMany({ where: { id: uid }, data: userUpdates });
     }
     
     if (Object.keys(studentUpdates).length > 0) {
-      await prisma.students.update({ where: { id: uid }, data: studentUpdates });
+      await prisma.students.updateMany({ where: { id: uid }, data: studentUpdates });
     }
 
     return NextResponse.json({ success: true });

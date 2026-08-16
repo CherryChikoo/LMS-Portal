@@ -39,10 +39,7 @@ export default function RegisterPage() {
   // Touched validation feedback
   const [touched, setTouched] = useState<Record<string, boolean>>({});
 
-  // Set explicit document title
-  useEffect(() => {
-    document.title = `${branding.companyName || "Masters Academy"} | Student Registration`;
-  }, [branding.companyName]);
+
 
   // Auto-dismiss red error warning after 5 seconds
   useEffect(() => {

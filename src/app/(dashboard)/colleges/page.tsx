@@ -8,7 +8,6 @@ import { toast } from "sonner";
 import { motion, AnimatePresence } from "motion/react";
 import { GraduationCap, Plus, Building2, Layers, Users, FolderTree, ChevronRight, Trash2, Pencil, KeyRound, Loader2, Upload, FileSpreadsheet, FolderOpen, StopCircle, Download } from "lucide-react";
 import Link from "next/link";
-import { createPortal } from "react-dom";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
@@ -1112,7 +1111,7 @@ export default function CollegesPage() {
 
       {/* Add College Modal */}
       <AnimatePresence>
-        {showAddModal && typeof window !== "undefined" && createPortal(
+        {showAddModal && (
           <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
@@ -1259,14 +1258,12 @@ export default function CollegesPage() {
                 </div>
               </form>
             </motion.div>
-          </div>,
-          document.body
-        )}
+          </div>)}
       </AnimatePresence>
 
       {/* 1. Rename College Modal */}
       <AnimatePresence>
-        {renamingCollege && typeof window !== "undefined" && createPortal(
+        {renamingCollege && (
           <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
@@ -1325,14 +1322,12 @@ export default function CollegesPage() {
                 </div>
               </form>
             </motion.div>
-          </div>,
-          document.body
-        )}
+          </div>)}
       </AnimatePresence>
 
       {/* 2. Manage Admin Credentials Modal */}
       <AnimatePresence>
-        {credsCollege && typeof window !== "undefined" && createPortal(
+        {credsCollege && (
           <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
@@ -1437,14 +1432,12 @@ export default function CollegesPage() {
                 </div>
               </form>
             </motion.div>
-          </div>,
-          document.body
-        )}
+          </div>)}
       </AnimatePresence>
 
       {/* Rename External Institution Modal */}
       <AnimatePresence>
-        {editingExternal && typeof window !== "undefined" && createPortal(
+        {editingExternal && (
           <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
@@ -1498,14 +1491,12 @@ export default function CollegesPage() {
                 </div>
               </form>
             </motion.div>
-          </div>,
-          document.body
-        )}
+          </div>)}
       </AnimatePresence>
 
       {/* Custom Success Popup */}
       <AnimatePresence>
-        {successPopup && typeof window !== "undefined" && createPortal(
+        {successPopup && (
           <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 10 }}
@@ -1523,14 +1514,12 @@ export default function CollegesPage() {
                 <p className="text-sm text-muted-foreground mt-1">{successPopup}</p>
               </div>
             </motion.div>
-          </div>,
-          document.body
-        )}
+          </div>)}
       </AnimatePresence>
 
       {/* College Card Enroll Modal */}
       <AnimatePresence>
-        {showCardEnrollModal && selectedCollegeForAction && typeof window !== "undefined" && createPortal(
+        {showCardEnrollModal && selectedCollegeForAction && (
           <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
@@ -1615,14 +1604,12 @@ export default function CollegesPage() {
                 </div>
               </form>
             </motion.div>
-          </div>,
-          document.body
-        )}
+          </div>)}
       </AnimatePresence>
 
       {/* College Card CSV Import Modal */}
       <AnimatePresence>
-        {showCardImportModal && selectedCollegeForAction && typeof window !== "undefined" && createPortal(
+        {showCardImportModal && selectedCollegeForAction && (
           <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
@@ -1759,9 +1746,7 @@ export default function CollegesPage() {
                 </div>
               )}
             </motion.div>
-          </div>,
-          document.body
-        )}
+          </div>)}
       </AnimatePresence>
 
       <ConfirmModal
@@ -1776,7 +1761,7 @@ export default function CollegesPage() {
       />
 
       <AnimatePresence>
-        {isGlobalDeleting && typeof window !== 'undefined' && createPortal(
+        {isGlobalDeleting && (
           <div className="fixed inset-0 z-[99999] flex flex-col items-center justify-center bg-black/60 backdrop-blur-md">
             <motion.div 
               initial={{ opacity: 0, scale: 0.9 }}
@@ -1791,9 +1776,7 @@ export default function CollegesPage() {
                 <p className="text-sm text-muted-foreground">This may take a few moments. Please do not close this window or navigate away.</p>
               </div>
             </motion.div>
-          </div>,
-          document.body
-        )}
+          </div>)}
       </AnimatePresence>
     </motion.div>
   );

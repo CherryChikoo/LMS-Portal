@@ -5,7 +5,6 @@ import { useEffect, useMemo, useState, useRef, Suspense, useDeferredValue } from
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
-import { createPortal } from "react-dom";
 import { Users, Plus, Upload, Download, Search, FileSpreadsheet, FolderOpen, Sparkles, Trash2, StopCircle, Edit2, Ban, CheckCircle2, BarChart3, AlertTriangle } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -807,7 +806,7 @@ function StudentsContent() {
 
       {/* Bulk CSV Upload Modal */}
       <AnimatePresence>
-        {showImportModal && typeof window !== "undefined" && createPortal(
+        {showImportModal && (
           <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
@@ -1027,14 +1026,12 @@ function StudentsContent() {
                 </div>
               )}
             </motion.div>
-          </div>,
-          document.body
-        )}
+          </div>)}
       </AnimatePresence>
 
       {/* Manual Enroll Student Modal */}
       <AnimatePresence>
-        {showAddModal && typeof window !== "undefined" && createPortal(
+        {showAddModal && (
           <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
@@ -1172,14 +1169,12 @@ function StudentsContent() {
                 </div>
               </form>
             </motion.div>
-          </div>,
-          document.body
-        )}
+          </div>)}
       </AnimatePresence>
 
       {/* Edit Student Profile Modal */}
       <AnimatePresence>
-        {editingStudent && typeof window !== "undefined" && createPortal(
+        {editingStudent && (
           <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
@@ -1318,9 +1313,7 @@ function StudentsContent() {
                 </div>
               </form>
             </motion.div>
-          </div>,
-          document.body
-        )}
+          </div>)}
       </AnimatePresence>
 
       <ConfirmModal

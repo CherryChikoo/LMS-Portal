@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { useBranding } from "@/providers/branding-provider";
 import { APP_NAME } from "@/lib/constants";
@@ -8,61 +8,78 @@ import { APP_NAME } from "@/lib/constants";
 export function BrandingHeadUpdater() {
   const { branding, loading } = useBranding();
   const pathname = usePathname();
-
-  const [userRole, setUserRole] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    try {
-      const role = localStorage.getItem("lms_role") || localStorage.getItem("role");
-      if (role) return role.toLowerCase();
-      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-      if (uStr) {
-        const parsed = JSON.parse(uStr);
-        if (parsed.role) return parsed.role.toLowerCase();
-      }
-    } catch {}
-    return "student";
-  });
-  const [userCollegeId, setUserCollegeId] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    try {
-      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-      if (uStr) {
-        const parsed = JSON.parse(uStr);
-        return parsed.collegeId || null;
-      }
-    } catch {}
-    return null;
-  });
-  const [userCollegeName, setUserCollegeName] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    try {
-      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-      if (uStr) {
-        const parsed = JSON.parse(uStr);
-        return parsed.collegeName || null;
-      }
-    } catch {}
-    return null;
-  });
+  const isLoggingOut = useRef(false);
 
   useEffect(() => {
-    // 1. Update document title
-    const isAdminRoute = pathname.startsWith("/admin");
-    const isMainAdmin = userRole === "admin" || userRole === "master_admin" || userRole === "main_admin" || userRole === "superadmin" || userRole === "super_admin" || userRole === "trainer";
-    const isCollegeSpecific = !isAdminRoute && !isMainAdmin && (userRole === "college_admin" || userRole === "student") && userCollegeId && !userCollegeId.startsWith("ext-") && userCollegeName;
+    const handleLogout = () => {
+      isLoggingOut.current = true;
+    };
+    window.addEventListener("lms_logout", handleLogout);
+    return () => window.removeEventListener("lms_logout", handleLogout);
+  }, []);
 
-    const siteName = isCollegeSpecific
-      ? userCollegeName
-      : (branding.companyName || "Masters Academy");
-    
-    if (siteName) {
-      const currentTitle = document.title;
-      if (currentTitle.includes(" - ")) {
-        const parts = currentTitle.split(" - ");
-        parts[parts.length - 1] = siteName;
-        document.title = parts.join(" - ");
-      } else {
-        document.title = siteName;
+  useEffect(() => {
+    if (isLoggingOut.current) return;
+
+    // 1. Resolve portal name deterministically
+    let siteName = branding.companyName;
+
+    if (typeof window !== "undefined") {
+      try {
+        const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+        const roleStr = localStorage.getItem("lms_role") || "";
+        
+        let role = null;
+        if (uStr) {
+          const parsed = JSON.parse(uStr);
+          role = (parsed.role || roleStr).toLowerCase();
+        }
+
+        if (role === "college_admin" || role === "college_student") {
+          const cachedCollege = localStorage.getItem("lms_college_branding");
+          if (cachedCollege) {
+            const cParsed = JSON.parse(cachedCollege);
+            if (cParsed.branding?.companyName) {
+              siteName = cParsed.branding.companyName;
+            } else if (cParsed.name) {
+              siteName = cParsed.name;
+            }
+          }
+          if (!siteName && uStr) {
+            const parsed = JSON.parse(uStr);
+            if (parsed.collegeName) siteName = parsed.collegeName;
+          }
+        }
+      } catch {}
+    }
+
+    if (!siteName) {
+      siteName = branding.companyName || APP_NAME;
+    }
+
+    const fullTitle = siteName;
+
+    let observer: MutationObserver | null = null;
+    if (typeof document !== "undefined" && fullTitle) {
+      if (document.title !== fullTitle) {
+        document.title = fullTitle;
+      }
+
+      // MutationObserver to prevent Next.js from reverting the title on soft navigations
+      const titleElement = document.querySelector('title');
+      
+      if (titleElement) {
+        observer = new MutationObserver(() => {
+          if (isLoggingOut.current) {
+            observer?.disconnect();
+            return;
+          }
+          if (document.title !== fullTitle) {
+            document.title = fullTitle;
+          }
+        });
+        
+        observer.observe(titleElement, { childList: true, characterData: true, subtree: true });
       }
     }
 
@@ -73,7 +90,7 @@ export function BrandingHeadUpdater() {
       }
     } catch (_) {}
 
-    // 3. Safe in-place Favicon update (Never remove nodes from head to prevent React 19 reconciler crash)
+    // 3. Safe in-place Favicon update
     const targetFavicon = branding.logoBase64 || "/api/branding/favicon";
     try {
       const existingIcons = document.querySelectorAll("link[rel*='icon']");
@@ -83,7 +100,13 @@ export function BrandingHeadUpdater() {
         });
       }
     } catch (_) {}
-  }, [branding, loading, userRole, userCollegeId, userCollegeName, pathname]);
+
+    // Cleanup observer on unmount or deps change
+    return () => {
+      if (observer) observer.disconnect();
+    };
+  }, [branding, loading, pathname]);
 
   return null;
 }
+

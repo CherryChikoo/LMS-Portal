@@ -13,12 +13,12 @@ const DOC_ID = "branding";
 
 export async function getCompanyBranding(): Promise<CompanyBranding> {
   try {
-    const data = await getCompanyBrandingLightAction();
+    const data = await getCompanyBrandingAction();
     if (data) {
       return {
         companyName: data.companyName || "",
         companySubtitle: data.companySubtitle || "",
-        logoBase64: "", // Omitted to save bandwidth
+        logoBase64: data.logoBase64 || "",
       };
     }
   } catch (err) {
