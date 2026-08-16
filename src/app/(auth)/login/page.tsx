@@ -205,8 +205,8 @@ function LoginContent() {
           
           {/* Logo */}
           {branding.logoBase64 && (
-            <div className="w-14 h-14 sm:w-16 sm:h-16 bg-brand/10 border border-brand/20 rounded-2xl flex items-center justify-center mb-5 shadow-inner shadow-brand/20">
-              <img src={branding.logoBase64} alt="Logo" className="w-10 h-10 sm:w-12 sm:h-12 object-contain" />
+            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-brand/10 border border-brand/20 rounded-2xl flex items-center justify-center mb-5 shadow-inner shadow-brand/20">
+              <img src={branding.logoBase64} alt="Logo" className="w-6 h-6 sm:w-8 sm:h-8 object-contain" />
             </div>
           )}
 
