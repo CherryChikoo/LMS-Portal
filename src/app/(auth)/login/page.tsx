@@ -138,7 +138,6 @@ function LoginContent() {
           type: "error",
         });
       }
-    } finally {
       setLoading(false);
     }
   };
@@ -186,7 +185,6 @@ function LoginContent() {
         const message = formatAuthError(err);
         setAlertConfig({ isOpen: true, title, message, type: "error" });
       }
-    } finally {
       setLoading(false);
       setLinkPassword("");
     }
