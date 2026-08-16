@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence } from "motion/react";
 import { AlertTriangle, Trash2, Info, CheckCircle2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 

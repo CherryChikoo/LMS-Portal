@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence } from "motion/react";
 import { Loader2 } from "lucide-react";
 
 interface GlobalLoadingContextType {
@@ -115,11 +115,11 @@ export function GlobalLoadingProvider({ children }: { children: React.ReactNode 
             transition={{ duration: 0.15 }}
             className="fixed top-0 left-0 right-0 z-[99999] h-[3px] bg-transparent pointer-events-none overflow-hidden"
           >
-            <motion.div
-              initial={{ x: "-100%" }}
-              animate={{ x: "100%" }}
-              transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut" }}
-              className="h-full w-1/2 bg-gradient-to-r from-transparent via-brand to-transparent shadow-[0_0_8px_var(--brand)]"
+            <div
+              className="h-full w-1/2 bg-gradient-to-r from-transparent via-brand to-transparent shadow-[0_0_8px_var(--brand)] animate-pulse"
+              style={{
+                animation: "shimmer 1.5s infinite linear",
+              }}
             />
           </motion.div>
         )}
