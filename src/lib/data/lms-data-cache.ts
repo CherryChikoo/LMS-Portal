@@ -237,42 +237,17 @@ function recomputeScopedData() {
     }
   }
 
-  const isCollegeDeleted = (colId?: any, colName?: any) => {
-    if (colId && (String(colId).toLowerCase().trim() === "global" || String(colId).toLowerCase().trim() === "unassigned")) return false;
-    if (colName && (String(colName).toLowerCase().trim() === "global" || String(colName).toLowerCase().trim() === "unassigned")) return false;
-    
-    if (colId && deletedCollegesSet.has(String(colId).toLowerCase().trim())) return true;
-    if (colName && deletedCollegesSet.has(String(colName).toLowerCase().trim())) return true;
-    return false;
-  };
-
   const isActive = (d: { isDeleted?: boolean; deletedAt?: Date; status?: string }) => !d.isDeleted && !d.deletedAt && d.status !== "deleted";
 
-  let fColleges = collegesData.filter((c) => isActive(c) && !isCollegeDeleted(c.id, c.name));
+  let fColleges = collegesData.filter((c) => isActive(c));
   let fBatches = batchesData.filter(isActive);
   let fStudents = studentsData.filter(isActive);
   const activeStudentIds = new Set(fStudents.map((s) => s.id));
   
-  // Filter exams: Check for deleted colleges AND apply college-scoping for college admins
-  let fExams = examsData.filter((e) => {
-    if (!isActive(e)) return false;
-    const eColId = e.collegeId || e.targets?.[0]?.collegeId;
-    const eColName = e.collegeName || e.targets?.[0]?.collegeName;
-    if (eColId || eColName) {
-      if (isCollegeDeleted(eColId, eColName)) return false;
-    }
-    return true;
-  });
+  // Filter exams: Apply active check
+  let fExams = examsData.filter((e) => isActive(e));
   
-  let fResources = resourcesData.filter((r) => {
-    if (!isActive(r as any)) return false;
-    const rColId = r.collegeId || r.targets?.[0]?.collegeId;
-    const rColName = r.collegeName || r.targets?.[0]?.collegeName;
-    if (rColId || rColName) {
-      if (isCollegeDeleted(rColId, rColName)) return false;
-    }
-    return true;
-  });
+  let fResources = resourcesData.filter((r) => isActive(r as any));
   
   // Aggressively filter out attempts belonging to deleted students or ghost data
   const fAttempts = attemptsData.filter((att) => isActive(att as any) && activeStudentIds.has(att.studentId));

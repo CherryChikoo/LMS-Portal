@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState, useRef, Suspense, useDeferredValue } from
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
+import { createPortal } from "react-dom";
 import { Users, Plus, Upload, Download, Search, FileSpreadsheet, FolderOpen, Sparkles, Trash2, StopCircle, Edit2, Ban, CheckCircle2, BarChart3, AlertTriangle } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -806,8 +807,8 @@ function StudentsContent() {
 
       {/* Bulk CSV Upload Modal */}
       <AnimatePresence>
-        {showImportModal && (
-          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+        {showImportModal && typeof window !== "undefined" && createPortal(
+          <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -879,19 +880,10 @@ function StudentsContent() {
                             setCancelling(true);
                             cancelImportRef.current = true;
                           }}
-                          className="flex items-center gap-1.5 mx-auto bg-destructive/20 hover:bg-destructive text-destructive hover:text-white border border-destructive/30 transition-all disabled:opacity-80"
+                          className="flex items-center gap-1.5 mx-auto bg-destructive/20 hover:bg-destructive text-destructive hover:text-white border border-destructive/30"
                         >
-                          {cancelling ? (
-                            <>
-                              <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                              <span>Stopping... Finalizing current batch...</span>
-                            </>
-                          ) : (
-                            <>
-                              <StopCircle className="w-4 h-4" />
-                              <span>Stop Processing & Save Progress</span>
-                            </>
-                          )}
+                          <StopCircle className="w-4 h-4" />
+                          <span>{cancelling ? "Stopping import..." : "Stop Import"}</span>
                         </Button>
                       </div>
                     </div>
@@ -901,11 +893,11 @@ function StudentsContent() {
                       onDrop={async (e) => {
                         e.preventDefault();
                         const droppedFiles: File[] = [];
-                        const items = e.dataTransfer.items;
-                        if (items) {
+                        if (e.dataTransfer.items) {
+                          const items = Array.from(e.dataTransfer.items);
                           const readEntry = async (entry: any) => {
                             if (entry.isFile) {
-                              return new Promise<void>((resolve) => {
+                              await new Promise<void>((resolve) => {
                                 entry.file((f: File) => {
                                   if (f.name.toLowerCase().endsWith(".csv")) droppedFiles.push(f);
                                   resolve();
@@ -950,12 +942,12 @@ function StudentsContent() {
                             className="hidden"
                           />
                         </label>
-                        <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent text-foreground border border-border text-xs font-bold cursor-pointer hover:bg-accent/80 transition-all shadow-sm">
-                          <FolderOpen className="w-4 h-4 text-brand shrink-0" />
+                        <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-border bg-card text-foreground text-xs font-bold cursor-pointer hover:bg-muted transition-all shadow-sm">
+                          <FolderOpen className="w-4 h-4 shrink-0 text-muted-foreground" />
                           <span>Select Entire Folder</span>
                           <input
                             type="file"
-                            {...({ webkitdirectory: "", directory: "" } as React.InputHTMLAttributes<HTMLInputElement>)}
+                            {...({ webkitdirectory: "", directory: "" } as any)}
                             multiple
                             onChange={handleFileUpload}
                             disabled={importing}
@@ -968,32 +960,31 @@ function StudentsContent() {
                 </div>
               )}
 
-              {/* Import Summary Results */}
               {importSummary && (
-                <div className="space-y-5">
+                <div className="space-y-4">
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
                     <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
-                      <span className="text-xs text-muted-foreground font-medium">Created</span>
-                      <p className="text-2xl font-bold text-emerald-500">{importSummary.createdCount}</p>
+                      <span className="text-[11px] text-muted-foreground font-medium">Created</span>
+                      <p className="text-xl font-bold text-emerald-500">{importSummary.createdCount}</p>
                     </div>
                     <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
-                      <span className="text-xs text-muted-foreground font-medium">Duplicates</span>
-                      <p className="text-2xl font-bold text-amber-500">{importSummary.duplicateCount}</p>
+                      <span className="text-[11px] text-muted-foreground font-medium">Duplicates</span>
+                      <p className="text-xl font-bold text-amber-500">{importSummary.duplicateCount}</p>
                     </div>
                     <div className="p-3 rounded-xl bg-slate-500/10 border border-slate-500/20">
-                      <span className="text-xs text-muted-foreground font-medium">Skipped</span>
-                      <p className="text-2xl font-bold text-slate-400">{importSummary.skippedCount}</p>
+                      <span className="text-[11px] text-muted-foreground font-medium">Skipped</span>
+                      <p className="text-xl font-bold text-slate-400">{importSummary.skippedCount}</p>
                     </div>
-                    <div className="p-3 rounded-xl bg-destructive/10 border border-destructive/20">
-                      <span className="text-xs text-muted-foreground font-medium">Failed</span>
-                      <p className="text-2xl font-bold text-destructive">{importSummary.failedCount}</p>
+                    <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20">
+                      <span className="text-[11px] text-muted-foreground font-medium">Failed</span>
+                      <p className="text-xl font-bold text-rose-500">{importSummary.failedCount}</p>
                     </div>
                   </div>
 
-                  <div className="max-h-56 overflow-y-auto rounded-xl border border-border text-xs bg-background">
-                    <table className="w-full text-left border-collapse">
-                      <thead className="bg-card dark:bg-slate-900 text-foreground font-bold border-b border-border sticky top-0 z-20 shadow-sm">
-                        <tr>
+                  <div className="max-h-48 overflow-y-auto rounded-xl border border-border bg-background/50 text-xs">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="border-b border-border text-muted-foreground">
                           <th className="px-4 py-3 bg-card dark:bg-slate-900">Name</th>
                           <th className="px-4 py-3 bg-card dark:bg-slate-900">Email</th>
                           <th className="px-4 py-3 bg-card dark:bg-slate-900">Status</th>
@@ -1036,14 +1027,15 @@ function StudentsContent() {
                 </div>
               )}
             </motion.div>
-          </div>
+          </div>,
+          document.body
         )}
       </AnimatePresence>
 
       {/* Manual Enroll Student Modal */}
       <AnimatePresence>
-        {showAddModal && (
-          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+        {showAddModal && typeof window !== "undefined" && createPortal(
+          <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -1120,23 +1112,18 @@ function StudentsContent() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <label className="font-semibold text-foreground">Academic Year</label>
                     <select
                       value={newYear}
                       onChange={(e) => setNewYear(e.target.value)}
-                      className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground"
+                      className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground font-semibold"
                     >
-                      {addModalYears.length === 0 ? (
-                        <option value={newYear}>{newYear}</option>
-                      ) : (
-                        addModalYears.map((y) => (
-                          <option key={y} value={y}>
-                            {y}
-                          </option>
-                        ))
-                      )}
+                      <option value="1st Year">1st Year</option>
+                      <option value="2nd Year">2nd Year</option>
+                      <option value="3rd Year">3rd Year</option>
+                      <option value="4th Year">4th Year</option>
                     </select>
                   </div>
                   <div className="space-y-1.5">
@@ -1144,7 +1131,7 @@ function StudentsContent() {
                     <select
                       value={newSection}
                       onChange={(e) => setNewSection(e.target.value)}
-                      className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground"
+                      className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground font-semibold"
                     >
                       {addModalSections.length === 0 ? (
                         <option value={newSection}>{newSection}</option>
@@ -1155,34 +1142,24 @@ function StudentsContent() {
                           </option>
                         ))
                       )}
-                      <option value="CUSTOM">+ Custom Section...</option>
-                    </select>
-                    {newSection === "CUSTOM" && (
-                      <input
-                        type="text"
-                        value={customNewSection}
-                        onChange={(e) => setCustomNewSection(e.target.value)}
-                        required
-                        placeholder="Type custom section (e.g. Sec E, Honors)"
-                        className="w-full h-9 px-3 mt-1.5 rounded-xl border border-brand bg-background text-foreground text-xs"
-                      />
-                    )}
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="font-semibold text-foreground">Custom Batch</label>
-                    <select
-                      value={newBatch}
-                      onChange={(e) => setNewBatch(e.target.value)}
-                      className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground font-semibold"
-                    >
-                      <option value="">None (No Batch)</option>
-                      {availableBatchesForAdd.map((b) => (
-                        <option key={b.id} value={b.id}>
-                          {b.name || "Unnamed Batch"}
-                        </option>
-                      ))}
                     </select>
                   </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="font-semibold text-foreground">Custom Batch (Optional)</label>
+                  <select
+                    value={newBatch}
+                    onChange={(e) => setNewBatch(e.target.value)}
+                    className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground"
+                  >
+                    <option value="">No Batch Assigned</option>
+                    {batches.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="flex justify-end gap-2 pt-3 border-t border-border">
@@ -1195,14 +1172,15 @@ function StudentsContent() {
                 </div>
               </form>
             </motion.div>
-          </div>
+          </div>,
+          document.body
         )}
       </AnimatePresence>
 
       {/* Edit Student Profile Modal */}
       <AnimatePresence>
-        {editingStudent && (
-          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+        {editingStudent && typeof window !== "undefined" && createPortal(
+          <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -1283,35 +1261,18 @@ function StudentsContent() {
                   </div>
                 </div>
 
-                {editingStudent && (editingStudent.collegeId || "GLOBAL") !== editCollegeId && (
-                  <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-2.5 text-amber-600 dark:text-amber-400 text-xs">
-                    <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                    <div>
-                      <p className="font-bold">College / Scope Changed</p>
-                      <p className="text-[11px] opacity-90">
-                        Changing the college will automatically unassign and remove this student from all previously assigned batches and cohorts.
-                      </p>
-                    </div>
-                  </div>
-                )}
-
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <label className="font-semibold text-foreground">Academic Year</label>
                     <select
                       value={editYear}
                       onChange={(e) => setEditYear(e.target.value)}
-                      className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground"
+                      className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground font-semibold"
                     >
-                      {editModalYears.length === 0 ? (
-                        <option value={editYear}>{editYear}</option>
-                      ) : (
-                        editModalYears.map((y) => (
-                          <option key={y} value={y}>
-                            {y}
-                          </option>
-                        ))
-                      )}
+                      <option value="1st Year">1st Year</option>
+                      <option value="2nd Year">2nd Year</option>
+                      <option value="3rd Year">3rd Year</option>
+                      <option value="4th Year">4th Year</option>
                     </select>
                   </div>
                   <div className="space-y-1.5">
@@ -1319,7 +1280,7 @@ function StudentsContent() {
                     <select
                       value={editSection}
                       onChange={(e) => setEditSection(e.target.value)}
-                      className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground"
+                      className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground font-semibold"
                     >
                       {editModalSections.length === 0 ? (
                         <option value={editSection}>{editSection}</option>
@@ -1357,7 +1318,8 @@ function StudentsContent() {
                 </div>
               </form>
             </motion.div>
-          </div>
+          </div>,
+          document.body
         )}
       </AnimatePresence>
 

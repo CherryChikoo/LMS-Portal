@@ -17,7 +17,7 @@ export async function fetchFullLMSStateAction() {
     try {
       const [colleges, batches, students, exams, resources, attempts] = await Promise.all([
         prisma.colleges.findMany({
-          where: { isDeleted: false },
+          where: { NOT: { isDeleted: true } },
           orderBy: { createdAt: "desc" },
         }),
         prisma.batches.findMany({
@@ -32,14 +32,10 @@ export async function fetchFullLMSStateAction() {
           select: {
             id: true,
             authId: true,
-            email: true,
-            name: true,
             collegeId: true,
             department: true,
             academicYear: true,
             section: true,
-            batchIds: true,
-            status: true,
             createdAt: true,
             updatedAt: true,
             users: {
