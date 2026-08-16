@@ -3,7 +3,6 @@
 import { useEffect, useState, Suspense } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { motion } from "motion/react";
-import { globalLoading } from "@/providers/global-loading-provider";
 
 function NavigationProgressInner() {
   const pathname = usePathname();
@@ -17,7 +16,6 @@ function NavigationProgressInner() {
       const timer = setTimeout(() => {
         setIsNavigating(false);
         setProgress(0);
-        globalLoading.stop();
       }, 300);
       return () => clearTimeout(timer);
     }
@@ -38,7 +36,6 @@ function NavigationProgressInner() {
       if (targetUrl.pathname !== currentPath || targetUrl.search !== window.location.search) {
         setIsNavigating(true);
         setProgress(20);
-        globalLoading.start("Loading...");
       }
     };
 

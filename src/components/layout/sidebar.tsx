@@ -259,8 +259,10 @@ export function Sidebar() {
                     </Link>
                   );
 
-                  return (
-                    <Tooltip key={item.href} disabled={isExpanded}>
+                  return isExpanded ? (
+                    <div key={item.href}>{content}</div>
+                  ) : (
+                    <Tooltip key={item.href}>
                       <TooltipTrigger render={content} />
                       <TooltipContent side="right" sideOffset={12} className="glass-popover font-medium">
                         {item.title}
@@ -276,71 +278,99 @@ export function Sidebar() {
 
       {/* Footer Settings & Logout */}
       <div className="shrink-0 pt-2 border-t border-border/40 px-3 pb-4 space-y-1">
-        <Tooltip disabled={isExpanded}>
-          <TooltipTrigger
-            render={
-              <Link
-                href={userRole === "student" ? "/student/settings" : "/admin/settings"}
-                className={cn(
-                  "group flex items-center h-11 rounded-xl text-sm font-medium transition-colors text-muted-foreground hover:text-foreground hover:bg-secondary/80 overflow-hidden",
-                  isExpanded ? "px-3 gap-3" : "justify-center px-0 w-11 mx-auto"
-                )}
-              >
-                <div className="w-5 h-5 flex items-center justify-center shrink-0">
-                  <Settings className="w-5 h-5 text-muted-foreground group-hover:text-foreground" />
-                </div>
-                <span
-                  className={cn(
-                    "truncate text-sm min-w-0 flex-1",
-                    isExpanded ? "opacity-100" : "opacity-0 pointer-events-none absolute"
-                  )}
-                  style={{
-                    transform: isExpanded ? 'translateX(0)' : 'translateX(-12px)',
-                    transition: 'opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
-                  }}
+        {isExpanded ? (
+          <Link
+            href={userRole === "student" ? "/student/settings" : "/admin/settings"}
+            className="group flex items-center h-11 rounded-xl text-sm font-medium transition-colors text-muted-foreground hover:text-foreground hover:bg-secondary/80 overflow-hidden px-3 gap-3"
+          >
+            <div className="w-5 h-5 flex items-center justify-center shrink-0">
+              <Settings className="w-5 h-5 text-muted-foreground group-hover:text-foreground" />
+            </div>
+            <span
+              className="truncate text-sm min-w-0 flex-1 opacity-100"
+              style={{
+                transform: 'translateX(0)',
+                transition: 'opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+              }}
+            >
+              Settings
+            </span>
+          </Link>
+        ) : (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Link
+                  href={userRole === "student" ? "/student/settings" : "/admin/settings"}
+                  className="group flex items-center h-11 rounded-xl text-sm font-medium transition-colors text-muted-foreground hover:text-foreground hover:bg-secondary/80 overflow-hidden justify-center px-0 w-11 mx-auto"
                 >
-                  Settings
-                </span>
-              </Link>
-            }
-          />
-          <TooltipContent side="right" sideOffset={12} className="glass-popover font-medium">
-            Settings
-          </TooltipContent>
-        </Tooltip>
+                  <div className="w-5 h-5 flex items-center justify-center shrink-0">
+                    <Settings className="w-5 h-5 text-muted-foreground group-hover:text-foreground" />
+                  </div>
+                  <span
+                    className="truncate text-sm min-w-0 flex-1 opacity-0 pointer-events-none absolute"
+                    style={{
+                      transform: 'translateX(-12px)',
+                      transition: 'opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+                    }}
+                  >
+                    Settings
+                  </span>
+                </Link>
+              }
+            />
+            <TooltipContent side="right" sideOffset={12} className="glass-popover font-medium">
+              Settings
+            </TooltipContent>
+          </Tooltip>
+        )}
 
-        <Tooltip disabled={isExpanded}>
-          <TooltipTrigger
-            render={
-              <button
-                onClick={handleLogout}
-                className={cn(
-                  "w-full group flex items-center h-11 rounded-xl text-sm font-medium transition-colors text-rose-500 hover:bg-rose-500/10 overflow-hidden",
-                  isExpanded ? "px-3 gap-3" : "justify-center px-0 w-11 mx-auto"
-                )}
-              >
-                <div className="w-5 h-5 flex items-center justify-center shrink-0">
-                  <LogOut className="w-5 h-5 text-rose-500" />
-                </div>
-                <span
-                  className={cn(
-                    "truncate text-sm font-semibold min-w-0 flex-1 text-left",
-                    isExpanded ? "opacity-100" : "opacity-0 pointer-events-none absolute"
-                  )}
-                  style={{
-                    transform: isExpanded ? 'translateX(0)' : 'translateX(-12px)',
-                    transition: 'opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
-                  }}
+        {isExpanded ? (
+          <button
+            onClick={handleLogout}
+            className="w-full group flex items-center h-11 rounded-xl text-sm font-medium transition-colors text-rose-500 hover:bg-rose-500/10 overflow-hidden px-3 gap-3"
+          >
+            <div className="w-5 h-5 flex items-center justify-center shrink-0">
+              <LogOut className="w-5 h-5 text-rose-500" />
+            </div>
+            <span
+              className="truncate text-sm font-semibold min-w-0 flex-1 text-left opacity-100"
+              style={{
+                transform: 'translateX(0)',
+                transition: 'opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+              }}
+            >
+              Logout
+            </span>
+          </button>
+        ) : (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  onClick={handleLogout}
+                  className="w-full group flex items-center h-11 rounded-xl text-sm font-medium transition-colors text-rose-500 hover:bg-rose-500/10 overflow-hidden justify-center px-0 w-11 mx-auto"
                 >
-                  Logout
-                </span>
-              </button>
-            }
-          />
-          <TooltipContent side="right" sideOffset={12} className="glass-popover text-rose-500 font-medium">
-            Logout
-          </TooltipContent>
-        </Tooltip>
+                  <div className="w-5 h-5 flex items-center justify-center shrink-0">
+                    <LogOut className="w-5 h-5 text-rose-500" />
+                  </div>
+                  <span
+                    className="truncate text-sm font-semibold min-w-0 flex-1 text-left opacity-0 pointer-events-none absolute"
+                    style={{
+                      transform: 'translateX(-12px)',
+                      transition: 'opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+                    }}
+                  >
+                    Logout
+                  </span>
+                </button>
+              }
+            />
+            <TooltipContent side="right" sideOffset={12} className="glass-popover text-rose-500 font-medium">
+              Logout
+            </TooltipContent>
+          </Tooltip>
+        )}
       </div>
 
       <BrandingModal isOpen={showBrandModal} onClose={() => setShowBrandModal(false)} />
