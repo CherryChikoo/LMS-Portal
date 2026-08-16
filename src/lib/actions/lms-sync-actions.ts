@@ -2,60 +2,89 @@
 
 import { prisma } from "@/lib/prisma";
 
+/**
+ * Single aggregate server action that fetches ALL LMS collections in one
+ * serverless invocation. This prevents connection pool exhaustion by running
+ * all queries within a single lambda instance sharing one DB connection.
+ *
+ * Includes retry logic for transient connection failures.
+ */
 export async function fetchFullLMSStateAction() {
-  try {
-    const [colleges, batches, students, exams, resources, attempts] = await Promise.all([
-      prisma.colleges.findMany({
-        where: { isDeleted: false },
-        orderBy: { createdAt: "desc" },
-      }),
-      prisma.batches.findMany({
-        orderBy: { createdAt: "desc" },
-        include: {
-          _count: { select: { student_batches: true } },
-          student_batches: { select: { studentId: true } },
-        },
-      }),
-      prisma.students.findMany({
-        orderBy: { createdAt: "desc" },
-        include: {
-          users: true,
-          colleges: true,
-          student_batches: {
-            include: { batches: true },
-          },
-        },
-      }),
-      prisma.exams.findMany({
-        where: { deletedAt: null },
-        orderBy: { createdAt: "desc" },
-      }),
-      prisma.resources.findMany({
-        orderBy: { createdAt: "desc" },
-      }),
-      prisma.exam_results.findMany({
-        orderBy: { createdAt: "desc" },
-        take: 1000,
-      }),
-    ]);
+  const MAX_RETRIES = 2;
+  let lastError: any = null;
 
-    return {
-      success: true as const,
-      data: {
-        colleges,
-        batches,
-        students,
-        exams,
-        resources,
-        attempts,
-      },
-    };
-  } catch (err: any) {
-    console.error("[LMS_SYNC_ACTION] Failed to fetch aggregate state:", err);
-    return {
-      success: false as const,
-      error: err?.message || "Failed to load LMS data",
-      data: null,
-    };
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const [colleges, batches, students, exams, resources, attempts] = await Promise.all([
+        prisma.colleges.findMany({
+          where: { isDeleted: false },
+          orderBy: { createdAt: "desc" },
+        }),
+        prisma.batches.findMany({
+          orderBy: { createdAt: "desc" },
+          include: {
+            _count: { select: { student_batches: true } },
+            student_batches: { select: { studentId: true } },
+          },
+        }),
+        prisma.students.findMany({
+          orderBy: { createdAt: "desc" },
+          include: {
+            users: true,
+            colleges: true,
+            student_batches: {
+              include: { batches: true },
+            },
+          },
+        }),
+        prisma.exams.findMany({
+          where: { deletedAt: null },
+          orderBy: { createdAt: "desc" },
+        }),
+        prisma.resources.findMany({
+          orderBy: { createdAt: "desc" },
+        }),
+        prisma.exam_results.findMany({
+          orderBy: { createdAt: "desc" },
+          take: 1000,
+        }),
+      ]);
+
+      return {
+        success: true as const,
+        data: {
+          colleges,
+          batches,
+          students,
+          exams,
+          resources,
+          attempts,
+        },
+      };
+    } catch (err: any) {
+      lastError = err;
+      const isTransient =
+        err?.code === "ETIMEDOUT" ||
+        err?.code === "ECONNRESET" ||
+        err?.code === "ECONNREFUSED" ||
+        err?.message?.includes("Connection terminated") ||
+        err?.message?.includes("timeout") ||
+        err?.message?.includes("connection") ||
+        err?.message?.includes("FATAL");
+
+      if (isTransient && attempt < MAX_RETRIES) {
+        // Wait 1s before retrying on transient connection errors
+        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+        continue;
+      }
+      break;
+    }
   }
+
+  console.error("[LMS_SYNC_ACTION] Failed to fetch aggregate state after retries:", lastError);
+  return {
+    success: false as const,
+    error: lastError?.message || "Failed to load LMS data",
+    data: null,
+  };
 }

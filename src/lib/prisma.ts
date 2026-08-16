@@ -12,9 +12,9 @@ if (globalForPrisma.prisma) {
   const connectionString = process.env.DATABASE_URL;
   const pool = new Pool({
     connectionString,
-    max: 2, // Maximum 2 connections per serverless instance to prevent connection starvation
-    idleTimeoutMillis: 10000,
-    connectionTimeoutMillis: 5000,
+    max: 3, // Allow 3 connections per instance (was 2, too tight for concurrent queries)
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 15000, // 15s timeout — Supabase cold starts can take 5-10s
   });
   const adapter = new PrismaPg(pool);
   prisma = new PrismaClient({ adapter });

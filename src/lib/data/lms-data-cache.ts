@@ -653,13 +653,23 @@ function mapBatchRow(row: any): Batch {
 let currentUserInfo: { uid: string; role: string; collegeId?: string; parsed: any } | null = null;
 let globalAuthUnsub: (() => void) | null = null;
 let activeFetchPromise: Promise<void> | null = null;
+let pendingForceRefresh = false;
 
 export async function refreshCache(): Promise<void> {
   return fetchLMSData(true);
 }
 
+/**
+ * Core fetch deduplication gate. Ensures AT MOST ONE in-flight fetch at any time.
+ * If a fetch is already running, ALL subsequent calls (including force=true) will
+ * piggyback on the existing promise instead of spawning a competing parallel fetch.
+ * If force=true while a fetch is in-flight, a follow-up fetch is queued automatically.
+ */
 async function fetchLMSData(force = false): Promise<void> {
-  if (activeFetchPromise && !force) {
+  if (activeFetchPromise) {
+    // If this is a forced refresh request while a fetch is already running,
+    // flag it so that a follow-up fetch runs after the current one completes.
+    if (force) pendingForceRefresh = true;
     return activeFetchPromise;
   }
 
@@ -668,6 +678,13 @@ async function fetchLMSData(force = false): Promise<void> {
       await performFetchLMSData(force);
     } finally {
       activeFetchPromise = null;
+      // If a force refresh was requested while the previous fetch was running,
+      // run one more fetch cycle to pick up the latest data.
+      if (pendingForceRefresh) {
+        pendingForceRefresh = false;
+        // Use setTimeout(0) to avoid deep recursion / stack overflow
+        setTimeout(() => { fetchLMSData(true).catch(() => {}); }, 0);
+      }
     }
   })();
 
@@ -700,6 +717,17 @@ async function performFetchLMSData(force = false): Promise<void> {
     notifyListeners();
   }
 
+  // Safety timeout: if the fetch takes longer than 20 seconds, force loading=false
+  // so the UI doesn't get stuck in an infinite loading state.
+  const safetyTimer = setTimeout(() => {
+    if (cache.loading) {
+      console.warn("[CACHE] Safety timeout: force-clearing loading state after 20s");
+      cache.loading = false;
+      recomputeScopedData();
+      notifyListeners();
+    }
+  }, 20000);
+
   try {
     const res = await fetchFullLMSStateAction();
     if (res.success && res.data) {
@@ -718,11 +746,15 @@ async function performFetchLMSData(force = false): Promise<void> {
       cache.resources = { data: parsedResources, updatedAt: now };
       cache.attempts = { data: parsedAttempts, updatedAt: now };
       cache.error = null;
+    } else {
+      // Fetch returned success=false but we have stale cache — don't leave loading=true
+      console.warn("[CACHE] Fetch returned no data, keeping stale cache");
     }
   } catch (err: any) {
     console.error("[FETCH] Unified LMS sync failed:", err);
   }
 
+  clearTimeout(safetyTimer);
   cache.loading = false;
   recomputeScopedData();
   notifyListeners();
