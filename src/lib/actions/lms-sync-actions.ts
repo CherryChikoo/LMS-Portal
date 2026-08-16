@@ -29,11 +29,45 @@ export async function fetchFullLMSStateAction() {
         }),
         prisma.students.findMany({
           orderBy: { createdAt: "desc" },
-          include: {
-            users: true,
-            colleges: true,
+          select: {
+            id: true,
+            authId: true,
+            email: true,
+            name: true,
+            collegeId: true,
+            department: true,
+            academicYear: true,
+            section: true,
+            batchIds: true,
+            status: true,
+            createdAt: true,
+            updatedAt: true,
+            users: {
+              select: {
+                id: true,
+                displayName: true,
+                email: true,
+                role: true,
+                status: true,
+              },
+            },
+            colleges: {
+              select: {
+                id: true,
+                name: true,
+                type: true,
+              },
+            },
             student_batches: {
-              include: { batches: true },
+              select: {
+                batchId: true,
+                batches: {
+                  select: {
+                    id: true,
+                    name: true,
+                  },
+                },
+              },
             },
           },
         }),
@@ -47,6 +81,23 @@ export async function fetchFullLMSStateAction() {
         prisma.exam_results.findMany({
           orderBy: { createdAt: "desc" },
           take: 1000,
+          select: {
+            id: true,
+            examId: true,
+            studentId: true,
+            score: true,
+            totalMarks: true,
+            percentage: true,
+            passed: true,
+            status: true,
+            correctCount: true,
+            incorrectCount: true,
+            timeTakenMinutes: true,
+            startTime: true,
+            submittedAt: true,
+            createdAt: true,
+            updatedAt: true,
+          },
         }),
       ]);
 
