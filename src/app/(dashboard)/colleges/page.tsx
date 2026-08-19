@@ -17,6 +17,7 @@ import { getAllColleges, createCollege, deleteCollege, getAllStudents, deleteStu
 import { useLMSDataSelector } from "@/lib/data/use-lms-data";
 import { refreshCache, optimisticUpdateCollegeInCache, optimisticDeleteCollegeFromCache as optimisticDeleteCollege } from "@/lib/data/lms-data-cache";
 import { markCollegeAsDeleted } from "@/lib/hierarchy/hierarchy-data";
+import { useDatabaseMetrics } from "@/hooks/use-database-metrics";
 import type { College, Student, CSVStudentRow, CSVImportSummary } from "@/types";
 import { useErrorHandler } from "@/providers/error-provider";
 
@@ -26,6 +27,15 @@ export default function CollegesPage() {
   const allStudents = useLMSDataSelector((s) => s.students);
   const lmsLoading = useLMSDataSelector((s) => s.loading);
   const { showError } = useErrorHandler();
+  
+  // OPTION 2 ARCHITECTURE: Fetch server-side counts (THE MATH)
+  const { 
+    masterStudentCount, 
+    getCollegeStudentCount, 
+    unassignedStudents,
+    isLoading: metricsLoading,
+    error: metricsError 
+  } = useDatabaseMetrics();
 
   const [selectedAdminIds, setSelectedAdminIds] = useState<string[]>([]);
   const [selectedExternalIds, setSelectedExternalIds] = useState<string[]>([]);
@@ -890,7 +900,12 @@ export default function CollegesPage() {
                     <h3 className="text-xl font-bold text-foreground break-words leading-tight">{col.name}</h3>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <Users className="w-4 h-4 text-brand" />
-                      <span>{col.studentCount || 0} Students Enrolled</span>
+                      <span>
+                        {metricsLoading 
+                          ? "Loading..." 
+                          : `${(getCollegeStudentCount(col.id) || getCollegeStudentCount(col.name) || 0).toLocaleString()} Students Enrolled`
+                        }
+                      </span>
                     </div>
                   </div>
 
@@ -1056,7 +1071,12 @@ export default function CollegesPage() {
                     <h3 className="text-xl font-bold text-foreground break-words leading-tight pt-1">{col.name}</h3>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <Users className="w-4 h-4 text-amber-500" />
-                      <span>{col.studentCount || 0} Students Enrolled</span>
+                      <span>
+                        {metricsLoading 
+                          ? "Loading..." 
+                          : `${(getCollegeStudentCount(col.id) || getCollegeStudentCount(col.name) || 0).toLocaleString()} Students Enrolled`
+                        }
+                      </span>
                     </div>
                   </div>
 

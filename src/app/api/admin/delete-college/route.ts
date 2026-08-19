@@ -7,7 +7,8 @@ import { bulkDeleteByQuery, deleteStorageDirectory } from '@/lib/services/cleanu
 import { prisma } from '@/lib/prisma';
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60; // Allow up to 60 seconds for bulk deletion on Vercel
+// maxDuration removed - causing Next.js 16 build issues
+// export const maxDuration = 60;
 
 const DeleteCollegeSchema = z.object({
   id: z.string().min(1, "College ID is required."),

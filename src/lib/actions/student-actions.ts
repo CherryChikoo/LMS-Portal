@@ -3,19 +3,293 @@
 import { prisma } from '@/lib/prisma';
 import type { Student } from "@/types";
 
+// ============================================================================
+// PAGINATED STUDENTS FETCHING (50K SCALE)
+// ============================================================================
+
+export async function getStudentsPaginatedAction({
+  page = 1,
+  pageSize = 100,
+  searchQuery,
+  collegeId,
+  department,
+  academicYear,
+  section,
+  status,
+  userRole,
+  userCollegeId,
+}: {
+  page?: number;
+  pageSize?: number;
+  searchQuery?: string;
+  collegeId?: string;
+  department?: string;
+  academicYear?: string;
+  section?: string;
+  status?: string;
+  userRole?: string;
+  userCollegeId?: string;
+}) {
+  try {
+    // Build where clause
+    const where: any = {};
+
+    // Role-based scoping
+    if ((userRole === "college_admin" || userRole === "student") && userCollegeId) {
+      where.collegeId = userCollegeId;
+    }
+
+    // Filter by college
+    if (collegeId && collegeId !== "ALL" && collegeId !== "GLOBAL") {
+      where.collegeId = collegeId;
+    }
+
+    // Filter by department (case-insensitive exact match)
+    if (department && department !== "ALL") {
+      where.department = { equals: department, mode: 'insensitive' };
+    }
+
+    // Filter by academic year (case-insensitive exact match)
+    if (academicYear && academicYear !== "ALL") {
+      where.academicYear = { equals: academicYear, mode: 'insensitive' };
+    }
+
+    // Filter by section (case-insensitive exact match)
+    if (section && section !== "ALL") {
+      where.section = { equals: section, mode: 'insensitive' };
+    }
+
+    // Search query (name, email, roll number, enrollment number)
+    if (searchQuery && searchQuery.trim()) {
+      const searchTerm = searchQuery.trim();
+      where.OR = [
+        { users: { displayName: { contains: searchTerm, mode: 'insensitive' } } },
+        { users: { email: { contains: searchTerm, mode: 'insensitive' } } },
+        { rollNumber: { contains: searchTerm, mode: 'insensitive' } },
+        { enrollmentNo: { contains: searchTerm, mode: 'insensitive' } },
+      ];
+    }
+
+    // Status filter (active/inactive from users table)
+    if (status && status !== "ALL") {
+      where.users = {
+        ...where.users,
+        status: status === "active" ? "active" : "inactive",
+      };
+    }
+
+    // Calculate pagination
+    const skip = (page - 1) * pageSize;
+    const take = pageSize;
+
+    // Execute queries in parallel
+    const [students, totalCount] = await Promise.all([
+      prisma.students.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          phone: true,
+          department: true,
+          academicYear: true,
+          semester: true,
+          section: true,
+          rollNumber: true,
+          enrollmentNo: true,
+          enrollmentType: true,
+          createdAt: true,
+          updatedAt: true,
+          collegeId: true,
+          users: {
+            select: {
+              id: true,
+              displayName: true,
+              email: true,
+              role: true,
+              status: true,
+            },
+          },
+          colleges: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          student_batches: {
+            select: {
+              batches: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+      }),
+      prisma.students.count({ where }),
+    ]);
+
+    // Map to include computed fields
+    const mappedStudents = students.map((s) => ({
+      id: s.id,
+      name: s.users?.displayName || s.users?.email || 'Unknown',
+      email: s.users?.email || '',
+      phone: s.phone,
+      department: s.department,
+      academicYear: s.academicYear,
+      semester: s.semester,
+      section: s.section,
+      rollNumber: s.rollNumber,
+      enrollmentNo: s.enrollmentNo,
+      enrollmentType: s.enrollmentType,
+      status: s.users?.status || 'inactive',
+      collegeName: s.colleges?.name || null,
+      collegeId: s.collegeId,
+      batchIds: s.student_batches?.map((sb: any) => sb.batches?.id).filter(Boolean) || [],
+      batchNames: s.student_batches?.map((sb: any) => sb.batches?.name).filter(Boolean) || [],
+      createdAt: s.createdAt,
+      updatedAt: s.updatedAt,
+    }));
+
+    console.log('[GET_STUDENTS_PAGINATED] Returning:', {
+      studentCount: mappedStudents.length,
+      totalCount,
+      page,
+      pageSize,
+      totalPages: Math.ceil(totalCount / pageSize),
+      filters: { searchQuery, collegeId, department, academicYear, section, status },
+    });
+
+    return {
+      success: true as const,
+      data: mappedStudents,
+      totalCount,
+      page,
+      pageSize,
+      totalPages: Math.ceil(totalCount / pageSize),
+    };
+  } catch (error: any) {
+    console.error("[GET_STUDENTS_PAGINATED] Error:", error);
+    return {
+      success: false as const,
+      error: error.message || "Failed to fetch students",
+      data: [],
+      totalCount: 0,
+      page: 1,
+      pageSize: 100,
+      totalPages: 0,
+    };
+  }
+}
+
+// Get unique filter options from actual student data
+export async function getStudentFilterOptionsAction({
+  userRole,
+  userCollegeId,
+  collegeId,
+}: {
+  userRole?: string;
+  userCollegeId?: string;
+  collegeId?: string;
+}) {
+  try {
+    // Build where clause based on role and college filter
+    const where: any = {};
+
+    // Role-based scoping
+    if ((userRole === "college_admin" || userRole === "student") && userCollegeId) {
+      where.collegeId = userCollegeId;
+    }
+
+    // Filter by specific college if provided
+    if (collegeId && collegeId !== "ALL" && collegeId !== "GLOBAL") {
+      where.collegeId = collegeId;
+    }
+
+    // Get all unique values
+    const students = await prisma.students.findMany({
+      where,
+      select: {
+        department: true,
+        academicYear: true,
+        section: true,
+      },
+    });
+
+    // Extract unique values
+    const departments = new Set<string>();
+    const years = new Set<string>();
+    const sections = new Set<string>();
+
+    students.forEach((s) => {
+      if (s.department) departments.add(s.department);
+      if (s.academicYear) years.add(s.academicYear);
+      if (s.section) sections.add(s.section);
+    });
+
+    return {
+      success: true,
+      departments: Array.from(departments).sort(),
+      years: Array.from(years).sort(),
+      sections: Array.from(sections).sort(),
+    };
+  } catch (error: any) {
+    console.error("[GET_STUDENT_FILTER_OPTIONS] Error:", error);
+    return {
+      success: false,
+      departments: [],
+      years: [],
+      sections: [],
+    };
+  }
+}
+
 export async function getAllStudentsAction() {
+  // OPTIMIZED: Load all students but only select needed fields
+  // With proper indexes, this will be fast even for 50k students
   return await prisma.students.findMany({
+    orderBy: { createdAt: 'desc' },
     include: {
-      users: true,
-      colleges: true,
+      users: {
+        select: {
+          id: true,
+          displayName: true,
+          email: true,
+          role: true,
+          status: true,
+        }
+      },
+      colleges: {
+        select: {
+          id: true,
+          name: true,
+          type: true,
+        }
+      },
       student_batches: {
-        include: { batches: true }
+        include: { 
+          batches: {
+            select: {
+              id: true,
+              name: true,
+            }
+          }
+        }
       }
     }
   });
 }
 
+export async function getStudentCountAction() {
+  // Get total count for UI
+  return await prisma.students.count();
+}
+
 export async function getStudentsByCollegeAction(collegeId: string) {
+  // OPTIMIZED: Load all students for college with selective fields
   return await prisma.students.findMany({
     where: { 
       OR: [
@@ -24,12 +298,47 @@ export async function getStudentsByCollegeAction(collegeId: string) {
         { colleges: { name: { equals: collegeId, mode: 'insensitive' } } }
       ]
     },
+    orderBy: { createdAt: 'desc' },
     include: {
-      users: true,
-      colleges: true,
+      users: {
+        select: {
+          id: true,
+          displayName: true,
+          email: true,
+          role: true,
+          status: true,
+        }
+      },
+      colleges: {
+        select: {
+          id: true,
+          name: true,
+          type: true,
+        }
+      },
       student_batches: {
-        include: { batches: true }
+        include: { 
+          batches: {
+            select: {
+              id: true,
+              name: true,
+            }
+          }
+        }
       }
+    }
+  });
+}
+
+export async function getStudentCountByCollegeAction(collegeId: string) {
+  // Get count for specific college
+  return await prisma.students.count({
+    where: { 
+      OR: [
+        { collegeId },
+        { colleges: { id: collegeId } },
+        { colleges: { name: { equals: collegeId, mode: 'insensitive' } } }
+      ]
     }
   });
 }

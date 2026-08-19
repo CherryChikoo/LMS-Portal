@@ -12,7 +12,8 @@ const AIExplanationSchema = z.object({
   questions: z.array(z.any()).optional(),
   forceRegenerate: z.boolean().optional(),
 }).strict();
-export const maxDuration = 60; // Max allowed for Vercel Hobby tier
+// maxDuration removed - causing Next.js 16 build issues
+// export const maxDuration = 60;
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 const MODEL_NAME = "gemini-2.5-flash";

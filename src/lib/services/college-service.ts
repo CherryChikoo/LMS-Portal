@@ -72,7 +72,9 @@ export async function createCollege(data: Partial<College>): Promise<string> {
       isDeleted: false,
     };
 
-    const id = await createCollegeAction(collegeData);
+    const result = await createCollegeAction(collegeData);
+    if (!result.success || !result.id) throw new Error(result.error || "Failed to create college");
+    const id = result.id;
     try {
       optimisticAddCollegeToCache({ id, ...collegeData } as College);
       refreshCache().catch(() => {});
@@ -127,7 +129,7 @@ export async function updateCollege(
       }
     }
 
-    await updateCollegeAction(id, updateData);
+    await updateCollegeAction({ id, ...updateData });
     try {
       refreshCache().catch(() => {});
     } catch (_) {}
@@ -185,7 +187,7 @@ export async function updateCollegeStudentCount(
   count: number
 ): Promise<void> {
   if (!collegeId) return;
-  await updateCollegeAction(collegeId, { studentCount: count });
+  await updateCollegeAction({ id: collegeId, studentCount: count });
   try {
     refreshCache().catch(() => {});
   } catch (_) {}

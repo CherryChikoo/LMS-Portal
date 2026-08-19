@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, Suspense } from "react";
+import { useEffect, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { syncGoogleUserAction } from "@/lib/actions/auth-actions";
@@ -10,7 +10,6 @@ import type { UserRole } from "@/types";
 function CallbackHandler() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [status, setStatus] = useState<string>("Authenticating with Google...");
   const processedRef = useRef(false);
 
   useEffect(() => {
@@ -20,12 +19,26 @@ function CallbackHandler() {
       if (processedRef.current) return;
       processedRef.current = true;
 
-      setStatus("Setting up your student profile...");
       try {
         const mode = (searchParams.get("mode") || (typeof window !== "undefined" ? localStorage.getItem("oauth_mode") : null) || "login") as "login" | "register";
         
         const syncRes = await syncGoogleUserAction(user, mode);
 
+        if (syncRes.error === "needs_registration_completion") {
+          // Google OAuth user needs to complete Step 2 (academic details) in registration flow
+          // Store user info in sessionStorage for the registration page to use
+          if (typeof window !== "undefined") {
+            sessionStorage.setItem("oauth_pending_user", JSON.stringify({
+              email: user.email || "",
+              name: user.user_metadata?.full_name || user.user_metadata?.name || "",
+              authId: user.id,
+              provider: "google"
+            }));
+          }
+          await supabase.auth.signOut().catch(() => {});
+          window.location.replace("/register?oauth_pending=true");
+          return;
+        }
         if (syncRes.error === "no_account_found") {
           await supabase.auth.signOut().catch(() => {});
           window.location.replace("/login?error=no_account");
@@ -52,11 +65,19 @@ function CallbackHandler() {
           await setAuthSession(syncRes.userProfile, role);
         }
 
-        setStatus("Redirecting to your dashboard...");
+        // Check if this was an account linking (not a new registration)
+        const wasLinked = syncRes.wasLinked || false;
         const targetPath = syncRes.targetPath || (role === "student" ? "/student" : (role === "college_admin" ? "/" : "/admin"));
-        window.location.replace(targetPath);
+        
+        if (wasLinked) {
+          // Add a success parameter to show account was linked
+          window.location.replace(`${targetPath}?linked=google`);
+        } else {
+          window.location.replace(targetPath);
+        }
       } catch (err: any) {
         console.error("Profile sync error:", err);
+        await supabase.auth.signOut().catch(() => {});
         window.location.replace(`/login?error=${encodeURIComponent(err?.message || "sync_failed")}`);
       }
     }
@@ -65,6 +86,7 @@ function CallbackHandler() {
       // 1. Check for URL error parameters
       const urlError = searchParams.get("error_description") || searchParams.get("error");
       if (urlError) {
+        await supabase.auth.signOut().catch(() => {});
         window.location.replace(`/login?error=${encodeURIComponent(urlError)}`);
         return;
       }
@@ -98,8 +120,9 @@ function CallbackHandler() {
       });
 
       // 5. Fallback timer if OAuth token takes too long
-      const timeout = setTimeout(() => {
+      const timeout = setTimeout(async () => {
         if (mounted && !processedRef.current) {
+          await supabase.auth.signOut().catch(() => {});
           window.location.replace("/login?error=oauth_timeout");
         }
       }, 7000);
@@ -118,12 +141,8 @@ function CallbackHandler() {
   }, [router, searchParams]);
 
   return (
-    <div className="min-h-screen bg-[#090d16] text-white flex flex-col items-center justify-center p-4">
-      <div className="text-center space-y-4 max-w-sm">
-        <div className="w-12 h-12 border-3 border-white/20 border-t-brand rounded-full animate-spin mx-auto" />
-        <h2 className="text-lg font-bold font-heading">{status}</h2>
-        <p className="text-xs text-muted-foreground">Please wait while we verify your academic credentials.</p>
-      </div>
+    <div className="fixed inset-0 bg-[#090d16]">
+      {/* Invisible processing - no UI shown to user */}
     </div>
   );
 }
@@ -131,8 +150,8 @@ function CallbackHandler() {
 export default function AuthCallbackPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen bg-[#090d16] text-white flex items-center justify-center">
-        <div className="w-10 h-10 border-3 border-white/20 border-t-brand rounded-full animate-spin" />
+      <div className="fixed inset-0 bg-[#090d16]">
+        {/* Invisible fallback - no UI shown */}
       </div>
     }>
       <CallbackHandler />

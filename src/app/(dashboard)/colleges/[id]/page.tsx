@@ -126,6 +126,51 @@ function getYearBadgeStyle(year?: string) {
   const [importSummary, setImportSummary] = useState<CSVImportSummary | null>(null);
   const cancelImportRef = useRef(false);
 
+  // Pagination State (MUST BE BEFORE ANY EARLY RETURNS)
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 100; // Page-by-page arrow navigation (Option 2 architecture)
+
+  // Cascading subset: students narrowed by selected Department filter.
+  const filteredByDepartment = useMemo(() =>
+    selectedDeptFilter === "ALL"
+      ? students
+      : students.filter((s) => s.department === selectedDeptFilter),
+    [students, selectedDeptFilter]
+  );
+
+  // Department list derived from actual students in this college.
+  const departmentsList = useMemo(() =>
+    uniqueOptions(students.map((s) => s.department).filter(Boolean)),
+    [students]
+  );
+
+  // Year/Section options narrowed by selected Department. Defaults are only added when no
+  // Department is selected so that picking a department shows data-first options only.
+  const yearsList = useMemo(() => {
+    const base = filteredByDepartment.map((s) => s.academicYear);
+    if (selectedDeptFilter === "ALL") base.push("1st Year", "2nd Year", "3rd Year", "4th Year");
+    return uniqueOptions(base.filter(Boolean));
+  }, [filteredByDepartment, selectedDeptFilter]);
+
+  const sectionsList = useMemo(() => {
+    const base = filteredByDepartment.map((s) => s.section);
+    if (selectedDeptFilter === "ALL") base.push("A", "B", "C", "D");
+    return uniqueOptions(base.filter(Boolean));
+  }, [filteredByDepartment, selectedDeptFilter]);
+
+  // Reset child filters when the Department selection makes them invalid.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- cascading reset: child filters must reset when the parent filter narrows the available options
+    if (selectedYearFilter !== "ALL" && !yearsList.includes(selectedYearFilter)) setSelectedYearFilter("ALL");
+    if (selectedSectionFilter !== "ALL" && !sectionsList.includes(selectedSectionFilter)) setSelectedSectionFilter("ALL");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally exclude selected* values so the reset only fires when the parent filter narrows the option list
+  }, [selectedDeptFilter, yearsList, sectionsList]);
+
+  // Reset page to 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedDeptFilter, selectedYearFilter, selectedSectionFilter, timeFilter]);
+
   const handleFileUpload = async (filesOrEvent: React.ChangeEvent<HTMLInputElement> | File[]) => {
     let files: File[] = [];
     if (Array.isArray(filesOrEvent)) {
@@ -551,41 +596,7 @@ function getYearBadgeStyle(year?: string) {
     }
   };
 
-  // Cascading subset: students narrowed by selected Department filter.
-  const filteredByDepartment = useMemo(() =>
-    selectedDeptFilter === "ALL"
-      ? students
-      : students.filter((s) => s.department === selectedDeptFilter),
-    [students, selectedDeptFilter]
-  );
-
-  // Department list derived from actual students in this college.
-  const departmentsList = useMemo(() =>
-    uniqueOptions(students.map((s) => s.department).filter(Boolean)),
-    [students]
-  );
-
-  // Year/Section options narrowed by selected Department. Defaults are only added when no
-  // Department is selected so that picking a department shows data-first options only.
-  const yearsList = useMemo(() => {
-    const base = filteredByDepartment.map((s) => s.academicYear);
-    if (selectedDeptFilter === "ALL") base.push("1st Year", "2nd Year", "3rd Year", "4th Year");
-    return uniqueOptions(base.filter(Boolean));
-  }, [filteredByDepartment, selectedDeptFilter]);
-
-  const sectionsList = useMemo(() => {
-    const base = filteredByDepartment.map((s) => s.section);
-    if (selectedDeptFilter === "ALL") base.push("A", "B", "C", "D");
-    return uniqueOptions(base.filter(Boolean));
-  }, [filteredByDepartment, selectedDeptFilter]);
-
-  // Reset child filters when the Department selection makes them invalid.
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- cascading reset: child filters must reset when the parent filter narrows the available options
-    if (selectedYearFilter !== "ALL" && !yearsList.includes(selectedYearFilter)) setSelectedYearFilter("ALL");
-    if (selectedSectionFilter !== "ALL" && !sectionsList.includes(selectedSectionFilter)) setSelectedSectionFilter("ALL");
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally exclude selected* values so the reset only fires when the parent filter narrows the option list
-  }, [selectedDeptFilter, yearsList, sectionsList]);
+  // ===== EARLY RETURNS: All hooks MUST be declared above this line =====
 
   if (loading) {
     return (
@@ -646,19 +657,12 @@ function getYearBadgeStyle(year?: string) {
       return 0;
     });
 
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 25;
-
+  // Calculate pagination after filtering
   const totalPages = Math.ceil(filteredStudents.length / itemsPerPage);
-  const paginatedStudents = useMemo(() => {
-    const start = (currentPage - 1) * itemsPerPage;
-    return filteredStudents.slice(start, start + itemsPerPage);
-  }, [filteredStudents, currentPage, itemsPerPage]);
-
-  // Reset page to 1 when filters change
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchQuery, selectedDeptFilter, selectedYearFilter, selectedSectionFilter, timeFilter]);
+  const paginatedStudents = filteredStudents.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
 
   const handleDeleteSelectedStudents = () => {
     if (selectedStudentIds.length === 0 || !college) return;

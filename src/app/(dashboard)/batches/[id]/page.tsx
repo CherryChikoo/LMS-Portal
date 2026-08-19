@@ -29,7 +29,7 @@ import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
 import { uniqueOptions } from "@/lib/utils/array";
 import { toMillis } from "@/lib/utils/date";
-import { getBatchById, updateBatch, bulkAddStudentsToBatch, bulkRemoveStudentsFromBatch } from "@/lib/services";
+import { getBatchById, updateBatch, bulkAddStudentsToBatch, bulkRemoveStudentsFromBatch, getStudentsInBatch } from "@/lib/services";
 import { useLMSDataSelector } from "@/lib/data/use-lms-data";
 import { refreshCache } from "@/lib/data/lms-data-cache";
 import { formatDisplayName } from "@/lib/utils";
@@ -82,8 +82,35 @@ export default function BatchDetailPage({ params }: PageProps) {
       try {
         const batData = await getBatchById(resolvedParams.id);
         setBatch(batData);
-        setAllStudents(cachedStudents);
+        
+        // Load students enrolled in this batch
+        const enrolledStudentsData = await getStudentsInBatch(resolvedParams.id);
+        const enrolledIds = new Set(enrolledStudentsData.map((s: any) => s.id));
+        
+        // Merge cached students with batch membership info
+        const allStudentsWithBatchInfo = cachedStudents.map((s) => ({
+          ...s,
+          batchIds: enrolledIds.has(s.id) ? [resolvedParams.id] : (s.batchIds || [])
+        }));
+        
+        // Add enrolled students that might not be in cache
+        enrolledStudentsData.forEach((enrolledStudent: any) => {
+          if (!cachedStudents.find(cs => cs.id === enrolledStudent.id)) {
+            allStudentsWithBatchInfo.push({
+              ...enrolledStudent,
+              batchIds: [resolvedParams.id]
+            });
+          }
+        });
+        
+        setAllStudents(allStudentsWithBatchInfo);
         setColleges(cachedColleges);
+        
+        console.log('[BATCH_DETAIL] Loaded:', {
+          batchId: resolvedParams.id,
+          enrolledCount: enrolledStudentsData.length,
+          totalStudents: allStudentsWithBatchInfo.length,
+        });
       } catch (err) {
         console.error("Error loading batch details:", err);
       } finally {

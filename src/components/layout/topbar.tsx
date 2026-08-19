@@ -56,12 +56,16 @@ export function Topbar() {
       const savedUser = localStorage.getItem("lms_user") || localStorage.getItem("user");
       if (savedUser) {
         const u = JSON.parse(savedUser);
-        if (u.role === "student" || savedRole === "student") return "Student";
-        if (u.role === "college_admin" || savedRole === "college_admin" || (u.collegeId && u.collegeId !== "global")) return "College Admin";
-        if (u.role === "admin" || savedRole === "admin") return "Super Admin";
+        const role = (u.role || savedRole || "student").toLowerCase();
+        if (role === "student") return "Student";
+        if (role === "college_admin") return "College Admin";
+        if (role === "admin" || role === "main_admin" || role === "super_admin") return "Super Admin";
       }
-      if (savedRole === "college_admin") return "College Admin";
-      if (savedRole === "admin") return "Super Admin";
+      if (savedRole) {
+        const role = savedRole.toLowerCase();
+        if (role === "college_admin") return "College Admin";
+        if (role === "admin" || role === "main_admin" || role === "super_admin") return "Super Admin";
+      }
     } catch {}
     return "Student";
   });
@@ -98,28 +102,32 @@ export function Topbar() {
         const parts = name.split(" ").filter(Boolean);
         const init = parts.length > 1 ? `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase() : parts[0]?.slice(0, 2).toUpperCase() || "US";
         setInitials(init);
-        if (u.role === "student" || savedRole === "student") {
+        const role = (u.role || savedRole || "student").toLowerCase();
+        if (role === "student") {
           setUserRole("Student");
-        } else if (u.role === "college_admin" || savedRole === "college_admin" || (u.collegeId && u.collegeId !== "global")) {
+        } else if (role === "college_admin") {
           setUserRole("College Admin");
-        } else if (u.role === "admin" || savedRole === "admin") {
+        } else if (role === "admin" || role === "main_admin" || role === "super_admin") {
           setUserRole("Super Admin");
         } else {
           setUserRole("Trainer");
         }
       } catch (e) {}
-    } else if (savedRole === "college_admin") {
-      setUserName("College Admin");
-      setUserRole("College Admin");
-      setInitials("CA");
-    } else if (savedRole === "admin") {
-      setUserName("System Admin");
-      setUserRole("Super Admin");
-      setInitials("SA");
-    } else if (savedRole === "student") {
-      setUserName("Student");
-      setUserRole("Student");
-      setInitials("ST");
+    } else if (savedRole) {
+      const role = savedRole.toLowerCase();
+      if (role === "college_admin") {
+        setUserName("College Admin");
+        setUserRole("College Admin");
+        setInitials("CA");
+      } else if (role === "admin" || role === "main_admin" || role === "super_admin") {
+        setUserName("System Admin");
+        setUserRole("Super Admin");
+        setInitials("SA");
+      } else if (role === "student") {
+        setUserName("Student");
+        setUserRole("Student");
+        setInitials("ST");
+      }
     }
   }, []);
 
@@ -236,11 +244,11 @@ export function Topbar() {
               >
                 <Avatar className="h-7 w-7 ring-2 ring-brand/30">
                   <AvatarImage src={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(userName)}`} />
-                  <AvatarFallback className="bg-brand text-brand-foreground dark:text-brand-foreground text-xs font-bold">
+                  <AvatarFallback className="bg-brand text-brand-foreground dark:text-brand-foreground text-xs font-bold" suppressHydrationWarning>
                     {initials}
                   </AvatarFallback>
                 </Avatar>
-                <span className="text-sm font-semibold text-foreground hidden sm:inline-block">
+                <span className="text-sm font-semibold text-foreground hidden sm:inline-block" suppressHydrationWarning>
                   {userName}
                 </span>
               </Button>

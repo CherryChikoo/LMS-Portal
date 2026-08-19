@@ -8,7 +8,8 @@ import {
   updateBatchAction,
   deleteBatchAction,
   bulkAddStudentsToBatchAction,
-  bulkRemoveStudentsFromBatchAction
+  bulkRemoveStudentsFromBatchAction,
+  getStudentsInBatchAction,
 } from "@/lib/actions/batch-actions";
 
 function mapBatchRow(row: any): Batch {
@@ -106,4 +107,9 @@ export async function bulkRemoveStudentsFromBatch(batchIdOrName: string, student
       refreshCache().catch(() => {});
     } catch (_) {}
   }, `Removing ${studentIds.length} student(s) from batch...`);
+}
+
+export async function getStudentsInBatch(batchId: string) {
+  const students = await getStudentsInBatchAction(batchId);
+  return students;
 }

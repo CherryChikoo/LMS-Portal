@@ -8,7 +8,7 @@ import Link from "next/link";
 import { APP_NAME } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { studentRegister, unifiedGoogleLogin, formatAuthError } from "@/lib/services/auth-service";
-import { checkEmailExistsAction } from "@/lib/actions/auth-actions";
+import { checkEmailExistsAction, completeGoogleRegistrationAction } from "@/lib/actions/auth-actions";
 import { setAuthSession } from "@/lib/utils/auth-session";
 import { useBranding } from "@/providers/branding-provider";
 
@@ -17,6 +17,8 @@ export default function RegisterPage() {
   const router = useRouter();
   const [step, setStep] = useState<"auth" | "details">("auth");
   const [registeredUid, setRegisteredUid] = useState<string>("");
+  const [isOAuthPending, setIsOAuthPending] = useState(false);
+  const [oauthUserData, setOAuthUserData] = useState<{email: string; name: string; authId: string; provider: string} | null>(null);
 
   // Step 1 Credentials
   const [email, setEmail] = useState("");
@@ -38,6 +40,34 @@ export default function RegisterPage() {
 
   // Touched validation feedback
   const [touched, setTouched] = useState<Record<string, boolean>>({});
+
+  // Check for pending OAuth registration on mount
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const urlParams = new URLSearchParams(window.location.search);
+      const oauthPending = urlParams.get("oauth_pending");
+      
+      if (oauthPending === "true") {
+        const storedData = sessionStorage.getItem("oauth_pending_user");
+        if (storedData) {
+          try {
+            const userData = JSON.parse(storedData);
+            setOAuthUserData(userData);
+            setIsOAuthPending(true);
+            setEmail(userData.email || "");
+            setFullName(userData.name || "");
+            setStep("details"); // Skip Step 1 and go directly to Step 2
+            sessionStorage.removeItem("oauth_pending_user"); // Clean up
+            
+            // Clean URL
+            window.history.replaceState(null, "", window.location.pathname);
+          } catch (e) {
+            console.error("Failed to parse OAuth user data:", e);
+          }
+        }
+      }
+    }
+  }, []);
 
 
 
@@ -112,9 +142,15 @@ export default function RegisterPage() {
   };
 
   // CANCEL / RESET: User can return to Step 1 at any time without creating an account
+  // For OAuth users, cancel means abandoning the registration entirely
   const handleCancelRegistration = () => {
     setError(null);
-    setStep("auth");
+    if (isOAuthPending) {
+      // OAuth users can't go back to Step 1, so redirect them to login
+      router.push("/login");
+    } else {
+      setStep("auth");
+    }
   };
 
   // STEP 2: Atomic Creation — Supabase Auth + Database Account Created ONLY after completing all details
@@ -139,17 +175,36 @@ export default function RegisterPage() {
     setError(null);
 
     try {
-      const res = await studentRegister(
-        fullName.trim(),
-        email.trim(),
-        password,
-        collegeName.trim(),
-        department.trim(),
-        section.trim() || "A"
-      );
+      let uid: string;
+      let actualCollegeId: string | null;
 
-      const uid = res.uid || res.user?.id;
-      const actualCollegeId = res.collegeId || collegeName.toLowerCase().trim().replace(/[^a-z0-9]+/g, "");
+      if (isOAuthPending && oauthUserData) {
+        // Complete Google OAuth registration with academic details
+        const res = await completeGoogleRegistrationAction({
+          authId: oauthUserData.authId,
+          email: email.trim(),
+          fullName: fullName.trim(),
+          collegeName: collegeName.trim(),
+          department: department.trim(),
+          section: section.trim() || "A"
+        });
+        
+        uid = oauthUserData.authId;
+        actualCollegeId = res.collegeId;
+      } else {
+        // Regular email/password registration
+        const res = await studentRegister(
+          fullName.trim(),
+          email.trim(),
+          password,
+          collegeName.trim(),
+          department.trim(),
+          section.trim() || "A"
+        );
+
+        uid = res.uid || res.user?.id;
+        actualCollegeId = res.collegeId || collegeName.toLowerCase().trim().replace(/[^a-z0-9]+/g, "");
+      }
 
       const uObj = {
         id: uid,
@@ -447,6 +502,17 @@ export default function RegisterPage() {
               <div>
                 <h3 className="text-xl font-bold text-foreground font-heading">Step 2: Academic Profile</h3>
                 <p className="text-xs text-muted-foreground mt-1">Please provide your institutional enrollment details</p>
+                {isOAuthPending && (
+                  <div className="mt-3 p-2.5 rounded-lg bg-brand/10 border border-brand/20 flex items-center gap-2">
+                    <svg className="w-4 h-4 text-brand shrink-0" viewBox="0 0 24 24">
+                      <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                      <path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                      <path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                      <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                    </svg>
+                    <span className="text-xs font-medium text-brand">Continuing with Google Sign-Up</span>
+                  </div>
+                )}
               </div>
 
               {error && (
@@ -562,19 +628,21 @@ export default function RegisterPage() {
                 </div>
 
                 <div className="pt-2 flex items-center gap-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={handleCancelRegistration}
-                    disabled={loading}
-                    className="h-11 rounded-xl border border-border hover:bg-muted text-xs font-semibold px-4 cursor-pointer"
-                  >
-                    Back to Step 1
-                  </Button>
+                  {!isOAuthPending && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleCancelRegistration}
+                      disabled={loading}
+                      className="h-11 rounded-xl border border-border hover:bg-muted text-xs font-semibold px-4 cursor-pointer"
+                    >
+                      Back to Step 1
+                    </Button>
+                  )}
                   <Button
                     type="submit"
                     disabled={loading}
-                    className="flex-1 h-11 rounded-xl bg-brand text-brand-foreground font-semibold hover:bg-brand/90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-brand/20 cursor-pointer"
+                    className={`h-11 rounded-xl bg-brand text-brand-foreground font-semibold hover:bg-brand/90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-brand/20 cursor-pointer ${isOAuthPending ? 'w-full' : 'flex-1'}`}
                   >
                     {loading ? (
                       <span className="flex items-center gap-2">

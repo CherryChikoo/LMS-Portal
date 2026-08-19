@@ -66,13 +66,15 @@ export async function POST(request: NextRequest) {
       }
 
       // Check for email uniqueness in Prisma tables
-      const [emailUser, emailStudent, emailCollege] = await Promise.all([
-        prisma.users.findFirst({ where: { email: normalizedEmail, id: { not: uid } }, select: { id: true } }),
-        prisma.students.findFirst({ where: { users: { email: normalizedEmail }, id: { not: uid } }, select: { id: true } }),
-        prisma.colleges.findFirst({ where: { adminEmail: normalizedEmail }, select: { id: true } })
-      ]);
-
-      if (emailUser || emailStudent || emailCollege) {
+      const emailUser = await prisma.users.findFirst({ 
+        where: { 
+          email: normalizedEmail, 
+          id: { not: uid } 
+        }, 
+        select: { id: true } 
+      });
+      
+      if (emailUser) {
         return NextResponse.json(
           { error: "Update failed: This email address is already in use by another account in the system.", errorCode: "database/email-already-exists" },
           { status: 409 }

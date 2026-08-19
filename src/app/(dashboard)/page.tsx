@@ -9,18 +9,15 @@ import {
   Clock,
   FileText,
   ArrowRight,
-  Sparkles,
   CheckCircle2,
   TrendingUp,
   PlayCircle,
   Plus,
   Trophy,
   BookOpen,
-  AlertCircle,
+  Building2,
   Layers,
   Library,
-  FilePlus,
-  Building2
 } from "lucide-react";
 import Link from "next/link";
 import { StatCard } from "@/components/shared/stat-card";
@@ -31,93 +28,34 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, useMemo } from "react";
 import { useMounted } from "@/hooks/use-mounted";
 import { staggerContainer, staggerItem } from "@/lib/animations";
-import { getAllExamsIncludingDeleted, getAllStudents, getAllColleges, getAllResources, getEffectiveExamStatus, getStudentAttempts, filterResourcesForStudent, filterExamsForStudent, getAllBatches, isAttemptOwnedByStudent } from "@/lib/services";
-import { toDate, toMillis } from "@/lib/utils/date";
 import { formatDisplayName } from "@/lib/utils";
-import type { Exam, Student, College, Resource, ExamAttempt, Batch, AssignmentTarget } from "@/types";
-import { useLMSData, useLMSDataSelector } from "@/lib/data/use-lms-data";
 import { useBranding } from "@/providers/branding-provider";
+import {
+  getAdminDashboardStatsAction,
+  getStudentDashboardStatsAction,
+  getCollegeAdminDashboardStatsAction,
+  getRecentActivityAction,
+} from "@/lib/actions/dashboard-actions-optimized";
 
-export function StudentPortalDashboard({
-  exams,
-  resources,
-  attempts,
-  students,
-  loading,
-}: {
-  exams: Exam[];
-  resources: Resource[];
-  attempts: ExamAttempt[];
-  students: Student[];
-  loading: boolean;
-}) {
+// ============================================================================
+// STUDENT DASHBOARD (OLD DESIGN + SERVER DATA)
+// ============================================================================
+function StudentPortalDashboard({ stats, loading }: { stats: any; loading: boolean }) {
   const [mounted, setMounted] = useState(false);
   const [studentProfile, setStudentProfile] = useState<any>({ 
-    id: "", name: "", email: "", department: "", rollNumber: "", batchIds: [] 
+    id: "", name: "", email: ""
   });
 
   useEffect(() => {
     setMounted(true);
-    const updateProfile = () => {
-      try {
-        const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-        if (uStr) {
-          const parsed = JSON.parse(uStr);
-          const sId = parsed.id || parsed.uid;
-          const sEmail = parsed.email;
-          const canonical = students.find((s) => (sId && s.id === sId) || (sEmail && s.email?.toLowerCase() === String(sEmail).toLowerCase()));
-          
-          if (canonical) {
-            setStudentProfile({
-              ...parsed,
-              ...canonical,
-              id: canonical.id || sId || "",
-              email: canonical.email || sEmail || "",
-              collegeId: canonical.collegeId || parsed.collegeId || parsed.college || "",
-              collegeName: canonical.collegeName || parsed.collegeName || parsed.college || "",
-              batchIds: canonical.batchIds || parsed.batchIds || [],
-              department: canonical.department || parsed.department || "",
-              academicYear: canonical.academicYear || parsed.academicYear || "",
-              section: canonical.section || parsed.section || "",
-              createdAt: canonical.createdAt || parsed.createdAt,
-            });
-          } else {
-            setStudentProfile(parsed);
-          }
-        }
-      } catch (_) {}
-    };
-    updateProfile();
-    window.addEventListener("storage", updateProfile);
-    window.addEventListener("pageshow", updateProfile);
-    return () => {
-      window.removeEventListener("storage", updateProfile);
-      window.removeEventListener("pageshow", updateProfile);
-    };
-  }, [students]);
-
-  const myAttempts = useMemo(() => {
-    if (!studentProfile || (!studentProfile.id && !studentProfile.email && !studentProfile.name)) return attempts;
-    return attempts.filter((a) => isAttemptOwnedByStudent(a, studentProfile));
-  }, [attempts, studentProfile]);
-
-  const avgScore = useMemo(() => {
-    if (myAttempts.length === 0) return 0;
-    const sum = myAttempts.reduce((acc, curr) => acc + (curr.percentage || 0), 0);
-    return Math.round(sum / myAttempts.length);
-  }, [myAttempts]);
-
-  const activeOrScheduledExams = useMemo(() => {
-    return filterExamsForStudent(exams, studentProfile).filter((e) => {
-      if (e.deletedAt) return false;
-      const s = getEffectiveExamStatus(e);
-      return s === "active" || s === "scheduled";
-    }).sort((a, b) => (toMillis(b.createdAt) || 0) - (toMillis(a.createdAt) || 0));
-  }, [exams, studentProfile]);
-
-  const assignedResources = useMemo(() => {
-    return filterResourcesForStudent(resources, studentProfile);
-  }, [resources, studentProfile]);
+    try {
+      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      if (uStr) {
+        const parsed = JSON.parse(uStr);
+        setStudentProfile(parsed);
+      }
+    } catch (_) {}
+  }, []);
 
   return (
     <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="space-y-6 sm:space-y-8 font-sans">
@@ -157,7 +95,7 @@ export function StudentPortalDashboard({
         <motion.div variants={staggerItem}>
           <StatCard
             title="Assigned Assessments"
-            value={loading ? 0 : activeOrScheduledExams.length}
+            value={loading ? 0 : (stats?.assignedExams || 0)}
             icon={ClipboardList}
             iconClassName="stat-icon-emerald"
           />
@@ -165,7 +103,7 @@ export function StudentPortalDashboard({
         <motion.div variants={staggerItem}>
           <StatCard
             title="Completed Attempts"
-            value={loading ? 0 : myAttempts.length}
+            value={loading ? 0 : (stats?.completedAttempts || 0)}
             icon={Trophy}
             iconClassName="stat-icon-blue"
           />
@@ -173,7 +111,7 @@ export function StudentPortalDashboard({
         <motion.div variants={staggerItem}>
           <StatCard
             title="Average Evaluation Score"
-            value={loading ? 0 : avgScore}
+            value={loading ? 0 : (stats?.averageScore || 0)}
             suffix="%"
             icon={TrendingUp}
             iconClassName="stat-icon-amber"
@@ -182,95 +120,18 @@ export function StudentPortalDashboard({
         <motion.div variants={staggerItem}>
           <StatCard
             title="Department Study Notes"
-            value={loading ? 0 : assignedResources.length}
+            value={loading ? 0 : (stats?.assignedResources || 0)}
             icon={FolderOpen}
             iconClassName="stat-icon-purple"
           />
         </motion.div>
       </motion.div>
 
-      {/* 2-Column Student Section */}
-      <motion.div variants={staggerContainer} className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left: Active & Scheduled Exams */}
-        <motion.div variants={staggerItem} className="lg:col-span-7 space-y-4">
-          <GlassCard className="p-6 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-border/40">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
-                  <ClipboardList className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-foreground">Assigned Assessment Library</h3>
-                  <p className="text-xs text-muted-foreground">Evaluation papers scheduled for your academic cohort</p>
-                </div>
-              </div>
-              <Link href="/student/exams" className="text-xs font-bold text-brand hover:underline flex items-center gap-1">
-                View All <ArrowRight className="w-3.5 h-3.5" />
-              </Link>
-            </div>
-
-            <div className="space-y-3 max-h-[460px] overflow-y-auto pr-1.5 scrollbar-thin scrollbar-thumb-border/60 hover:scrollbar-thumb-border">
-              {loading || !mounted ? (
-                <div className="space-y-3 py-2">
-                  <div className="h-16 rounded-xl bg-card/60 border border-border/60 animate-pulse" />
-                  <div className="h-16 rounded-xl bg-card/60 border border-border/60 animate-pulse" />
-                </div>
-              ) : activeOrScheduledExams.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground text-sm">No active assessments scheduled right now.</div>
-              ) : (
-                activeOrScheduledExams.map((ex) => {
-                  const status = getEffectiveExamStatus(ex);
-                  const att = myAttempts.find((a) => a.examId === ex.id);
-                  return (
-                    <div key={ex.id} className="p-4 rounded-xl bg-card/60 border border-border/60 hover:border-brand/40 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          {att ? (
-                            <Badge variant="secondary" className="bg-blue-500/15 text-blue-500 border-blue-500/30 text-[10px] font-bold">
-                              COMPLETED
-                            </Badge>
-                          ) : (
-                            <Badge variant={status === "active" ? "default" : "secondary"} className={status === "active" ? "bg-emerald-500/15 text-emerald-500 border-emerald-500/30 text-[10px]" : "text-[10px]"}>
-                              {status.toUpperCase()}
-                            </Badge>
-                          )}
-                          <span className="text-xs text-muted-foreground flex items-center gap-1">
-                            <Clock className="w-3 h-3" /> {ex.duration} mins
-                          </span>
-                        </div>
-                        <h4 className="text-sm font-bold text-foreground">{ex.title}</h4>
-                        <p className="text-xs text-muted-foreground truncate max-w-sm">{ex.description || "Proctored academic online test."}</p>
-                      </div>
-                      {att ? (
-                        <Link href="/student/results">
-                          <Button size="sm" variant="outline" className="w-full sm:w-auto border-emerald-500/30 bg-emerald-500/10 text-emerald-500 font-bold text-xs rounded-lg px-4 flex items-center gap-1.5">
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            Completed ({att.percentage}%)
-                          </Button>
-                        </Link>
-                      ) : status === "active" ? (
-                        <Link href={`/student/exams/${ex.id}/take`}>
-                          <Button size="sm" className="w-full sm:w-auto bg-brand hover:bg-brand/90 text-brand-foreground font-bold text-xs rounded-lg px-4">
-                            Launch Assessment <PlayCircle className="w-3.5 h-3.5 ml-1.5" />
-                          </Button>
-                        </Link>
-                      ) : (
-                        <Button disabled size="sm" variant="outline" className="w-full sm:w-auto text-xs rounded-lg px-4 opacity-70">
-                          Scheduled
-                        </Button>
-                      )}
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </GlassCard>
-        </motion.div>
-
-        {/* Right: Recent Attempts Transcript */}
-        <motion.div variants={staggerItem} className="lg:col-span-5 space-y-4">
-          <GlassCard className="p-6 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-border/40">
+      {/* Recent Attempts */}
+      {stats?.recentAttempts && stats.recentAttempts.length > 0 && (
+        <motion.div variants={staggerItem}>
+          <GlassCard className="p-6">
+            <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500">
                   <Trophy className="w-5 h-5" />
@@ -284,52 +145,346 @@ export function StudentPortalDashboard({
                 All Scores <ArrowRight className="w-3.5 h-3.5" />
               </Link>
             </div>
-
-            <div className="space-y-3 max-h-[460px] overflow-y-auto pr-1.5 scrollbar-thin scrollbar-thumb-border/60 hover:scrollbar-thumb-border">
-              {!mounted ? (
-                <div className="text-center py-8 text-muted-foreground text-sm">Loading your completed tests...</div>
-              ) : myAttempts.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground text-sm">No tests completed yet. Launch your first assessment above!</div>
-              ) : (
-                myAttempts.map((att) => (
-                  <div key={att.id} className="p-3.5 rounded-xl bg-card/60 border border-border/60 flex items-center justify-between">
-                    <div>
-                      <h4 className="text-sm font-bold text-foreground">{att.examTitle || "Deleted Assessment"}</h4>
-                      <p className="text-xs text-muted-foreground">Submitted: {(() => { const d = toDate(att.submittedAt); return d ? d.toLocaleDateString([], { month: "short", day: "numeric" }) : "Recent"; })()}</p>
-                    </div>
-                    <div className="text-right">
-                      <span className={`text-sm font-black ${att.passed ? "text-emerald-500" : "text-red-500"}`}>{att.percentage}%</span>
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{att.passed ? "PASSED" : "REVIEW"}</p>
-                    </div>
+            <div className="space-y-3">
+              {stats.recentAttempts.map((att: any) => (
+                <div key={att.id} className="p-3.5 rounded-xl bg-card/60 border border-border/60 flex items-center justify-between">
+                  <div>
+                    <h4 className="text-sm font-bold text-foreground">{att.exams?.title || "Assessment"}</h4>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(att.createdAt).toLocaleDateString()}
+                    </p>
                   </div>
-                ))
-              )}
+                  <div className="text-right">
+                    <span className={`text-sm font-black ${att.percentage >= 40 ? "text-emerald-500" : "text-red-500"}`}>
+                      {att.percentage}%
+                    </span>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      {att.status === "completed" ? "COMPLETED" : "PENDING"}
+                    </p>
+                  </div>
+                </div>
+              ))}
             </div>
           </GlassCard>
         </motion.div>
-      </motion.div>
+      )}
     </motion.div>
   );
 }
 
-export default function DashboardPage() {
+// ============================================================================
+// ADMIN DASHBOARD (OLD DESIGN + SERVER DATA)
+// ============================================================================
+function AdminDashboard({ stats, recentActivity, userName, userRole, userCollegeId }: any) {
+  return (
+    <motion.div
+      variants={staggerContainer}
+      initial="hidden"
+      animate="visible"
+      className="space-y-6 max-w-[1400px] mx-auto w-full font-sans"
+    >
+      {/* Header Section */}
+      <motion.div variants={staggerItem} className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 mt-2">
+        <div className="space-y-3">
+          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight font-heading flex items-center gap-3">
+            Welcome back, {formatDisplayName(userName)}!
+            <div className="relative w-8 h-8 sm:w-10 sm:h-10 ml-1 hidden sm:block">
+              <div className="absolute inset-0 bg-emerald-400 rounded-lg -rotate-12 transform origin-bottom-left shadow-sm"></div>
+              <div className="absolute inset-0 bg-rose-500 rounded-lg rotate-0 transform origin-bottom-left shadow-sm"></div>
+              <div className="absolute inset-0 bg-blue-500 rounded-lg rotate-12 transform origin-bottom-left shadow-sm"></div>
+            </div>
+          </h1>
+          <p className="text-sm sm:text-base text-muted-foreground italic">
+            "The art of teaching is the art of assisting discovery." — Mark Van Doren
+          </p>
+        </div>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto shrink-0">
+          <Link href="/admin/students" passHref>
+            <Button
+              variant="ghost"
+              className="h-11 px-5 rounded-xl border border-border bg-transparent text-foreground hover:bg-accent font-semibold transition-all flex items-center justify-center gap-2 w-full sm:w-auto"
+            >
+              <GraduationCap className="w-4 h-4 shrink-0" />
+              <span className="whitespace-nowrap">Students</span>
+            </Button>
+          </Link>
+          <Link href="/admin/exams" passHref>
+            <Button
+              className="h-11 px-5 rounded-xl bg-brand hover:bg-brand/90 text-primary-foreground font-bold transition-all flex items-center justify-center gap-2 shadow-sm border border-white/20 dark:border-black/10 w-full sm:w-auto"
+            >
+              <Plus className="w-4 h-4 stroke-[3] shrink-0" />
+              <span className="whitespace-nowrap">Create Assessment</span>
+            </Button>
+          </Link>
+        </div>
+      </motion.div>
+
+      {/* Stats Grid */}
+      <motion.div
+        variants={staggerContainer}
+        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"
+      >
+        <motion.div variants={staggerItem}>
+          <Link href="/admin/exams" className="block">
+            <GlassCard className="p-6 flex flex-col justify-between h-36 hover:border-emerald-500/50 transition-colors cursor-pointer group">
+              <div className="flex justify-between items-start mb-2">
+                <span className="text-[11px] font-bold tracking-wider text-muted-foreground uppercase">My Assessments</span>
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
+                  <FileText className="w-4 h-4" />
+                </div>
+              </div>
+              <div>
+                <div className="text-3xl font-bold font-heading">{(stats?.exams?.total || 0).toLocaleString()}</div>
+                <div className="flex items-center justify-between mt-1">
+                  <span className="text-xs text-muted-foreground">Total overall assignments</span>
+                  <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-emerald-500 transition-colors" />
+                </div>
+              </div>
+            </GlassCard>
+          </Link>
+        </motion.div>
+
+        <motion.div variants={staggerItem}>
+          <Link href="/admin/students" className="block">
+            <GlassCard className="p-6 flex flex-col justify-between h-36 hover:border-muted-foreground/50 transition-colors cursor-pointer group">
+              <div className="flex justify-between items-start mb-2">
+                <span className="text-[11px] font-bold tracking-wider text-muted-foreground uppercase">Students</span>
+                <div className="w-9 h-9 rounded-xl bg-secondary text-muted-foreground flex items-center justify-center border border-border/50">
+                  <GraduationCap className="w-4 h-4" />
+                </div>
+              </div>
+              <div>
+                <div className="text-3xl font-bold font-heading">{(stats?.students?.total || 0).toLocaleString()}</div>
+                <div className="flex items-center justify-between mt-1">
+                  <span className="text-xs text-muted-foreground">
+                    {userRole === "admin" || userRole === "main_admin" || userRole === "super_admin" 
+                      ? "Across all colleges" 
+                      : "In your college"}
+                  </span>
+                  <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
+                </div>
+              </div>
+            </GlassCard>
+          </Link>
+        </motion.div>
+
+        <motion.div variants={staggerItem}>
+          <Link href="/admin/exams" className="block">
+            <GlassCard className="p-6 flex flex-col justify-between h-36 hover:border-muted-foreground/50 transition-colors cursor-pointer group">
+              <div className="flex justify-between items-start mb-2">
+                <span className="text-[11px] font-bold tracking-wider text-muted-foreground uppercase">Active Assignments</span>
+                <div className="w-9 h-9 rounded-xl bg-secondary text-muted-foreground flex items-center justify-center border border-border/50">
+                  <ClipboardList className="w-4 h-4" />
+                </div>
+              </div>
+              <div>
+                <div className="text-3xl font-bold font-heading">{(stats?.exams?.active || 0).toLocaleString()}</div>
+                <div className="flex items-center justify-between mt-1">
+                  <span className="text-xs text-muted-foreground">Currently running</span>
+                  <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
+                </div>
+              </div>
+            </GlassCard>
+          </Link>
+        </motion.div>
+
+        <motion.div variants={staggerItem}>
+          <Link href="/admin/resources" className="block">
+            <GlassCard className="p-6 flex flex-col justify-between h-36 hover:border-muted-foreground/50 transition-colors cursor-pointer group">
+              <div className="flex justify-between items-start mb-2">
+                <span className="text-[11px] font-bold tracking-wider text-muted-foreground uppercase">Shared Resources</span>
+                <div className="w-9 h-9 rounded-xl bg-secondary text-muted-foreground flex items-center justify-center border border-border/50">
+                  <Library className="w-4 h-4" />
+                </div>
+              </div>
+              <div>
+                <div className="text-3xl font-bold font-heading">{(stats?.resources?.total || 0).toLocaleString()}</div>
+                <div className="flex items-center justify-between mt-1">
+                  <span className="text-xs text-muted-foreground">Total study materials</span>
+                  <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
+                </div>
+              </div>
+            </GlassCard>
+          </Link>
+        </motion.div>
+      </motion.div>
+
+      {/* Secondary Stats Row */}
+      <motion.div variants={staggerContainer} className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {userRole !== "college_admin" && (
+          <motion.div variants={staggerItem}>
+            <Link href="/admin/colleges" className="block">
+              <GlassCard className="p-6 flex flex-col justify-between h-36 hover:border-muted-foreground/50 transition-colors cursor-pointer group">
+                <div className="flex justify-between items-start mb-2">
+                  <span className="text-[11px] font-bold tracking-wider text-muted-foreground uppercase">Total Colleges</span>
+                  <div className="w-9 h-9 rounded-xl bg-secondary text-muted-foreground flex items-center justify-center border border-border/50">
+                    <Building2 className="w-4 h-4" />
+                  </div>
+                </div>
+                <div>
+                  <div className="text-3xl font-bold font-heading">{(stats?.colleges?.total || 0).toLocaleString()}</div>
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="text-xs text-muted-foreground">Partner institutions</span>
+                    <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
+                  </div>
+                </div>
+              </GlassCard>
+            </Link>
+          </motion.div>
+        )}
+        <motion.div variants={staggerItem}>
+          <Link href="/admin/batches" className="block">
+            <GlassCard className="p-6 flex flex-col justify-between h-36 hover:border-muted-foreground/50 transition-colors cursor-pointer group">
+              <div className="flex justify-between items-start mb-2">
+                <span className="text-[11px] font-bold tracking-wider text-muted-foreground uppercase">Total Batches</span>
+                <div className="w-9 h-9 rounded-xl bg-secondary text-muted-foreground flex items-center justify-center border border-border/50">
+                  <Layers className="w-4 h-4" />
+                </div>
+              </div>
+              <div>
+                <div className="text-3xl font-bold font-heading">{(stats?.batches?.total || 0).toLocaleString()}</div>
+                <div className="flex items-center justify-between mt-1">
+                  <span className="text-xs text-muted-foreground">Student groups</span>
+                  <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
+                </div>
+              </div>
+            </GlassCard>
+          </Link>
+        </motion.div>
+        <motion.div variants={staggerItem}>
+          <Link href="/admin/results" className="block">
+            <GlassCard className="p-6 flex flex-col justify-between h-36 hover:border-muted-foreground/50 transition-colors cursor-pointer group">
+              <div className="flex justify-between items-start mb-2">
+                <span className="text-[11px] font-bold tracking-wider text-muted-foreground uppercase">Total Attempts</span>
+                <div className="w-9 h-9 rounded-xl bg-secondary text-muted-foreground flex items-center justify-center border border-border/50">
+                  <Trophy className="w-4 h-4" />
+                </div>
+              </div>
+              <div>
+                <div className="text-3xl font-bold font-heading">{(stats?.attempts?.total || 0).toLocaleString()}</div>
+                <div className="flex items-center justify-between mt-1">
+                  <span className="text-xs text-muted-foreground">{stats?.attempts?.completionRate || 0}% completion rate</span>
+                  <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
+                </div>
+              </div>
+            </GlassCard>
+          </Link>
+        </motion.div>
+      </motion.div>
+
+      {/* Main Content Area - 2 Column */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        {/* Quick Actions (Left Column - 2/3 width) */}
+        <motion.div variants={staggerContainer} className="lg:col-span-2">
+          <div className="rounded-2xl border border-border bg-card/50 shadow-sm p-6 h-full flex flex-col">
+            <h2 className="text-xl font-bold font-heading mb-6">Quick Actions</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 flex-1">
+              <Link 
+                href="/admin/exams"
+                className="p-6 h-36 rounded-2xl bg-purple-500/5 border border-purple-500/20 flex flex-col justify-between cursor-pointer hover:bg-purple-500/10 transition-colors group block"
+              >
+                <div className="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-500 flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <span className="font-bold text-sm text-foreground">Create Assessment</span>
+              </Link>
+
+              <Link 
+                href="/admin/resources"
+                className="p-6 h-36 rounded-2xl bg-blue-500/5 border border-blue-500/20 flex flex-col justify-between cursor-pointer hover:bg-blue-500/10 transition-colors group block"
+              >
+                <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-500 flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <FolderOpen className="w-5 h-5" />
+                </div>
+                <span className="font-bold text-sm text-foreground">Share Resources</span>
+              </Link>
+
+              <Link 
+                href="/admin/students"
+                className="p-6 h-36 rounded-2xl bg-emerald-500/5 border border-emerald-500/20 flex flex-col justify-between cursor-pointer hover:bg-emerald-500/10 transition-colors group block"
+              >
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <GraduationCap className="w-5 h-5" />
+                </div>
+                <span className="font-bold text-sm text-foreground">View Students</span>
+              </Link>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* My Batches (Right Column - 1/3 width) */}
+        <motion.div variants={staggerItem} className="lg:col-span-1">
+          <div className="rounded-2xl border border-border bg-card/50 shadow-sm p-6 h-full flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold font-heading">My Batches</h2>
+              <Link href="/admin/batches" className="text-xs font-bold text-brand hover:underline flex items-center gap-1">
+                View All <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+            <div className="space-y-3 flex-1 max-h-[360px] overflow-y-auto pr-1.5 scrollbar-thin scrollbar-thumb-border/60 hover:scrollbar-thumb-border">
+              {recentActivity?.recentBatches && recentActivity.recentBatches.length > 0 ? (
+                recentActivity.recentBatches.map((batch: any) => (
+                  <Link key={batch.id} href={`/admin/batches/${batch.id}`}>
+                    <GlassCard className="p-4 hover:border-border transition-colors cursor-pointer group">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-bold text-sm text-foreground truncate flex-1">
+                          {batch.name}
+                        </h4>
+                        <Badge variant="secondary" className="text-[10px] ml-2 shrink-0">
+                          {batch.academicYear || new Date().getFullYear()}
+                        </Badge>
+                      </div>
+                      <div className="text-xs text-brand font-semibold truncate mb-1">
+                        {batch.colleges?.name || "No College"}
+                      </div>
+                      {batch.department && (
+                        <div className="text-[11px] text-muted-foreground truncate mb-2">
+                          {batch.department}
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between">
+                        <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                          <Users className="w-3.5 h-3.5" />
+                          {batch._count?.students?.toLocaleString() || 0} students
+                        </div>
+                        <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-brand transition-colors" />
+                      </div>
+                    </GlassCard>
+                  </Link>
+                ))
+              ) : (
+                <div className="text-center py-8 text-xs text-muted-foreground">
+                  No batches found
+                </div>
+              )}
+            </div>
+          </div>
+        </motion.div>
+      </div>
+    </motion.div>
+  );
+}
+
+// ============================================================================
+// MAIN COMPONENT
+// ============================================================================
+export default function DashboardPageOptimized() {
   const router = useRouter();
-  const exams = useLMSDataSelector((s) => s.filteredExams);
-  const students = useLMSDataSelector((s) => s.filteredStudents);
-  const colleges = useLMSDataSelector((s) => s.filteredColleges);
-  const resources = useLMSDataSelector((s) => s.filteredResources);
-  const attempts = useLMSDataSelector((s) => s.filteredAttempts);
-  const batches = useLMSDataSelector((s) => s.filteredBatches);
-  const loading = useLMSDataSelector((s) => s.loading);
-
-  const activeStudents = useMemo(() => (students as Student[]).filter((s: Student) => !s.isDeleted), [students]);
-
   const { branding } = useBranding();
   const mounted = useMounted();
+  
   const [userRole, setUserRole] = useState<string | null>(null);
   const [userCollegeId, setUserCollegeId] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string>("");
   const [userName, setUserName] = useState<string>("User");
+  
+  const [stats, setStats] = useState<any>(null);
+  const [recentActivity, setRecentActivity] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
+  // Load user data
   useEffect(() => {
     const syncUser = () => {
       try {
@@ -337,14 +492,15 @@ export default function DashboardPage() {
         const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
         if (uStr) {
           const parsed = JSON.parse(uStr);
-          if (parsed.collegeId) {
-            setUserCollegeId(parsed.collegeId);
-          }
+          setUserId(parsed.id || parsed.uid || "");
+          setUserCollegeId(parsed.collegeId || null);
+          
           if (parsed.role) {
             setUserRole(parsed.role.toLowerCase());
           } else if (role) {
             setUserRole(role.toLowerCase());
           }
+          
           const n = parsed.displayName || parsed.name || "";
           if (n) {
             setUserName(formatDisplayName(n));
@@ -372,342 +528,115 @@ export default function DashboardPage() {
     };
   }, [branding]);
 
-  const displayBatches = useMemo(() => {
-    let list = (batches || []) as Batch[];
-    if (userRole === "college_admin" && userCollegeId) {
-      list = list.filter((b: Batch) => b.collegeId === userCollegeId);
-    }
-    return list;
-  }, [batches, userRole, userCollegeId]);
-
-  const activeOrScheduledExams = useMemo(() => {
-    return (exams as Exam[]).filter((e: Exam) => {
-      if (e.deletedAt) return false;
-      const s = getEffectiveExamStatus(e);
-      return s === "active" || s === "scheduled";
-    });
-  }, [exams]);
-
-  const liveActivity = useMemo(() => {
-    return [
-      ...activeOrScheduledExams.slice(0, 5).map((ex: Exam) => ({
-        id: `ex-${ex.id}`,
-        action: getEffectiveExamStatus(ex) === "active" ? "Live Assessment Active" : "Assessment Scheduled",
-        detail: `${ex.title} (${ex.duration} mins, ${ex.totalMarks} marks)`,
-        time: ex.startTime ? (() => { const d = toDate(ex.startTime); return d ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Live Now"; })() : "Live Now",
-        icon: ClipboardList,
-        color: getEffectiveExamStatus(ex) === "active" ? "stat-icon-emerald" : "stat-icon-amber",
-      })),
-      ...(userRole === "college_admin" ? [] : (colleges as College[]).slice(0, 3).map((c: College) => ({
-        id: `col-${c.id}`,
-        action: "Partner College Active",
-        detail: `${c.name} (${c.code || "Registered"}) linked to portal`,
-        time: "Active",
-        icon: GraduationCap,
-        color: "stat-icon-blue",
-      }))),
-    ];
-  }, [exams, colleges]);
-
-  const dynamicDomainFocus = useMemo(() => {
-    const map = new Map<string, number>();
+  // Load dashboard stats
+  useEffect(() => {
+    if (!mounted || !userRole || !userId) return;
     
-    const abbreviateDept = (dept: string) => {
-      if (dept === "Artificial Intelligence & Machine Learning (AI & ML)") return "AI & ML";
-      if (dept === "Computer Science & Business Systems") return "CS & BS";
-      if (dept === "Computer Science & Engineering") return "CS & E";
-      if (dept.length > 20) return dept.substring(0, 20) + "...";
-      return dept;
-    };
-
-    activeStudents.forEach((s: Student) => {
-      const dept = abbreviateDept((s as any).department || "General Engineering");
-      map.set(dept, (map.get(dept) || 0) + 1);
-    });
-    if (map.size === 0 && colleges.length > 0) {
-      (colleges as College[]).forEach((c: College) => {
-        c.departments?.forEach((d: string) => {
-          const dept = abbreviateDept(d);
-          map.set(dept, (map.get(dept) || 0) + 1);
-        });
-      });
-    }
-    return Array.from(map.entries()).map(([name, value]) => ({ name, value }));
-  }, [activeStudents, colleges]);
-
-  const dynamicAssessmentAverages = useMemo(() => {
-    const titleMap = new Map<string, { totalScore: number; count: number }>();
-
-    (attempts as ExamAttempt[]).forEach((a: ExamAttempt) => {
-      const ex = (exams as Exam[]).find((e: Exam) => e.id === a.examId);
-      if (!ex) return;
-      const title = ex.title;
-      if (!titleMap.has(title)) {
-        titleMap.set(title, { totalScore: 0, count: 0 });
+    const loadStats = async () => {
+      setLoading(true);
+      setError(null);
+      
+      try {
+        if (userRole === "admin" || userRole === "super_admin" || userRole === "main_admin") {
+          const [statsResult, activityResult] = await Promise.all([
+            getAdminDashboardStatsAction(),
+            getRecentActivityAction(10),
+          ]);
+          
+          console.log('[DASHBOARD] Activity result:', activityResult);
+          
+          if (statsResult.success) {
+            setStats(statsResult.stats);
+          } else {
+            setError(statsResult.error || "Failed to load dashboard stats");
+          }
+          
+          if (activityResult.success) {
+            console.log('[DASHBOARD] Recent batches:', activityResult.data?.recentBatches);
+            setRecentActivity(activityResult.data);
+          }
+        } else if (userRole === "college_admin" || userRole === "college") {
+          const statsResult = await getCollegeAdminDashboardStatsAction(userCollegeId || "");
+          
+          if (statsResult.success) {
+            setStats(statsResult.stats);
+          } else {
+            setError(statsResult.error || "Failed to load college dashboard stats");
+          }
+        } else if (userRole === "student") {
+          const statsResult = await getStudentDashboardStatsAction(userId);
+          
+          if (statsResult.success) {
+            setStats(statsResult.stats);
+          } else {
+            setError(statsResult.error || "Failed to load student dashboard stats");
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load dashboard stats:", err);
+        setError(err instanceof Error ? err.message : "An unexpected error occurred");
+      } finally {
+        setLoading(false);
       }
-      const data = titleMap.get(title)!;
-      data.totalScore += a.percentage || 0;
-      data.count += 1;
-    });
+    };
+    
+    loadStats();
+  }, [mounted, userId, userRole, userCollegeId]);
 
-    if (titleMap.size === 0) {
-      // Fallback if no attempts, just show top 6 unique exams
-      const uniqueExams = Array.from(new Map((exams as Exam[]).map((e: Exam) => [e.title, e])).values());
-      return uniqueExams.slice(0, 6).map((ex: Exam) => ({
-        exam: ex.title.length > 15 ? ex.title.slice(0, 15) + "..." : ex.title,
-        score: 0,
-      }));
-    }
-
-    return Array.from(titleMap.entries())
-      .slice(0, 6)
-      .map(([title, data]) => ({
-        exam: title.length > 15 ? title.slice(0, 15) + "..." : title,
-        score: Math.round(data.totalScore / data.count),
-      }));
-  }, [exams, attempts]);
-
-  const dynamicEnrollmentGrowth = useMemo(() => {
-    // Generate monthly count or realistic progression based on actual student count
-    const total = activeStudents.length;
-    if (total === 0) return [];
-    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"];
-    return months.map((m, idx) => ({
-      month: m,
-      students: Math.round((total / 6) * (idx + 1)),
-    }));
-  }, [activeStudents]);
-
-  if (!mounted || !userRole || userRole === "student") {
+  // Loading state
+  if (!mounted || loading) {
     return (
-      <StudentPortalDashboard
-        exams={exams as Exam[]}
-        resources={resources as Resource[]}
-        attempts={attempts as ExamAttempt[]}
-        students={students as Student[]}
-        loading={loading}
-      />
+      <div className="space-y-6">
+        <div className="h-40 bg-card rounded-xl border border-border animate-pulse" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="h-32 bg-card rounded-xl border border-border animate-pulse" />
+          ))}
+        </div>
+      </div>
     );
   }
 
-  return (
-    <motion.div
-      variants={staggerContainer}
-      initial="hidden"
-      animate="visible"
-      className="space-y-6 max-w-[1400px] mx-auto w-full font-sans"
-    >
-      {/* Header Section */}
-      <motion.div variants={staggerItem} className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 mt-2">
-        <div className="space-y-3">
-          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight font-heading flex items-center gap-3">
-            Welcome back, {formatDisplayName(userName)}!
-            <div className="relative w-8 h-8 sm:w-10 sm:h-10 ml-1 hidden sm:block">
-              <div className="absolute inset-0 bg-emerald-400 rounded-lg -rotate-12 transform origin-bottom-left shadow-sm"></div>
-              <div className="absolute inset-0 bg-rose-500 rounded-lg rotate-0 transform origin-bottom-left shadow-sm"></div>
-              <div className="absolute inset-0 bg-blue-500 rounded-lg rotate-12 transform origin-bottom-left shadow-sm"></div>
+  // Error state
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div className="bg-destructive/10 border border-destructive rounded-xl p-6">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-full bg-destructive/20 flex items-center justify-center shrink-0">
+              <svg className="w-5 h-5 text-destructive" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
             </div>
-          </h1>
-          <p className="text-sm sm:text-base text-muted-foreground italic">
-            "The art of teaching is the art of assisting discovery." — Mark Van Doren
-          </p>
+            <div className="flex-1">
+              <h3 className="text-lg font-semibold text-destructive mb-1">Dashboard Load Error</h3>
+              <p className="text-sm text-muted-foreground mb-4">{error}</p>
+              <Button 
+                onClick={() => window.location.reload()} 
+                variant="outline" 
+                size="sm"
+              >
+                Reload Dashboard
+              </Button>
+            </div>
+          </div>
         </div>
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto shrink-0">
-          <Link href="/students" passHref>
-            <Button
-              variant="ghost"
-              className="h-11 px-5 rounded-xl border border-border bg-transparent text-foreground hover:bg-accent font-semibold transition-all flex items-center justify-center gap-2 w-full sm:w-auto"
-            >
-              <GraduationCap className="w-4 h-4 shrink-0" />
-              <span className="whitespace-nowrap">Students</span>
-            </Button>
-          </Link>
-          <Link href="/admin/exams" passHref>
-            <Button
-              className="h-11 px-5 rounded-xl bg-brand hover:bg-brand/90 text-primary-foreground font-bold transition-all flex items-center justify-center gap-2 shadow-sm border border-white/20 dark:border-black/10 w-full sm:w-auto"
-            >
-              <Plus className="w-4 h-4 stroke-[3] shrink-0" />
-              <span className="whitespace-nowrap">Create Assessment</span>
-            </Button>
-          </Link>
-        </div>
-      </motion.div>
-
-      <motion.div
-        variants={staggerContainer}
-        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"
-      >
-        <motion.div variants={staggerItem}>
-          <Link href="/admin/exams" className="block">
-            <GlassCard className="p-6 flex flex-col justify-between h-36 hover:border-emerald-500/50 transition-colors cursor-pointer group">
-            <div className="flex justify-between items-start mb-2">
-              <span className="text-[11px] font-bold tracking-wider text-muted-foreground uppercase">My Assessments</span>
-              <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
-                <FileText className="w-4 h-4" />
-              </div>
-            </div>
-            <div>
-              <div className="text-3xl font-bold font-heading">{exams.length}</div>
-              <div className="flex items-center justify-between mt-1">
-                <span className="text-xs text-muted-foreground">Total overall assignments</span>
-                <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-emerald-500 transition-colors" />
-              </div>
-            </div>
-          </GlassCard>
-          </Link>
-        </motion.div>
-
-        <motion.div variants={staggerItem}>
-          <Link href="/admin/students" className="block">
-            <GlassCard className="p-6 flex flex-col justify-between h-36 hover:border-muted-foreground/50 transition-colors cursor-pointer group">
-            <div className="flex justify-between items-start mb-2">
-              <span className="text-[11px] font-bold tracking-wider text-muted-foreground uppercase">Students</span>
-              <div className="w-9 h-9 rounded-xl bg-secondary text-muted-foreground flex items-center justify-center border border-border/50">
-                <GraduationCap className="w-4 h-4" />
-              </div>
-            </div>
-            <div>
-              <div className="text-3xl font-bold font-heading">{activeStudents.length}</div>
-              <div className="flex items-center justify-between mt-1">
-                <span className="text-xs text-muted-foreground">
-                  {userRole === "admin" ? "Across all colleges" : userRole === "college_admin" ? "In your college" : "In your batches"}
-                </span>
-                <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
-              </div>
-            </div>
-          </GlassCard>
-          </Link>
-        </motion.div>
-
-        <motion.div variants={staggerItem}>
-          <Link href="/admin/exams" className="block">
-            <GlassCard className="p-6 flex flex-col justify-between h-36 hover:border-muted-foreground/50 transition-colors cursor-pointer group">
-            <div className="flex justify-between items-start mb-2">
-              <span className="text-[11px] font-bold tracking-wider text-muted-foreground uppercase">Active Assignments</span>
-              <div className="w-9 h-9 rounded-xl bg-secondary text-muted-foreground flex items-center justify-center border border-border/50">
-                <ClipboardList className="w-4 h-4" />
-              </div>
-            </div>
-            <div>
-              <div className="text-3xl font-bold font-heading">{activeOrScheduledExams.length}</div>
-              <div className="flex items-center justify-between mt-1">
-                <span className="text-xs text-muted-foreground">Currently running</span>
-                <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
-              </div>
-            </div>
-          </GlassCard>
-          </Link>
-        </motion.div>
-
-        <motion.div variants={staggerItem}>
-          <Link href="/admin/resources" className="block">
-            <GlassCard className="p-6 flex flex-col justify-between h-36 hover:border-muted-foreground/50 transition-colors cursor-pointer group">
-            <div className="flex justify-between items-start mb-2">
-              <span className="text-[11px] font-bold tracking-wider text-muted-foreground uppercase">Shared Resources</span>
-              <div className="w-9 h-9 rounded-xl bg-secondary text-muted-foreground flex items-center justify-center border border-border/50">
-                <Library className="w-4 h-4" />
-              </div>
-            </div>
-            <div>
-              <div className="text-3xl font-bold font-heading">{resources.length}</div>
-              <div className="flex items-center justify-between mt-1">
-                <span className="text-xs text-muted-foreground">Total study materials</span>
-                <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
-              </div>
-            </div>
-          </GlassCard>
-          </Link>
-        </motion.div>
-      </motion.div>
-
-      {/* Main Content Area */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        {/* Quick Actions (Left Column) */}
-        <motion.div variants={staggerContainer} className="lg:col-span-2">
-          <div className="rounded-2xl border border-border bg-card/50 shadow-sm p-6 h-full flex flex-col">
-            <h2 className="text-xl font-bold font-heading mb-6">Quick Actions</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 flex-1">
-            <Link 
-              href="/admin/exams"
-              className="p-6 h-36 rounded-2xl bg-purple-500/5 border border-purple-500/20 flex flex-col justify-between cursor-pointer hover:bg-purple-500/10 transition-colors group block"
-            >
-              <div className="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-500 flex items-center justify-center group-hover:scale-110 transition-transform">
-                <FileText className="w-5 h-5" />
-              </div>
-              <span className="font-bold text-sm text-foreground">Create Assessment</span>
-            </Link>
-
-            <Link 
-              href="/admin/resources"
-              className="p-6 h-36 rounded-2xl bg-blue-500/5 border border-blue-500/20 flex flex-col justify-between cursor-pointer hover:bg-blue-500/10 transition-colors group block"
-            >
-              <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-500 flex items-center justify-center group-hover:scale-110 transition-transform">
-                <FolderOpen className="w-5 h-5" />
-              </div>
-              <span className="font-bold text-sm text-foreground">Share Resources</span>
-            </Link>
-
-            <Link 
-              href="/admin/students"
-              className="p-6 h-36 rounded-2xl bg-emerald-500/5 border border-emerald-500/20 flex flex-col justify-between cursor-pointer hover:bg-emerald-500/10 transition-colors group block"
-            >
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center group-hover:scale-110 transition-transform">
-                <GraduationCap className="w-5 h-5" />
-              </div>
-              <span className="font-bold text-sm text-foreground">View Students</span>
-            </Link>
-          </div>
-          </div>
-        </motion.div>
-
-        {/* My Batches (Right Column) */}
-        <motion.div variants={staggerItem} className="lg:col-span-1">
-          <div className="rounded-2xl border border-border bg-card/50 shadow-sm p-6 h-full flex flex-col">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold font-heading">My Batches</h2>
-              <Link href="/admin/batches" className="text-xs font-bold text-muted-foreground hover:text-foreground transition-colors">
-                View All ({displayBatches.length})
-              </Link>
-            </div>
-            <div className="space-y-3 flex-1 max-h-[360px] overflow-y-auto pr-1.5 scrollbar-thin scrollbar-thumb-border/60 hover:scrollbar-thumb-border">
-            {displayBatches.length === 0 && loading ? (
-              <div className="py-8 text-center text-xs text-muted-foreground">Loading batches...</div>
-            ) : displayBatches.length === 0 ? (
-              <GlassCard className="p-6 text-center text-xs text-muted-foreground">
-                No batches found.
-              </GlassCard>
-            ) : (
-              displayBatches.map((batch: Batch) => {
-                const college = (colleges as College[]).find((c: College) => c.id === batch.collegeId);
-                const batchStudents = (students as Student[]).filter((s: Student) => s.batchIds?.includes(batch.id)).length;
-                return (
-                  <GlassCard key={batch.id} className="p-4 hover:border-border transition-colors flex items-center justify-between">
-                    <div>
-                      <h4 className="font-bold text-sm text-foreground">{batch.name}</h4>
-                      <div className="text-xs font-semibold text-brand mt-0.5 truncate">{college?.name || "No College Assigned"}</div>
-                      {batch.department && (
-                        <div className="text-[11px] text-muted-foreground mt-0.5 truncate">{batch.department}</div>
-                      )}
-                      <div className="text-[11px] text-muted-foreground flex items-center gap-1.5 mt-2">
-                        <Users className="w-3.5 h-3.5" />
-                        {batchStudents} students
-                      </div>
-                    </div>
-                    <div className="self-start">
-                      <Badge variant="secondary" className="text-[10px] bg-secondary text-secondary-foreground font-semibold">
-                        {batch.academicYear || new Date().getFullYear()}
-                      </Badge>
-                    </div>
-                  </GlassCard>
-                );
-              })
-            )}
-            </div>
-          </div>
-        </motion.div>
-
       </div>
-    </motion.div>
-  );
+    );
+  }
+
+  // Render based on role
+  if (userRole === "student") {
+    return <StudentPortalDashboard stats={stats} loading={loading} />;
+  } else {
+    return (
+      <AdminDashboard 
+        stats={stats} 
+        recentActivity={recentActivity} 
+        userName={userName}
+        userRole={userRole}
+        userCollegeId={userCollegeId}
+      />
+    );
+  }
 }

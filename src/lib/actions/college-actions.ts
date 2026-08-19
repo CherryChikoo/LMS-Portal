@@ -4,10 +4,19 @@ import { prisma } from '@/lib/prisma';
 import type { College } from "@/types";
 
 export async function fetchCollegesAction() {
+  // OPTIMIZED: Load all colleges (typically not more than 100-200)
   const data = await prisma.colleges.findMany({
-    orderBy: { createdAt: 'desc' }
+    orderBy: { createdAt: 'desc' },
+    where: { NOT: { isDeleted: true } }
   });
   return data;
+}
+
+export async function getCollegeCountAction() {
+  // Get total college count
+  return await prisma.colleges.count({
+    where: { NOT: { isDeleted: true } }
+  });
 }
 
 export async function fetchCollegeByIdAction(id: string) {

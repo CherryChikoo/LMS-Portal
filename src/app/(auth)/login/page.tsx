@@ -8,7 +8,6 @@ import Link from "next/link";
 import { APP_NAME } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
-import { GlobalAlert } from "@/components/shared/global-alert";
 import { unifiedLogin, unifiedGoogleLogin, formatAuthError } from "@/lib/services/auth-service";
 import { setAuthSession } from "@/lib/utils/auth-session";
 import { toMillis } from "@/lib/utils/date";
@@ -25,66 +24,52 @@ function LoginContent() {
   const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [restrictedModalOpen, setRestrictedModalOpen] = useState(false);
-  const [alertConfig, setAlertConfig] = useState<{
-    isOpen: boolean;
-    title: string;
-    message: string;
-    type: "error" | "warning" | "info";
-  }>({
-    isOpen: false,
-    title: "",
-    message: "",
-    type: "error",
-  });
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [linkEmail, setLinkEmail] = useState("");
   const [linkPassword, setLinkPassword] = useState("");
   const [linkCredentialJson, setLinkCredentialJson] = useState("");
 
+  // Auto-dismiss error after 6 seconds
   useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(null), 6000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
 
+  useEffect(() => {
     const errorParam = searchParams.get("error");
-    if (errorParam === "no_account") {
-      setAlertConfig({
-        isOpen: true,
-        title: "Account Not Found",
-        message: "No account was found with this Google email. Please register for an account first or contact your administrator.",
-        type: "error",
-      });
+    if (!errorParam) return;
+
+    // Immediately clean the URL query parameter so page reloads do NOT re-trigger the error
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+
+    if (errorParam === "no_account" || errorParam === "account_not_found") {
+      setError("No account was found with this email. Please register for an account first.");
     } else if (errorParam === "restricted") {
       setRestrictedModalOpen(true);
-    } else if (errorParam === "already_registered") {
-      setAlertConfig({
-        isOpen: true,
-        title: "Account Already Exists",
-        message: "This Google account is already registered. Please sign in below or continue with Google Sign In.",
-        type: "warning",
-      });
+    } else if (errorParam === "already_registered" || errorParam === "account_exists") {
+      setError("This account is already registered. Please sign in below or use Google Sign In.");
     } else if (errorParam === "account_deleted") {
-      setAlertConfig({
-        isOpen: true,
-        title: "Account Deleted",
-        message: "This account has been permanently removed by an administrator.",
-        type: "error",
-      });
+      setError("This account has been permanently removed by an administrator.");
+    } else if (errorParam === "oauth_timeout") {
+      setError("The authentication process took too long. Please try again.");
+    } else {
+      setError(decodeURIComponent(errorParam));
     }
-  }, [searchParams, branding.companyName]);
+  }, [searchParams]);
 
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
+    setError(null);
     try {
       await unifiedGoogleLogin("login");
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      const title = msg.toLowerCase().includes("access denied") ? "Access Denied" : "Authentication Failed";
-      const message = formatAuthError(err);
-      setAlertConfig({
-        isOpen: true,
-        title,
-        message,
-        type: "error",
-      });
+      setError(formatAuthError(err));
       setGoogleLoading(false);
     }
   };
@@ -92,6 +77,7 @@ function LoginContent() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setError(null);
     try {
       const res = await unifiedLogin(email, password);
       
@@ -129,14 +115,7 @@ function LoginContent() {
       if (msg.includes("RESTRICTED_ACCOUNT") || msg.toLowerCase().includes("restricted")) {
         setRestrictedModalOpen(true);
       } else {
-        const title = msg.toLowerCase().includes("access denied") ? "Access Denied" : "Authentication Failed";
-        const message = formatAuthError(err);
-        setAlertConfig({
-          isOpen: true,
-          title,
-          message,
-          type: "error",
-        });
+        setError(formatAuthError(err));
       }
       setLoading(false);
     }
@@ -181,9 +160,7 @@ function LoginContent() {
       if (msg.includes("RESTRICTED_ACCOUNT") || msg.toLowerCase().includes("restricted")) {
         setRestrictedModalOpen(true);
       } else {
-        const title = msg.toLowerCase().includes("access denied") ? "Access Denied" : "Authentication Failed";
-        const message = formatAuthError(err);
-        setAlertConfig({ isOpen: true, title, message, type: "error" });
+        setError(formatAuthError(err));
       }
       setLoading(false);
       setLinkPassword("");
@@ -212,6 +189,13 @@ function LoginContent() {
             <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">Welcome Back</h2>
             <p className="text-sm text-white/60">Sign in to your account to continue</p>
           </div>
+
+          {error && (
+            <div className="w-full mb-4 p-3 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="w-full space-y-4">
             <div className="space-y-1.5">
@@ -417,15 +401,6 @@ function LoginContent() {
           </div>
         )}
       </AnimatePresence>
-
-      <GlobalAlert
-        isOpen={alertConfig.isOpen}
-        onClose={() => setAlertConfig((prev) => ({ ...prev, isOpen: false }))}
-        title={alertConfig.title}
-        message={alertConfig.message}
-        type={alertConfig.type}
-        variant="modal"
-      />
     </>
   );
 }

@@ -3,7 +3,8 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+// maxDuration removed - causing Next.js 16 build issues
+// export const maxDuration = 60;
 
 const WIPE_SECRET = process.env.ADMIN_WIPE_SECRET_KEY;
 const PRESERVED_EMAIL = "trainer@gmail.com";

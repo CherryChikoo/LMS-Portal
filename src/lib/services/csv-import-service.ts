@@ -279,7 +279,6 @@ export async function importStudentsCSV(
 
       if (onProgress) onProgress(rows.length, rows.length);
       return combinedSummary;
-      return combinedSummary;
     } catch (apiErr) {
       console.error("Server bulk import endpoint failed or returned error:", apiErr);
       throw apiErr;

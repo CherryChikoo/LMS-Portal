@@ -2,6 +2,130 @@
 
 import { prisma } from '@/lib/prisma';
 
+// ============================================================================
+// PAGINATED BATCH FETCHING (50K SCALE)
+// ============================================================================
+
+export async function getBatchesPaginatedAction({
+  page = 1,
+  pageSize = 100,
+  collegeId,
+  department,
+  academicYear,
+  userRole,
+  userCollegeId,
+}: {
+  page?: number;
+  pageSize?: number;
+  collegeId?: string;
+  department?: string;
+  academicYear?: string;
+  userRole?: string;
+  userCollegeId?: string;
+}) {
+  try {
+    // Build where clause
+    const where: any = {};
+
+    // Role-based scoping
+    if ((userRole === "college_admin" || userRole === "student") && userCollegeId) {
+      where.collegeId = userCollegeId;
+    }
+
+    // Filter by college
+    if (collegeId && collegeId !== "ALL" && collegeId !== "GLOBAL") {
+      where.collegeId = collegeId;
+    }
+
+    // Filter by department (case-insensitive exact match)
+    if (department) {
+      where.department = { equals: department, mode: 'insensitive' };
+    }
+
+    // Filter by academic year (case-insensitive exact match)
+    if (academicYear) {
+      where.academicYear = { equals: academicYear, mode: 'insensitive' };
+    }
+
+    // Calculate pagination
+    const skip = (page - 1) * pageSize;
+    const take = pageSize;
+
+    // Execute queries in parallel
+    const [batches, totalCount] = await Promise.all([
+      prisma.batches.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          collegeId: true,
+          department: true,
+          academicYear: true,
+          section: true,
+          status: true,
+          createdAt: true,
+          updatedAt: true,
+          colleges: {
+            select: {
+              name: true,
+            },
+          },
+          _count: {
+            select: {
+              student_batches: true,
+            },
+          },
+        },
+      }),
+      prisma.batches.count({ where }),
+    ]);
+
+    // Map to include studentCount
+    const mappedBatches = batches.map((b) => ({
+      ...b,
+      studentCount: b._count.student_batches,
+      collegeName: b.colleges?.name || null,
+    }));
+
+    console.log('[GET_BATCHES_PAGINATED] Returning:', {
+      batchCount: mappedBatches.length,
+      totalCount,
+      page,
+      pageSize,
+      totalPages: Math.ceil(totalCount / pageSize),
+      sampleBatch: mappedBatches[0]
+    });
+
+    return {
+      success: true as const,
+      data: mappedBatches,
+      totalCount,
+      page,
+      pageSize,
+      totalPages: Math.ceil(totalCount / pageSize),
+    };
+  } catch (error: any) {
+    console.error("[GET_BATCHES_PAGINATED] Error:", error);
+    return {
+      success: false as const,
+      error: error.message || "Failed to fetch batches",
+      data: [],
+      totalCount: 0,
+      page: 1,
+      pageSize: 100,
+      totalPages: 0,
+    };
+  }
+}
+
+// ============================================================================
+// LEGACY ACTIONS (Keep for backwards compatibility)
+// ============================================================================
+
 export async function getAllBatchesAction() {
   return await prisma.batches.findMany({
     include: {
@@ -28,6 +152,49 @@ export async function getBatchByIdAction(id: string) {
       }
     }
   });
+}
+
+// Get all students enrolled in a specific batch
+export async function getStudentsInBatchAction(batchId: string) {
+  const studentBatches = await prisma.student_batches.findMany({
+    where: { batchId },
+    select: {
+      students: {
+        select: {
+          id: true,
+          phone: true,
+          department: true,
+          academicYear: true,
+          semester: true,
+          section: true,
+          rollNumber: true,
+          enrollmentNo: true,
+          enrollmentType: true,
+          createdAt: true,
+          updatedAt: true,
+          collegeId: true,
+          users: {
+            select: {
+              displayName: true,
+              email: true,
+            },
+          },
+          colleges: {
+            select: {
+              name: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  return studentBatches.map(sb => ({
+    ...sb.students,
+    name: sb.students.users?.displayName || sb.students.users?.email || 'Unknown',
+    email: sb.students.users?.email || '',
+    collegeName: sb.students.colleges?.name || null,
+  }));
 }
 
 export async function getBatchesByCollegeAction(collegeId: string) {

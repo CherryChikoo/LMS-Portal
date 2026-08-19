@@ -31,71 +31,55 @@ export function Sidebar() {
   const { isLoading: isGlobalLoading } = useGlobalLoading();
   const mounted = useMounted();
   const [showBrandModal, setShowBrandModal] = useState(false);
-  const [userRole, setUserRole] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    try {
-      const role = localStorage.getItem("lms_role") || localStorage.getItem("role");
-      if (role) return role.toLowerCase();
-      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-      if (uStr) {
-        const parsed = JSON.parse(uStr);
-        if (parsed.role) return parsed.role.toLowerCase();
-      }
-    } catch {}
-    return "student";
-  });
-  const [userCollegeId, setUserCollegeId] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    try {
-      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-      if (uStr) {
-        const parsed = JSON.parse(uStr);
-        return parsed.collegeId || null;
-      }
-    } catch {}
-    return null;
-  });
-  const [userCollegeName, setUserCollegeName] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    try {
-      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-      if (uStr) {
-        const parsed = JSON.parse(uStr);
-        return parsed.collegeName || null;
-      }
-    } catch {}
-    return null;
-  });
+  // Fix hydration: Don't read localStorage during initial render
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [userCollegeId, setUserCollegeId] = useState<string | null>(null);
+  const [userCollegeName, setUserCollegeName] = useState<string | null>(null);
 
   const refreshUser = () => {
+    if (typeof window === "undefined") return;
     try {
       const role = localStorage.getItem("lms_role") || localStorage.getItem("role");
       let parsed = null;
       const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
       if (uStr) parsed = JSON.parse(uStr);
       
+      console.log('[SIDEBAR] refreshUser - role from localStorage:', role, 'parsed.role:', parsed?.role);
+      
       if (role) {
         setUserRole(role.toLowerCase());
+        console.log('[SIDEBAR] Set userRole from lms_role:', role.toLowerCase());
       } else if (parsed && parsed.role) {
         setUserRole(parsed.role.toLowerCase());
+        console.log('[SIDEBAR] Set userRole from parsed:', parsed.role.toLowerCase());
+      } else {
+        setUserRole("student");
+        console.log('[SIDEBAR] Defaulting to student role');
       }
 
       if (parsed) {
         setUserCollegeId(parsed.collegeId || null);
         setUserCollegeName(parsed.collegeName || null);
       }
-    } catch {
+    } catch (err) {
+      console.error('[SIDEBAR] Error in refreshUser:', err);
       setUserRole("student");
     }
   };
 
+  // Load user data only on mount (client-side only)
   useEffect(() => {
     refreshUser();
-    window.addEventListener("storage", refreshUser);
-    window.addEventListener("lms_branding_updated", refreshUser);
+    
+    const handleStorageChange = () => refreshUser();
+    const handleBrandingUpdate = () => refreshUser();
+    
+    window.addEventListener("storage", handleStorageChange);
+    window.addEventListener("lms_branding_updated", handleBrandingUpdate);
+    
     return () => {
-      window.removeEventListener("storage", refreshUser);
-      window.removeEventListener("lms_branding_updated", refreshUser);
+      window.removeEventListener("storage", handleStorageChange);
+      window.removeEventListener("lms_branding_updated", handleBrandingUpdate);
     };
   }, []);
 
@@ -106,7 +90,9 @@ export function Sidebar() {
   };
 
   const effectiveNav = useMemo(() => {
-    if (!userRole) return [];
+    // During SSR or before userRole loads, return empty to prevent hydration mismatch
+    if (!mounted || !userRole) return [];
+    
     const isStudent = userRole === "student";
     const isCollegeAdmin = userRole === "college_admin";
 
@@ -154,7 +140,7 @@ export function Sidebar() {
             : `${prefix}${it.href}`,
       })),
     }));
-  }, [userRole]);
+  }, [userRole, mounted]);
 
   return (
     <aside
@@ -241,8 +227,21 @@ export function Sidebar() {
       {/* Nav List */}
       <ScrollArea className="flex-1 px-3 py-2 min-h-0">
         <nav className="space-y-6 pb-6">
-          {effectiveNav.map((section) => (
-            <div key={section.title}>
+          {!mounted || effectiveNav.length === 0 ? (
+            // Show skeleton during SSR and initial load
+            <div className="space-y-6">
+              {[1, 2].map((i) => (
+                <div key={i} className="space-y-2">
+                  <div className="h-3 w-20 bg-muted/30 rounded animate-pulse mb-2 mx-3" />
+                  {[1, 2, 3].map((j) => (
+                    <div key={j} className="h-11 bg-muted/20 rounded-xl mx-2 animate-pulse" />
+                  ))}
+                </div>
+              ))}
+            </div>
+          ) : (
+            effectiveNav.map((section) => (
+              <div key={section.title}>
               {isExpanded && (
                 <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground/60 mb-2 px-3 mt-1 truncate">
                   {section.title}
@@ -298,7 +297,8 @@ export function Sidebar() {
                 })}
               </div>
             </div>
-          ))}
+          ))
+          )}
         </nav>
       </ScrollArea>
 

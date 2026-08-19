@@ -12,6 +12,8 @@ import { supabase } from "@/lib/supabase/client";
 import { getAuthProfileDataAction } from "@/lib/actions/auth-actions";
 import { getStudentAttemptsAction } from "@/lib/actions/exam-actions";
 import { fetchFullLMSStateAction } from "@/lib/actions/lms-sync-actions";
+import { fetchLMSInitialStateAction, fetchRemainingStudentsAction } from "@/lib/actions/progressive-lms-actions";
+import { getStudentCountWithFiltersAction, getStudentDashboardStatsAction } from "@/lib/actions/student-actions-optimized";
 import {
   buildHierarchy,
   getExternalInstitutions,
@@ -427,11 +429,17 @@ function recomputeScopedData() {
     }
   });
 
-  // Dynamically compute accurate student counts for colleges and batches
+  // CRITICAL FIX: The above client-side counting is ONLY for the loaded chunk (100 students).
+  // This creates the "8 students shown when college has 1,200" bug.
+  // We will fetch TRUE counts from getDatabaseMetricsAction() on the Colleges page instead.
+  // The counts computed here are just for the filtered/visible students in the current view.
+
+  // Dynamically compute student counts ONLY from the loaded chunk (not the source of truth)
   fColleges = fColleges.map((c) => {
     const byId = c.id ? filteredStudentCountByColId.get(String(c.id).toLowerCase()) || 0 : 0;
     const byName = c.name ? filteredStudentCountByColName.get(String(c.name).toLowerCase()) || 0 : 0;
-    return { ...c, studentCount: Math.max(byId, byName) };
+    // Use existing studentCount from database if available, fallback to chunk count
+    return { ...c, studentCount: c.studentCount || Math.max(byId, byName) };
   });
 
   fBatches = fBatches.map((b) => ({
@@ -518,7 +526,12 @@ export function subscribeToLMSCache(callback: () => void): () => void {
 let realtimeChannel: any = null;
 
 function startRealtimeSubscription() {
-  if (typeof window === "undefined" || realtimeChannel) return;
+  if (typeof window === "undefined" || realtimeChannel) {
+    if (realtimeChannel) {
+      console.log("[REALTIME] Channel already exists, skipping duplicate subscription");
+    }
+    return;
+  }
 
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   const triggerFastRefresh = () => {
@@ -538,6 +551,8 @@ function startRealtimeSubscription() {
       .on("postgres_changes", { event: "*", schema: "public", table: "resources" }, triggerFastRefresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "exam_attempts" }, triggerFastRefresh)
       .subscribe();
+    
+    console.log("[REALTIME] Subscribed to postgres changes successfully");
   } catch (err) {
     console.warn("[REALTIME] Failed to subscribe to postgres changes:", err);
   }
@@ -630,6 +645,16 @@ let globalAuthUnsub: (() => void) | null = null;
 let activeFetchPromise: Promise<void> | null = null;
 let pendingForceRefresh = false;
 
+/**
+ * Progressively load remaining students in background without blocking UI
+ * DISABLED - Using optimized pagination instead
+ */
+async function loadRemainingStudentsInBackground(currentSkip: number, total: number) {
+  console.log("[CACHE] Background loading DISABLED - use optimized students page with pagination");
+  // Disabled to prevent automatic loading of ALL students
+  return Promise.resolve();
+}
+
 export async function refreshCache(): Promise<void> {
   return fetchLMSData(true);
 }
@@ -667,10 +692,16 @@ async function fetchLMSData(force = false): Promise<void> {
 }
 
 async function performFetchLMSData(force = false): Promise<void> {
+  console.log("[CACHE] performFetchLMSData called - force:", force);
+  
   // TTL Check: 60 seconds for cached data, or instant if forced
   const TTL = 60 * 1000;
   const now = Date.now();
-  if (!force && cache.colleges?.updatedAt && now - cache.colleges.updatedAt < TTL) {
+  const cacheAge = cache.colleges?.updatedAt ? now - cache.colleges.updatedAt : Infinity;
+  console.log("[CACHE] Cache age:", cacheAge, "ms, TTL:", TTL, "ms");
+  
+  if (!force && cache.colleges?.updatedAt && cacheAge < TTL) {
+    console.log("[CACHE] Data is fresh (TTL check), skipping fetch");
     if (cache.loading) {
       cache.loading = false;
       notifyListeners();
@@ -684,6 +715,8 @@ async function performFetchLMSData(force = false): Promise<void> {
     (cache.exams?.data && cache.exams.data.length > 0) ||
     (cache.batches?.data && cache.batches.data.length > 0)
   );
+
+  console.log("[CACHE] hasExistingData:", hasExistingData);
 
   // Only display initial loading spinner if we have zero cached data.
   if (!hasExistingData) {
@@ -704,9 +737,22 @@ async function performFetchLMSData(force = false): Promise<void> {
   }, 20000);
 
   try {
-    const res = await fetchFullLMSStateAction();
+    // Use fast initial load (only 100 students) - remaining students load in background
+    console.log("[CACHE] Calling fetchLMSInitialStateAction()...");
+    const res = await fetchLMSInitialStateAction();
+    console.log("[CACHE] fetchLMSInitialStateAction result:", { success: res.success, hasData: !!res.data });
+    
     if (res.success && res.data) {
-      const { colleges, batches, students, exams, resources, attempts } = res.data;
+      const { colleges, batches, students, exams, resources, attempts, metadata } = res.data;
+      console.log("[CACHE] Received data counts:", {
+        colleges: colleges?.length || 0,
+        batches: batches?.length || 0,
+        students: students?.length || 0,
+        exams: exams?.length || 0,
+        resources: resources?.length || 0,
+        attempts: attempts?.length || 0,
+      });
+      
       const parsedColleges = JSON.parse(JSON.stringify(colleges || [])) as College[];
       const parsedBatches = (JSON.parse(JSON.stringify(batches || [])) as any[]).map(mapBatchRow);
       const parsedStudents = (JSON.parse(JSON.stringify(students || [])) as any[]).map(mapStudentRow);
@@ -721,9 +767,11 @@ async function performFetchLMSData(force = false): Promise<void> {
       cache.resources = { data: parsedResources, updatedAt: now };
       cache.attempts = { data: parsedAttempts, updatedAt: now };
       cache.error = null;
+      
+      console.log("[CACHE] Cache populated successfully");
     } else {
       // Fetch returned success=false but we have stale cache — don't leave loading=true
-      console.warn("[CACHE] Fetch returned no data, keeping stale cache");
+      console.warn("[CACHE] Fetch returned no data, keeping stale cache", res);
     }
   } catch (err: any) {
     console.error("[FETCH] Unified LMS sync failed:", err);
@@ -741,13 +789,20 @@ function recomputeAndNotify() {
 }
 
 function startAuthListener() {
-  fetchLMSData();
+  // CRITICAL FIX: Always trigger ONE initial fetch if we haven't fetched from network yet
+  // The hasAnyData check was preventing fetches when localStorage had stale data
+  const hasRecentData = cache.colleges?.updatedAt && cache.colleges.updatedAt > 0 && (Date.now() - cache.colleges.updatedAt) < 60000;
+  
+  console.log("[CACHE] startAuthListener - hasRecentData:", hasRecentData, "globalAuthUnsub:", !!globalAuthUnsub);
+  
+  if (!hasRecentData && !globalAuthUnsub) {
+    // Trigger initial load if we don't have fresh network data yet
+    console.log("[CACHE] Triggering initial fetchLMSData() - stale or missing data");
+    fetchLMSData(false);
+  }
 
   if (globalAuthUnsub) return;
 
-  if (!cache.colleges && !cache.students && !cache.exams && !cache.batches) {
-    cache.loading = true;
-  }
   cache.error = null;
 
   const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
@@ -810,7 +865,10 @@ function startAuthListener() {
     }
 
     currentUserInfo = { uid: user.id, role, collegeId: parsed?.collegeId, parsed };
-    fetchLMSData();
+    // Recompute filtered data based on new auth state, but DON'T fetch from network
+    // The initial fetch already happened in startAuthListener() when cache was empty
+    recomputeScopedData();
+    notifyListeners();
   });
   
   globalAuthUnsub = () => subscription.unsubscribe();
