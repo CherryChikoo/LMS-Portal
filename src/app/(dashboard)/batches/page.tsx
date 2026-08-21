@@ -31,7 +31,7 @@ function BatchesContent() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
-  const pageSize = 100;
+  const pageSize = 25; // Default 25 for batches
   
   // Batches data
   const [batches, setBatches] = useState<any[]>([]);

@@ -5,6 +5,8 @@ import { getErrorMessage } from '@/lib/utils/error';
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { deleteStorageDirectory } from '@/lib/services/cleanup-service';
+import { revalidatePath } from "next/cache";
+import { invalidateCache } from "@/lib/cache/query-cache";
 
 const DeleteUserSchema = z.object({
   uid: z.string().min(1, "User ID (uid) is required."),
@@ -100,6 +102,17 @@ export async function POST(request: NextRequest) {
     await prisma.students.deleteMany({ where: { id: uid } });
     await prisma.users.deleteMany({ where: { id: uid } });
 
+    // UPDATE COLLEGE STUDENT COUNT - decrement by 1
+    if (studentDoc?.collegeId) {
+      await prisma.colleges.update({
+        where: { id: studentDoc.collegeId },
+        data: { studentCount: { decrement: 1 } }
+      }).catch((err) => {
+        console.error("Failed to decrement college studentCount:", err);
+        // Non-critical - don't fail the entire request if count update fails
+      });
+    }
+
     stage = "deleteSupabaseAuthAccounts";
     const authDeletionErrors: string[] = [];
     
@@ -124,6 +137,11 @@ export async function POST(request: NextRequest) {
 
     stage = "deleteStorageFiles";
     await deleteStorageDirectory(`users/${uid}/`);
+
+    try {
+      invalidateCache();
+      revalidatePath('/', 'layout');
+    } catch (_) {}
 
     return NextResponse.json({ success: true, message: "User deleted completely." });
   } catch (err: unknown) {

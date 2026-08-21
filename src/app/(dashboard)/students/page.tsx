@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { Users, Plus, Upload, Download, Search, Trash2, Edit2, Ban, CheckCircle2, ChevronLeft, ChevronRight, AlertCircle } from "lucide-react";
@@ -15,8 +15,11 @@ import { useLMSDataSelector } from "@/lib/data/use-lms-data";
 import { getStudentsPaginatedAction, getStudentFilterOptionsAction } from "@/lib/actions/student-actions";
 import { deleteStudentProfile, updateStudentProfile, formatAuthError } from "@/lib/services";
 import type { Student } from "@/types";
+import { AddStudentModal } from "@/components/students/add-student-modal";
+import { ImportStudentsModal } from "@/components/students/import-students-modal";
+import { QueueImportModal } from "@/components/students/queue-import-modal";
 
-export default function StudentsPage() {
+function StudentsPageContent() {
   // ===== ALL HOOKS AT THE TOP (NUCLEAR SAFETY) =====
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -30,7 +33,7 @@ export default function StudentsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
-  const pageSize = 100;
+  const [pageSize, setPageSize] = useState(50); // Default 50 for students
   
   // Students data
   const [students, setStudents] = useState<any[]>([]);
@@ -48,6 +51,7 @@ export default function StudentsPage() {
   const [yearFilter, setYearFilter] = useState<string>("");
   const [sectionFilter, setSectionFilter] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>("");
+  const [addedFilter, setAddedFilter] = useState<string>("");
   
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -62,7 +66,9 @@ export default function StudentsPage() {
   } | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showQueueImportModal, setShowQueueImportModal] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [navigatingToStudent, setNavigatingToStudent] = useState<string | null>(null);
 
   // Get metadata from cache (for filter options)
   const colleges = useLMSDataSelector((s) => s.filteredColleges);
@@ -131,6 +137,7 @@ export default function StudentsPage() {
           academicYear: yearFilter,
           section: sectionFilter,
           status: statusFilter,
+          addedFilter: addedFilter,
           userRole,
           userCollegeId,
         });
@@ -163,12 +170,14 @@ export default function StudentsPage() {
     };
 
     loadStudents();
-  }, [currentPage, debouncedSearch, collegeFilter, departmentFilter, yearFilter, sectionFilter, statusFilter, userRole, userCollegeId]);
+  }, [currentPage, debouncedSearch, collegeFilter, departmentFilter, yearFilter, sectionFilter, statusFilter, addedFilter, userRole, userCollegeId]);
 
   // Reset to page 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [debouncedSearch, collegeFilter, departmentFilter, yearFilter, sectionFilter, statusFilter]);
+    // Clear selections when filters change
+    setSelectedIds(new Set());
+  }, [debouncedSearch, collegeFilter, departmentFilter, yearFilter, sectionFilter, statusFilter, addedFilter, pageSize]);
 
   // Debug: Log students state changes
   useEffect(() => {
@@ -219,37 +228,46 @@ export default function StudentsPage() {
       message: `This will permanently remove ${student.name} (${student.email}) from the system. This action cannot be undone.`,
       variant: "destructive",
       onConfirm: async () => {
+        const { globalLoading } = await import("@/providers/global-loading-provider");
+        
         try {
-          await deleteStudentProfile(student.id);
-          toast.success(`Student profile deleted.`);
-          
-          // Reload current page
-          const result = await getStudentsPaginatedAction({
-            page: currentPage,
-            pageSize,
-            searchQuery: debouncedSearch,
-            collegeId: collegeFilter,
-            department: departmentFilter,
-            academicYear: yearFilter,
-            section: sectionFilter,
-            status: statusFilter,
-            userRole,
-            userCollegeId,
-          });
-          
-          if (result.success) {
-            setStudents(result.data);
-            setTotalCount(result.totalCount);
-            setTotalPages(result.totalPages);
+          await globalLoading.wrap(async () => {
+            const { deleteStudentProfileDirect } = await import("@/lib/services");
+            await deleteStudentProfileDirect(student.id);
             
-            // If current page is now empty and it's not page 1, go to previous page
-            if (result.data.length === 0 && currentPage > 1) {
-              setCurrentPage(currentPage - 1);
+            // Reload data within the loading wrapper
+            const result = await getStudentsPaginatedAction({
+              page: currentPage,
+              pageSize,
+              searchQuery: debouncedSearch,
+              collegeId: collegeFilter,
+              department: departmentFilter,
+              academicYear: yearFilter,
+              section: sectionFilter,
+              status: statusFilter,
+              addedFilter: addedFilter,
+              userRole,
+              userCollegeId,
+            });
+            
+            if (result.success) {
+              setStudents(result.data);
+              setTotalCount(result.totalCount);
+              setTotalPages(result.totalPages);
+              
+              // If current page is now empty and it's not page 1, go to previous page
+              if (result.data.length === 0 && currentPage > 1) {
+                setCurrentPage(currentPage - 1);
+              }
             }
-          }
+          }, `Deleting ${student.name}...`);
+          
+          // Success - show toast
+          toast.success(`${student.name} has been permanently removed from the system.`);
         } catch (err) {
           console.error("Failed to delete student:", err);
-          toast.error(formatAuthError(err));
+          // Error - show toast
+          toast.error(err instanceof Error ? err.message : "Failed to delete student. Please try again.");
         }
       },
     });
@@ -268,7 +286,10 @@ export default function StudentsPage() {
       variant: isRestricted ? "info" : "warning",
       onConfirm: async () => {
         try {
-          await updateStudentProfile(student.id, { status: newStatus });
+          const res = await updateStudentProfile(student.id, { status: newStatus });
+          if (!res.success) {
+            throw new Error(res.error || "Failed to update status");
+          }
           toast.success(`Account ${isRestricted ? "reactivated" : "restricted"}.`);
           
           // Reload current page
@@ -298,6 +319,205 @@ export default function StudentsPage() {
     });
   };
 
+  // Edit student state
+  const [editName, setEditName] = useState<string>("");
+  const [editEmail, setEditEmail] = useState<string>("");
+  const [editCollegeId, setEditCollegeId] = useState<string>("");
+  const [editDepartment, setEditDepartment] = useState<string>("");
+  const [editYear, setEditYear] = useState<string>("");
+  const [editSection, setEditSection] = useState<string>("");
+  const [editCustomSection, setEditCustomSection] = useState<string>("");
+  const [editPassword, setEditPassword] = useState<string>("");
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editCollegeDepartments, setEditCollegeDepartments] = useState<string[]>([]);
+
+  const handleOpenEditModal = async (student: any) => {
+    setEditingStudent(student);
+    setEditName(student.name || "");
+    setEditEmail(student.email || "");
+    setEditCollegeId(student.collegeId || "");
+    setEditDepartment(student.department || "");
+    setEditYear(student.academicYear || "");
+    const section = student.section || "A";
+    const isKnownSection = ["A", "B", "C", "D"].includes(section);
+    setEditSection(isKnownSection ? section : "CUSTOM");
+    setEditCustomSection(isKnownSection ? "" : section);
+    setEditPassword("");
+    
+    // Load departments for the student's current college
+    if (student.collegeId) {
+      try {
+        const selectedCollege = colleges.find(c => c.id === student.collegeId);
+        if (selectedCollege && selectedCollege.departments) {
+          setEditCollegeDepartments(selectedCollege.departments);
+        } else {
+          setEditCollegeDepartments(["General"]);
+        }
+      } catch (err) {
+        console.error("Failed to load college departments:", err);
+        setEditCollegeDepartments(["General"]);
+      }
+    } else {
+      setEditCollegeDepartments(["General"]);
+    }
+  };
+
+  const handleEditCollegeChange = (newCollegeId: string) => {
+    setEditCollegeId(newCollegeId);
+    
+    // Load departments for the new college
+    if (newCollegeId) {
+      const selectedCollege = colleges.find(c => c.id === newCollegeId);
+      if (selectedCollege && selectedCollege.departments && selectedCollege.departments.length > 0) {
+        setEditCollegeDepartments(selectedCollege.departments);
+        // Set first department as default if current department doesn't exist in new college
+        if (!selectedCollege.departments.includes(editDepartment)) {
+          setEditDepartment(selectedCollege.departments[0]);
+        }
+      } else {
+        setEditCollegeDepartments(["General"]);
+        setEditDepartment("General");
+      }
+    } else {
+      setEditCollegeDepartments(["General"]);
+      setEditDepartment("General");
+    }
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingStudent) return;
+    
+    // Validation
+    if (!editName.trim()) {
+      toast.error("Name is required.");
+      return;
+    }
+    
+    if (!editEmail.trim()) {
+      toast.error("Email is required.");
+      return;
+    }
+    
+    const normalizedEmail = editEmail.toLowerCase().trim();
+    
+    setSavingEdit(true);
+
+    try {
+      // Check if email changed and if it's already in use
+      if (normalizedEmail !== editingStudent.email.toLowerCase().trim()) {
+        console.log('[EMAIL VALIDATION] Checking email uniqueness:', normalizedEmail);
+        
+        const [existingStudent, existingUsers] = await Promise.all([
+          import("@/lib/services").then(m => m.getStudentByEmail(normalizedEmail)),
+          import("@/lib/actions/settings-actions").then(m => m.getUsersByEmailAction(normalizedEmail)),
+        ]);
+        
+        console.log('[EMAIL VALIDATION] Existing student:', existingStudent);
+        console.log('[EMAIL VALIDATION] Existing users:', existingUsers);
+        
+        const isUsedByAnother =
+          (existingStudent && existingStudent.id !== editingStudent.id) ||
+          existingUsers.some((u: any) => u.id !== editingStudent.id && u.email?.toLowerCase() === normalizedEmail);
+        
+        if (isUsedByAnother) {
+          console.error('[EMAIL VALIDATION] Email already exists!');
+          toast.error("A student or user account with this email already exists.");
+          setSavingEdit(false);
+          return;
+        }
+        
+        console.log('[EMAIL VALIDATION] Email is unique, proceeding...');
+      }
+
+      const payload: any = {
+        name: editName.trim(),
+        email: normalizedEmail,
+        collegeId: editCollegeId || null,
+        department: editDepartment,
+        academicYear: editYear,
+        section: editSection === "CUSTOM" ? editCustomSection.trim() || "A" : editSection,
+      };
+
+      // Add password if provided
+      if (editPassword && editPassword.trim() !== "") {
+        if (editPassword.trim().length < 6) {
+          toast.error("Password must be at least 6 characters.");
+          setSavingEdit(false);
+          return;
+        }
+        payload.initialPassword = editPassword.trim();
+      }
+
+      // If college changed, handle batch removal
+      const collegeChanged = editCollegeId !== editingStudent.collegeId;
+      if (collegeChanged) {
+        // Import batch services
+        const { getAllBatches } = await import("@/lib/services");
+        
+        // Get all batches
+        const batchesResult = await getAllBatches();
+        const allBatches = batchesResult.data || [];
+        
+        // Filter student's current batches to keep only global ones
+        const studentBatchIds = editingStudent.batchIds || [];
+        const globalBatchIds = studentBatchIds.filter((batchId: string) => {
+          const batch = allBatches.find(b => b.id === batchId);
+          return batch && batch.type === "global";
+        });
+        
+        // Update payload to only keep global batches
+        payload.batchIds = globalBatchIds;
+        
+        console.log(`[COLLEGE CHANGE] Removing student from college-specific batches. Keeping ${globalBatchIds.length} global batch(es).`);
+      }
+
+      // Update student profile
+      const updateResult = await updateStudentProfile(editingStudent.id, payload);
+      
+      console.log('[UPDATE RESULT]', updateResult);
+      
+      // Check if update failed
+      if (updateResult && !updateResult.success) {
+        const errorMsg = updateResult.error || "Failed to update student profile.";
+        console.warn('[UPDATE FAILED]', errorMsg); // Changed from console.error
+        toast.error(errorMsg);
+        setSavingEdit(false);
+        return;
+      }
+
+      toast.success(collegeChanged 
+        ? "Student updated successfully. Removed from college-specific batches." 
+        : "Student updated successfully");
+      setEditingStudent(null);
+
+      // Reload current page
+      const result = await getStudentsPaginatedAction({
+        page: currentPage,
+        pageSize,
+        searchQuery: debouncedSearch,
+        collegeId: collegeFilter,
+        department: departmentFilter,
+        academicYear: yearFilter,
+        section: sectionFilter,
+        status: statusFilter,
+        userRole,
+        userCollegeId,
+      });
+
+      if (result.success) {
+        setStudents(result.data);
+        setTotalCount(result.totalCount);
+        setTotalPages(result.totalPages);
+      }
+    } catch (err) {
+      console.error("Failed to update student:", err);
+      const errorMsg = err instanceof Error ? err.message : "Failed to update student profile.";
+      toast.error(errorMsg);
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   return (
     <motion.div initial="hidden" animate="visible" variants={fadeInUp} className="space-y-6">
       <PageHeader
@@ -316,6 +536,14 @@ export default function StudentsPage() {
               <Button onClick={() => setShowImportModal(true)} variant="outline">
                 <Upload className="w-4 h-4 mr-1.5" />
                 Import CSV
+              </Button>
+              <Button 
+                onClick={() => setShowQueueImportModal(true)} 
+                variant="outline"
+                className="border-purple-300 hover:bg-purple-50 dark:border-purple-700 dark:hover:bg-purple-950"
+              >
+                <Upload className="w-4 h-4 mr-1.5" />
+                Queue Large Import (25K+)
               </Button>
             </div>
           ) : undefined
@@ -338,7 +566,7 @@ export default function StudentsPage() {
           </div>
 
           {/* Filter dropdowns */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+          <div className={`grid grid-cols-2 md:grid-cols-3 ${userRole !== "college_admin" ? "lg:grid-cols-6" : "lg:grid-cols-5"} gap-3`}>
             {/* College filter */}
             {userRole !== "college_admin" && (
               <select
@@ -347,6 +575,7 @@ export default function StudentsPage() {
                 className="h-10 px-3 rounded-xl bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand/50"
               >
                 <option value="">All Colleges</option>
+                <option value="UNASSIGNED">Unassigned</option>
                 {colleges.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
@@ -406,7 +635,19 @@ export default function StudentsPage() {
               <option value="">All Status</option>
               <option value="active">Active</option>
               <option value="restricted">Restricted</option>
-              <option value="inactive">Inactive</option>
+            </select>
+
+            {/* Added filter */}
+            <select
+              value={addedFilter}
+              onChange={(e) => setAddedFilter(e.target.value)}
+              className="h-10 px-3 rounded-xl bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand/50"
+            >
+              <option value="">All Addeds</option>
+              <option value="Last 24 Hours">Last 24 Hours</option>
+              <option value="Last 7 Days">Last 7 Days</option>
+              <option value="CSV Uploads">CSV Uploads</option>
+              <option value="Manual Entry">Manual Entry</option>
             </select>
           </div>
           
@@ -437,39 +678,49 @@ export default function StudentsPage() {
                       message: `Are you sure you want to permanently delete ${selectedIds.size} student account(s)? This action cannot be undone.`,
                       variant: "destructive",
                       onConfirm: async () => {
+                        const count = selectedIds.size;
+                        const { globalLoading } = await import("@/providers/global-loading-provider");
+                        
                         try {
-                          await Promise.all(
-                            Array.from(selectedIds).map((id) => deleteStudentProfile(id))
-                          );
-                          toast.success(`Deleted ${selectedIds.size} student(s)`);
-                          setSelectedIds(new Set());
-                          
-                          // Reload current page
-                          const result = await getStudentsPaginatedAction({
-                            page: currentPage,
-                            pageSize,
-                            searchQuery: debouncedSearch,
-                            collegeId: collegeFilter,
-                            department: departmentFilter,
-                            academicYear: yearFilter,
-                            section: sectionFilter,
-                            status: statusFilter,
-                            userRole,
-                            userCollegeId,
-                          });
-                          
-                          if (result.success) {
-                            setStudents(result.data);
-                            setTotalCount(result.totalCount);
-                            setTotalPages(result.totalPages);
+                          await globalLoading.wrap(async () => {
+                            // Delete all students
+                            const { deleteStudentProfileDirect } = await import("@/lib/services");
+                            await Promise.all(
+                              Array.from(selectedIds).map((id) => deleteStudentProfileDirect(id))
+                            );
                             
-                            if (result.data.length === 0 && currentPage > 1) {
-                              setCurrentPage(currentPage - 1);
+                            // Reload data within the loading wrapper
+                            const result = await getStudentsPaginatedAction({
+                              page: currentPage,
+                              pageSize,
+                              searchQuery: debouncedSearch,
+                              collegeId: collegeFilter,
+                              department: departmentFilter,
+                              academicYear: yearFilter,
+                              section: sectionFilter,
+                              status: statusFilter,
+                              userRole,
+                              userCollegeId,
+                            });
+                            
+                            if (result.success) {
+                              setStudents(result.data);
+                              setTotalCount(result.totalCount);
+                              setTotalPages(result.totalPages);
+                              
+                              if (result.data.length === 0 && currentPage > 1) {
+                                setCurrentPage(currentPage - 1);
+                              }
                             }
-                          }
+                          }, `Deleting ${count} student account(s)...`);
+                          
+                          // Success - show toast
+                          setSelectedIds(new Set());
+                          toast.success(`${count} student account${count > 1 ? 's have' : ' has'} been permanently removed from the system.`);
                         } catch (err) {
                           console.error("Failed to delete students:", err);
-                          toast.error("Failed to delete some students");
+                          // Error - show toast
+                          toast.error(err instanceof Error ? err.message : "Failed to delete some students. Please try again.");
                         }
                       },
                     });
@@ -561,9 +812,21 @@ export default function StudentsPage() {
                     return (
                       <tr
                         key={student.id}
-                        className={`hover:bg-muted/20 transition-colors ${
+                        onClick={(e) => {
+                          // Don't navigate if clicking checkbox or action buttons
+                          if (
+                            (e.target as HTMLElement).closest('input[type="checkbox"]') ||
+                            (e.target as HTMLElement).closest('button')
+                          ) {
+                            return;
+                          }
+                          // Show loading state and navigate to student detail page
+                          setNavigatingToStudent(student.id);
+                          router.push(`/students/${student.id}`);
+                        }}
+                        className={`hover:bg-muted/20 transition-colors cursor-pointer ${
                           isSelected ? 'bg-brand/5' : ''
-                        }`}
+                        } ${navigatingToStudent === student.id ? 'opacity-50' : ''}`}
                       >
                         {userRole !== "student" && (
                           <td className="px-6 py-4">
@@ -580,19 +843,30 @@ export default function StudentsPage() {
                             <div className="w-8 h-8 rounded-full bg-brand/10 text-brand flex items-center justify-center font-bold text-xs uppercase">
                               {student.name ? student.name.slice(0, 2) : "ST"}
                             </div>
-                            <div>
-                              <p className="font-bold text-foreground">{student.name}</p>
-                              {student.rollNumber && (
-                                <p className="text-[11px] text-muted-foreground">
-                                  Roll: {student.rollNumber}
-                                </p>
+                            <div className="flex items-center gap-2">
+                              <div>
+                                <p className="font-bold text-foreground">{student.name}</p>
+                                {student.rollNumber && (
+                                  <p className="text-[11px] text-muted-foreground">
+                                    Roll: {student.rollNumber}
+                                  </p>
+                                )}
+                              </div>
+                              {navigatingToStudent === student.id && (
+                                <div className="w-4 h-4 rounded-full border-2 border-brand border-t-transparent animate-spin" />
                               )}
                             </div>
                           </div>
                         </td>
                         <td className="px-6 py-4 text-muted-foreground text-xs">{student.email}</td>
-                        <td className="px-6 py-4 text-xs font-medium text-foreground">
-                          {student.collegeName || "—"}
+                        <td className="px-6 py-4">
+                          {student.collegeName ? (
+                            <span className="text-xs font-medium text-foreground">{student.collegeName}</span>
+                          ) : (
+                            <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-amber-500/10 text-amber-600">
+                              Unassigned
+                            </span>
+                          )}
                         </td>
                         <td className="px-6 py-4">
                           <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-brand/10 text-brand">
@@ -610,16 +884,10 @@ export default function StudentsPage() {
                             className={`text-xs font-bold px-2.5 py-1 rounded-md ${
                               student.status === "active"
                                 ? "bg-green-500/10 text-green-600"
-                                : student.status === "restricted"
-                                ? "bg-rose-500/10 text-rose-600"
-                                : "bg-gray-500/10 text-gray-600"
+                                : "bg-rose-500/10 text-rose-600"
                             }`}
                           >
-                            {student.status === "active"
-                              ? "Active"
-                              : student.status === "restricted"
-                              ? "Restricted"
-                              : "Inactive"}
+                            {student.status === "active" ? "Active" : "Restricted"}
                           </span>
                         </td>
                         {userRole !== "student" && (
@@ -645,7 +913,7 @@ export default function StudentsPage() {
                               <Button
                                 size="icon"
                                 variant="ghost"
-                                onClick={() => setEditingStudent(student)}
+                                onClick={() => handleOpenEditModal(student)}
                                 className="w-8 h-8 rounded-lg"
                                 title="Edit student"
                               >
@@ -722,6 +990,209 @@ export default function StudentsPage() {
         </>
       )}
 
+      {/* Edit Student Modal */}
+      <AnimatePresence>
+        {editingStudent && (
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-5"
+            >
+              <div className="flex items-center justify-between border-b border-border pb-3">
+                <div>
+                  <h3 className="text-base font-bold text-foreground">Edit Student Profile</h3>
+                  <p className="text-[11px] text-muted-foreground">Update name, email and hierarchy details</p>
+                </div>
+                <button
+                  onClick={() => setEditingStudent(null)}
+                  className="text-muted-foreground hover:text-foreground"
+                  disabled={savingEdit}
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={(e) => { e.preventDefault(); handleSaveEdit(); }} className="space-y-4 text-xs">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="font-semibold text-foreground">Full Name</label>
+                    <input
+                      type="text"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      required
+                      placeholder="e.g. John Doe"
+                      disabled={savingEdit}
+                      className="w-full h-9 px-3 rounded-xl border border-border bg-background text-foreground"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="font-semibold text-foreground">Email Address</label>
+                    <input
+                      type="email"
+                      value={editEmail}
+                      onChange={(e) => setEditEmail(e.target.value)}
+                      required
+                      placeholder="john@college.edu"
+                      disabled={savingEdit}
+                      className="w-full h-9 px-3 rounded-xl border border-border bg-background text-foreground"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="font-semibold text-foreground">College</label>
+                  <select
+                    value={editCollegeId}
+                    onChange={(e) => handleEditCollegeChange(e.target.value)}
+                    disabled={savingEdit}
+                    className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground font-semibold"
+                  >
+                    <option value="">Unassigned</option>
+                    {colleges.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                  {editingStudent && editCollegeId !== editingStudent.collegeId && (
+                    <p className="text-[10px] text-amber-500 flex items-start gap-1 mt-1">
+                      <span className="text-amber-500 font-bold">⚠</span>
+                      <span>Changing college will remove student from all college-specific batches (global batches remain)</span>
+                    </p>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="font-semibold text-foreground">Department</label>
+                    <select
+                      value={editDepartment}
+                      onChange={(e) => setEditDepartment(e.target.value)}
+                      disabled={savingEdit}
+                      required
+                      className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground font-semibold"
+                    >
+                      {editCollegeDepartments.length > 0 ? (
+                        editCollegeDepartments.map((dept) => (
+                          <option key={dept} value={dept}>{dept}</option>
+                        ))
+                      ) : (
+                        <option value="General">General</option>
+                      )}
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="font-semibold text-foreground">Academic Year</label>
+                    <select
+                      value={editYear}
+                      onChange={(e) => setEditYear(e.target.value)}
+                      disabled={savingEdit}
+                      className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground"
+                    >
+                      <option value="">Select year</option>
+                      <option value="1st Year">1st Year</option>
+                      <option value="2nd Year">2nd Year</option>
+                      <option value="3rd Year">3rd Year</option>
+                      <option value="4th Year">4th Year</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="font-semibold text-foreground">Section</label>
+                  <select
+                    value={editSection}
+                    onChange={(e) => setEditSection(e.target.value)}
+                    disabled={savingEdit}
+                    className="w-full h-9 px-2 rounded-xl border border-border bg-background text-foreground"
+                  >
+                    <option value="">Select section</option>
+                    <option value="A">A</option>
+                    <option value="B">B</option>
+                    <option value="C">C</option>
+                    <option value="D">D</option>
+                    <option value="CUSTOM">+ Custom Section...</option>
+                  </select>
+                  {editSection === "CUSTOM" && (
+                    <input
+                      type="text"
+                      value={editCustomSection}
+                      onChange={(e) => setEditCustomSection(e.target.value)}
+                      placeholder="Type custom section"
+                      disabled={savingEdit}
+                      className="w-full h-9 px-3 mt-1.5 rounded-xl border border-brand bg-background text-foreground text-xs"
+                    />
+                  )}
+                </div>
+
+                <div className="space-y-1.5 pt-1">
+                  <label className="font-semibold text-foreground flex items-center gap-1.5 text-emerald-500">
+                    Login Password (Leave empty to keep unchanged)
+                  </label>
+                  <input
+                    type="text"
+                    value={editPassword}
+                    onChange={(e) => setEditPassword(e.target.value)}
+                    placeholder="Enter new login password for student..."
+                    disabled={savingEdit}
+                    className="w-full h-9 px-3 rounded-xl border border-emerald-500/40 bg-background text-foreground font-mono text-xs"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-3 border-t border-border">
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    onClick={() => setEditingStudent(null)}
+                    disabled={savingEdit}
+                  >
+                    Cancel
+                  </Button>
+                  <Button 
+                    type="submit" 
+                    disabled={savingEdit} 
+                    className="bg-brand text-brand-foreground"
+                  >
+                    {savingEdit ? "Saving..." : "Save Changes"}
+                  </Button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Add Student Modal */}
+      <AddStudentModal
+        isOpen={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        onSuccess={() => {
+          setShowAddModal(false);
+          // Just trigger a state change to reload students
+          setCurrentPage(1);
+          setSearchRaw(searchRaw + " ");
+          setTimeout(() => setSearchRaw(searchRaw), 50);
+        }}
+        colleges={colleges}
+        departments={departmentOptions}
+        years={yearOptions}
+        sections={sectionOptions}
+      />
+
+      {/* Import CSV Modal */}
+      <ImportStudentsModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        onSuccess={() => {
+          setShowImportModal(false);
+          // Trigger reload
+          setCurrentPage(1);
+          setSearchRaw(searchRaw + " ");
+          setTimeout(() => setSearchRaw(searchRaw), 50);
+        }}
+      />
+
       {/* Confirm Modal */}
       <ConfirmModal
         isOpen={!!confirmConfig?.isOpen}
@@ -732,6 +1203,17 @@ export default function StudentsPage() {
         confirmText="Confirm"
         variant={confirmConfig?.variant || "destructive"}
       />
+
     </motion.div>
   );
+
 }
+
+export default function StudentsPage() {
+  return (
+    <Suspense fallback={<div className="flex h-[calc(100vh-64px)] items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div></div>}>
+      <StudentsPageContent />
+    </Suspense>
+  );
+}
+

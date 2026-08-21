@@ -8,7 +8,7 @@ import { prisma } from '@/lib/prisma';
 
 export async function getBatchesPaginatedAction({
   page = 1,
-  pageSize = 100,
+  pageSize = 25, // Default 25 for batches
   collegeId,
   department,
   academicYear,

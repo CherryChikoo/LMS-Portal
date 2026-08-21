@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
     }
     const adminIdToken = authHeader.split("Bearer ")[1];
 
-    const { uid, email, password, role, collegeId } = await request.json();
+    const { uid, email, password, role, collegeId, status } = await request.json();
 
     if (!uid || typeof uid !== "string") {
       return NextResponse.json({ error: "User ID (uid) is required." }, { status: 400 });
@@ -49,15 +49,20 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate that at least one update parameter is provided
-    if (!email && !password && !role && !collegeId) {
+    if (!email && !password && !role && !collegeId && status === undefined) {
       return NextResponse.json(
-        { error: "At least one update parameter (email, password, role, collegeId) must be provided." },
+        { error: "At least one update parameter (email, password, role, collegeId, status) must be provided." },
         { status: 400 }
       );
     }
 
     // Build the Auth update payload
     const authUpdateFields: Record<string, any> = {};
+    if (status === 'restricted') {
+      authUpdateFields.ban_duration = '876000h';
+    } else if (status === 'active') {
+      authUpdateFields.ban_duration = 'none';
+    }
     if (email) {
       const normalizedEmail = (email as string).toLowerCase().trim();
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -144,6 +149,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (role) userUpdates.role = role;
+    if (status !== undefined) userUpdates.status = status;
     if (collegeId) {
       userUpdates.collegeId = collegeId;
       studentUpdates.collegeId = collegeId;

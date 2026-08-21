@@ -107,21 +107,52 @@ export function GlobalLoadingProvider({ children }: { children: React.ReactNode 
       {children}
       <AnimatePresence>
         {isLoading && (
-          <motion.div
-            key="global-top-loading-bar"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="fixed top-0 left-0 right-0 z-[99999] h-[3px] bg-transparent pointer-events-none overflow-hidden"
-          >
-            <div
-              className="h-full w-1/2 bg-gradient-to-r from-transparent via-brand to-transparent shadow-[0_0_8px_var(--brand)] animate-pulse"
-              style={{
-                animation: "shimmer 1.5s infinite linear",
-              }}
-            />
-          </motion.div>
+          <>
+            {/* Top progress bar */}
+            <motion.div
+              key="global-top-loading-bar"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="fixed top-0 left-0 right-0 z-[99999] h-[3px] bg-transparent pointer-events-none overflow-hidden"
+            >
+              <div
+                className="h-full w-1/2 bg-gradient-to-r from-transparent via-brand to-transparent shadow-[0_0_8px_var(--brand)] animate-pulse"
+                style={{
+                  animation: "shimmer 1.5s infinite linear",
+                }}
+              />
+            </motion.div>
+
+            {/* Full-screen blocking overlay */}
+            <motion.div
+              key="global-loading-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 z-[99998] bg-background/80 backdrop-blur-sm flex items-center justify-center"
+              style={{ pointerEvents: 'auto' }}
+            >
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="bg-card border border-border rounded-2xl shadow-2xl p-8 flex flex-col items-center gap-4 min-w-[320px]"
+              >
+                <div className="relative">
+                  <Loader2 className="w-12 h-12 text-brand animate-spin" />
+                  <div className="absolute inset-0 bg-brand/20 blur-xl rounded-full" />
+                </div>
+                <div className="text-center space-y-1">
+                  <p className="text-lg font-semibold text-foreground">{message}</p>
+                  <p className="text-sm text-muted-foreground">Please wait...</p>
+                </div>
+              </motion.div>
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
     </GlobalLoadingContext.Provider>

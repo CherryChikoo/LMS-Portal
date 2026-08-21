@@ -136,10 +136,17 @@ export function Topbar() {
   useEffect(() => {
     loadUserInfo();
 
+    let ticking = false;
     const handleScroll = () => {
-      setScrolled(window.scrollY > 10);
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          setScrolled(window.scrollY > 10);
+          ticking = false;
+        });
+        ticking = true;
+      }
     };
-    window.addEventListener("scroll", handleScroll);
+    window.addEventListener("scroll", handleScroll, { passive: true });
 
     // Listen for storage events (from Settings page name changes)
     const handleStorageChange = () => {

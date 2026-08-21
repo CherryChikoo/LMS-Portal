@@ -59,6 +59,12 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
     throw new Error("ACCOUNT_DELETED: Your account has been permanently deleted.");
   }
 
+  // 1.5 Student-specific restriction check from students table
+  if (role === "student" && studentDoc?.status === "restricted") {
+    await supabase.auth.signOut();
+    throw new Error("RESTRICTED_ACCOUNT: Your student account has been temporarily restricted by an administrator.");
+  }
+
   // 2. College / Institution restriction check (blocks college admin logins if their college is restricted, while students retain access)
   if (collegeStatus === "restricted" && (role === "college_admin" || role === "college")) {
     await supabase.auth.signOut();

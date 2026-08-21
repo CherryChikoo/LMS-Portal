@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { getDatabaseMetricsAction } from "@/lib/actions/student-actions-optimized";
+import { useLMSDataSelector } from "@/lib/data/use-lms-data";
 
 /**
  * OPTION 2 ARCHITECTURE: "THE MATH" Hook
@@ -26,6 +27,7 @@ export function useDatabaseMetrics() {
   const [unassignedStudents, setUnassignedStudents] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const lastRefreshTimestamp = useLMSDataSelector((s) => s.lastRefreshTimestamp);
 
   useEffect(() => {
     let mounted = true;
@@ -73,7 +75,7 @@ export function useDatabaseMetrics() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [lastRefreshTimestamp]);
 
   /**
    * Get student count for a specific college by ID or name

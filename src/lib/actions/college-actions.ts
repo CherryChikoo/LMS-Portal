@@ -29,7 +29,7 @@ export async function createCollegeAction(data: any) {
     data: validData,
     select: { id: true }
   });
-  return inserted.id;
+  return { success: true, id: inserted.id };
 }
 
 export async function upsertCollegeAction(data: any) {
@@ -43,7 +43,7 @@ export async function upsertCollegeAction(data: any) {
 }
 
 export async function updateCollegeAction(id: string, updateData: any) {
-  const { initialPassword, loginEnabled, ...validData } = updateData;
+  const { initialPassword, loginEnabled, ...validData } = updateData || {};
   await prisma.colleges.update({
     where: { id },
     data: validData

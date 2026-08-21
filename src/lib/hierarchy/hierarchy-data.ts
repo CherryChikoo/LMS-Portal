@@ -782,14 +782,59 @@ export function matchesAssignmentTarget(student: Student, target: AssignmentTarg
 
 export function matchesYearFilter(studentYear: string | undefined | null, filterYear: string): boolean {
   if (!filterYear) return true;
+  
   const s = (studentYear || "").trim().toLowerCase();
   const f = filterYear.trim().toLowerCase();
-  if (s === f) return true;
-  if (f.startsWith("1") || f.includes("1st")) return s.startsWith("1") || s.includes("1st") || s.includes("first");
-  if (f.startsWith("2") || f.includes("2nd")) return s.startsWith("2") || s.includes("2nd") || s.includes("second");
-  if (f.startsWith("3") || f.includes("3rd")) return s.startsWith("3") || s.includes("3rd") || s.includes("third");
-  if (f.startsWith("4") || f.includes("4th")) return s.startsWith("4") || s.includes("4th") || s.includes("fourth");
-  return s.includes(f) || f.includes(s);
+  
+  // Debug logging for the function itself
+  const debug = false; // Set to true to enable detailed logging
+  if (debug) {
+    console.log(`[matchesYearFilter] Comparing: student="${s}" vs filter="${f}"`);
+  }
+  
+  // If student has no year data, don't match any specific filter
+  if (!s) {
+    if (debug) console.log(`  -> No student year, returning false`);
+    return false;
+  }
+  
+  // Exact match (case-insensitive)
+  if (s === f) {
+    if (debug) console.log(`  -> Exact match, returning true`);
+    return true;
+  }
+  
+  // Check for ordinal year formats ONLY if they contain "year", "st", "nd", "rd", or "th"
+  // This prevents year ranges like "2022-26" from matching "2nd year" logic
+  const isOrdinalFormat = f.includes("year") || f.includes("st") || f.includes("nd") || f.includes("rd") || f.includes("th");
+  
+  if (isOrdinalFormat) {
+    if (f.includes("1st") || f.includes("first") || f.includes("1") && f.includes("year")) {
+      const result = s.includes("1st") || s.includes("first") || (s.startsWith("1") && s.includes("year"));
+      if (debug) console.log(`  -> 1st year check: ${result}`);
+      return result;
+    }
+    if (f.includes("2nd") || f.includes("second") || f.includes("2") && f.includes("year")) {
+      const result = s.includes("2nd") || s.includes("second") || (s.startsWith("2") && s.includes("year"));
+      if (debug) console.log(`  -> 2nd year check: ${result}`);
+      return result;
+    }
+    if (f.includes("3rd") || f.includes("third") || f.includes("3") && f.includes("year")) {
+      const result = s.includes("3rd") || s.includes("third") || (s.startsWith("3") && s.includes("year"));
+      if (debug) console.log(`  -> 3rd year check: ${result}`);
+      return result;
+    }
+    if (f.includes("4th") || f.includes("fourth") || f.includes("4") && f.includes("year")) {
+      const result = s.includes("4th") || s.includes("fourth") || (s.startsWith("4") && s.includes("year"));
+      if (debug) console.log(`  -> 4th year check: ${result}`);
+      return result;
+    }
+  }
+  
+  // Substring match for year ranges like "2023-27" or "2026-30"
+  const result = s.includes(f) || f.includes(s);
+  if (debug) console.log(`  -> Substring match: ${result}`);
+  return result;
 }
 
 export function filterStudentByAcademicFilters(student: Student, filters: AcademicFilters): boolean {

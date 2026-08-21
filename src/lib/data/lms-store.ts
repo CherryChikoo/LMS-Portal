@@ -23,6 +23,7 @@ export interface LMSStoreState {
   loading: boolean;
   error: Error | null;
   getInstitutionName: (id: string) => string;
+  lastRefreshTimestamp: number;
 }
 
 const defaultState: LMSStoreState = {
@@ -46,6 +47,7 @@ const defaultState: LMSStoreState = {
   loading: true,
   error: null,
   getInstitutionName: () => "Unknown Institution",
+  lastRefreshTimestamp: Date.now(),
 };
 
 let storeState: LMSStoreState = defaultState;

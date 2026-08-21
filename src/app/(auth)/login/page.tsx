@@ -112,7 +112,7 @@ function LoginContent() {
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("RESTRICTED_ACCOUNT") || msg.toLowerCase().includes("restricted")) {
+      if (msg.includes("RESTRICTED_ACCOUNT") || msg.toLowerCase().includes("restricted") || msg.toLowerCase().includes("banned")) {
         setRestrictedModalOpen(true);
       } else {
         setError(formatAuthError(err));
@@ -157,7 +157,7 @@ function LoginContent() {
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("RESTRICTED_ACCOUNT") || msg.toLowerCase().includes("restricted")) {
+      if (msg.includes("RESTRICTED_ACCOUNT") || msg.toLowerCase().includes("restricted") || msg.toLowerCase().includes("banned")) {
         setRestrictedModalOpen(true);
       } else {
         setError(formatAuthError(err));

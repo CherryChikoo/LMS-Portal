@@ -32,11 +32,11 @@ export async function getAdminDashboardStatsAction() {
           totalAttempts,
           recentAttempts,
         ] = await Promise.all([
-          // Active exams
+          // Active exams - check for status = 'published' and not soft deleted
           prisma.exams.count({
             where: {
               deletedAt: null,
-              endTime: { gte: new Date() },
+              status: 'published',
             },
           }),
           
@@ -102,7 +102,7 @@ export async function getAdminDashboardStatsAction() {
               recent: recentExams,
             },
             resources: {
-              total: 0, // Resources not in metrics yet
+              total: await prisma.resources.count(), // Fetch actual count from database
             },
             batches: {
               total: metrics?.totalBatches || 0,
@@ -144,11 +144,11 @@ export async function getStudentDashboardStatsAction(studentId: string) {
       avgScore,
       recentAttempts,
     ] = await Promise.all([
-      // Count assigned exams (simplified - counts all active exams)
+      // Count assigned exams (simplified - counts all published/active exams)
       prisma.exams.count({
         where: {
           deletedAt: null,
-          endTime: { gte: new Date() },
+          status: 'published',
         },
       }),
       

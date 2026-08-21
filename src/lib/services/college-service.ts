@@ -91,7 +91,10 @@ export async function updateCollege(
 
   return await globalLoading.wrap(async () => {
     const updateData = { ...data };
-    if (updateData.name) {
+    
+    // IMPORTANT: Only normalize name if it's being explicitly updated
+    // Don't touch the name when updating other fields like departments
+    if (updateData.name && data.name !== undefined) {
       updateData.name = updateData.name.trim().toLowerCase();
     }
 
@@ -129,7 +132,7 @@ export async function updateCollege(
       }
     }
 
-    await updateCollegeAction({ id, ...updateData });
+    await updateCollegeAction(id, updateData);
     try {
       refreshCache().catch(() => {});
     } catch (_) {}

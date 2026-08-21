@@ -43,7 +43,6 @@ const GlassCard = memo(forwardRef<HTMLDivElement, GlassCardProps>(
             "border-transparent bg-clip-padding relative before:absolute before:inset-0 before:rounded-xl before:p-[1px] before:bg-gradient-to-br before:from-brand/20 before:to-transparent before:-z-10",
           className
         )}
-        style={{ willChange: hover ? 'transform, box-shadow' : undefined }}
         {...props}
       >
         {children}

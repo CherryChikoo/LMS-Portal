@@ -30,10 +30,10 @@ import { NextRequest, NextResponse } from "next/server";
 // ═══════════════════════════════════════════════════════════════════════════
 
 const CONFIG = {
-  CHUNK_SIZE: 25, // Process 25 students per chunk
-  INTER_CHUNK_DELAY_MS: 500, // 500ms delay between chunks
-  MAX_DURATION: 60, // Vercel hobby tier max: 60 seconds
-  DB_BATCH_SIZE: 50, // Bulk insert batch size for Prisma
+  CHUNK_SIZE: 50, // Increased from 25 to 50 students per chunk
+  INTER_CHUNK_DELAY_MS: 200, // Reduced from 500ms to 200ms (still safe for rate limits)
+  MAX_DURATION: 300, // 5 minutes for Vercel Pro, 60 for hobby
+  DB_BATCH_SIZE: 100, // Increased bulk insert batch size
 } as const;
 
 const generateSecurePassword = () => process.env.DEFAULT_STUDENT_PASSWORD || "Welcome@123";
@@ -731,6 +731,35 @@ export async function POST(request: NextRequest) {
           });
         } catch (assignErr: any) {
           console.error(`Failed to assign students to batches:`, assignErr.message);
+        }
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // STEP 5.5: UPDATE COLLEGE STUDENT COUNTS
+    // ─────────────────────────────────────────────────────────────────────────
+    
+    const createdStudents = allProcessingResults.filter(r => r.status === 'created' && r.uid && r.finalCollegeId);
+    
+    if (createdStudents.length > 0) {
+      // Group students by college to calculate increments
+      const collegeIncrements = new Map<string, number>();
+      
+      for (const student of createdStudents) {
+        const collegeId = student.finalCollegeId!;
+        collegeIncrements.set(collegeId, (collegeIncrements.get(collegeId) || 0) + 1);
+      }
+      
+      // Update each college's student count
+      for (const [collegeId, increment] of collegeIncrements) {
+        try {
+          await prisma.colleges.update({
+            where: { id: collegeId },
+            data: { studentCount: { increment } }
+          });
+        } catch (countErr: any) {
+          console.error(`Failed to increment studentCount for college ${collegeId}:`, countErr.message);
+          // Non-critical - don't fail the import if count update fails
         }
       }
     }

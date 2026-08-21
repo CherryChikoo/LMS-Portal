@@ -123,19 +123,13 @@ export default function CollegesPage() {
         batch: cardEnrollBatch,
       });
 
-      const fullCol = colleges.find((c) => c.id === selectedCollegeForAction.id);
-      if (fullCol) {
-        updateCollege(fullCol.id, {
-          studentCount: (fullCol.studentCount || 0) + 1,
-        }).catch(() => {});
-      }
-
       toast.success(`Successfully enrolled ${cardEnrollName} in ${selectedCollegeForAction.name}.`);
       setShowCardEnrollModal(false);
       setCardEnrollName("");
       setCardEnrollEmail("");
       setCardCustomSection("");
       setCardEnrollError(null);
+      // Refresh cache to get updated counts from database
       refreshCache().catch(() => {});
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);

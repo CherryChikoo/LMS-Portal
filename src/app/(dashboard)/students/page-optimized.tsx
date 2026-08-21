@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useRef, useCallback } from "react";
+import { useEffect, useMemo, useState, useRef, useCallback, Suspense } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
@@ -18,7 +18,7 @@ import { useLMSDataSelector } from "@/lib/data/use-lms-data";
 import { deleteStudentProfile, updateStudentProfile, formatAuthError } from "@/lib/services";
 import type { Student } from "@/types";
 
-export default function StudentsPageOptimized() {
+function StudentsPageOptimizedContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -130,7 +130,10 @@ export default function StudentsPageOptimized() {
       variant: isRestricted ? "info" : "warning",
       onConfirm: async () => {
         try {
-          await updateStudentProfile(student.id, { status: newStatus });
+          const res = await updateStudentProfile(student.id, { status: newStatus });
+          if (!res.success) {
+            throw new Error(res.error || "Failed to update status");
+          }
           toast.success(`Account ${isRestricted ? "reactivated" : "restricted"}.`);
           refresh(); // Refresh the list
         } catch (err) {
@@ -395,5 +398,13 @@ export default function StudentsPageOptimized() {
         />
       )}
     </motion.div>
+  );
+}
+
+export default function StudentsPageOptimized() {
+  return (
+    <Suspense fallback={<div className="flex h-[calc(100vh-64px)] items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div></div>}>
+      <StudentsPageOptimizedContent />
+    </Suspense>
   );
 }

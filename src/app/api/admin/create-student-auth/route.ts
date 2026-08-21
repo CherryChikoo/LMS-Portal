@@ -1,5 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { prisma } from "@/lib/prisma";
+import { revalidatePath } from "next/cache";
+import { invalidateCache } from "@/lib/cache/query-cache";
 import { getErrorMessage } from '@/lib/utils/error';
 import { NextRequest, NextResponse } from "next/server";
 
@@ -279,6 +281,17 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // UPDATE COLLEGE STUDENT COUNT - increment by 1
+      if (resolvedCollegeId) {
+        await prisma.colleges.update({
+          where: { id: resolvedCollegeId },
+          data: { studentCount: { increment: 1 } }
+        }).catch((err) => {
+          console.error("Failed to increment college studentCount:", err);
+          // Non-critical - don't fail the entire request if count update fails
+        });
+      }
+
     } catch (dbErr) {
       console.error("Failed to write student database documents:", dbErr);
       stage = "rollbackAuthUser";
@@ -305,6 +318,11 @@ export async function POST(request: NextRequest) {
         );
       }
     }
+
+    try {
+      invalidateCache();
+      revalidatePath('/', 'layout');
+    } catch (_) {}
 
     return NextResponse.json({
       success: true,

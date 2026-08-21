@@ -167,7 +167,7 @@ export async function importStudentsCSV(
   const currentUser = authData?.user;
   if (currentUser) {
     try {
-      const CHUNK_SIZE = 50; // 50 rows per batch
+      const CHUNK_SIZE = 100; // Increased from 50 to 100 rows per batch
       const combinedSummary: CSVImportSummary = {
         total: rows.length,
         createdCount: 0,
@@ -185,7 +185,7 @@ export async function importStudentsCSV(
       }
 
       let processedCount = 0;
-      const MAX_CONCURRENT_REQUESTS = 2;
+      const MAX_CONCURRENT_REQUESTS = 3; // Increased from 2 to 3 parallel requests
 
       const sendChunkWithRetry = async (chunk: CSVStudentRow[], retries = 3): Promise<any> => {
         for (let attempt = 1; attempt <= retries; attempt++) {
@@ -273,8 +273,8 @@ export async function importStudentsCSV(
         }
 
         if (onProgress) onProgress(processedCount, rows.length);
-        // Small throttle between batches to avoid connection limits
-        await new Promise((r) => setTimeout(r, 120));
+        // Reduced throttle from 120ms to 50ms between batches
+        await new Promise((r) => setTimeout(r, 50));
       }
 
       if (onProgress) onProgress(rows.length, rows.length);

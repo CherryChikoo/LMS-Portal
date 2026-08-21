@@ -102,6 +102,7 @@ export function MobileSidebar() {
     if (!userRole) return [];
     const isStudent = userRole === "student";
     const isCollegeAdmin = userRole === "college_admin";
+    const isMainAdmin = userRole === "main_admin";
 
     let base = isStudent
       ? [
@@ -133,7 +134,12 @@ export function MobileSidebar() {
         .filter((sec) => sec.items.length > 0);
     }
 
-    const prefix = isStudent ? "/student" : "/admin";
+    // Main admin uses root paths, not /admin prefix
+    if (isMainAdmin) {
+      return base;
+    }
+
+    const prefix = isStudent ? "/student" : isCollegeAdmin ? "/admin" : "";
     return base.map((sec) => ({
       ...sec,
       items: sec.items.map((it) => ({
@@ -214,9 +220,22 @@ export function MobileSidebar() {
                 </p>
                 <div className="space-y-1">
                   {section.items.map((item) => {
-                    const isActive =
-                      pathname === item.href ||
-                      (item.href !== "/admin" && item.href !== "/student" && pathname.startsWith(item.href + "/"));
+                    // More robust active detection with debugging
+                    const isActive = (() => {
+                      const current = pathname.replace(/\/$/, '') || '/';
+                      const itemPath = item.href.replace(/\/$/, '') || '/';
+                      
+                      if (current === itemPath) return true;
+                      
+                      const normCurrent = current.replace(/^\/(admin|student)/, '') || '/';
+                      const normItem = itemPath.replace(/^\/(admin|student)/, '') || '/';
+                      
+                      if (normCurrent === normItem) return true;
+                      if (normItem !== '/' && normCurrent.startsWith(normItem + '/')) return true;
+                      
+                      return false;
+                    })();
+                    
                     const Icon = item.icon;
 
                     return (

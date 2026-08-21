@@ -318,7 +318,6 @@
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
     border: 1px solid var(--glass-border);
-    will-change: transform; /* GPU acceleration hint */
   }
 
   /* Premium Glass Card with subtle inner top border glow - Optimized */
@@ -330,7 +329,6 @@
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.1),
       0 4px 20px -2px rgba(0, 0, 0, 0.08);
-    will-change: transform;
     contain: layout style paint; /* Performance isolation */
   }
 

@@ -1,6 +1,28 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { revalidatePath } from "next/cache";
+import { invalidateCache } from "@/lib/cache/query-cache";
+
+/**
+ * CACHE BURSTING ACTION
+ * Clears all server-side caches when a CRUD operation finishes so that 
+ * subsequent fetches immediately reflect the accurate new counts.
+ */
+export async function revalidateAllDataCachesAction() {
+  try {
+    // 1. Clear the custom in-memory caching system
+    invalidateCache();
+    
+    // 2. Instruct Next.js to flush its Router Cache and Data Cache across all paths
+    revalidatePath('/', 'layout');
+    
+    return { success: true };
+  } catch (error) {
+    console.error("[CACHE_INVALIDATION] Failed to invalidate caches:", error);
+    return { success: false };
+  }
+}
 
 /**
  * OPTIMIZED: Dashboard-only aggregate for summary stats

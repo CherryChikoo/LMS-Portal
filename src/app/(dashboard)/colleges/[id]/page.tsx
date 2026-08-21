@@ -49,7 +49,14 @@ export default function CollegeDetailPage({ params }: PageProps) {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [loading, setLoading] = useState(true);
   const [isExternal, setIsExternal] = useState(false);
-  const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void } | null>(null);
+  const [confirmConfig, setConfirmConfig] = useState<{ 
+    isOpen: boolean; 
+    title: string; 
+    message: string; 
+    confirmText?: string;
+    variant?: "destructive" | "warning" | "info" | "success";
+    onConfirm: () => void 
+  } | null>(null);
   const [isCollegeAdmin, setIsCollegeAdmin] = useState(false);
 
   useEffect(() => {
@@ -128,7 +135,7 @@ function getYearBadgeStyle(year?: string) {
 
   // Pagination State (MUST BE BEFORE ANY EARLY RETURNS)
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 100; // Page-by-page arrow navigation (Option 2 architecture)
+  const itemsPerPage = 50; // Show 50 students per page (consistent with students page default)
 
   // Cascading subset: students narrowed by selected Department filter.
   const filteredByDepartment = useMemo(() =>
@@ -138,11 +145,14 @@ function getYearBadgeStyle(year?: string) {
     [students, selectedDeptFilter]
   );
 
-  // Department list derived from actual students in this college.
-  const departmentsList = useMemo(() =>
-    uniqueOptions(students.map((s) => s.department).filter(Boolean)),
-    [students]
-  );
+  // Department list derived from BOTH college departments AND actual students in this college.
+  // This ensures newly added departments show up even if no students are enrolled yet.
+  const departmentsList = useMemo(() => {
+    const studentDepts = students.map((s) => s.department).filter(Boolean);
+    const collegeDepts = college?.departments || [];
+    const allDepts = [...collegeDepts, ...studentDepts];
+    return uniqueOptions(allDepts);
+  }, [students, college?.departments]);
 
   // Year/Section options narrowed by selected Department. Defaults are only added when no
   // Department is selected so that picking a department shows data-first options only.
@@ -362,6 +372,12 @@ function getYearBadgeStyle(year?: string) {
   const ensureCollegeDocument = async (): Promise<string | null> => {
     if (!college) return null;
     const targetId = college.id;
+    
+    // If this is already an official college (not external), don't call upsert
+    if (!isExternal && college.type !== "external") {
+      return targetId;
+    }
+    
     try {
       const { supabase } = await import("@/lib/supabase/client");
       await upsertCollegeAction({
@@ -389,9 +405,11 @@ function getYearBadgeStyle(year?: string) {
     try {
       const collegeDocId = await ensureCollegeDocument();
       if (!collegeDocId) {
+        toast.error("Failed to ensure college document");
         setAddingDept(false);
         return;
       }
+      
       const deptsToAdd: string[] = [];
       selectedAddDepts.forEach((d) => {
         if (d === "Custom Department") {
@@ -405,18 +423,33 @@ function getYearBadgeStyle(year?: string) {
           deptsToAdd.push(d);
         }
       });
+      
       if (deptsToAdd.length === 0) {
+        toast.error("Please select at least one department to add");
         setAddingDept(false);
         return;
       }
-      const updatedDepts = ensureGeneralDepartment(Array.from(new Set([...(college.departments || []), ...deptsToAdd])));
+      
+      const currentDepts = college.departments || [];
+      const updatedDepts = ensureGeneralDepartment(Array.from(new Set([...currentDepts, ...deptsToAdd])));
+      
+      console.log("Adding departments:", {
+        collegeId: collegeDocId,
+        currentDepts,
+        deptsToAdd,
+        updatedDepts
+      });
+      
       await updateCollege(collegeDocId, { departments: updatedDepts });
+      
+      toast.success(`Added ${deptsToAdd.join(", ")} to ${college.name}`);
       setShowAddDeptModal(false);
       setSelectedAddDepts(["Computer Science & Engineering (CSE)"]);
       setNewDeptName("");
       await refreshData();
     } catch (err) {
       console.error("Error adding department:", err);
+      toast.error(`Failed to add department: ${err instanceof Error ? err.message : "Unknown error"}`);
     } finally {
       setAddingDept(false);
     }
@@ -500,14 +533,12 @@ function getYearBadgeStyle(year?: string) {
         section: studSection === "CUSTOM" ? customStudSection.trim() || "A" : studSection,
         batch: studBatch,
       });
-      await updateCollege(college.id, {
-        studentCount: (college.studentCount || students.length) + 1,
-      });
       setShowEnrollModal(false);
       setEnrollError(null);
       setStudName("");
       setStudEmail("");
       setCustomStudSection("");
+      // Refresh data to get updated counts from database
       refreshData().catch(() => {});
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -547,18 +578,28 @@ function getYearBadgeStyle(year?: string) {
     e.preventDefault();
     if (!editingStudent || !editStudName.trim() || !editStudEmail.trim() || !editStudDept.trim()) return;
     const normalizedEmail = editStudEmail.toLowerCase().trim();
-    if (normalizedEmail !== editingStudent.email) {
+    if (normalizedEmail !== editingStudent.email.toLowerCase().trim()) {
+      console.log('[COLLEGE EDIT - EMAIL VALIDATION] Checking email uniqueness:', normalizedEmail);
+      
       const [existingStudent, existingUsers] = await Promise.all([
         getStudentByEmail(normalizedEmail),
         getUsersByEmailAction(normalizedEmail),
       ]);
+      
+      console.log('[COLLEGE EDIT - EMAIL VALIDATION] Existing student:', existingStudent);
+      console.log('[COLLEGE EDIT - EMAIL VALIDATION] Existing users:', existingUsers);
+      
       const isUsedByAnother =
         (existingStudent && existingStudent.id !== editingStudent.id) ||
         existingUsers.some((u) => u.id !== editingStudent.id && (u as any).email?.toLowerCase() === normalizedEmail);
       if (isUsedByAnother) {
+        console.warn('[COLLEGE EDIT - EMAIL VALIDATION] Email already exists!'); // Changed from console.error
         setEditStudentError("A student or user account with this email already exists.");
+        setSavingEditStudent(false);
         return;
       }
+      
+      console.log('[COLLEGE EDIT - EMAIL VALIDATION] Email is unique, proceeding...');
     }
     setSavingEditStudent(true);
     setEditStudentError(null);
@@ -581,9 +622,13 @@ function getYearBadgeStyle(year?: string) {
         payload.initialPassword = editStudPassword.trim();
       }
 
+      console.log('[COLLEGE EDIT - UPDATE] Calling updateStudentProfile with payload:', payload);
       const res = await updateStudentProfile(editingStudent.id, payload);
+      console.log('[COLLEGE EDIT - UPDATE] Result:', res);
+      
       if (!res.success) {
         setEditStudentError(res.error || "Failed to update student profile.");
+        setSavingEditStudent(false);
         return;
       }
       toast.success("Student profile updated successfully.");
@@ -629,7 +674,13 @@ function getYearBadgeStyle(year?: string) {
   const filteredStudents = students
     .filter((s) => {
       const matchesDept = selectedDeptFilter === "ALL" || s.department === selectedDeptFilter;
-      const matchesYear = matchesYearFilter(s.academicYear, selectedYearFilter === "ALL" ? "" : selectedYearFilter);
+      
+      // Year filter with EXTENSIVE debugging
+      let matchesYear = true;
+      if (selectedYearFilter !== "ALL") {
+        matchesYear = matchesYearFilter(s.academicYear, selectedYearFilter);
+      }
+      
       const matchesSection = selectedSectionFilter === "ALL" || s.section === selectedSectionFilter;
       const matchesSearch =
         s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -656,6 +707,23 @@ function getYearBadgeStyle(year?: string) {
       }
       return 0;
     });
+
+  // Comprehensive debug logging
+  if (selectedYearFilter !== "ALL" && students.length > 0) {
+    console.log("=== YEAR FILTER DEBUG ===");
+    console.log(`Selected Year Filter: "${selectedYearFilter}"`);
+    console.log(`Total Students: ${students.length}`);
+    console.log(`Filtered Students: ${filteredStudents.length}`);
+    
+    // Show first 5 students' year values
+    console.log("First 5 students' years:");
+    students.slice(0, 5).forEach((s, i) => {
+      const matches = matchesYearFilter(s.academicYear, selectedYearFilter);
+      console.log(`  ${i + 1}. Name: ${s.name}, Year: "${s.academicYear}" (type: ${typeof s.academicYear}), Matches: ${matches}`);
+    });
+    
+    console.log("======================");
+  }
 
   // Calculate pagination after filtering
   const totalPages = Math.ceil(filteredStudents.length / itemsPerPage);
@@ -694,12 +762,20 @@ function getYearBadgeStyle(year?: string) {
         isOpen: true,
         title: "Restrict Student Account",
         message: `Are you sure you want to restrict "${stud.name}"'s account? The student will not be able to log in until the account is reactivated.`,
+        confirmText: "Restrict",
+        variant: "warning",
         onConfirm: async () => {
           try {
             setStudents((prev) =>
               prev.map((s) => (s.id === stud.id ? { ...s, status: newStatus } : s))
             );
-            await updateStudentProfile(stud.id, { status: newStatus });
+            const res = await updateStudentProfile(stud.id, { status: newStatus });
+            if (!res.success) {
+              setStudents((prev) =>
+                prev.map((s) => (s.id === stud.id ? { ...s, status: stud.status } : s))
+              );
+              throw new Error(res.error || "Failed to restrict account");
+            }
             toast.success(`Restricted "${stud.name}".`);
           } catch (err) {
             console.error("Failed to restrict account:", err);
@@ -712,12 +788,20 @@ function getYearBadgeStyle(year?: string) {
         isOpen: true,
         title: "Reactivate Student Account",
         message: `Are you sure you want to reactivate "${stud.name}"'s account? They will immediately regain access to the LMS.`,
+        confirmText: "Reactivate",
+        variant: "success",
         onConfirm: async () => {
           try {
             setStudents((prev) =>
               prev.map((s) => (s.id === stud.id ? { ...s, status: newStatus } : s))
             );
-            await updateStudentProfile(stud.id, { status: newStatus });
+            const res = await updateStudentProfile(stud.id, { status: newStatus });
+            if (!res.success) {
+              setStudents((prev) =>
+                prev.map((s) => (s.id === stud.id ? { ...s, status: stud.status } : s))
+              );
+              throw new Error(res.error || "Failed to reactivate account");
+            }
             toast.success(`Reactivated "${stud.name}".`);
           } catch (err) {
             console.error("Failed to reactivate account:", err);
@@ -773,7 +857,8 @@ function getYearBadgeStyle(year?: string) {
             </Button>
             <Button
               onClick={() => {
-                if (departments.length > 0 && !studDept) setStudDept(departments[0]);
+                const depts = college?.departments || [];
+                if (depts.length > 0 && !studDept) setStudDept(depts[0]);
                 setEnrollError(null);
                 setShowEnrollModal(true);
               }}
@@ -797,7 +882,7 @@ function getYearBadgeStyle(year?: string) {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 max-h-[380px] overflow-y-auto pr-1.5 scrollbar-thin scrollbar-thumb-border/60 hover:scrollbar-thumb-border">
-          {departments.map((dept, idx) => {
+          {(college?.departments || []).map((dept, idx) => {
             const deptCount = students.filter((s) => s.department === dept).length;
             const isSelected = selectedDeptFilter === dept;
             return (
@@ -985,12 +1070,19 @@ function getYearBadgeStyle(year?: string) {
                     <th className="py-3.5 px-4 w-10">
                       <input
                         type="checkbox"
-                        checked={filteredStudents.length > 0 && selectedStudentIds.length === filteredStudents.length}
+                        checked={paginatedStudents.length > 0 && paginatedStudents.every(s => selectedStudentIds.includes(s.id))}
                         onChange={(e) => {
                           if (e.target.checked) {
-                            setSelectedStudentIds(filteredStudents.map((s) => s.id));
+                            // Add current page students to existing selections
+                            const currentPageIds = paginatedStudents.map((s) => s.id);
+                            setSelectedStudentIds((prev) => {
+                              const newSet = new Set([...prev, ...currentPageIds]);
+                              return Array.from(newSet);
+                            });
                           } else {
-                            setSelectedStudentIds([]);
+                            // Remove current page students from selections
+                            const currentPageIds = paginatedStudents.map((s) => s.id);
+                            setSelectedStudentIds((prev) => prev.filter(id => !currentPageIds.includes(id)));
                           }
                         }}
                         className="rounded border-border text-brand focus:ring-brand/50 cursor-pointer"
@@ -1754,8 +1846,8 @@ function getYearBadgeStyle(year?: string) {
         onConfirm={confirmConfig?.onConfirm || (() => {})}
         title={confirmConfig?.title || ""}
         message={confirmConfig?.message || ""}
-        confirmText="Delete"
-        variant="destructive"
+        confirmText={confirmConfig?.confirmText || "Confirm"}
+        variant={confirmConfig?.variant || "destructive"}
       />
     </motion.div>
   );

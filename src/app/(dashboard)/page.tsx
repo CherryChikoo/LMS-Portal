@@ -36,6 +36,7 @@ import {
   getCollegeAdminDashboardStatsAction,
   getRecentActivityAction,
 } from "@/lib/actions/dashboard-actions-optimized";
+import { useLMSDataSelector } from "@/lib/data/use-lms-data";
 
 // ============================================================================
 // STUDENT DASHBOARD (OLD DESIGN + SERVER DATA)
@@ -422,10 +423,10 @@ function AdminDashboard({ stats, recentActivity, userName, userRole, userCollege
                 View All <ArrowRight className="w-3.5 h-3.5" />
               </Link>
             </div>
-            <div className="space-y-3 flex-1 max-h-[360px] overflow-y-auto pr-1.5 scrollbar-thin scrollbar-thumb-border/60 hover:scrollbar-thumb-border">
+            <div className="space-y-4 flex-1 max-h-[360px] overflow-y-auto pr-1.5 scrollbar-thin scrollbar-thumb-border/60 hover:scrollbar-thumb-border">
               {recentActivity?.recentBatches && recentActivity.recentBatches.length > 0 ? (
                 recentActivity.recentBatches.map((batch: any) => (
-                  <Link key={batch.id} href={`/admin/batches/${batch.id}`}>
+                  <Link key={batch.id} href={`/admin/batches/${batch.id}`} className="block">
                     <GlassCard className="p-4 hover:border-border transition-colors cursor-pointer group">
                       <div className="flex items-center justify-between mb-2">
                         <h4 className="font-bold text-sm text-foreground truncate flex-1">
@@ -478,6 +479,7 @@ export default function DashboardPageOptimized() {
   const [userCollegeId, setUserCollegeId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string>("");
   const [userName, setUserName] = useState<string>("User");
+  const lastRefreshTimestamp = useLMSDataSelector((s) => s.lastRefreshTimestamp);
   
   const [stats, setStats] = useState<any>(null);
   const [recentActivity, setRecentActivity] = useState<any>(null);
@@ -530,24 +532,36 @@ export default function DashboardPageOptimized() {
 
   // Load dashboard stats
   useEffect(() => {
-    if (!mounted || !userRole || !userId) return;
+    // For admin roles, we don't need userId
+    const isAdminRole = userRole === "admin" || userRole === "super_admin" || userRole === "main_admin";
+    const canLoad = mounted && userRole && (isAdminRole || userId);
+    
+    if (!canLoad) {
+      console.log('[DASHBOARD] Cannot load - mounted:', mounted, 'userRole:', userRole, 'userId:', userId);
+      return;
+    }
     
     const loadStats = async () => {
       setLoading(true);
       setError(null);
       
       try {
-        if (userRole === "admin" || userRole === "super_admin" || userRole === "main_admin") {
+        console.log('[DASHBOARD] Loading stats for role:', userRole);
+        
+        if (isAdminRole) {
           const [statsResult, activityResult] = await Promise.all([
             getAdminDashboardStatsAction(),
             getRecentActivityAction(10),
           ]);
           
+          console.log('[DASHBOARD] Stats result:', statsResult);
           console.log('[DASHBOARD] Activity result:', activityResult);
           
           if (statsResult.success) {
+            console.log('[DASHBOARD] Setting stats:', statsResult.stats);
             setStats(statsResult.stats);
           } else {
+            console.error('[DASHBOARD] Stats load failed:', statsResult.error);
             setError(statsResult.error || "Failed to load dashboard stats");
           }
           
@@ -581,7 +595,7 @@ export default function DashboardPageOptimized() {
     };
     
     loadStats();
-  }, [mounted, userId, userRole, userCollegeId]);
+  }, [mounted, userId, userRole, userCollegeId, lastRefreshTimestamp]);
 
   // Loading state
   if (!mounted || loading) {

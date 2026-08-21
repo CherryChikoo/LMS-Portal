@@ -16,6 +16,7 @@ import {
   checkStudentEmailExistsAction,
   resilientStudentFallbackAction
 } from '@/lib/actions/student-actions';
+import { revalidateAllDataCachesAction } from "@/lib/actions/lms-sync-actions";
 
 const COLLECTION_NAME = "students";
 
@@ -172,6 +173,7 @@ function mapStudentRow(row: any): Student {
   }
 
   const collegeName = row.colleges?.name || row.collegeName || (!row.collegeId || row.collegeId === "col-unassigned" || row.collegeId === "unassigned" ? "Unassigned" : row.collegeId);
+
   const mapped = {
     ...row,
     collegeName,
@@ -179,7 +181,9 @@ function mapStudentRow(row: any): Student {
     email: user.email || row.email || "",
     role: user.role || row.role || "student",
     displayName: user.displayName || user.name || row.displayName || "Unnamed Student",
-    status: user.status || row.status || "active",
+    // CRITICAL: Always use users.status as the source of truth. Never fall back to students.status
+    // because students table has a separate status column that may be out of sync.
+    status: user.status || "active",
     batchIds,
     batchNames,
     batches: batchesList,
@@ -230,6 +234,7 @@ export async function createStudentProfile(data: Omit<Student, "id">): Promise<s
   return await globalLoading.wrap(async () => {
     const id = await createStudentProfileAction(data);
     try {
+      await revalidateAllDataCachesAction();
       optimisticAddStudentToCache({ id, ...data } as Student);
       refreshCache().catch(() => {});
     } catch (_) {}
@@ -263,7 +268,7 @@ export async function updateStudentProfile(
       optimisticUpdateStudentInCache(studentId, whitelistedData as Partial<Student>);
     } catch (_) {}
 
-    if (data.email || data.initialPassword || data.collegeId) {
+    if (data.email || data.initialPassword || data.collegeId || data.status !== undefined) {
       const { data: sessionData } = await supabase.auth.getSession();
       const session = sessionData.session;
       
@@ -275,6 +280,7 @@ export async function updateStudentProfile(
         if (data.email) payload.email = data.email.toLowerCase().trim();
         if (data.initialPassword) payload.password = data.initialPassword;
         if (data.collegeId) payload.collegeId = data.collegeId;
+        if (data.status !== undefined) payload.status = data.status;
 
         const response = await fetch("/api/admin/update-student-auth", {
           method: "POST",
@@ -298,6 +304,7 @@ export async function updateStudentProfile(
       await updateStudentProfileAction(studentId, whitelistedData);
       
       try {
+        await revalidateAllDataCachesAction();
         refreshCache().catch(() => {});
       } catch (_) {}
       
@@ -316,38 +323,51 @@ export async function updateStudentProfile(
   }, "Updating student profile...");
 }
 
+export async function deleteStudentProfileDirect(studentId: string): Promise<void> {
+  // Optimistic deletion
+  try {
+    optimisticDeleteStudentFromCache(studentId);
+  } catch (_) {}
+
+  // Get admin session token for authorization
+  const sessionData = await supabase.auth.getSession();
+  let adminIdToken = sessionData.data.session?.access_token || "";
+  
+  // Try refreshing if no token
+  if (!adminIdToken) {
+    const refresh = await supabase.auth.refreshSession();
+    adminIdToken = refresh.data.session?.access_token || "";
+  }
+
+  if (!adminIdToken) {
+    throw new Error("Session expired. Please refresh the page and try again.");
+  }
+
+  const response = await fetch("/api/delete-user", {
+    method: "POST",
+    headers: { 
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${adminIdToken}`
+    },
+    body: JSON.stringify({ uid: studentId }),
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.message || body.error || "Failed to delete student account.");
+  }
+
+  try {
+    await revalidateAllDataCachesAction();
+    refreshCache().catch(() => {});
+  } catch (_) {}
+}
+
 export async function deleteStudentProfile(studentId: string): Promise<void> {
-  return await globalLoading.wrap(async () => {
-    // Optimistic deletion
-    try {
-      optimisticDeleteStudentFromCache(studentId);
-    } catch (_) {}
-
-    const { data: sessionData } = await supabase.auth.getSession();
-    const session = sessionData.session;
-    
-    if (!session) {
-      throw new Error("Admin authentication required. Please sign in again.");
-    }
-
-    const response = await fetch("/api/delete-user", {
-      method: "POST",
-      headers: { 
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${session.access_token}`
-      },
-      body: JSON.stringify({ uid: studentId }),
-    });
-
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({}));
-      throw new Error(body.message || body.error || "Failed to delete student account.");
-    }
-
-    try {
-      refreshCache().catch(() => {});
-    } catch (_) {}
-  }, "Deleting student account...");
+  return await globalLoading.wrap(
+    async () => deleteStudentProfileDirect(studentId),
+    "Deleting student account..."
+  );
 }
 
 export async function getTrainerNotes(studentId: string): Promise<import("@/types").TrainerNote[]> {

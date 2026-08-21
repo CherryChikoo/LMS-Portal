@@ -68,7 +68,7 @@ export interface LMSDataCacheState {
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
-const CACHE_STORAGE_KEY = "lms_data_cache_v4";
+const CACHE_STORAGE_KEY = "lms_data_cache_v5";
 /** Base fallback poll interval */
 const DEFAULT_POLL_INTERVAL_MS = 60 * 1000;
 
@@ -104,6 +104,15 @@ function persistCacheToStorage() {
 function hydrateCacheFromStorage() {
   if (typeof window === "undefined") return;
   try {
+    // Clear old cache versions
+    const oldVersions = ["lms_data_cache", "lms_data_cache_v2", "lms_data_cache_v3", "lms_data_cache_v4"];
+    oldVersions.forEach(key => {
+      try {
+        localStorage.removeItem(key);
+        sessionStorage.removeItem(key);
+      } catch (_) {}
+    });
+
     const raw = localStorage.getItem(CACHE_STORAGE_KEY) || sessionStorage.getItem(CACHE_STORAGE_KEY);
     if (!raw) return;
     const parsed = JSON.parse(raw);
@@ -615,7 +624,9 @@ function mapStudentRow(row: any): Student {
     email: user.email || row.email || "",
     role: user.role || row.role || "student",
     displayName: user.displayName || user.name || row.displayName || "Unnamed Student",
-    status: user.status || row.status || "active",
+    // CRITICAL: Always use users.status as the source of truth. Never fall back to students.status
+    // because students table has a separate status column that may be out of sync.
+    status: user.status || "active",
     batchIds,
     batchNames,
     batches: batchesList,
@@ -990,6 +1001,7 @@ function computeExportedState() {
     externalInstitutions: externals,
     institutionOptions,
     getInstitutionName: (id: string) => resolveInstitutionName(institutions, id),
+    lastRefreshTimestamp: Date.now(),
   };
 
   setLMSStoreState(cache._exportedState);

@@ -16,6 +16,7 @@ export async function getStudentsPaginatedAction({
   academicYear,
   section,
   status,
+  addedFilter,
   userRole,
   userCollegeId,
 }: {
@@ -27,6 +28,7 @@ export async function getStudentsPaginatedAction({
   academicYear?: string;
   section?: string;
   status?: string;
+  addedFilter?: string;
   userRole?: string;
   userCollegeId?: string;
 }) {
@@ -40,22 +42,27 @@ export async function getStudentsPaginatedAction({
     }
 
     // Filter by college
-    if (collegeId && collegeId !== "ALL" && collegeId !== "GLOBAL") {
-      where.collegeId = collegeId;
+    if (collegeId && collegeId !== "ALL" && collegeId !== "GLOBAL" && collegeId !== "") {
+      if (collegeId === "UNASSIGNED") {
+        // Filter for students with NULL collegeId
+        where.collegeId = null;
+      } else {
+        where.collegeId = collegeId;
+      }
     }
 
     // Filter by department (case-insensitive exact match)
-    if (department && department !== "ALL") {
+    if (department && department !== "ALL" && department !== "") {
       where.department = { equals: department, mode: 'insensitive' };
     }
 
     // Filter by academic year (case-insensitive exact match)
-    if (academicYear && academicYear !== "ALL") {
+    if (academicYear && academicYear !== "ALL" && academicYear !== "") {
       where.academicYear = { equals: academicYear, mode: 'insensitive' };
     }
 
     // Filter by section (case-insensitive exact match)
-    if (section && section !== "ALL") {
+    if (section && section !== "ALL" && section !== "") {
       where.section = { equals: section, mode: 'insensitive' };
     }
 
@@ -70,12 +77,25 @@ export async function getStudentsPaginatedAction({
       ];
     }
 
-    // Status filter (active/inactive from users table)
-    if (status && status !== "ALL") {
+    // Status filter (active/restricted from users table)
+    if (status && status !== "ALL" && status !== "") {
       where.users = {
         ...where.users,
-        status: status === "active" ? "active" : "inactive",
+        status: status, // Pass the status directly: "active" or "restricted"
       };
+    }
+
+    // Added filter
+    if (addedFilter && addedFilter !== "ALL" && addedFilter !== "") {
+      if (addedFilter === "Last 24 Hours") {
+        where.createdAt = { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) };
+      } else if (addedFilter === "Last 7 Days") {
+        where.createdAt = { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) };
+      } else if (addedFilter === "CSV Uploads") {
+        where.enrollmentType = "csv";
+      } else if (addedFilter === "Manual Entry") {
+        where.enrollmentType = "manual";
+      }
     }
 
     // Calculate pagination
@@ -185,7 +205,7 @@ export async function getStudentsPaginatedAction({
   }
 }
 
-// Get unique filter options from actual student data
+// Get unique filter options from actual student data + college departments + batch departments
 export async function getStudentFilterOptionsAction({
   userRole,
   userCollegeId,
@@ -209,7 +229,7 @@ export async function getStudentFilterOptionsAction({
       where.collegeId = collegeId;
     }
 
-    // Get all unique values
+    // Get all unique values from STUDENTS
     const students = await prisma.students.findMany({
       where,
       select: {
@@ -219,15 +239,64 @@ export async function getStudentFilterOptionsAction({
       },
     });
 
-    // Extract unique values
+    // Get departments from COLLEGES (so new departments show even without students)
+    const collegeWhere: any = {};
+    if (collegeId && collegeId !== "ALL" && collegeId !== "GLOBAL") {
+      collegeWhere.id = collegeId;
+    } else if ((userRole === "college_admin" || userRole === "student") && userCollegeId) {
+      collegeWhere.id = userCollegeId;
+    }
+
+    const colleges = await prisma.colleges.findMany({
+      where: Object.keys(collegeWhere).length > 0 ? collegeWhere : undefined,
+      select: {
+        departments: true,
+      },
+    });
+
+    // Get departments from BATCHES (so batch departments show even without students)
+    const batchWhere: any = {};
+    if (collegeId && collegeId !== "ALL" && collegeId !== "GLOBAL") {
+      batchWhere.collegeId = collegeId;
+    } else if ((userRole === "college_admin" || userRole === "student") && userCollegeId) {
+      batchWhere.collegeId = userCollegeId;
+    }
+
+    const batches = await prisma.batches.findMany({
+      where: Object.keys(batchWhere).length > 0 ? batchWhere : undefined,
+      select: {
+        department: true,
+        academicYear: true,
+        section: true,
+      },
+    });
+
+    // Extract unique values from all sources
     const departments = new Set<string>();
     const years = new Set<string>();
     const sections = new Set<string>();
 
+    // Add from students
     students.forEach((s) => {
       if (s.department) departments.add(s.department);
       if (s.academicYear) years.add(s.academicYear);
       if (s.section) sections.add(s.section);
+    });
+
+    // Add from colleges
+    colleges.forEach((c) => {
+      if (c.departments && Array.isArray(c.departments)) {
+        c.departments.forEach((d: string) => {
+          if (d) departments.add(d);
+        });
+      }
+    });
+
+    // Add from batches
+    batches.forEach((b) => {
+      if (b.department) departments.add(b.department);
+      if (b.academicYear) years.add(b.academicYear);
+      if (b.section) sections.add(b.section);
     });
 
     return {
@@ -439,16 +508,37 @@ export async function createStudentProfileAction(data: any) {
     }
   }
 
+  // UPDATE COLLEGE STUDENT COUNT - increment by 1
+  if (studentPayload.collegeId) {
+    await prisma.colleges.update({
+      where: { id: studentPayload.collegeId },
+      data: { studentCount: { increment: 1 } }
+    }).catch((err) => {
+      console.error("Failed to increment college studentCount during profile creation:", err);
+    });
+  }
+
   return inserted.id;
 }
 
 export async function updateStudentProfileAction(studentId: string, whitelistedData: any) {
   await prisma.$transaction(async (tx: any) => {
+    // Get current student data to check if college changed
+    const currentStudent = await tx.students.findUnique({
+      where: { id: studentId },
+      select: { collegeId: true }
+    });
+
+    const oldCollegeId = currentStudent?.collegeId;
+    const newCollegeId = whitelistedData.collegeId !== undefined
+      ? (!whitelistedData.collegeId || whitelistedData.collegeId === "GLOBAL" || whitelistedData.collegeId === "all" || whitelistedData.collegeId === "ALL" || whitelistedData.collegeId === "global" ? null : whitelistedData.collegeId)
+      : undefined;
+
     if (Object.keys(whitelistedData).length > 0) {
       // 1. Clean student fields
       const studentPayload: any = {};
       if (whitelistedData.collegeId !== undefined) {
-        studentPayload.collegeId = (!whitelistedData.collegeId || whitelistedData.collegeId === "GLOBAL" || whitelistedData.collegeId === "all" || whitelistedData.collegeId === "ALL" || whitelistedData.collegeId === "global") ? null : whitelistedData.collegeId;
+        studentPayload.collegeId = newCollegeId;
       }
       if (whitelistedData.phone !== undefined) studentPayload.phone = whitelistedData.phone;
       if (whitelistedData.department !== undefined) studentPayload.department = whitelistedData.department;
@@ -477,9 +567,9 @@ export async function updateStudentProfileAction(studentId: string, whitelistedD
       if (whitelistedData.name) userPayload.displayName = whitelistedData.name.trim();
       if (whitelistedData.displayName) userPayload.displayName = whitelistedData.displayName.trim();
       if (whitelistedData.email) userPayload.email = whitelistedData.email.toLowerCase().trim();
-      if (whitelistedData.status) userPayload.status = whitelistedData.status;
+      if (whitelistedData.status !== undefined) userPayload.status = whitelistedData.status;
       if (whitelistedData.collegeId !== undefined) {
-        userPayload.collegeId = (!whitelistedData.collegeId || whitelistedData.collegeId === "GLOBAL" || whitelistedData.collegeId === "all" || whitelistedData.collegeId === "ALL" || whitelistedData.collegeId === "global") ? null : whitelistedData.collegeId;
+        userPayload.collegeId = newCollegeId;
       }
       if (Object.keys(userPayload).length > 0) {
         userPayload.updatedAt = new Date();
@@ -487,6 +577,29 @@ export async function updateStudentProfileAction(studentId: string, whitelistedD
           where: { id: studentId },
           data: userPayload
         });
+      }
+
+      // 3. Update college student counts if college changed
+      if (newCollegeId !== undefined && oldCollegeId !== newCollegeId) {
+        // Decrement old college count (if had a college)
+        if (oldCollegeId) {
+          await tx.colleges.update({
+            where: { id: oldCollegeId },
+            data: { studentCount: { decrement: 1 } }
+          }).catch((err: any) => {
+            console.error(`Failed to decrement count for old college ${oldCollegeId}:`, err);
+          });
+        }
+
+        // Increment new college count (if assigned to a college)
+        if (newCollegeId) {
+          await tx.colleges.update({
+            where: { id: newCollegeId },
+            data: { studentCount: { increment: 1 } }
+          }).catch((err: any) => {
+            console.error(`Failed to increment count for new college ${newCollegeId}:`, err);
+          });
+        }
       }
 
       // 3. Batch assignments if batchIds provided

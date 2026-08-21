@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Clear LMS Cache</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 600px;
+            margin: 100px auto;
+            padding: 20px;
+            background: #0f1419;
+            color: #e0e0e0;
+        }
+        .container {
+            background: #1a1f26;
+            padding: 30px;
+            border-radius: 8px;
+            border: 1px solid #2d3440;
+        }
+        h1 {
+            color: #00d9ff;
+            margin-top: 0;
+        }
+        button {
+            background: #00d9ff;
+            color: #0f1419;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #00b8d9;
+        }
+        .success {
+            color: #00ff88;
+            margin-top: 20px;
+            font-weight: 500;
+        }
+        .info {
+            color: #ffa500;
+            margin-top: 10px;
+            font-size: 14px;
+        }
+        code {
+            background: #0f1419;
+            padding: 2px 6px;
+            border-radius: 3px;
+            color: #00d9ff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔄 Clear LMS Cache</h1>
+        <p>This will clear all cached LMS data and force a fresh reload from the database.</p>
+        <p class="info">Use this after running the sync script to see updated counts.</p>
+        
+        <button onclick="clearCache()">Clear Cache Now</button>
+        <button onclick="clearAndReload()">Clear & Reload Portal</button>
+        
+        <div id="result"></div>
+    </div>
+
+    <script>
+        function clearCache() {
+            try {
+                // Clear all LMS cache keys
+                const keys = [
+                    'lms_data_cache_v4',
+                    'lms_data_cache_v3',
+                    'lms_data_cache_v2',
+                    'lms_data_cache',
+                    'lms_hierarchy_cache',
+                    'lms_last_fetch'
+                ];
+                
+                keys.forEach(key => {
+                    localStorage.removeItem(key);
+                    sessionStorage.removeItem(key);
+                });
+                
+                document.getElementById('result').innerHTML = 
+                    '<div class="success">✅ Cache cleared successfully!<br>Refresh the LMS portal to load fresh data.</div>';
+                
+                console.log('✅ LMS cache cleared successfully');
+            } catch (error) {
+                document.getElementById('result').innerHTML = 
+                    '<div style="color: #ff4444;">❌ Error: ' + error.message + '</div>';
+                console.error('Error clearing cache:', error);
+            }
+        }
+        
+        function clearAndReload() {
+            clearCache();
+            setTimeout(() => {
+                // Try to open the portal if we're in the same domain
+                const portalUrl = window.location.origin.includes('localhost') 
+                    ? 'http://localhost:3000/colleges'
+                    : '/colleges';
+                window.location.href = portalUrl;
+            }, 1000);
+        }
+    </script>
+</body>
+</html>
