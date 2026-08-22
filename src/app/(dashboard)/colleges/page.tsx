@@ -6,8 +6,9 @@ import { supabase } from "@/lib/supabase/client";
 import { useEffect, useState, useRef } from "react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "motion/react";
-import { GraduationCap, Plus, Building2, Layers, Users, FolderTree, ChevronRight, Trash2, Pencil, KeyRound, Loader2, Upload, FileSpreadsheet, FolderOpen, StopCircle, Download } from "lucide-react";
+import { GraduationCap, Plus, Building2, Layers, Users, FolderTree, ChevronRight, Trash2, Pencil, KeyRound, Loader2, Upload, FileSpreadsheet, FolderOpen, StopCircle, Download, Search, RefreshCcw } from "lucide-react";
 import Link from "next/link";
+import { useSessionStorage } from "@/hooks/use-session-storage";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
@@ -36,6 +37,26 @@ export default function CollegesPage() {
     isLoading: metricsLoading,
     error: metricsError 
   } = useDatabaseMetrics();
+
+  const ITEMS_PER_PAGE = 10;
+  const [currentPage, setCurrentPage] = useSessionStorage("colleges_main_page", 1);
+  const [searchQuery, setSearchQuery] = useSessionStorage("colleges_main_search", "");
+
+  const [externalCurrentPage, setExternalCurrentPage] = useSessionStorage("colleges_external_page", 1);
+  const [externalSearchQuery, setExternalSearchQuery] = useSessionStorage("colleges_external_search", "");
+  
+  // Filtering & Pagination Logic
+  const filteredMainColleges = colleges.filter(c => 
+    c.name.toLowerCase().includes(searchQuery.toLowerCase())
+  ).sort((a, b) => (new Date(b.createdAt || 0).getTime()) - (new Date(a.createdAt || 0).getTime()));
+  const totalPages = Math.max(1, Math.ceil(filteredMainColleges.length / ITEMS_PER_PAGE));
+  const paginatedColleges = filteredMainColleges.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+
+  const filteredExtColleges = externalColleges.filter(c => 
+    c.name.toLowerCase().includes(externalSearchQuery.toLowerCase())
+  ).sort((a, b) => (new Date(b.createdAt || 0).getTime()) - (new Date(a.createdAt || 0).getTime()));
+  const totalExtPages = Math.max(1, Math.ceil(filteredExtColleges.length / ITEMS_PER_PAGE));
+  const paginatedExternalColleges = filteredExtColleges.slice((externalCurrentPage - 1) * ITEMS_PER_PAGE, externalCurrentPage * ITEMS_PER_PAGE);
 
   const [selectedAdminIds, setSelectedAdminIds] = useState<string[]>([]);
   const [selectedExternalIds, setSelectedExternalIds] = useState<string[]>([]);
@@ -736,6 +757,9 @@ export default function CollegesPage() {
     });
   };
 
+  // Tab state
+  const [activeTab, setActiveTab] = useSessionStorage<"partner" | "external">("colleges_active_tab", "partner");
+
   return (
     <motion.div initial="hidden" animate="visible" variants={fadeInUp} className="space-y-6">
       <PageHeader
@@ -752,6 +776,42 @@ export default function CollegesPage() {
         }
       />
 
+      {/* Tabs Navigation */}
+      <div className="flex items-center gap-2 border-b border-border">
+        <button
+          onClick={() => setActiveTab("partner")}
+          className={`px-6 py-3 text-sm font-semibold transition-all relative ${
+            activeTab === "partner"
+              ? "text-brand border-b-2 border-brand"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <Building2 className="w-4 h-4" />
+            <span>Partner Institutions</span>
+            <span className="px-2 py-0.5 rounded-full bg-brand/10 text-brand text-xs font-bold">
+              {colleges.length}
+            </span>
+          </div>
+        </button>
+        <button
+          onClick={() => setActiveTab("external")}
+          className={`px-6 py-3 text-sm font-semibold transition-all relative ${
+            activeTab === "external"
+              ? "text-brand border-b-2 border-brand"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <FolderOpen className="w-4 h-4" />
+            <span>External Institutions</span>
+            <span className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 text-xs font-bold">
+              {externalColleges.length}
+            </span>
+          </div>
+        </button>
+      </div>
+
       {lmsLoading && colleges.length === 0 && externalColleges.length === 0 ? (
         <div className="p-12 text-center text-sm text-muted-foreground flex flex-col items-center justify-center gap-3">
           <div className="w-8 h-8 rounded-full border-2 border-brand border-t-transparent animate-spin" />
@@ -759,7 +819,10 @@ export default function CollegesPage() {
         </div>
       ) : (
         <>
-          {colleges.length === 0 ? (
+          {/* Partner Institutions Tab Content */}
+          {activeTab === "partner" && (
+            <>
+              {colleges.length === 0 ? (
         <EmptyState
           icon={GraduationCap}
           title="No colleges registered"
@@ -770,18 +833,36 @@ export default function CollegesPage() {
       ) : (
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 rounded-xl bg-card/60 border border-border">
-            <label className="flex items-center gap-2.5 text-xs font-bold text-foreground cursor-pointer">
-              <input
-                type="checkbox"
-                checked={colleges.length > 0 && selectedAdminIds.length === colleges.length}
-                onChange={(e) => {
-                  if (e.target.checked) setSelectedAdminIds(colleges.map((c) => c.id));
-                  else setSelectedAdminIds([]);
-                }}
-                className="rounded border-border text-brand focus:ring-brand/50"
-              />
-              <span>Select All Registered Colleges ({colleges.length})</span>
-            </label>
+            <div className="flex items-center gap-3 w-full sm:w-auto flex-wrap">
+              <label className="flex items-center gap-2.5 text-xs font-bold text-foreground cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={paginatedColleges.length > 0 && selectedAdminIds.length === paginatedColleges.length}
+                  onChange={(e) => {
+                    if (e.target.checked) setSelectedAdminIds(paginatedColleges.map((c) => c.id));
+                    else setSelectedAdminIds([]);
+                  }}
+                  className="rounded border-border text-brand focus:ring-brand/50"
+                />
+                <span>Select All ({paginatedColleges.length})</span>
+              </label>
+              
+              <div className="relative w-full sm:w-64">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Search colleges..."
+                  value={searchQuery}
+                  onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+                  className="w-full h-8 pl-8 pr-3 rounded-lg border border-border bg-background/50 text-xs focus:ring-1 focus:ring-brand"
+                />
+              </div>
+              {currentPage > 1 && (
+                <button onClick={() => setCurrentPage(1)} className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground">
+                  <RefreshCcw className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
 
             {selectedAdminIds.length > 0 && (
               <Button
@@ -796,13 +877,12 @@ export default function CollegesPage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {colleges.map((col) => {
+            {paginatedColleges.map((col) => {
               const isSelected = selectedAdminIds.includes(col.id);
               return (
-                <motion.div
+                <div
                   key={col.id}
-                  whileHover={{ y: -4 }}
-                  className={`rounded-2xl border ${isSelected ? "border-brand bg-brand/5" : "border-border bg-card/95"} p-6 flex flex-col justify-between space-y-5 shadow-lg relative`}
+                  className={`rounded-2xl border ${isSelected ? "border-brand bg-brand/5" : "border-border bg-card/95"} p-6 flex flex-col justify-between space-y-5 shadow-lg relative hover:-translate-y-1 transition-all duration-300`}
                 >
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
@@ -937,22 +1017,42 @@ export default function CollegesPage() {
                       Manage Students <ChevronRight className="w-3.5 h-3.5" />
                     </Link>
                   </div>
-                </motion.div>
+                </div>
               );
             })}
           </div>
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 mt-6">
+              <Button variant="outline" size="sm" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="h-8 text-xs font-semibold">Previous</Button>
+              <div className="text-xs font-bold text-muted-foreground px-2">Page {currentPage} of {totalPages}</div>
+              <Button variant="outline" size="sm" onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="h-8 text-xs font-semibold">Next</Button>
+            </div>
+          )}
         </div>
       )}
+            </>
+          )}
 
-      {/* External / Self-Registered Institutions Section */}
-      {externalColleges.length > 0 && (
-        <div className="space-y-4 pt-8 border-t border-border">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div>
-              <h3 className="text-lg font-bold text-foreground flex items-center gap-2.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
-                <span>Self-Registered / Outside Institutions</span>
-              </h3>
+          {/* External Institutions Tab Content */}
+          {activeTab === "external" && (
+            <>
+              {externalColleges.length === 0 ? (
+                <EmptyState
+                  icon={FolderOpen}
+                  title="No external institutions"
+                  description="External institutions appear here when students self-register with colleges not in your official partner list."
+                  actionLabel={null}
+                />
+              ) : (
+                <div className="space-y-4">
+                  {/* External / Self-Registered Institutions Section */}
+                  <div className="space-y-4 pt-8 border-t border-border">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div>
+                        <h3 className="text-lg font-bold text-foreground flex items-center gap-2.5">
+                          <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
+                          <span>Self-Registered / Outside Institutions</span>
+                        </h3>
               <p className="text-xs text-muted-foreground mt-0.5">
                 Colleges specified by external students during self-registration. Kept separate so admin/trainers can distinguish from official registered hierarchy.
               </p>
@@ -963,18 +1063,36 @@ export default function CollegesPage() {
           </div>
 
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 rounded-xl bg-amber-500/5 border border-amber-500/20">
-            <label className="flex items-center gap-2.5 text-xs font-bold text-foreground cursor-pointer">
-              <input
-                type="checkbox"
-                checked={externalColleges.length > 0 && selectedExternalIds.length === externalColleges.length}
-                onChange={(e) => {
-                  if (e.target.checked) setSelectedExternalIds(externalColleges.map((c) => c.name));
-                  else setSelectedExternalIds([]);
-                }}
-                className="rounded border-border text-amber-500 focus:ring-amber-500/50"
-              />
-              <span>Select All Outside Institutions ({externalColleges.length})</span>
-            </label>
+            <div className="flex items-center gap-3 w-full sm:w-auto flex-wrap">
+              <label className="flex items-center gap-2.5 text-xs font-bold text-foreground cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={paginatedExternalColleges.length > 0 && selectedExternalIds.length === paginatedExternalColleges.length}
+                  onChange={(e) => {
+                    if (e.target.checked) setSelectedExternalIds(paginatedExternalColleges.map((c) => c.name));
+                    else setSelectedExternalIds([]);
+                  }}
+                  className="rounded border-border text-amber-500 focus:ring-amber-500/50"
+                />
+                <span>Select All ({paginatedExternalColleges.length})</span>
+              </label>
+
+              <div className="relative w-full sm:w-64">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-amber-500/70" />
+                <input
+                  type="text"
+                  placeholder="Search outside colleges..."
+                  value={externalSearchQuery}
+                  onChange={(e) => { setExternalSearchQuery(e.target.value); setExternalCurrentPage(1); }}
+                  className="w-full h-8 pl-8 pr-3 rounded-lg border border-amber-500/30 bg-background/50 text-xs focus:ring-1 focus:ring-amber-500"
+                />
+              </div>
+              {externalCurrentPage > 1 && (
+                <button onClick={() => setExternalCurrentPage(1)} className="p-1.5 rounded-md hover:bg-amber-500/10 text-amber-500/70 hover:text-amber-500">
+                  <RefreshCcw className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
 
             <div className="flex items-center gap-2 flex-wrap">
               {selectedExternalIds.length > 0 && (
@@ -1001,15 +1119,14 @@ export default function CollegesPage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {externalColleges.map((col) => {
+            {paginatedExternalColleges.map((col) => {
               const isSelected = selectedExternalIds.includes(col.name);
               const badgeLabel = "Outside Institution";
 
               return (
-                <motion.div
+                <div
                   key={col.id}
-                  whileHover={{ y: -4 }}
-                  className={`rounded-2xl border ${isSelected ? "border-amber-500 bg-amber-500/5" : "border-amber-500/30 bg-card/95"} p-6 flex flex-col justify-between space-y-5 shadow-lg relative overflow-hidden`}
+                  className={`rounded-2xl border ${isSelected ? "border-amber-500 bg-amber-500/5" : "border-amber-500/30 bg-card/95"} p-6 flex flex-col justify-between space-y-5 shadow-lg relative overflow-hidden hover:-translate-y-1 transition-all duration-300`}
                 >
                   <div className="absolute top-0 right-0 px-3 py-1 bg-amber-500/10 border-l border-b border-amber-500/20 rounded-bl-xl text-[10px] font-bold text-amber-500 uppercase tracking-wider">
                     {badgeLabel}
@@ -1114,13 +1231,23 @@ export default function CollegesPage() {
                       Manage Students <ChevronRight className="w-3.5 h-3.5" />
                     </Link>
                   </div>
-                </motion.div>
+                </div>
               );
             })}
           </div>
-        </div>
-      )}
-      </>
+          {totalExtPages > 1 && (
+            <div className="flex items-center justify-center gap-2 mt-6">
+              <Button variant="outline" size="sm" onClick={() => setExternalCurrentPage(p => Math.max(1, p - 1))} disabled={externalCurrentPage === 1} className="h-8 text-xs font-semibold">Previous</Button>
+              <div className="text-xs font-bold text-muted-foreground px-2">Page {externalCurrentPage} of {totalExtPages}</div>
+              <Button variant="outline" size="sm" onClick={() => setExternalCurrentPage(p => Math.min(totalExtPages, p + 1))} disabled={externalCurrentPage === totalExtPages} className="h-8 text-xs font-semibold">Next</Button>
+            </div>
+          )}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </>
       )}
 
       {/* Add College Modal */}

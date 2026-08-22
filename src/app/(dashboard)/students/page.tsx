@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback, Suspense } from "react";
+import { useEffect, useMemo, useState, useCallback, Suspense, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import { Users, Plus, Upload, Download, Search, Trash2, Edit2, Ban, CheckCircle2, ChevronLeft, ChevronRight, AlertCircle } from "lucide-react";
+import { Users, Plus, Upload, Download, Search, Trash2, Edit2, Ban, CheckCircle2, ChevronLeft, ChevronRight, AlertCircle, X, RefreshCcw } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
@@ -11,13 +11,13 @@ import { useDebounce } from "@/hooks/use-debounce";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
 import { toast } from "sonner";
+import { useSessionStorage } from "@/hooks/use-session-storage";
 import { useLMSDataSelector } from "@/lib/data/use-lms-data";
 import { getStudentsPaginatedAction, getStudentFilterOptionsAction } from "@/lib/actions/student-actions";
 import { deleteStudentProfile, updateStudentProfile, formatAuthError } from "@/lib/services";
 import type { Student } from "@/types";
 import { AddStudentModal } from "@/components/students/add-student-modal";
 import { ImportStudentsModal } from "@/components/students/import-students-modal";
-import { QueueImportModal } from "@/components/students/queue-import-modal";
 
 function StudentsPageContent() {
   // ===== ALL HOOKS AT THE TOP (NUCLEAR SAFETY) =====
@@ -30,10 +30,10 @@ function StudentsPageContent() {
   const [userCollegeId, setUserCollegeId] = useState<string>("");
   
   // Pagination state
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPage, setCurrentPage] = useSessionStorage("students_page_currentPage", 1);
   const [totalCount, setTotalCount] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
-  const [pageSize, setPageSize] = useState(50); // Default 50 for students
+  const [pageSize, setPageSize] = useState(25); // Default 25 for better scroll performance
   
   // Students data
   const [students, setStudents] = useState<any[]>([]);
@@ -44,14 +44,46 @@ function StudentsPageContent() {
   const [sectionOptions, setSectionOptions] = useState<string[]>([]);
   
   // Filter state
-  const [searchRaw, setSearchRaw] = useState("");
+  const [searchRaw, setSearchRaw] = useSessionStorage("students_page_searchRaw", "");
   const debouncedSearch = useDebounce(searchRaw, 300); // 300ms debounce
-  const [collegeFilter, setCollegeFilter] = useState<string>("");
-  const [departmentFilter, setDepartmentFilter] = useState<string>("");
-  const [yearFilter, setYearFilter] = useState<string>("");
-  const [sectionFilter, setSectionFilter] = useState<string>("");
-  const [statusFilter, setStatusFilter] = useState<string>("");
-  const [addedFilter, setAddedFilter] = useState<string>("");
+  const [collegeFilter, setCollegeFilter] = useSessionStorage("students_page_collegeFilter", "");
+  const [departmentFilter, setDepartmentFilter] = useSessionStorage("students_page_departmentFilter", "");
+  const [yearFilter, setYearFilter] = useSessionStorage("students_page_yearFilter", "");
+  const [sectionFilter, setSectionFilter] = useSessionStorage("students_page_sectionFilter", "");
+  const [statusFilter, setStatusFilter] = useSessionStorage("students_page_statusFilter", "");
+  const [addedFilter, setAddedFilter] = useSessionStorage("students_page_addedFilter", "");
+  
+  const hasActiveFilters = Boolean(searchRaw || collegeFilter || departmentFilter || yearFilter || sectionFilter || statusFilter || addedFilter);
+  
+  const resetFilters = () => {
+    setSearchRaw("");
+    setCollegeFilter("");
+    setDepartmentFilter("");
+    setYearFilter("");
+    setSectionFilter("");
+    setStatusFilter("");
+    setAddedFilter("");
+  };
+
+  // Reset child filters when parent filter changes (skip initial mount)
+  const prevCollegeRef = useRef(collegeFilter);
+  useEffect(() => {
+    if (prevCollegeRef.current !== collegeFilter) {
+      setDepartmentFilter("");
+      setYearFilter("");
+      setSectionFilter("");
+      prevCollegeRef.current = collegeFilter;
+    }
+  }, [collegeFilter, setDepartmentFilter, setYearFilter, setSectionFilter]);
+
+  const prevDeptYearRef = useRef(`${departmentFilter}-${yearFilter}`);
+  useEffect(() => {
+    const current = `${departmentFilter}-${yearFilter}`;
+    if (prevDeptYearRef.current !== current) {
+      setSectionFilter("");
+      prevDeptYearRef.current = current;
+    }
+  }, [yearFilter, departmentFilter, setSectionFilter]);
   
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -65,11 +97,8 @@ function StudentsPageContent() {
     variant?: "destructive" | "warning" | "info" | "success";
   } | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [showImportModal, setShowImportModal] = useState(false);
-  const [showQueueImportModal, setShowQueueImportModal] = useState(false);
+  const [showSmartImportModal, setShowSmartImportModal] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
-  const [navigatingToStudent, setNavigatingToStudent] = useState<string | null>(null);
-
   // Get metadata from cache (for filter options)
   const colleges = useLMSDataSelector((s) => s.filteredColleges);
 
@@ -172,12 +201,44 @@ function StudentsPageContent() {
     loadStudents();
   }, [currentPage, debouncedSearch, collegeFilter, departmentFilter, yearFilter, sectionFilter, statusFilter, addedFilter, userRole, userCollegeId]);
 
-  // Reset to page 1 when filters change
+  // Bulletproof: Reset to page 1 ONLY if a filter ACTUALLY changed
+  const prevFiltersRef = useRef({
+    search: debouncedSearch,
+    college: collegeFilter,
+    dept: departmentFilter,
+    year: yearFilter,
+    section: sectionFilter,
+    status: statusFilter,
+    added: addedFilter,
+    pageSize
+  });
+  
   useEffect(() => {
-    setCurrentPage(1);
-    // Clear selections when filters change
-    setSelectedIds(new Set());
-  }, [debouncedSearch, collegeFilter, departmentFilter, yearFilter, sectionFilter, statusFilter, addedFilter, pageSize]);
+    const prev = prevFiltersRef.current;
+    if (
+      prev.search !== debouncedSearch ||
+      prev.college !== collegeFilter ||
+      prev.dept !== departmentFilter ||
+      prev.year !== yearFilter ||
+      prev.section !== sectionFilter ||
+      prev.status !== statusFilter ||
+      prev.added !== addedFilter ||
+      prev.pageSize !== pageSize
+    ) {
+      setCurrentPage(1);
+      setSelectedIds(new Set());
+      prevFiltersRef.current = {
+        search: debouncedSearch,
+        college: collegeFilter,
+        dept: departmentFilter,
+        year: yearFilter,
+        section: sectionFilter,
+        status: statusFilter,
+        added: addedFilter,
+        pageSize
+      };
+    }
+  }, [debouncedSearch, collegeFilter, departmentFilter, yearFilter, sectionFilter, statusFilter, addedFilter, pageSize, setCurrentPage]);
 
   // Debug: Log students state changes
   useEffect(() => {
@@ -533,17 +594,9 @@ function StudentsPageContent() {
                 <Plus className="w-4 h-4 mr-1.5" />
                 Add Student
               </Button>
-              <Button onClick={() => setShowImportModal(true)} variant="outline">
+              <Button onClick={() => setShowSmartImportModal(true)} variant="outline">
                 <Upload className="w-4 h-4 mr-1.5" />
                 Import CSV
-              </Button>
-              <Button 
-                onClick={() => setShowQueueImportModal(true)} 
-                variant="outline"
-                className="border-purple-300 hover:bg-purple-50 dark:border-purple-700 dark:hover:bg-purple-950"
-              >
-                <Upload className="w-4 h-4 mr-1.5" />
-                Queue Large Import (25K+)
               </Button>
             </div>
           ) : undefined
@@ -553,16 +606,30 @@ function StudentsPageContent() {
       {/* Filters Bar */}
       {userRole !== "student" && (
         <div className="bg-card p-4 rounded-xl border border-border space-y-4">
-          {/* Search */}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input
-              type="text"
-              value={searchRaw}
-              onChange={(e) => setSearchRaw(e.target.value)}
-              placeholder="Search by name, email, or department..."
-              className="w-full h-10 pl-10 pr-4 rounded-xl bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand/50"
-            />
+          {/* Search bar & Reset */}
+          <div className="flex items-center gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+              <input
+                type="text"
+                value={searchRaw}
+                onChange={(e) => setSearchRaw(e.target.value)}
+                placeholder="Search by name, email, or department..."
+                className="w-full h-10 pl-10 pr-4 rounded-xl bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand/50"
+              />
+            </div>
+            <Button
+              variant="outline"
+              onClick={resetFilters}
+              disabled={!hasActiveFilters}
+              className={`h-10 px-4 shadow-sm transition-all ${
+                hasActiveFilters 
+                  ? "text-muted-foreground hover:text-foreground border-border bg-background hover:bg-muted/30" 
+                  : "opacity-50 cursor-not-allowed text-muted-foreground/50 border-border/50 bg-background/50"
+              }`}
+            >
+              <X className="w-4 h-4 mr-2" /> Reset
+            </Button>
           </div>
 
           {/* Filter dropdowns */}
@@ -666,6 +733,16 @@ function StudentsPageContent() {
                     ? "Select All" 
                     : `${selectedIds.size} selected`}
                 </span>
+                {selectedIds.size === 0 && currentPage > 1 && (
+                  <button
+                    onClick={() => setCurrentPage(1)}
+                    className="ml-2 p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5"
+                    title="Jump back to Page 1"
+                  >
+                    <RefreshCcw className="w-3.5 h-3.5" />
+                    <span className="text-xs font-semibold">Page 1</span>
+                  </button>
+                )}
               </div>
               
               {selectedIds.size > 0 && (
@@ -821,12 +898,14 @@ function StudentsPageContent() {
                             return;
                           }
                           // Show loading state and navigate to student detail page
-                          setNavigatingToStudent(student.id);
-                          router.push(`/students/${student.id}`);
+                          import("@/providers/global-loading-provider").then(({ globalLoading }) => {
+                            globalLoading.start("Loading Student Profile...");
+                            router.push(`/students/${student.id}`);
+                          });
                         }}
                         className={`hover:bg-muted/20 transition-colors cursor-pointer ${
                           isSelected ? 'bg-brand/5' : ''
-                        } ${navigatingToStudent === student.id ? 'opacity-50' : ''}`}
+                        }`}
                       >
                         {userRole !== "student" && (
                           <td className="px-6 py-4">
@@ -852,9 +931,6 @@ function StudentsPageContent() {
                                   </p>
                                 )}
                               </div>
-                              {navigatingToStudent === student.id && (
-                                <div className="w-4 h-4 rounded-full border-2 border-brand border-t-transparent animate-spin" />
-                              )}
                             </div>
                           </div>
                         </td>
@@ -1168,7 +1244,6 @@ function StudentsPageContent() {
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
         onSuccess={() => {
-          setShowAddModal(false);
           // Just trigger a state change to reload students
           setCurrentPage(1);
           setSearchRaw(searchRaw + " ");
@@ -1180,13 +1255,13 @@ function StudentsPageContent() {
         sections={sectionOptions}
       />
 
-      {/* Import CSV Modal */}
+      {/* OG Import Modal */}
       <ImportStudentsModal
-        isOpen={showImportModal}
-        onClose={() => setShowImportModal(false)}
+        isOpen={showSmartImportModal}
+        onClose={() => setShowSmartImportModal(false)}
         onSuccess={() => {
-          setShowImportModal(false);
-          // Trigger reload
+          // Keep it open if they want to download credentials, let the modal handle its own state
+          // but trigger reload
           setCurrentPage(1);
           setSearchRaw(searchRaw + " ");
           setTimeout(() => setSearchRaw(searchRaw), 50);

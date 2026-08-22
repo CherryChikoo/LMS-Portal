@@ -742,8 +742,10 @@ function TrainerExamDetails({
   resolveStudent,
 }: TrainerDetailsProps) {
   const router = useRouter();
-
-
+  const [questionPage, setQuestionPage] = useState(1);
+  const [attemptPage, setAttemptPage] = useState(1);
+  const QUESTIONS_PER_PAGE = 5;
+  const ATTEMPTS_PER_PAGE = 10;
   const missingAiCount = useMemo(() => {
     if (!exam || !exam.questions) return 0;
     return exam.questions.filter(q => !q.aiExplanation).length;
@@ -1034,14 +1036,39 @@ function TrainerExamDetails({
           </div>
         ) : (
           <div className="space-y-4">
-            {exam.questions.map((question, index) => (
+            {exam.questions.slice((questionPage - 1) * QUESTIONS_PER_PAGE, questionPage * QUESTIONS_PER_PAGE).map((question, index) => (
               <QuestionReview
                 key={question.id}
                 question={question}
-                index={index}
+                index={(questionPage - 1) * QUESTIONS_PER_PAGE + index}
                 showCorrectAnswer={true}
               />
             ))}
+            {exam.questions.length > QUESTIONS_PER_PAGE && (
+              <div className="flex justify-center items-center gap-2 pt-4 border-t border-border/40 mt-4">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setQuestionPage(prev => Math.max(1, prev - 1))}
+                  disabled={questionPage === 1}
+                  className="h-8"
+                >
+                  Previous
+                </Button>
+                <span className="text-xs text-muted-foreground font-medium">
+                  Page {questionPage} of {Math.ceil(exam.questions.length / QUESTIONS_PER_PAGE)}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setQuestionPage(prev => Math.min(Math.ceil(exam.questions.length / QUESTIONS_PER_PAGE), prev + 1))}
+                  disabled={questionPage === Math.ceil(exam.questions.length / QUESTIONS_PER_PAGE)}
+                  className="h-8"
+                >
+                  Next
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </motion.section>
@@ -1063,8 +1090,9 @@ function TrainerExamDetails({
             No students have submitted attempts yet.
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-2xl border border-border">
-            <table className="w-full text-left border-collapse text-sm">
+          <div className="space-y-4">
+            <div className="overflow-x-auto rounded-2xl border border-border">
+              <table className="w-full text-left border-collapse text-sm">
               <thead>
                 <tr className="bg-muted/30 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                   <th className="py-3 px-4 border-b border-border">Student</th>
@@ -1076,8 +1104,9 @@ function TrainerExamDetails({
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {attempts.map((att) => {
-                  const studentName = resolveStudent(att.studentId);
+                {attempts.slice((attemptPage - 1) * ATTEMPTS_PER_PAGE, attemptPage * ATTEMPTS_PER_PAGE).map((att) => {
+                  let studentName = (att as any).studentName || resolveStudent(att.studentId);
+                  if (studentName === att.studentId && (att as any).studentName) studentName = (att as any).studentName;
                   const isDeletedData = studentName.includes("(Deleted)");
                   const isPassed = att.passed === true;
                   return (
@@ -1135,6 +1164,32 @@ function TrainerExamDetails({
                 })}
               </tbody>
             </table>
+          </div>
+          {attempts.length > ATTEMPTS_PER_PAGE && (
+            <div className="flex justify-center items-center gap-2 pt-4 mt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setAttemptPage(prev => Math.max(1, prev - 1))}
+                disabled={attemptPage === 1}
+                className="h-8"
+              >
+                Previous
+              </Button>
+              <span className="text-xs text-muted-foreground font-medium">
+                Page {attemptPage} of {Math.ceil(attempts.length / ATTEMPTS_PER_PAGE)}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setAttemptPage(prev => Math.min(Math.ceil(attempts.length / ATTEMPTS_PER_PAGE), prev + 1))}
+                disabled={attemptPage === Math.ceil(attempts.length / ATTEMPTS_PER_PAGE)}
+                className="h-8"
+              >
+                Next
+              </Button>
+            </div>
+          )}
           </div>
         )}
       </motion.section>

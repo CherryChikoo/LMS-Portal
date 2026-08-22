@@ -167,7 +167,7 @@ export async function importStudentsCSV(
   const currentUser = authData?.user;
   if (currentUser) {
     try {
-      const CHUNK_SIZE = 100; // Increased from 50 to 100 rows per batch
+      const CHUNK_SIZE = 25; // Set to 25 rows per batch (safe for Vercel 10s Hobby timeouts)
       const combinedSummary: CSVImportSummary = {
         total: rows.length,
         createdCount: 0,
@@ -185,7 +185,7 @@ export async function importStudentsCSV(
       }
 
       let processedCount = 0;
-      const MAX_CONCURRENT_REQUESTS = 3; // Increased from 2 to 3 parallel requests
+      const MAX_CONCURRENT_REQUESTS = 1; // ⚠️ STRICTLY 1 to prevent Batch creation race conditions (duplicate batches)
 
       const sendChunkWithRetry = async (chunk: CSVStudentRow[], retries = 3): Promise<any> => {
         for (let attempt = 1; attempt <= retries; attempt++) {

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 
 import { AppProviders } from "@/providers/app-providers";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -48,14 +49,16 @@ export default async function RootLayout({
       suppressHydrationWarning
     >
       <head suppressHydrationWarning>
-        <script
-          suppressHydrationWarning
+        <Script
+          id="theme-script"
+          strategy="beforeInteractive"
           dangerouslySetInnerHTML={{
             __html: `(function(){try{var t=localStorage.getItem("theme");if(t==="light"){document.documentElement.classList.remove("dark");}else{document.documentElement.classList.add("dark");}}catch(e){document.documentElement.classList.add("dark");}})()`,
           }}
         />
-        <script
-          suppressHydrationWarning
+        <Script
+          id="branding-script"
+          strategy="beforeInteractive"
           dangerouslySetInnerHTML={{
             __html: `(function(){try{function escapeHtml(str){if(typeof str!=='string')return'';return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');}var title=escapeHtml("${masterTitle}");var rawUser=localStorage.getItem("lms_user");var rawBranding=localStorage.getItem("lms_college_branding");var role=null;if(rawUser){var user=JSON.parse(rawUser);role=user.role;}if(role==='college_admin'||role==='college_student'){if(rawBranding){var branding=JSON.parse(rawBranding);if(branding&&branding.name){title=escapeHtml(branding.name);}}}if(title){document.title=title;}}catch(e){}})()`,
           }}

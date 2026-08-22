@@ -7,7 +7,13 @@ const isUUID = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4
 function serializeExamResults(results: any[]) {
   return results.map(r => ({
     ...r,
-    percentage: r.percentage ? Number(r.percentage) : null,
+    // Convert Prisma Decimal to number for client serialization
+    percentage: r.percentage ? Number(String(r.percentage)) : null,
+    // Convert Date objects to ISO strings
+    createdAt: r.createdAt ? (r.createdAt instanceof Date ? r.createdAt.toISOString() : r.createdAt) : null,
+    updatedAt: r.updatedAt ? (r.updatedAt instanceof Date ? r.updatedAt.toISOString() : r.updatedAt) : null,
+    submittedAt: r.submittedAt ? (r.submittedAt instanceof Date ? r.submittedAt.toISOString() : r.submittedAt) : null,
+    startTime: r.startTime ? (r.startTime instanceof Date ? r.startTime.toISOString() : r.startTime) : null,
     examTitle: r.exams?.title || r.examTitle,
     studentName: r.students?.users?.displayName || r.studentName,
     studentEmail: r.students?.users?.email || r.studentEmail,

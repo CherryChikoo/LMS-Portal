@@ -566,9 +566,9 @@ export async function getDatabaseMetricsAction() {
           totalExams,
           activeStudentsCount,
         ] = await Promise.all([
-          prisma.colleges.count({ where: { isDeleted: { not: true } } }),
+          prisma.colleges.count(),
           prisma.batches.count(),
-          prisma.exams.count({ where: { deletedAt: null } }),
+          prisma.exams.count(),
           prisma.students.count({ where: { users: { status: 'active' } } }),
         ]);
 

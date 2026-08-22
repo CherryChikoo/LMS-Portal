@@ -64,13 +64,13 @@ const DEFAULT_LABELS: Record<AcademicHierarchyLevel, string> = {
 };
 
 const DEFAULT_ALL_LABELS: Record<AcademicHierarchyLevel, string> = {
-  institution: "All Institutions",
-  college: "All Colleges",
-  department: "All Departments",
-  academicYear: "All Academic Years",
-  section: "All Sections",
-  batch: "All Batches",
-  student: "All Students",
+  institution: "Select Institution",
+  college: "Select College",
+  department: "Select Department",
+  academicYear: "Select Academic Year",
+  section: "Select Section",
+  batch: "Select Batch",
+  student: "Select Student",
 };
 
 function isLevelConfig(item: AcademicHierarchyLevel | LevelConfig): item is LevelConfig {
@@ -154,7 +154,7 @@ function buildChangeForLevel(
 }
 
 const LAYOUT_CLASSES: Record<AcademicHierarchyLayout, string> = {
-  responsive: "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3",
+  responsive: "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3",
   horizontal: "flex flex-wrap items-end gap-3",
   vertical: "flex flex-col gap-3",
   "grid-2": "grid grid-cols-1 sm:grid-cols-2 gap-3",
@@ -221,39 +221,49 @@ export function AcademicHierarchyFilters({
 
   return (
     <div className="space-y-4 w-full">
-      {hasBatchLevel && showBatchToggle && (
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 py-3 text-sm font-medium text-foreground">
-          <div className="flex items-center gap-2 shrink-0">
-            <span className="w-2 h-2 rounded-full bg-brand animate-pulse" />
-            <span className="font-bold tracking-tight text-base">Batch Filtering</span>
-          </div>
+      {((hasBatchLevel && showBatchToggle) || onReset) && (
+        <div className={cn(
+          "flex flex-col sm:flex-row items-start sm:items-center text-sm font-medium text-foreground",
+          hasBatchLevel && showBatchToggle ? "justify-between gap-4 py-3" : "justify-end pb-2 -mt-2"
+        )}>
+          {hasBatchLevel && showBatchToggle ? (
+            <>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="w-2 h-2 rounded-full bg-brand animate-pulse" />
+                <span className="font-bold tracking-tight text-base">Batch Filtering</span>
+              </div>
+              
+              <div className="flex bg-muted/50 p-1 rounded-full border border-border/50">
+                <button
+                  type="button"
+                  onClick={() => handleToggleDisableRemaining(false)}
+                  className={cn(
+                    "px-4 py-1.5 rounded-full text-sm font-semibold transition-all duration-200 ease-in-out",
+                    !batchOnlyMode 
+                      ? "bg-background text-foreground shadow-sm ring-1 ring-border" 
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  Combined (Recommended)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleToggleDisableRemaining(true)}
+                  className={cn(
+                    "px-4 py-1.5 rounded-full text-sm font-semibold transition-all duration-200 ease-in-out",
+                    batchOnlyMode 
+                      ? "bg-background text-foreground shadow-sm ring-1 ring-border" 
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  Batch Only
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="flex-1" />
+          )}
           
-          <div className="flex bg-muted/50 p-1 rounded-full border border-border/50">
-            <button
-              type="button"
-              onClick={() => handleToggleDisableRemaining(false)}
-              className={cn(
-                "px-4 py-1.5 rounded-full text-sm font-semibold transition-all duration-200 ease-in-out",
-                !batchOnlyMode 
-                  ? "bg-background text-foreground shadow-sm ring-1 ring-border" 
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              Combined (Recommended)
-            </button>
-            <button
-              type="button"
-              onClick={() => handleToggleDisableRemaining(true)}
-              className={cn(
-                "px-4 py-1.5 rounded-full text-sm font-semibold transition-all duration-200 ease-in-out",
-                batchOnlyMode 
-                  ? "bg-background text-foreground shadow-sm ring-1 ring-border" 
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              Batch Only
-            </button>
-          </div>
           {onReset && (
             <button
               type="button"

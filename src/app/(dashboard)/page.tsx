@@ -25,7 +25,7 @@ import { GlassCard } from "@/components/shared/glass-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useMounted } from "@/hooks/use-mounted";
 import { staggerContainer, staggerItem } from "@/lib/animations";
 import { formatDisplayName } from "@/lib/utils";
@@ -35,6 +35,7 @@ import {
   getStudentDashboardStatsAction,
   getCollegeAdminDashboardStatsAction,
   getRecentActivityAction,
+  getCollegeRecentActivityAction,
 } from "@/lib/actions/dashboard-actions-optimized";
 import { useLMSDataSelector } from "@/lib/data/use-lms-data";
 
@@ -530,7 +531,13 @@ export default function DashboardPageOptimized() {
     };
   }, [branding]);
 
-  // Load dashboard stats
+  // Dashboard Refresh Policy: Update specific counts locally instead of a full dashboard refresh
+  const localCollegesCount = useLMSDataSelector((s) => s.filteredColleges.length);
+  const localBatchesCount = useLMSDataSelector((s) => s.filteredBatches.length);
+  const localExamsCount = useLMSDataSelector((s) => s.filteredExams.length);
+  const localResourcesCount = useLMSDataSelector((s) => s.filteredResources.length);
+  const localStudentsCount = useLMSDataSelector((s) => s.filteredStudents.length);
+  // Dashboard Refresh Policy: Load dashboard stats on mount and whenever the background cache refreshes
   useEffect(() => {
     // For admin roles, we don't need userId
     const isAdminRole = userRole === "admin" || userRole === "super_admin" || userRole === "main_admin";
@@ -542,7 +549,8 @@ export default function DashboardPageOptimized() {
     }
     
     const loadStats = async () => {
-      setLoading(true);
+      // Intentionally NOT setting loading to true here.
+      // Initial loading state is already true. Background refreshes should update silently.
       setError(null);
       
       try {
@@ -570,12 +578,19 @@ export default function DashboardPageOptimized() {
             setRecentActivity(activityResult.data);
           }
         } else if (userRole === "college_admin" || userRole === "college") {
-          const statsResult = await getCollegeAdminDashboardStatsAction(userCollegeId || "");
+          const [statsResult, activityResult] = await Promise.all([
+            getCollegeAdminDashboardStatsAction(userCollegeId || ""),
+            getCollegeRecentActivityAction(userCollegeId || "", 10),
+          ]);
           
           if (statsResult.success) {
             setStats(statsResult.stats);
           } else {
             setError(statsResult.error || "Failed to load college dashboard stats");
+          }
+          
+          if (activityResult.success) {
+            setRecentActivity(activityResult.data);
           }
         } else if (userRole === "student") {
           const statsResult = await getStudentDashboardStatsAction(userId);
@@ -595,8 +610,7 @@ export default function DashboardPageOptimized() {
     };
     
     loadStats();
-  }, [mounted, userId, userRole, userCollegeId, lastRefreshTimestamp]);
-
+  }, [mounted, userId, userRole, userCollegeId, lastRefreshTimestamp]); // fetch accurate server stats on mount and whenever cache refreshes
   // Loading state
   if (!mounted || loading) {
     return (

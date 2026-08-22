@@ -11,7 +11,7 @@ function applyNoCacheHeaders(response: NextResponse) {
   return response;
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Ignore static assets, Next.js internal routes, and API routes

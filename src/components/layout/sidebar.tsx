@@ -31,10 +31,38 @@ export function Sidebar() {
   const { isLoading: isGlobalLoading } = useGlobalLoading();
   const mounted = useMounted();
   const [showBrandModal, setShowBrandModal] = useState(false);
-  // Fix hydration: Don't read localStorage during initial render
-  const [userRole, setUserRole] = useState<string | null>(null);
-  const [userCollegeId, setUserCollegeId] = useState<string | null>(null);
-  const [userCollegeName, setUserCollegeName] = useState<string | null>(null);
+  // Eagerly read from localStorage if on client to prevent hydration flashes on refresh
+  const [userRole, setUserRole] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const role = localStorage.getItem("lms_role") || localStorage.getItem("role");
+      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      if (role) return role.toLowerCase();
+      if (uStr) {
+        const parsed = JSON.parse(uStr);
+        if (parsed.role) return parsed.role.toLowerCase();
+      }
+    } catch {}
+    return "student";
+  });
+  
+  const [userCollegeId, setUserCollegeId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      if (uStr) return JSON.parse(uStr).collegeId || null;
+    } catch {}
+    return null;
+  });
+  
+  const [userCollegeName, setUserCollegeName] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      if (uStr) return JSON.parse(uStr).collegeName || null;
+    } catch {}
+    return null;
+  });
 
   const refreshUser = () => {
     if (typeof window === "undefined") return;
@@ -44,17 +72,12 @@ export function Sidebar() {
       const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
       if (uStr) parsed = JSON.parse(uStr);
       
-      console.log('[SIDEBAR] refreshUser - role from localStorage:', role, 'parsed.role:', parsed?.role);
-      
       if (role) {
         setUserRole(role.toLowerCase());
-        console.log('[SIDEBAR] Set userRole from lms_role:', role.toLowerCase());
       } else if (parsed && parsed.role) {
         setUserRole(parsed.role.toLowerCase());
-        console.log('[SIDEBAR] Set userRole from parsed:', parsed.role.toLowerCase());
       } else {
         setUserRole("student");
-        console.log('[SIDEBAR] Defaulting to student role');
       }
 
       if (parsed) {
@@ -62,7 +85,6 @@ export function Sidebar() {
         setUserCollegeName(parsed.collegeName || null);
       }
     } catch (err) {
-      console.error('[SIDEBAR] Error in refreshUser:', err);
       setUserRole("student");
     }
   };
@@ -150,22 +172,22 @@ export function Sidebar() {
 
   return (
     <aside
+      suppressHydrationWarning
       className={cn(
-        "hidden lg:flex flex-col fixed left-0 top-0 bottom-0 z-30 bg-sidebar text-sidebar-foreground border-r border-border overflow-hidden transition-all duration-300",
+        "hidden lg:flex flex-col fixed left-0 top-0 bottom-0 z-30 bg-sidebar text-sidebar-foreground border-r border-border overflow-hidden",
         isExpanded ? "w-[260px]" : "w-[80px]",
         isGlobalLoading && "pointer-events-none opacity-40 select-none cursor-not-allowed"
       )}
       style={{ 
         fontFamily: '"Montserrat", sans-serif',
         transition: 'width 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
-        willChange: 'width'
       }}
     >
       {/* Loading Blocker Overlay */}
       {isGlobalLoading && (
         <div
           aria-hidden="true"
-          className="absolute inset-0 z-50 bg-background/50 backdrop-blur-[1px] cursor-not-allowed pointer-events-auto"
+          className="absolute inset-0 z-50 bg-background/50 cursor-not-allowed pointer-events-auto"
         />
       )}
 
@@ -248,11 +270,14 @@ export function Sidebar() {
           ) : (
             effectiveNav.map((section) => (
               <div key={section.title}>
-              {isExpanded && (
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground/60 mb-2 px-3 mt-1 truncate">
+                <p 
+                  className={cn(
+                    "text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground/60 mb-2 mt-1 truncate transition-opacity duration-300",
+                    isExpanded ? "px-3 opacity-100" : "opacity-0 pointer-events-none h-0 overflow-hidden m-0"
+                  )}
+                >
                   {section.title}
                 </p>
-              )}
               <div className="space-y-1">
                 {section.items.map((item) => {
                   // More robust active detection with debugging
@@ -283,7 +308,6 @@ export function Sidebar() {
                           : "text-muted-foreground hover:text-foreground hover:bg-secondary/80",
                         isExpanded ? "px-3 gap-3" : "justify-center px-0 w-11 mx-auto"
                       )}
-                      style={{ willChange: 'background-color, color' }}
                     >
                       <div className="w-5 h-5 flex items-center justify-center shrink-0">
                         <Icon className={cn("w-5 h-5 shrink-0", isActive ? "text-black" : "text-muted-foreground group-hover:text-foreground")} />
@@ -303,14 +327,14 @@ export function Sidebar() {
                     </Link>
                   );
 
-                  return isExpanded ? (
-                    <div key={item.href}>{content}</div>
-                  ) : (
+                  return (
                     <Tooltip key={item.href}>
                       <TooltipTrigger render={content} />
-                      <TooltipContent side="right" sideOffset={12} className="glass-popover font-medium">
-                        {item.title}
-                      </TooltipContent>
+                      {!isExpanded && (
+                        <TooltipContent side="right" sideOffset={12} className="glass-popover font-medium pointer-events-none">
+                          {item.title}
+                        </TooltipContent>
+                      )}
                     </Tooltip>
                   );
                 })}
@@ -323,99 +347,75 @@ export function Sidebar() {
 
       {/* Footer Settings & Logout */}
       <div className="shrink-0 pt-2 border-t border-border/40 px-3 pb-4 space-y-1">
-        {isExpanded ? (
-          <Link
-            href={userRole === "student" ? "/student/settings" : "/admin/settings"}
-            className="group flex items-center h-11 rounded-xl text-sm font-medium transition-colors text-muted-foreground hover:text-foreground hover:bg-secondary/80 overflow-hidden px-3 gap-3"
-          >
-            <div className="w-5 h-5 flex items-center justify-center shrink-0">
-              <Settings className="w-5 h-5 text-muted-foreground group-hover:text-foreground" />
-            </div>
-            <span
-              className="truncate text-sm min-w-0 flex-1 opacity-100"
-              style={{
-                transform: 'translateX(0)',
-                transition: 'opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
-              }}
-            >
-              Settings
-            </span>
-          </Link>
-        ) : (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Link
-                  href={userRole === "student" ? "/student/settings" : "/admin/settings"}
-                  className="group flex items-center h-11 rounded-xl text-sm font-medium transition-colors text-muted-foreground hover:text-foreground hover:bg-secondary/80 overflow-hidden justify-center px-0 w-11 mx-auto"
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Link
+                href={userRole === "student" ? "/student/settings" : "/admin/settings"}
+                className={cn(
+                  "group flex items-center h-11 rounded-xl text-sm font-medium transition-colors overflow-hidden text-muted-foreground hover:text-foreground hover:bg-secondary/80",
+                  isExpanded ? "px-3 gap-3" : "justify-center px-0 w-11 mx-auto"
+                )}
+              >
+                <div className="w-5 h-5 flex items-center justify-center shrink-0">
+                  <Settings className="w-5 h-5 text-muted-foreground group-hover:text-foreground" />
+                </div>
+                <span
+                  className={cn(
+                    "truncate text-sm min-w-0 flex-1",
+                    isExpanded ? "opacity-100" : "opacity-0 pointer-events-none absolute"
+                  )}
+                  style={{
+                    transform: isExpanded ? 'translateX(0)' : 'translateX(-12px)',
+                    transition: 'opacity 0.35s cubic-bezier(0.4, 0, 0.2, 1), transform 0.35s cubic-bezier(0.4, 0, 0.2, 1)'
+                  }}
                 >
-                  <div className="w-5 h-5 flex items-center justify-center shrink-0">
-                    <Settings className="w-5 h-5 text-muted-foreground group-hover:text-foreground" />
-                  </div>
-                  <span
-                    className="truncate text-sm min-w-0 flex-1 opacity-0 pointer-events-none absolute"
-                    style={{
-                      transform: 'translateX(-12px)',
-                      transition: 'opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
-                    }}
-                  >
-                    Settings
-                  </span>
-                </Link>
-              }
-            />
-            <TooltipContent side="right" sideOffset={12} className="glass-popover font-medium">
+                  Settings
+                </span>
+              </Link>
+            }
+          />
+          {!isExpanded && (
+            <TooltipContent side="right" sideOffset={12} className="glass-popover font-medium pointer-events-none">
               Settings
             </TooltipContent>
-          </Tooltip>
-        )}
+          )}
+        </Tooltip>
 
-        {isExpanded ? (
-          <button
-            onClick={handleLogout}
-            className="w-full group flex items-center h-11 rounded-xl text-sm font-medium transition-colors text-rose-500 hover:bg-rose-500/10 overflow-hidden px-3 gap-3"
-          >
-            <div className="w-5 h-5 flex items-center justify-center shrink-0">
-              <LogOut className="w-5 h-5 text-rose-500" />
-            </div>
-            <span
-              className="truncate text-sm font-semibold min-w-0 flex-1 text-left opacity-100"
-              style={{
-                transform: 'translateX(0)',
-                transition: 'opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
-              }}
-            >
-              Logout
-            </span>
-          </button>
-        ) : (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <button
-                  onClick={handleLogout}
-                  className="w-full group flex items-center h-11 rounded-xl text-sm font-medium transition-colors text-rose-500 hover:bg-rose-500/10 overflow-hidden justify-center px-0 w-11 mx-auto"
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                onClick={handleLogout}
+                className={cn(
+                  "w-full group flex items-center h-11 rounded-xl text-sm font-medium transition-colors text-rose-500 hover:bg-rose-500/10 overflow-hidden",
+                  isExpanded ? "px-3 gap-3" : "justify-center px-0 w-11 mx-auto"
+                )}
+              >
+                <div className="w-5 h-5 flex items-center justify-center shrink-0">
+                  <LogOut className="w-5 h-5 text-rose-500" />
+                </div>
+                <span
+                  className={cn(
+                    "truncate text-sm font-semibold min-w-0 flex-1 text-left",
+                    isExpanded ? "opacity-100" : "opacity-0 pointer-events-none absolute"
+                  )}
+                  style={{
+                    transform: isExpanded ? 'translateX(0)' : 'translateX(-12px)',
+                    transition: 'opacity 0.35s cubic-bezier(0.4, 0, 0.2, 1), transform 0.35s cubic-bezier(0.4, 0, 0.2, 1)'
+                  }}
                 >
-                  <div className="w-5 h-5 flex items-center justify-center shrink-0">
-                    <LogOut className="w-5 h-5 text-rose-500" />
-                  </div>
-                  <span
-                    className="truncate text-sm font-semibold min-w-0 flex-1 text-left opacity-0 pointer-events-none absolute"
-                    style={{
-                      transform: 'translateX(-12px)',
-                      transition: 'opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
-                    }}
-                  >
-                    Logout
-                  </span>
-                </button>
-              }
-            />
-            <TooltipContent side="right" sideOffset={12} className="glass-popover text-rose-500 font-medium">
+                  Logout
+                </span>
+              </button>
+            }
+          />
+          {!isExpanded && (
+            <TooltipContent side="right" sideOffset={12} className="glass-popover text-rose-500 font-medium pointer-events-none">
               Logout
             </TooltipContent>
-          </Tooltip>
-        )}
+          )}
+        </Tooltip>
       </div>
 
       <BrandingModal isOpen={showBrandModal} onClose={() => setShowBrandModal(false)} />

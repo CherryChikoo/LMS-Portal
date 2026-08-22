@@ -24,6 +24,8 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { prisma } from "@/lib/prisma";
 import { getErrorMessage } from '@/lib/utils/error';
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
+import { invalidateCache } from "@/lib/cache/query-cache";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CONFIGURATION
@@ -59,7 +61,8 @@ interface ProcessingResult {
   status: "created" | "failed" | "duplicate" | "skipped";
   reason?: string;
   // Internal fields for DB insertion
-  uid?: string;
+  uid?: string; // Auth User ID
+  dbId?: string; // Database User ID (CUID)
   finalCollegeId?: string | null; // Can be NULL for global students
   finalDepartment?: string;
   finalAcademicYear?: string;
@@ -107,13 +110,12 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Process a single student row with compensating transaction logic
+ * Process a single student row with true atomic compensating transaction logic
  * 
  * TRANSACTION FLOW:
- * 1. Create Supabase Auth user
- * 2. Insert into PostgreSQL users table
- * 3. Insert into PostgreSQL students table
- * 4. If ANY step after Auth creation fails → DELETE Auth user (compensate)
+ * 1. Create Supabase Auth user FIRST
+ * 2. Run a single PostgreSQL transaction to insert users and students WITH authId
+ * 3. If the DB transaction fails, immediately delete the Auth user
  * 
  * @returns ProcessingResult with status and detailed error reason
  */
@@ -121,7 +123,8 @@ async function processSingleStudentWithCompensation(
   row: ImportRowInput,
   collegeMap: Map<string, { id: string; name: string }>,
   existingEmailSet: Set<string>,
-  enrollmentType: string
+  enrollmentType: string,
+  createdAuthIds: Set<string>
 ): Promise<ProcessingResult> {
   const email = String(row.collegeEmail ?? "").toLowerCase().trim();
   const name = String(row.studentName ?? "").trim();
@@ -129,18 +132,15 @@ async function processSingleStudentWithCompensation(
   const normCol = rawCol.toLowerCase();
   
   // Derive college and student data
-  // If college is UNASSIGNED or empty, set to NULL for global students
   let finalCollegeId: string | null = null;
   
   if (!rawCol || rawCol === "UNASSIGNED" || normCol === "unassigned" || normCol === "") {
-    // Global student - no college assignment
     finalCollegeId = null;
   } else {
     const matchedCol = collegeMap.get(normCol);
     if (matchedCol) {
       finalCollegeId = matchedCol.id;
     } else {
-      // College name provided but doesn't exist - create ID for it
       finalCollegeId = collegeNameToId(rawCol);
     }
   }
@@ -157,21 +157,15 @@ async function processSingleStudentWithCompensation(
   
   if (!email || !name) {
     return { 
-      name: name || "Unknown", 
-      email: email || "Missing", 
-      password: "", 
-      status: "skipped", 
-      reason: "Missing name or email" 
+      name: name || "Unknown", email: email || "Missing", password: "", 
+      status: "skipped", reason: "Missing name or email" 
     };
   }
 
   if (existingEmailSet.has(email)) {
     return { 
-      name, 
-      email, 
-      password: "", 
-      status: "duplicate", 
-      reason: "Account already exists in database" 
+      name, email, password: "", 
+      status: "duplicate", reason: "Account already exists in database" 
     };
   }
 
@@ -179,7 +173,7 @@ async function processSingleStudentWithCompensation(
 
   try {
     // ═══════════════════════════════════════════════════════════════════════
-    // STEP 1: CREATE SUPABASE AUTH USER
+    // STEP 1: CREATE SUPABASE AUTH USER FIRST
     // ═══════════════════════════════════════════════════════════════════════
     
     const { data: authUser, error: authErr } = await supabaseAdmin.auth.admin.createUser({
@@ -189,80 +183,61 @@ async function processSingleStudentWithCompensation(
       user_metadata: { 
         full_name: name, 
         role: "student", 
-        collegeId: finalCollegeId || "unassigned" // Store "unassigned" string in metadata for NULL colleges
+        collegeId: finalCollegeId || "unassigned" 
       }
     });
 
     if (authErr) {
       const errMsg = authErr.message?.toLowerCase() || "";
       if (errMsg.includes("already exists") || errMsg.includes("unique") || errMsg.includes("registered")) {
-        // Check if user exists in DB
-        const existingDbUser = await prisma.users.findUnique({ 
-          where: { email }, 
-          select: { id: true } 
-        });
-        
-        if (existingDbUser) {
-          return { 
-            name, 
-            email, 
-            password: "", 
-            status: "duplicate", 
-            reason: "Account already registered in Auth and DB" 
-          };
-        } else {
-          // Auth exists but not in DB - rare edge case, generate fallback ID
-          authUserId = `stud-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-        }
-      } else {
+        existingEmailSet.add(email); // Mark to prevent repeated attempts
         return { 
-          name, 
-          email, 
-          password: "", 
-          status: "failed", 
-          reason: `Auth creation failed: ${authErr.message}` 
+          name, email, password: "", status: "duplicate", 
+          reason: "Account already registered in Auth" 
         };
       }
-    } else if (authUser?.user) {
-      authUserId = authUser.user.id;
-    } else {
       return { 
-        name, 
-        email, 
-        password: "", 
-        status: "failed", 
+        name, email, password: "", status: "failed", 
+        reason: `Auth creation failed: ${authErr.message}` 
+      };
+    }
+
+    if (!authUser?.user) {
+      return { 
+        name, email, password: "", status: "failed", 
         reason: "Auth user creation returned no ID" 
       };
     }
 
-    // Mark email as processed to prevent duplicates within same batch
-    existingEmailSet.add(email);
+    authUserId = authUser.user.id;
+    createdAuthIds.add(authUserId);
 
     // ═══════════════════════════════════════════════════════════════════════
-    // STEP 2: INSERT INTO POSTGRESQL (WITH COMPENSATING TRANSACTION)
+    // STEP 2: INSERT INTO POSTGRESQL (ATOMIC TRANSACTION)
     // ═══════════════════════════════════════════════════════════════════════
     
-    try {
-      // Insert user record
-      await prisma.users.create({
+    // We create the user and student in one transaction WITH the authId.
+    const dbUser = await prisma.$transaction(async (tx) => {
+      // Create user
+      const user = await tx.users.create({
         data: {
-          id: authUserId,
           email: email,
           displayName: name,
           role: "student",
-          collegeId: finalCollegeId, // Can be NULL for global students
-          authId: authUserId.length === 36 ? authUserId : null,
+          collegeId: finalCollegeId,
           status: "active",
+          authId: authUserId, // Set immediately
           createdAt: new Date(),
           updatedAt: new Date(),
         }
       });
 
-      // Insert student record
-      await prisma.students.create({
+      // Create student
+      await tx.students.create({
         data: {
-          id: authUserId,
-          collegeId: finalCollegeId, // Can be NULL for global students
+          id: user.id, // Link to users.id
+          authId: authUserId, // Set immediately
+          collegeId: finalCollegeId,
           department: finalDepartment,
           academicYear: finalAcademicYear,
           semester: 1,
@@ -270,83 +245,47 @@ async function processSingleStudentWithCompensation(
           rollNumber: `ROLL-${Math.floor(1000 + Math.random() * 9000)}`,
           mustChangePassword: true,
           enrollmentType: enrollmentType,
-          authId: authUserId.length === 36 ? authUserId : null,
           createdAt: new Date(),
           updatedAt: new Date(),
         }
       });
+      return user;
+    });
 
-      // ✅ SUCCESS - Return created result
-      return {
-        name,
-        email,
-        password: tempPassword,
-        status: "created",
-        reason: "Successfully created",
-        uid: authUserId,
-        finalCollegeId,
-        finalDepartment,
-        finalAcademicYear,
-        finalSection,
-        finalBatch,
-      };
+    // Mark email as processed to prevent duplicates within same batch
+    existingEmailSet.add(email);
 
-    } catch (dbError: any) {
-      // ═══════════════════════════════════════════════════════════════════════
-      // 🔥 COMPENSATING TRANSACTION: DELETE ORPHANED AUTH USER
-      // ═══════════════════════════════════════════════════════════════════════
-      
-      console.error(`❌ DB insert failed for ${email}, compensating by deleting Auth user ${authUserId}`);
-      
-      if (authUserId && authUserId.length === 36) {
-        try {
-          await supabaseAdmin.auth.admin.deleteUser(authUserId);
-        } catch (deleteErr: any) {
-          console.error(`⚠️  Failed to delete orphaned Auth user ${authUserId}:`, deleteErr.message);
-        }
-      }
-
-      // Remove from processed set since creation failed
-      existingEmailSet.delete(email);
-
-      const errorCode = dbError.code;
-      const errorMessage = dbError.message || String(dbError);
-      
-      if (errorCode === 'P2002') {
-        return { 
-          name, 
-          email, 
-          password: "", 
-          status: "duplicate", 
-          reason: "Database unique constraint violation (duplicate entry)" 
-        };
-      }
-
-      return { 
-        name, 
-        email, 
-        password: "", 
-        status: "failed", 
-        reason: `Database insert failed: ${errorMessage}` 
-      };
-    }
+    // ✅ SUCCESS
+    return {
+      name, email, password: tempPassword, status: "created",
+      reason: "Successfully created", uid: authUserId, dbId: dbUser.id,
+      finalCollegeId, finalDepartment, finalAcademicYear, finalSection, finalBatch,
+    };
 
   } catch (unexpectedError: any) {
-    // Handle any unexpected errors in the entire transaction
+    // ═══════════════════════════════════════════════════════════════════════
+    // STEP 3: COMPENSATE ON FAILURE
+    // ═══════════════════════════════════════════════════════════════════════
+    const errorCode = unexpectedError.code;
     
-    if (authUserId && authUserId.length === 36) {
-      try {
-        await supabaseAdmin.auth.admin.deleteUser(authUserId);
-      } catch (deleteErr) {
-        console.error(`⚠️  Failed to compensate Auth user ${authUserId}:`, deleteErr);
-      }
+    // If DB transaction failed but Auth user was created, we MUST delete the Auth user.
+    if (authUserId) {
+      console.error(`❌ DB insertion failed for ${email}, rolling back Auth creation...`);
+      await supabaseAdmin.auth.admin.deleteUser(authUserId).catch(err => {
+        console.error(`CRITICAL: Failed to delete orphaned Auth user ${authUserId}:`, err);
+      });
+    }
+    
+    if (errorCode === 'P2002') {
+      existingEmailSet.add(email);
+      return { 
+        name, email, password: "", status: "duplicate", 
+        reason: "Database unique constraint violation (duplicate entry)" 
+      };
     }
 
     return { 
-      name, 
-      email, 
-      password: "", 
-      status: "failed", 
+      name, email, password: "", status: "failed", 
       reason: `Unexpected error: ${getErrorMessage(unexpectedError)}` 
     };
   }
@@ -357,43 +296,42 @@ async function processSingleStudentWithCompensation(
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Process a chunk of rows concurrently using Promise.allSettled
- * 
- * @param chunk - Array of students to process (max 25)
- * @param collegeMap - Pre-fetched college mapping
- * @param existingEmailSet - Set of emails already processed
- * @param enrollmentType - Type of enrollment
- * @returns Array of processing results (never throws)
+ * Process a chunk of rows sequentially to prevent connection exhaustion
+ * and respect Supabase Admin API rate limits.
  */
-async function processChunkConcurrently(
+async function processChunk(
   chunk: ImportRowInput[],
   collegeMap: Map<string, { id: string; name: string }>,
   existingEmailSet: Set<string>,
-  enrollmentType: string
+  enrollmentType: string,
+  createdAuthIds: Set<string>
 ): Promise<ProcessingResult[]> {
   
-  const promises = chunk.map(row => 
-    processSingleStudentWithCompensation(row, collegeMap, existingEmailSet, enrollmentType)
-  );
-
-  // Use allSettled to ensure one failure doesn't kill the batch
-  const settledResults = await Promise.allSettled(promises);
-
-  return settledResults.map((settled, index) => {
-    if (settled.status === "fulfilled") {
-      return settled.value;
-    } else {
-      // Even if processSingleStudent threw (shouldn't happen), handle gracefully
-      const row = chunk[index];
-      return {
+  const results: ProcessingResult[] = [];
+  
+  // Process sequentially instead of concurrently
+  for (const row of chunk) {
+    try {
+      const result = await processSingleStudentWithCompensation(
+        row, 
+        collegeMap, 
+        existingEmailSet, 
+        enrollmentType,
+        createdAuthIds
+      );
+      results.push(result);
+    } catch (err) {
+      results.push({
         name: row.studentName || "Unknown",
         email: row.collegeEmail || "Unknown",
         password: "",
-        status: "failed" as const,
-        reason: `Promise rejection: ${getErrorMessage(settled.reason)}`,
-      };
+        status: "failed",
+        reason: `Fatal loop error: ${getErrorMessage(err)}`,
+      });
     }
-  });
+  }
+
+  return results;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -401,8 +339,7 @@ async function processChunkConcurrently(
 // ═══════════════════════════════════════════════════════════════════════════
 
 export const dynamic = "force-dynamic";
-// maxDuration removed - causing Next.js 16 build issues
-// export const maxDuration = CONFIG.MAX_DURATION;
+export const maxDuration = 300; // 5 minutes max duration for Vercel Pro
 
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
@@ -485,8 +422,12 @@ export async function POST(request: NextRequest) {
     });
 
     // ─────────────────────────────────────────────────────────────────────────
-    // STEP 2.5: CREATE MISSING COLLEGES FROM CSV
+    // STEP 2.5: CREATE MISSING INTERNAL COLLEGES FROM CSV
     // ─────────────────────────────────────────────────────────────────────────
+    
+    // CSV import should CREATE new internal/partner colleges if they don't exist.
+    // External colleges are created ONLY via self-registration, never via CSV.
+    // This ensures CSV import creates proper partner institutions, not external ones.
     
     const RESERVED_COLLEGE_NAMES = new Set([
       "all", "all colleges", "default college", "unassigned", "none", "n/a", "na", ""
@@ -505,7 +446,7 @@ export async function POST(request: NextRequest) {
 
     for (const normColName of uniqueCollegesInCSV) {
       if (!collegeMap.has(normColName)) {
-        // College doesn't exist, create it
+        // College doesn't exist, create it as INTERNAL/PARTNER college
         const rawName = Array.from(rows as ImportRowInput[])
           .find(r => String(r.college ?? "").toLowerCase().trim() === normColName)
           ?.college || normColName;
@@ -526,7 +467,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Bulk insert new colleges
+    // Bulk insert new INTERNAL colleges
     if (newCollegesToCreate.length > 0) {
       for (const col of newCollegesToCreate) {
         try {
@@ -537,12 +478,15 @@ export async function POST(request: NextRequest) {
               id: col.id,
               name: col.name,
               code: col.code,
-              type: "registered",
+              type: "registered", // INTERNAL college, not external
               departments: ["Computer Science & Engineering (CSE)", "General"],
-              origin: "trainer",
-              status: "active"
+              origin: "csv_import", // Mark as created via CSV import
+              status: "active",
+              createdAt: new Date(),
+              updatedAt: new Date(),
             }
           });
+          console.log(`✅ Created internal college: ${col.name}`);
         } catch (colErr: any) {
           console.error(`Failed to create college ${col.name}:`, colErr.message);
         }
@@ -592,6 +536,7 @@ export async function POST(request: NextRequest) {
     
     // Track all processing results for batch assignment
     const allProcessingResults: ProcessingResult[] = [];
+    const createdAuthIds = new Set<string>();
 
     const summary = {
       total: rows.length,
@@ -607,12 +552,13 @@ export async function POST(request: NextRequest) {
       const chunk = chunks[i];
       const chunkNumber = i + 1;
       
-      // Process rows within chunk concurrently
-      const chunkResults = await processChunkConcurrently(
+      // Process rows within chunk sequentially
+      const chunkResults = await processChunk(
         chunk,
         collegeMap,
         existingEmailSet,
-        enrollmentType
+        enrollmentType,
+        createdAuthIds
       );
 
       // Store all results for batch processing later
@@ -670,7 +616,6 @@ export async function POST(request: NextRequest) {
       
       for (const student of successfulStudents) {
         const batchKey = `${student.finalCollegeId || 'global'}:${student.finalBatch!.toLowerCase().trim()}`;
-        
         if (!batchGroups.has(batchKey)) {
           batchGroups.set(batchKey, {
             name: student.finalBatch!,
@@ -681,7 +626,9 @@ export async function POST(request: NextRequest) {
             section: student.finalSection,
           });
         }
-        batchGroups.get(batchKey)!.students.push(student.uid!);
+        if (student.dbId) {
+          batchGroups.get(batchKey)!.students.push(student.dbId);
+        }
       }
       
       // Create missing batches and collect student-batch assignments
@@ -691,25 +638,39 @@ export async function POST(request: NextRequest) {
         let batch = batchMap.get(batchKey);
         
         if (!batch) {
-          // Batch doesn't exist, create it
-          try {
-            const newBatch = await prisma.batches.create({
-              data: {
-                name: batchData.name,
-                collegeId: batchData.collegeId,
-                department: batchData.department || null,
-                academicYear: batchData.academicYear || null,
-                section: batchData.section || null,
-                status: "active",
-                description: `Auto-created during CSV import`,
-              }
-            });
-            
-            batch = { id: newBatch.id, name: newBatch.name, collegeId: newBatch.collegeId };
+          // Double check database to prevent duplicates from concurrent API calls (or manual retries)
+          const existingBatch = await prisma.batches.findFirst({
+            where: {
+              name: batchData.name,
+              collegeId: batchData.collegeId || null,
+            },
+            orderBy: { createdAt: 'asc' }
+          });
+
+          if (existingBatch) {
+            batch = { id: existingBatch.id, name: existingBatch.name, collegeId: existingBatch.collegeId };
             batchMap.set(batchKey, batch);
-          } catch (batchErr: any) {
-            console.error(`Failed to create batch "${batchData.name}":`, batchErr.message);
-            continue;
+          } else {
+            // Batch still doesn't exist, create it
+            try {
+              const newBatch = await prisma.batches.create({
+                data: {
+                  name: batchData.name,
+                  collegeId: batchData.collegeId,
+                  department: batchData.department || null,
+                  academicYear: batchData.academicYear || null,
+                  section: batchData.section || null,
+                  status: "active",
+                  description: `Auto-created during CSV import`,
+                }
+              });
+              
+              batch = { id: newBatch.id, name: newBatch.name, collegeId: newBatch.collegeId };
+              batchMap.set(batchKey, batch);
+            } catch (batchErr: any) {
+              console.error(`Failed to create batch "${batchData.name}":`, batchErr.message);
+              continue;
+            }
           }
         }
         
@@ -765,10 +726,48 @@ export async function POST(request: NextRequest) {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // STEP 5.8: FINAL BATCH-LEVEL ORPHAN CLEANUP (FAILSAFE)
+    // ─────────────────────────────────────────────────────────────────────────
+    
+    if (createdAuthIds.size > 0) {
+      try {
+        const authIdArray = Array.from(createdAuthIds);
+        // Find which of these authIds actually made it into the Postgres users table
+        const validUsers = await prisma.users.findMany({
+          where: { authId: { in: authIdArray } },
+          select: { authId: true }
+        });
+        
+        const validAuthIds = new Set(validUsers.map(u => u.authId));
+        const orphans = authIdArray.filter(id => !validAuthIds.has(id));
+        
+        if (orphans.length > 0) {
+          console.warn(`🧹 FOUND ${orphans.length} ORPHANED AUTH ACCOUNTS IN BATCH. CLEANING UP...`);
+          for (const orphanId of orphans) {
+            await supabaseAdmin.auth.admin.deleteUser(orphanId).catch(err => {
+              console.error(`Failed to delete orphan ${orphanId}:`, err.message);
+            });
+          }
+          console.log(`✅ Batch-level orphan cleanup complete.`);
+        }
+      } catch (cleanupErr) {
+        console.error("Batch-level orphan cleanup failed:", cleanupErr);
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // STEP 6: RETURN FINAL SUMMARY
     // ─────────────────────────────────────────────────────────────────────────
     
     const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
+      
+      // FIRE CACHE INVALIDATION SO COUNTS UPDATE IMMEDIATELY
+      try {
+        invalidateCache();
+        revalidatePath('/', 'layout');
+      } catch (cacheErr) {
+        console.error("Failed to invalidate cache:", cacheErr);
+      }
 
     return NextResponse.json({ 
       success: true, 

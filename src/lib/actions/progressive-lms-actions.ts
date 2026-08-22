@@ -97,22 +97,25 @@ export async function fetchLMSInitialStateAction() {
       batchCount,
       examCount,
       resourceCount,
+    ] = await Promise.all([
+      // Counts (super fast with indexes)
+      prisma.colleges.count(),
+      prisma.students.count(),
+      prisma.batches.count(),
+      prisma.exams.count(),
+      prisma.resources.count(),
+    ]);
+    
+    const [
       colleges,
       batches,
       exams,
       resources,
+      attempts,
       recentStudents,
     ] = await Promise.all([
-      // Counts (super fast with indexes)
-      prisma.colleges.count({ where: { NOT: { isDeleted: true } } }),
-      prisma.students.count(),
-      prisma.batches.count(),
-      prisma.exams.count({ where: { deletedAt: null } }),
-      prisma.resources.count(),
-      
       // Full small datasets (colleges, batches, exams, resources are small)
       prisma.colleges.findMany({
-        where: { NOT: { isDeleted: true } },
         orderBy: { createdAt: "desc" },
       }),
       prisma.batches.findMany({
@@ -125,11 +128,50 @@ export async function fetchLMSInitialStateAction() {
         },
       }),
       prisma.exams.findMany({
-        where: { deletedAt: null },
         orderBy: { createdAt: "desc" },
+        include: {
+          _count: { select: { questions: true } }
+        }
       }),
       prisma.resources.findMany({
         orderBy: { createdAt: "desc" },
+      }),
+      // Fetch ALL exam results for leaderboard calculations
+      prisma.exam_results.findMany({
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          examId: true,
+          studentId: true,
+          score: true,
+          totalMarks: true,
+          percentage: true,
+          passed: true,
+          status: true,
+          correctCount: true,
+          incorrectCount: true,
+          timeTakenMinutes: true,
+          startTime: true,
+          submittedAt: true,
+          createdAt: true,
+          updatedAt: true,
+          exams: {
+            select: {
+              title: true,
+              collegeId: true,
+            },
+          },
+          students: {
+            select: {
+              users: {
+                select: {
+                  displayName: true,
+                  email: true,
+                },
+              },
+            },
+          },
+        },
       }),
       
       // Only first 100 students for initial render
@@ -179,6 +221,30 @@ export async function fetchLMSInitialStateAction() {
     const duration = Date.now() - startTime;
     console.log(`[LMS_INITIAL_STATE] Loaded in ${duration}ms`);
 
+    // Map attempts to include flattened fields for compatibility
+    // Convert Decimal types to numbers for JSON serialization
+    const mappedAttempts = attempts.map((att: any) => ({
+      id: att.id,
+      examId: att.examId,
+      studentId: att.studentId,
+      score: att.score !== null && att.score !== undefined ? Number(att.score) : 0,
+      totalMarks: att.totalMarks !== null && att.totalMarks !== undefined ? Number(att.totalMarks) : 0,
+      // Convert Prisma Decimal to number for client serialization
+      percentage: att.percentage !== null && att.percentage !== undefined ? Number(String(att.percentage)) : 0,
+      passed: att.passed,
+      status: att.status,
+      correctCount: att.correctCount,
+      incorrectCount: att.incorrectCount,
+      timeTakenMinutes: att.timeTakenMinutes,
+      startTime: att.startTime ? att.startTime.toISOString() : null,
+      submittedAt: att.submittedAt ? att.submittedAt.toISOString() : null,
+      createdAt: att.createdAt ? att.createdAt.toISOString() : null,
+      updatedAt: att.updatedAt ? att.updatedAt.toISOString() : null,
+      examTitle: att.exams?.title || "Unknown Exam",
+      studentName: att.students?.users?.displayName || "Unknown Student",
+      studentEmail: att.students?.users?.email || "",
+    }));
+
     return {
       success: true as const,
       data: {
@@ -187,7 +253,7 @@ export async function fetchLMSInitialStateAction() {
         students: recentStudents,
         exams,
         resources,
-        attempts: [], // Will load separately if needed
+        attempts: mappedAttempts,
         metadata: {
           counts: {
             colleges: collegeCount,

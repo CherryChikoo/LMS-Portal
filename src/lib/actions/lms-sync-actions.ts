@@ -32,15 +32,11 @@ export async function fetchDashboardSummaryAction() {
   try {
     const [collegeCounts, studentCounts, examCounts, resourceCounts, batchCounts, recentStudents] = await Promise.all([
       // College count
-      prisma.colleges.count({
-        where: { NOT: { isDeleted: true } }
-      }),
+      prisma.colleges.count(),
       // Student count
       prisma.students.count(),
       // Exam count
-      prisma.exams.count({
-        where: { deletedAt: null }
-      }),
+      prisma.exams.count(),
       // Resource count
       prisma.resources.count(),
       // Batch count
@@ -118,7 +114,6 @@ export async function fetchFullLMSStateAction() {
     try {
       const [colleges, batches, students, exams, resources, attempts] = await Promise.all([
         prisma.colleges.findMany({
-          where: { NOT: { isDeleted: true } },
           orderBy: { createdAt: "desc" },
         }),
         // Load ALL batches
@@ -174,16 +169,17 @@ export async function fetchFullLMSStateAction() {
           },
         }),
         prisma.exams.findMany({
-          where: { deletedAt: null },
           orderBy: { createdAt: "desc" },
+          include: {
+            _count: { select: { questions: true } }
+          }
         }),
         prisma.resources.findMany({
           orderBy: { createdAt: "desc" },
         }),
-        // Load ALL exam results
+        // Fetch ALL exam results for leaderboard calculations
         prisma.exam_results.findMany({
           orderBy: { createdAt: "desc" },
-          take: 2000, // Reasonable limit for exam results
           select: {
             id: true,
             examId: true,
@@ -200,9 +196,49 @@ export async function fetchFullLMSStateAction() {
             submittedAt: true,
             createdAt: true,
             updatedAt: true,
+            exams: {
+              select: {
+                title: true,
+                collegeId: true,
+              },
+            },
+            students: {
+              select: {
+                users: {
+                  select: {
+                    displayName: true,
+                    email: true,
+                  },
+                },
+              },
+            },
           },
         }),
       ]);
+
+      // Map attempts to include flattened fields for compatibility
+      // Convert Decimal types to numbers for JSON serialization
+      const mappedAttempts = attempts.map((att: any) => ({
+        id: att.id,
+        examId: att.examId,
+        studentId: att.studentId,
+        score: att.score !== null && att.score !== undefined ? Number(att.score) : 0,
+        totalMarks: att.totalMarks !== null && att.totalMarks !== undefined ? Number(att.totalMarks) : 0,
+        // Convert Prisma Decimal to number for client serialization
+        percentage: att.percentage !== null && att.percentage !== undefined ? Number(String(att.percentage)) : 0,
+        passed: att.passed,
+        status: att.status,
+        correctCount: att.correctCount,
+        incorrectCount: att.incorrectCount,
+        timeTakenMinutes: att.timeTakenMinutes,
+        startTime: att.startTime ? att.startTime.toISOString() : null,
+        submittedAt: att.submittedAt ? att.submittedAt.toISOString() : null,
+        createdAt: att.createdAt ? att.createdAt.toISOString() : null,
+        updatedAt: att.updatedAt ? att.updatedAt.toISOString() : null,
+        examTitle: att.exams?.title || "Unknown Exam",
+        studentName: att.students?.users?.displayName || "Unknown Student",
+        studentEmail: att.students?.users?.email || "",
+      }));
 
       return {
         success: true as const,
@@ -212,10 +248,7 @@ export async function fetchFullLMSStateAction() {
           students,
           exams,
           resources,
-          attempts: attempts.map((a: any) => ({
-            ...a,
-            percentage: a.percentage ? Number(a.percentage) : null,
-          })),
+          attempts: mappedAttempts,
         },
       };
     } catch (err: any) {

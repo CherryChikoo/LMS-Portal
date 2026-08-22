@@ -13,7 +13,6 @@ export async function syncCollegeDepartmentsAction() {
 
     // Get all colleges
     const colleges = await prisma.colleges.findMany({
-      where: { NOT: { isDeleted: true } },
       select: { id: true, name: true, departments: true }
     });
 

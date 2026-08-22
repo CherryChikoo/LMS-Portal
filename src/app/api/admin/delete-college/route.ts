@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
 
     // STEP 2: Bulk Delete Collections directly associated with the college
     stage = "deleteCollections";
-    const collections = ["users", "students", "resources", "doubts", "trainer_notes", "batches", "student_batches"];
+    const collections = ["users", "students", "resources", "doubts", "batches"];
     
     if (parseResult.data.studentUids && parseResult.data.studentUids.length > 0) {
        // Only delete the explicitly specified students and their resources

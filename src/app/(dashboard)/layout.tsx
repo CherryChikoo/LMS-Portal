@@ -38,19 +38,42 @@ export default function DashboardLayout({
 
   const pathname = usePathname();
 
-  // Listen for logout freeze trigger
+  // Listen for logout freeze trigger and back/forward cache navigation
   useEffect(() => {
     const handleLogout = () => {
       if (typeof window !== "undefined" && (window as any).__isLoggingOut) {
         setIsLoggingOut(true);
       }
     };
+    
+    const checkAuthStatus = () => {
+      if (typeof window !== "undefined") {
+        const hasAuth = localStorage.getItem("lms_auth") || localStorage.getItem("lms_role");
+        if (!hasAuth) {
+          window.location.replace("/login");
+        }
+      }
+    };
+
     handleLogout();
     window.addEventListener("lms_logout", () => setIsLoggingOut(true));
     window.addEventListener("storage", handleLogout);
+    
+    // Crucial for Next.js app router back-navigation (Router Cache) and browser bfcache
+    window.addEventListener("popstate", checkAuthStatus);
+    window.addEventListener("pageshow", checkAuthStatus);
+    window.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") checkAuthStatus();
+    });
+    window.addEventListener("focus", checkAuthStatus);
+
     return () => {
       window.removeEventListener("lms_logout", () => setIsLoggingOut(true));
       window.removeEventListener("storage", handleLogout);
+      window.removeEventListener("popstate", checkAuthStatus);
+      window.removeEventListener("pageshow", checkAuthStatus);
+      window.removeEventListener("visibilitychange", checkAuthStatus);
+      window.removeEventListener("focus", checkAuthStatus);
     };
   }, []);
 
@@ -198,6 +221,8 @@ export default function DashboardLayout({
 
         const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
           if (!isMounted) return;
+          // Ignore TOKEN_REFRESHED to prevent heavy re-syncing on window focus/tab change
+          if (event === "TOKEN_REFRESHED") return;
           const user = session?.user;
           syncUnsubs.forEach((u) => u());
           syncUnsubs = [];
@@ -348,8 +373,7 @@ export default function DashboardLayout({
             isExpanded ? "lg:ml-[260px]" : "lg:ml-[80px]"
           )}
           style={{
-            transition: 'margin-left 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
-            willChange: 'margin-left'
+            transition: 'margin-left 0.35s cubic-bezier(0.4, 0, 0.2, 1)'
           }}
         >
           <Topbar />

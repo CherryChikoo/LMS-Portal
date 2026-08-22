@@ -5,7 +5,8 @@ import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { useErrorHandler } from "@/providers/error-provider";
-import { ClipboardList, Plus, FileCode, Play, Eye, Edit3, Trash2, Target, Clock, CheckCircle2, ArrowLeft, ArrowRight, Sparkles, Send, Search, Calendar, Building2, Ban, Zap, Globe, Loader2 } from "lucide-react";
+import { ClipboardList, Plus, FileCode, Play, Eye, Edit3, Trash2, Target, Clock, CheckCircle2, ArrowLeft, ArrowRight, Sparkles, Send, Search, Calendar, Building2, Ban, Zap, Globe, Loader2, RotateCcw, X } from "lucide-react";
+import { useSessionStorage } from "@/hooks/use-session-storage";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
@@ -47,7 +48,7 @@ export default function ExamsPage() {
   const { showError } = useErrorHandler();
   const router = useRouter();
 
-  const { filteredExams: allExams, filteredAttempts: attempts, filteredStudents: students, loading } = useLMSData();
+  const { filteredExams: allExams, filteredAttempts: attempts, filteredStudents: students, loading, isSyncing } = useLMSData();
   const { resolveInstitution, resolveStudent, resolveBatch } = useEntityResolution();
 
   const { userRole: currentRole, userCollegeId } = useMemo(() => {
@@ -66,15 +67,47 @@ export default function ExamsPage() {
     let list = ((allExams || []) as Exam[]).filter((e: Exam) => !e.deletedAt);
     if (currentRole === "college_admin" && userCollegeId) {
       list = list.filter((e: Exam) => {
-        const targetColId = (e as any).collegeId || e.targets?.[0]?.collegeId;
-        return (
-          !targetColId ||
-          targetColId === userCollegeId ||
-          targetColId === "global" ||
-          targetColId === "GLOBAL" ||
-          targetColId === "all" ||
-          targetColId === "ALL"
-        );
+        // Check if exam is globally assigned
+        if ((e as any).isGlobal === true) return true;
+        
+        // Check direct collegeId assignment
+        const examCollegeId = (e as any).collegeId;
+        if (examCollegeId) {
+          const colIdLower = String(examCollegeId).toLowerCase();
+          if (colIdLower === userCollegeId.toLowerCase() || 
+              colIdLower === "global" || 
+              colIdLower === "all") {
+            return true;
+          }
+        }
+        
+        // Check assignedColleges array (if exists)
+        const assignedColleges = (e as any).assignedColleges;
+        if (Array.isArray(assignedColleges) && assignedColleges.length > 0) {
+          if (assignedColleges.some(cId => 
+            String(cId).toLowerCase() === userCollegeId.toLowerCase()
+          )) {
+            return true;
+          }
+        }
+        
+        // Check all targets for college assignment
+        if (e.targets && e.targets.length > 0) {
+          for (const target of e.targets) {
+            const targetColId = target.collegeId;
+            if (!targetColId) continue; // Skip if no collegeId in this target
+            
+            const targetColIdLower = String(targetColId).toLowerCase();
+            if (targetColIdLower === userCollegeId.toLowerCase() || 
+                targetColIdLower === "global" || 
+                targetColIdLower === "all") {
+              return true;
+            }
+          }
+        }
+        
+        // If no college assignment found in any of the above, exclude it
+        return false;
       });
     }
     return list.sort((a, b) => (toMillis(b.createdAt) || 0) - (toMillis(a.createdAt) || 0));
@@ -93,14 +126,24 @@ export default function ExamsPage() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
   
-  const [studentTab, setStudentTab] = useState<"available" | "results">("available");
-  const [adminTab, setAdminTab] = useState<"live" | "expired">("live");
-  const [examSearch, setExamSearch] = useState("");
-  const [examSearchRaw, setExamSearchRaw] = useState("");
+  const [studentTab, setStudentTab] = useSessionStorage<"available" | "results">("exams_page_studentTab", "available");
+  const [adminTab, setAdminTab] = useSessionStorage<"live" | "expired">("exams_page_adminTab", "live");
+  const [examSearch, setExamSearch] = useSessionStorage("exams_page_search", "");
+  const [examSearchRaw, setExamSearchRaw] = useSessionStorage("exams_page_searchRaw", "");
+  
+  // Pagination State
+  const [currentPage, setCurrentPage] = useSessionStorage("exams_page_currentPage", 1);
+  const itemsPerPage = 9;
+
+  // Reset pagination when tabs or search change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [studentTab, adminTab, examSearch, setCurrentPage]);
 
   // Page search and filter hierarchy hook
   const pageHierarchy = useAcademicHierarchy({
     levels: currentRole === "college_admin" ? ["department", "academicYear", "section", "batch"] : ["institution", "department", "academicYear", "section", "batch"],
+    storageKey: "exams_page_filters",
   });
 
   // Modal exam-assignment targeting hierarchy hook (independent state)
@@ -118,6 +161,7 @@ export default function ExamsPage() {
   const [endTimeStr, setEndTimeStr] = useState("");
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [navigatingId, setNavigatingId] = useState<string | null>(null);
 
   // New Creation Flow State
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -615,18 +659,48 @@ export default function ExamsPage() {
       ) : exams.length > 0 && (
         <div className="flex flex-col gap-3.5 bg-card/95 p-4 rounded-2xl border border-border/80 shadow-sm" suppressHydrationWarning>
           <div className="flex flex-col sm:flex-row gap-3 items-center justify-between" suppressHydrationWarning>
-            <div className="relative w-full sm:w-80" suppressHydrationWarning>
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <input
-                type="text"
-                value={examSearchRaw}
-                onChange={(e) => setExamSearchRaw(e.target.value)}
-                placeholder="Search assessments by title or description..."
-                className="w-full h-10 pl-10 pr-4 rounded-xl bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand/50 shadow-sm"
-              />
+            <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+              <div className="relative w-full sm:w-80" suppressHydrationWarning>
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  value={examSearchRaw}
+                  onChange={(e) => setExamSearchRaw(e.target.value)}
+                  placeholder="Search assessments by title or description..."
+                  className="w-full h-10 pl-10 pr-10 rounded-xl bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand/50 shadow-sm"
+                />
+                {examSearchRaw && (
+                  <button 
+                    onClick={() => setExamSearchRaw("")} 
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded-full bg-secondary text-muted-foreground hover:text-foreground hover:bg-secondary/80 transition-colors"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+              {userRole !== "student" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    pageHierarchy.setFilters({
+                      institution: "",
+                      collegeId: "",
+                      department: "",
+                      academicYear: "",
+                      section: "",
+                      batchId: "",
+                    });
+                    setExamSearchRaw("");
+                  }}
+                  className="flex items-center justify-center gap-2 px-4 h-10 rounded-xl text-sm font-semibold bg-secondary/50 text-muted-foreground hover:text-foreground hover:bg-secondary transition-all whitespace-nowrap shrink-0 border border-transparent hover:border-border"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  Reset Filters
+                </button>
+              )}
             </div>
             {userRole !== "student" && (
-              <div className="text-xs font-semibold text-muted-foreground">
+              <div className="text-xs font-semibold text-muted-foreground shrink-0">
 Showing <span className="text-foreground font-extrabold">
                   {exams.filter(exam => {
                     const tCol = (exam as any).collegeId || exam.targets?.[0]?.collegeId;
@@ -636,7 +710,7 @@ Showing <span className="text-foreground font-extrabold">
 
                     if (isGlobal) {
                       if (hasSubCollegeFilter) return false;
-                      if (userRole === "admin" && pageHierarchy.filters.collegeId && pageHierarchy.filters.collegeId !== "GLOBAL") return false;
+                      if (pageHierarchy.filters.collegeId && pageHierarchy.filters.collegeId !== "ALL" && pageHierarchy.filters.collegeId !== "GLOBAL") return false;
                       return true;
                     }
 
@@ -706,9 +780,8 @@ Showing <span className="text-foreground font-extrabold">
           actionLabel={userRole !== "student" ? "Launch Markdown Generator" : undefined}
           onAction={userRole !== "student" ? () => setCreationMode("markdown") : () => {}}
         />
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {exams
+      ) : (() => {
+        const filteredSortedExams = exams
             .filter((exam) => {
               const q = examSearch.toLowerCase();
               const matchesSearch = !q || exam.title.toLowerCase().includes(q) || (exam.description || "").toLowerCase().includes(q);
@@ -753,7 +826,7 @@ Showing <span className="text-foreground font-extrabold">
                     (target.collegeName && target.collegeName.toLowerCase() === filterCol) ||
                     (target.ids && target.ids.some((id: string) => id.toLowerCase() === filterCol))
                   );
-                  if (!isMatch && targetCol && targetCol !== "global" && targetCol !== "all") {
+                  if (!isMatch) {
                     return false;
                   }
                 }
@@ -808,6 +881,20 @@ Showing <span className="text-foreground font-extrabold">
               }
 
               if (userRole !== "student") {
+                const hasFilters = pageHierarchy.filters.collegeId && pageHierarchy.filters.collegeId !== "ALL" && pageHierarchy.filters.collegeId !== "GLOBAL";
+                
+                if (hasFilters) {
+                  const aT = (a as any).targets?.[0];
+                  const bT = (b as any).targets?.[0];
+                  const aTargetCol = (a as any).collegeId || aT?.collegeId;
+                  const bTargetCol = (b as any).collegeId || bT?.collegeId;
+                  const aGlobal = !aTargetCol || String(aTargetCol).toLowerCase() === "global" || String(aTargetCol).toLowerCase() === "all";
+                  const bGlobal = !bTargetCol || String(bTargetCol).toLowerCase() === "global" || String(bTargetCol).toLowerCase() === "all";
+                  
+                  if (!aGlobal && bGlobal) return -1;
+                  if (aGlobal && !bGlobal) return 1;
+                }
+
                 return (toMillis(b.createdAt) || 0) - (toMillis(a.createdAt) || 0);
               }
 
@@ -824,9 +911,36 @@ Showing <span className="text-foreground font-extrabold">
               const wB = weight(statusB);
               
               if (wA !== wB) return wA - wB;
+
               return (toMillis(b.createdAt) || 0) - (toMillis(a.createdAt) || 0);
-            })
-            .map((exam, index, arr) => {
+            });
+
+        const totalPages = Math.ceil(filteredSortedExams.length / itemsPerPage);
+        const paginatedExams = filteredSortedExams.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+        if (loading || (isSyncing && filteredSortedExams.length === 0)) {
+          return (
+            <div className="p-12 text-center text-sm text-muted-foreground flex flex-col items-center justify-center gap-3 font-sans">
+              <div className="w-8 h-8 rounded-full border-2 border-brand border-t-transparent animate-spin" />
+              <span>Loading assessments...</span>
+            </div>
+          );
+        }
+
+        if (filteredSortedExams.length === 0) {
+          return (
+            <EmptyState
+              icon={ClipboardList}
+              title="No assessments found"
+              description="Try adjusting your search or filters to find what you're looking for."
+            />
+          );
+        }
+
+        return (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {paginatedExams.map((exam, index, arr) => {
               const effStatus = getEffectiveExamStatus(exam);
               const att = getStudentAttemptForExam(exam.id);
 
@@ -855,7 +969,7 @@ Showing <span className="text-foreground font-extrabold">
                     return `Student: ${resolveStudent(newShape.studentId || "") || newShape.studentName}`;
                   }
                   
-                  const rawInst = t.collegeName || (t.collegeId ? resolveInstitution(t.collegeId) : null);
+                  const rawInst = t.collegeId ? resolveInstitution(t.collegeId) : (t.collegeName || null);
                   const institutionLabel = (!rawInst || rawInst.includes("Unknown")) && t.collegeId ? t.collegeId : rawInst;
                   const parts = [
                     institutionLabel,
@@ -868,7 +982,7 @@ Showing <span className="text-foreground font-extrabold">
                 }
                 // Legacy composite shape (kept for older records).
                 if (t.type === "composite") {
-                  const rawInst = t.collegeName || (t.collegeId ? resolveInstitution(t.collegeId) : null);
+                  const rawInst = t.collegeId ? resolveInstitution(t.collegeId) : (t.collegeName || null);
                   const institutionLabel = (!rawInst || rawInst.includes("Unknown")) && t.collegeId ? t.collegeId : rawInst;
                   const parts = [
                     institutionLabel,
@@ -910,10 +1024,9 @@ Showing <span className="text-foreground font-extrabold">
                 const timeTaken = startMs && endMs ? Math.max(1, Math.round((endMs - startMs) / 60000)) : 0;
 
                 const card = (
-                  <motion.div
+                  <div
                     key={exam.id}
-                    whileHover={{ y: -4 }}
-                    className="group relative rounded-xl border border-border bg-card p-6 flex flex-col justify-between gap-6 shadow-sm hover:border-brand/40 transition-all duration-300"
+                    className="group relative rounded-xl border border-border bg-card p-6 flex flex-col justify-between gap-6 shadow-sm hover:shadow-lg hover:border-brand/40 hover:-translate-y-1 transition-all duration-300"
                   >
                     <div className="space-y-4">
                       <div className="flex items-center justify-between gap-2">
@@ -963,7 +1076,7 @@ Showing <span className="text-foreground font-extrabold">
                         <span>View Result</span>
                       </Button>
                     </div>
-                  </motion.div>
+                  </div>
                 );
 
                 if (sectionHeader) {
@@ -974,10 +1087,9 @@ Showing <span className="text-foreground font-extrabold">
 
               if (userRole === "student" && studentTab === "results" && isExpiredAndNotAttempted) {
                 const card = (
-                  <motion.div
+                  <div
                     key={exam.id}
-                    whileHover={{ y: -4 }}
-                    className="group relative rounded-xl border border-border bg-card p-6 flex flex-col justify-between gap-6 shadow-sm hover:border-brand/40 transition-all duration-300 opacity-80"
+                    className="group relative rounded-xl border border-border bg-card p-6 flex flex-col justify-between gap-6 shadow-sm hover:shadow-lg hover:border-brand/40 hover:-translate-y-1 transition-all duration-300 opacity-80"
                   >
                     <div className="space-y-4">
                       <div className="flex items-center justify-between gap-2">
@@ -1021,16 +1133,20 @@ Showing <span className="text-foreground font-extrabold">
                         <span>Assessment Closed</span>
                       </Button>
                       <Button
-                        onClick={() => router.push(getExamDetailsPath(exam.id))}
+                        onClick={() => {
+                          setNavigatingId(exam.id);
+                          router.push(getExamDetailsPath(exam.id));
+                        }}
+                        disabled={navigatingId === exam.id}
                         variant="outline"
                         size="sm"
                         className="w-full h-9 rounded-xl border-brand/40 text-brand hover:bg-brand/10 text-xs font-bold flex items-center justify-center gap-1.5"
                       >
-                        <Eye className="w-3.5 h-3.5" />
-                        <span>View Details</span>
+                        {navigatingId === exam.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Eye className="w-3.5 h-3.5" />}
+                        <span>{navigatingId === exam.id ? "Loading..." : "View Details"}</span>
                       </Button>
                     </div>
-                  </motion.div>
+                  </div>
                 );
 
                 if (sectionHeader) {
@@ -1059,10 +1175,9 @@ Showing <span className="text-foreground font-extrabold">
               }
 
               return (
-                <motion.div
+                <div
                   key={exam.id}
-                  whileHover={{ y: -4 }}
-                  className="group relative rounded-xl border border-gray-200 bg-white hover:border-gray-300 dark:border-gray-800 dark:bg-[#0B0F15] dark:hover:border-gray-600 p-6 flex flex-col justify-between gap-5 shadow-sm transition-colors duration-200"
+                  className="group relative rounded-xl border border-gray-200 bg-white hover:shadow-lg hover:-translate-y-1 dark:border-gray-800 dark:bg-[#0B0F15] hover:border-gray-300 dark:hover:border-gray-600 p-6 flex flex-col justify-between gap-5 shadow-sm transition-all duration-300"
                 >
                   <div className="space-y-4">
                     <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -1110,7 +1225,7 @@ Showing <span className="text-foreground font-extrabold">
                         {exam.title}
                       </h3>
                       <p className="text-sm text-gray-500 dark:text-gray-400 line-clamp-1 font-normal">
-                        Contains {exam.questions?.length || exam.questionIds?.length || (exam as any).totalQuestions || 0} questions
+                        Contains {exam.questions?.length || exam.questionIds?.length || (exam as any).totalQuestions || (exam as any)._count?.questions || 0} questions
                       </p>
                     </div>
                   </div>
@@ -1118,7 +1233,7 @@ Showing <span className="text-foreground font-extrabold">
                   <div className="grid grid-cols-2 gap-4 p-4 rounded-lg bg-gray-50 dark:bg-gray-800/30 text-xs mt-1">
                     <div className="flex flex-col items-center justify-center">
                       <span className="text-xs uppercase tracking-wider text-gray-500 dark:text-gray-500">Questions</span>
-                      <p className="font-bold text-gray-900 dark:text-white text-lg mt-1">{exam.questions?.length || exam.questionIds?.length || (exam as any).totalQuestions || 0}</p>
+                      <p className="font-bold text-gray-900 dark:text-white text-lg mt-1">{exam.questions?.length || exam.questionIds?.length || (exam as any).totalQuestions || (exam as any)._count?.questions || 0}</p>
                     </div>
                     <div className="flex flex-col items-center justify-center">
                       <span className="text-xs uppercase tracking-wider text-gray-500 dark:text-gray-500">Total Marks</span>
@@ -1228,14 +1343,18 @@ Showing <span className="text-foreground font-extrabold">
                         </div>
                         <div className="flex items-center gap-2">
                           <Button
-                            onClick={() => router.push(getExamDetailsPath(exam.id))}
+                            onClick={() => {
+                              setNavigatingId(exam.id);
+                              router.push(getExamDetailsPath(exam.id));
+                            }}
+                            disabled={navigatingId === exam.id}
                             variant="outline"
                             size="sm"
                             className="h-9 px-4 text-sm font-medium border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-900/50 dark:text-emerald-400 dark:hover:bg-emerald-900/20 flex items-center gap-1.5 rounded-lg"
                             title="View Assessment Details"
                           >
-                            <Eye className="w-4 h-4" />
-                            <span>Details</span>
+                            {navigatingId === exam.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}
+                            <span>{navigatingId === exam.id ? "Loading..." : "Details"}</span>
                           </Button>
                           <button
                             onClick={() => handleExpire(exam)}
@@ -1321,11 +1440,49 @@ Showing <span className="text-foreground font-extrabold">
                       )}
                     </div>
                   )}
-                </motion.div>
+                </div>
               );
             })}
             </div>
-          )}
+            
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between border-t border-border/60 pt-6 mt-6">
+                <div className="text-sm text-muted-foreground">
+                  Showing <span className="font-bold text-foreground">{(currentPage - 1) * itemsPerPage + 1}</span> - <span className="font-bold text-foreground">{Math.min(currentPage * itemsPerPage, filteredSortedExams.length)}</span> of <span className="font-bold text-foreground">{filteredSortedExams.length}</span> Assessments
+                </div>
+                
+                <div className="flex items-center gap-2">
+                  <Button
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    variant="outline"
+                    size="sm"
+                    className="gap-1 rounded-xl"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                    Prev
+                  </Button>
+                  
+                  <div className="text-sm font-medium text-foreground px-4">
+                    Page {currentPage} of {totalPages}
+                  </div>
+                  
+                  <Button
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    variant="outline"
+                    size="sm"
+                    className="gap-1 rounded-xl"
+                  >
+                    Next
+                    <ArrowRight className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
       </motion.div>
 
       {/* Test Creation Modal (Manual / Markdown) */}

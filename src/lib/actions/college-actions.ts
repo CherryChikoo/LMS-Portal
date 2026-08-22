@@ -63,9 +63,9 @@ export async function fetchCollegeStudentCountAction(collegeId: string) {
 }
 
 export async function softDeleteCollegeAction(id: string) {
-  await prisma.colleges.update({
-    where: { id },
-    data: { isDeleted: true, status: "deleted", updatedAt: new Date() }
+  // Hard delete the college instead of soft deleting
+  await prisma.colleges.delete({
+    where: { id }
   });
 }
 

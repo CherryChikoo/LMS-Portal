@@ -39,11 +39,12 @@ export function Topbar() {
       const savedUser = localStorage.getItem("lms_user") || localStorage.getItem("user");
       if (savedUser) {
         const u = JSON.parse(savedUser);
-        if (u.name || u.displayName) return formatDisplayName(u.name || u.displayName);
+        const name = u.name || u.displayName || u.full_name || u.user_metadata?.full_name;
+        if (name) return formatDisplayName(name);
       }
       const savedRole = localStorage.getItem("lms_role");
       if (savedRole === "college_admin") return "College Admin";
-      if (savedRole === "admin") return "System Admin";
+      if (savedRole === "admin" || savedRole === "main_admin" || savedRole === "super_admin" || savedRole === "master_admin") return "Master Admin";
       if (savedRole === "student") return "Student";
     } catch {}
     return "User";
@@ -59,12 +60,12 @@ export function Topbar() {
         const role = (u.role || savedRole || "student").toLowerCase();
         if (role === "student") return "Student";
         if (role === "college_admin") return "College Admin";
-        if (role === "admin" || role === "main_admin" || role === "super_admin") return "Super Admin";
+        if (role === "admin" || role === "main_admin" || role === "super_admin" || role === "master_admin") return "Master Admin";
       }
       if (savedRole) {
         const role = savedRole.toLowerCase();
         if (role === "college_admin") return "College Admin";
-        if (role === "admin" || role === "main_admin" || role === "super_admin") return "Super Admin";
+        if (role === "admin" || role === "main_admin" || role === "super_admin" || role === "master_admin") return "Master Admin";
       }
     } catch {}
     return "Student";
@@ -76,7 +77,7 @@ export function Topbar() {
       const savedUser = localStorage.getItem("lms_user") || localStorage.getItem("user");
       if (savedUser) {
         const u = JSON.parse(savedUser);
-        const name = u.name || u.displayName;
+        const name = u.name || u.displayName || u.full_name || u.user_metadata?.full_name;
         if (name) {
           const parts = name.split(" ").filter(Boolean);
           return parts.length > 1 ? `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase() : parts[0]?.slice(0, 2).toUpperCase() || "US";
@@ -84,7 +85,7 @@ export function Topbar() {
       }
       const savedRole = localStorage.getItem("lms_role");
       if (savedRole === "college_admin") return "CA";
-      if (savedRole === "admin") return "SA";
+      if (savedRole === "admin" || savedRole === "main_admin" || savedRole === "super_admin" || savedRole === "master_admin") return "MA";
       if (savedRole === "student") return "ST";
     } catch {}
     return "US";
@@ -97,7 +98,7 @@ export function Topbar() {
     if (savedUser) {
       try {
         const u = JSON.parse(savedUser);
-        const name = u.name || u.displayName || "User";
+        const name = u.name || u.displayName || u.full_name || u.user_metadata?.full_name || "User";
         setUserName(formatDisplayName(name));
         const parts = name.split(" ").filter(Boolean);
         const init = parts.length > 1 ? `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase() : parts[0]?.slice(0, 2).toUpperCase() || "US";
@@ -107,8 +108,8 @@ export function Topbar() {
           setUserRole("Student");
         } else if (role === "college_admin") {
           setUserRole("College Admin");
-        } else if (role === "admin" || role === "main_admin" || role === "super_admin") {
-          setUserRole("Super Admin");
+        } else if (role === "admin" || role === "main_admin" || role === "super_admin" || role === "master_admin") {
+          setUserRole("Master Admin");
         } else {
           setUserRole("Trainer");
         }
@@ -119,10 +120,10 @@ export function Topbar() {
         setUserName("College Admin");
         setUserRole("College Admin");
         setInitials("CA");
-      } else if (role === "admin" || role === "main_admin" || role === "super_admin") {
-        setUserName("System Admin");
-        setUserRole("Super Admin");
-        setInitials("SA");
+      } else if (role === "admin" || role === "main_admin" || role === "super_admin" || role === "master_admin") {
+        setUserName("Master Admin");
+        setUserRole("Master Admin");
+        setInitials("MA");
       } else if (role === "student") {
         setUserName("Student");
         setUserRole("Student");
@@ -186,7 +187,7 @@ export function Topbar() {
   return (
     <header
       className={`sticky top-0 z-30 h-20 flex items-center justify-between gap-4 px-4 sm:px-6 lg:px-8 transition-all duration-300 ${scrolled
-        ? "bg-background/95 backdrop-blur-2xl border-b border-border shadow-sm"
+        ? "bg-background/95 border-b border-border shadow-sm"
         : "bg-background border-b border-border"
         }`}
     >
@@ -217,7 +218,7 @@ export function Topbar() {
       {/* Right Actions */}
       <div className="flex items-center gap-2 sm:gap-3">
         {/* Quick Action Pill Button */}
-        {userRole.toLowerCase() !== "student" && (
+        {mounted && userRole.toLowerCase() !== "student" && (
           <Link href={userRole.toLowerCase() === "college_admin" || userRole.toLowerCase() === "administrator" ? "/admin/exams?action=new-markdown" : "/exams?action=new-markdown"} className="hidden md:block">
             <Button
               size="sm"

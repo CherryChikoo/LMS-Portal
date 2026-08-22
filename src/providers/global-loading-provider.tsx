@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
+import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { Loader2 } from "lucide-react";
 
@@ -44,6 +45,12 @@ export const globalLoading = {
 export function GlobalLoadingProvider({ children }: { children: React.ReactNode }) {
   const [loadingCount, setLoadingCount] = useState(0);
   const [message, setMessage] = useState("Processing request...");
+  const pathname = usePathname();
+
+  // Reset loading automatically when pathname changes (navigation complete)
+  useEffect(() => {
+    setLoadingCount(0);
+  }, [pathname]);
 
   const startLoading = useCallback((msg: string = "Processing request...") => {
     setMessage(msg);

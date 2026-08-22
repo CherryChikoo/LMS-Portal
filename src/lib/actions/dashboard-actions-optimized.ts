@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from '@/lib/prisma';
-import { getCached } from '@/lib/cache/query-cache';
+
 
 /**
  * ULTRA-OPTIMIZED DASHBOARD ACTIONS
@@ -15,10 +15,7 @@ import { getCached } from '@/lib/cache/query-cache';
 // ============================================================================
 
 export async function getAdminDashboardStatsAction() {
-  return getCached(
-    'dashboard-stats',
-    { role: 'admin' },
-    async () => {
+  return (async () => {
       try {
         // Import the new metrics function dynamically to avoid circular deps
         const { getDatabaseMetricsAction } = await import('./student-actions-optimized');
@@ -35,15 +32,15 @@ export async function getAdminDashboardStatsAction() {
           // Active exams - check for status = 'published' and not soft deleted
           prisma.exams.count({
             where: {
-              deletedAt: null,
-              status: 'published',
+
+              status: 'active',
             },
           }),
           
           // Recent exams (last 7 days)
           prisma.exams.count({
             where: {
-              deletedAt: null,
+
               createdAt: {
                 gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
               },
@@ -123,19 +120,15 @@ export async function getAdminDashboardStatsAction() {
           stats: null,
         };
       }
-    }
-  );
-}
+    })();
+  }
 
 // ============================================================================
 // STUDENT DASHBOARD STATS
 // ============================================================================
 
 export async function getStudentDashboardStatsAction(studentId: string) {
-  return getCached(
-    'dashboard-stats',
-    { role: 'student', studentId },
-    async () => {
+  return (async () => {
       try {
     const [
       assignedExamsCount,
@@ -147,8 +140,8 @@ export async function getStudentDashboardStatsAction(studentId: string) {
       // Count assigned exams (simplified - counts all published/active exams)
       prisma.exams.count({
         where: {
-          deletedAt: null,
-          status: 'published',
+
+          status: 'active',
         },
       }),
       
@@ -204,7 +197,13 @@ export async function getStudentDashboardStatsAction(studentId: string) {
             completedAttempts: completedAttemptsCount,
             assignedResources: assignedResourcesCount,
             averageScore,
-            recentAttempts,
+            recentAttempts: recentAttempts.map((a: any) => ({
+              ...a,
+              // Convert Prisma Decimal to number for client serialization
+              percentage: a.percentage !== null && a.percentage !== undefined ? Number(String(a.percentage)) : null,
+              // Convert Date objects to ISO strings
+              createdAt: a.createdAt ? a.createdAt.toISOString() : null,
+            })),
           },
         };
       } catch (error: any) {
@@ -215,19 +214,15 @@ export async function getStudentDashboardStatsAction(studentId: string) {
           stats: null,
         };
       }
-    }
-  );
-}
+    })();
+  }
 
 // ============================================================================
 // COLLEGE ADMIN DASHBOARD STATS
 // ============================================================================
 
 export async function getCollegeAdminDashboardStatsAction(collegeId: string) {
-  return getCached(
-    'dashboard-stats',
-    { role: 'college_admin', collegeId },
-    async () => {
+  return (async () => {
       try {
     const [
       collegeStudentsCount,
@@ -238,7 +233,7 @@ export async function getCollegeAdminDashboardStatsAction(collegeId: string) {
       recentStudentsCount,
       recentExamsCount,
     ] = await Promise.all([
-      // Students in this college
+      // Students in this college ONLY
       prisma.students.count({
         where: {
           OR: [
@@ -249,7 +244,7 @@ export async function getCollegeAdminDashboardStatsAction(collegeId: string) {
         },
       }),
       
-      // Batches in this college
+      // Batches in this college ONLY
       prisma.batches.count({
         where: {
           OR: [
@@ -259,15 +254,30 @@ export async function getCollegeAdminDashboardStatsAction(collegeId: string) {
         },
       }),
       
-      // Exams assigned to this college (simplified)
+      // Exams assigned to this college OR no specific college (treated as global)
       prisma.exams.count({
-        where: { deletedAt: null },
+        where: {
+          OR: [
+            { collegeId }, // Direct college assignment
+            { collegeId: null }, // No college = global
+            { collegeId: { in: ['', 'global', 'GLOBAL', 'all', 'ALL'] } }, // Explicit global markers
+          ],
+          status: 'active',
+        },
       }),
       
-      // Resources for this college (simplified)
-      prisma.resources.count(),
+      // Resources for this college OR no specific college (treated as global)
+      prisma.resources.count({
+        where: {
+          OR: [
+            { collegeId }, // Direct college assignment
+            { collegeId: null }, // No college = global
+            { collegeId: { in: ['', 'global', 'GLOBAL', 'all', 'ALL'] } }, // Explicit global markers
+          ],
+        },
+      }),
       
-      // Active students in college
+      // Active students in college ONLY
       prisma.students.count({
         where: {
           users: { status: 'active' },
@@ -278,7 +288,7 @@ export async function getCollegeAdminDashboardStatsAction(collegeId: string) {
         },
       }),
       
-      // Recent students (last 7 days)
+      // Recent students (last 7 days) in college ONLY
       prisma.students.count({
         where: {
           createdAt: {
@@ -291,10 +301,14 @@ export async function getCollegeAdminDashboardStatsAction(collegeId: string) {
         },
       }),
       
-      // Recent exams (last 7 days)
+      // Recent exams (last 7 days) for this college OR global
       prisma.exams.count({
         where: {
-          deletedAt: null,
+          OR: [
+            { collegeId }, // Direct college assignment
+            { collegeId: null }, // No college = global
+            { collegeId: { in: ['', 'global', 'GLOBAL', 'all', 'ALL'] } }, // Explicit global markers
+          ],
           createdAt: {
             gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
           },
@@ -330,9 +344,8 @@ export async function getCollegeAdminDashboardStatsAction(collegeId: string) {
           stats: null,
         };
       }
-    }
-  );
-}
+    })();
+  }
 
 // ============================================================================
 // RECENT ACTIVITY (LIMITED)
@@ -364,7 +377,7 @@ export async function getRecentActivityAction(limit: number = 10) {
       
       // Recent exams (only essential fields)
       prisma.exams.findMany({
-        where: { deletedAt: null },
+        where: { },
         orderBy: { createdAt: 'desc' },
         take: Math.min(limit, 20),
         select: {
@@ -433,12 +446,163 @@ export async function getRecentActivityAction(limit: number = 10) {
       data: {
         recentStudents,
         recentExams,
-        recentAttempts,
+        recentAttempts: recentAttempts.map((a: any) => ({
+          ...a,
+          // Convert Prisma Decimal to number for client serialization
+          percentage: a.percentage !== null && a.percentage !== undefined ? Number(String(a.percentage)) : null,
+          // Convert Date objects to ISO strings
+          createdAt: a.createdAt ? a.createdAt.toISOString() : null,
+        })),
         recentBatches,
       },
     };
   } catch (error: any) {
     console.error("[RECENT_ACTIVITY] Error:", error);
+    return {
+      success: false as const,
+      error: error.message,
+      data: null,
+    };
+  }
+}
+
+// ============================================================================
+// RECENT ACTIVITY FOR COLLEGE ADMIN (FILTERED)
+// ============================================================================
+
+export async function getCollegeRecentActivityAction(collegeId: string, limit: number = 10) {
+  try {
+    const [recentStudents, recentExams, recentAttempts, recentBatches] = await Promise.all([
+      // Recent students in THIS college only
+      prisma.students.findMany({
+        where: {
+          OR: [
+            { collegeId },
+            { colleges: { id: collegeId } },
+          ],
+        },
+        orderBy: { createdAt: 'desc' },
+        take: Math.min(limit, 20),
+        select: {
+          id: true,
+          createdAt: true,
+          users: {
+            select: {
+              displayName: true,
+              email: true,
+            },
+          },
+          colleges: {
+            select: {
+              name: true,
+            },
+          },
+        },
+      }),
+      
+      // Recent exams for THIS college OR global
+      prisma.exams.findMany({
+        where: {
+          OR: [
+            { collegeId }, // Direct college assignment
+            { collegeId: null }, // No college = global
+            { collegeId: { in: ['', 'global', 'GLOBAL', 'all', 'ALL'] } }, // Explicit global markers
+          ],
+        },
+        orderBy: { createdAt: 'desc' },
+        take: Math.min(limit, 20),
+        select: {
+          id: true,
+          title: true,
+          createdAt: true,
+          startTime: true,
+          endTime: true,
+        },
+      }),
+      
+      // Recent exam attempts from THIS college students only
+      prisma.exam_results.findMany({
+        where: {
+          students: {
+            OR: [
+              { collegeId },
+              { colleges: { id: collegeId } },
+            ],
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: Math.min(limit, 20),
+        select: {
+          id: true,
+          studentId: true,
+          examId: true,
+          percentage: true,
+          status: true,
+          createdAt: true,
+          students: {
+            select: {
+              users: {
+                select: {
+                  displayName: true,
+                },
+              },
+            },
+          },
+          exams: {
+            select: {
+              title: true,
+            },
+          },
+        },
+      }),
+      
+      // Recent batches in THIS college only
+      prisma.batches.findMany({
+        where: {
+          OR: [
+            { collegeId },
+            { collegeId: { equals: collegeId, mode: 'insensitive' } },
+          ],
+        },
+        orderBy: { createdAt: 'desc' },
+        take: Math.min(limit, 20),
+        select: {
+          id: true,
+          name: true,
+          department: true,
+          academicYear: true,
+          createdAt: true,
+          colleges: {
+            select: {
+              name: true,
+            },
+          },
+          _count: {
+            select: {
+              student_batches: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    return {
+      success: true as const,
+      data: {
+        recentStudents,
+        recentExams,
+        recentAttempts: recentAttempts.map((a: any) => ({
+          ...a,
+          // Convert Prisma Decimal to number for client serialization
+          percentage: a.percentage !== null && a.percentage !== undefined ? Number(String(a.percentage)) : null,
+          // Convert Date objects to ISO strings
+          createdAt: a.createdAt ? a.createdAt.toISOString() : null,
+        })),
+        recentBatches,
+      },
+    };
+  } catch (error: any) {
+    console.error("[COLLEGE_RECENT_ACTIVITY] Error:", error);
     return {
       success: false as const,
       error: error.message,
@@ -521,3 +685,4 @@ export async function getDashboardAnalyticsAction() {
     };
   }
 }
+

@@ -345,7 +345,7 @@ function LoginContent() {
         onClose={() => setRestrictedModalOpen(false)}
         onConfirm={() => setRestrictedModalOpen(false)}
         title="Access Restricted"
-        message={"Your LMS account has been temporarily restricted by your Trainer/Admin.\n\nPlease contact your Trainer for further assistance."}
+        message="restricted and please contact your respective trainer."
         confirmText="Understood"
         variant="warning"
       />

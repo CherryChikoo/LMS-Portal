@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState, useMemo, Suspense } from "react";
+import { useEffect, useState, useMemo, Suspense, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import { Layers, Plus, Users, Trash2, ChevronRight, ChevronLeft, AlertCircle } from "lucide-react";
+import { Layers, Plus, Users, Trash2, ChevronRight, ChevronLeft, AlertCircle, RefreshCcw } from "lucide-react";
 import Link from "next/link";
+import { useSessionStorage } from "@/hooks/use-session-storage";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
@@ -28,10 +29,10 @@ function BatchesContent() {
   const [userCollegeId, setUserCollegeId] = useState<string>("");
   
   // Pagination state
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPage, setCurrentPage] = useSessionStorage("batches_page_currentPage", 1);
   const [totalCount, setTotalCount] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
-  const pageSize = 25; // Default 25 for batches
+  const [pageSize, setPageSize] = useState(15); // Show 15 batches per page to reduce DOM load
   
   // Batches data
   const [batches, setBatches] = useState<any[]>([]);
@@ -51,6 +52,7 @@ function BatchesContent() {
   } = useAcademicHierarchy({
     initial: { collegeId: initialCollegeId },
     levels: userRole === "college_admin" ? ["department", "academicYear"] : ["institution", "department", "academicYear"],
+    storageKey: "batches_page_filters",
   });
   
   const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void } | null>(null);
@@ -149,10 +151,28 @@ function BatchesContent() {
     loadBatches();
   }, [currentPage, batchFilters, userRole, userCollegeId]);
 
-  // Reset to page 1 when filters change
+  // Bulletproof: Reset to page 1 ONLY if a filter ACTUALLY changed
+  const prevFiltersRef = useRef({
+    collegeId: batchFilters.collegeId,
+    department: batchFilters.department,
+    academicYear: batchFilters.academicYear,
+  });
+
   useEffect(() => {
-    setCurrentPage(1);
-  }, [batchFilters.collegeId, batchFilters.department, batchFilters.academicYear]);
+    const prev = prevFiltersRef.current;
+    if (
+      prev.collegeId !== batchFilters.collegeId ||
+      prev.department !== batchFilters.department ||
+      prev.academicYear !== batchFilters.academicYear
+    ) {
+      setCurrentPage(1);
+      prevFiltersRef.current = {
+        collegeId: batchFilters.collegeId,
+        department: batchFilters.department,
+        academicYear: batchFilters.academicYear,
+      };
+    }
+  }, [batchFilters.collegeId, batchFilters.department, batchFilters.academicYear, setCurrentPage]);
 
   // Debug: Log batches state changes
   useEffect(() => {
@@ -395,6 +415,16 @@ function BatchesContent() {
                     ? "Select All" 
                     : `${selectedBatchIds.size} selected`}
                 </span>
+                {selectedBatchIds.size === 0 && currentPage > 1 && (
+                  <button
+                    onClick={() => setCurrentPage(1)}
+                    className="ml-2 p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5"
+                    title="Jump back to Page 1"
+                  >
+                    <RefreshCcw className="w-3.5 h-3.5" />
+                    <span className="text-xs font-semibold">Page 1</span>
+                  </button>
+                )}
               </div>
               
               {selectedBatchIds.size > 0 && (
@@ -462,10 +492,9 @@ function BatchesContent() {
             {batches.map((b: any) => {
               const isSelected = selectedBatchIds.has(b.id);
               return (
-                <motion.div
+                <div
                   key={b.id}
-                  whileHover={{ y: -4 }}
-                  className={`group relative rounded-xl border bg-card p-6 flex flex-col justify-between gap-6 shadow-sm hover:border-brand/40 transition-all duration-300 ${
+                  className={`group relative rounded-xl border bg-card p-6 flex flex-col justify-between gap-6 shadow-sm hover:shadow-lg hover:border-brand/40 hover:-translate-y-1 transition-all duration-300 ${
                     isSelected ? 'border-brand ring-2 ring-brand/20' : 'border-border'
                   }`}
                 >
@@ -533,7 +562,7 @@ function BatchesContent() {
                       </Link>
                     )}
                   </div>
-                </motion.div>
+                </div>
               );
             })}
           </div>

@@ -48,6 +48,7 @@ export interface UseAcademicHierarchyOptions {
   initial?: Partial<AcademicFilters>;
   levels?: string[];
   includeExternalInstitutions?: boolean;
+  storageKey?: string;
 }
 
 export interface UseAcademicHierarchyResult {
@@ -87,6 +88,7 @@ export function useAcademicHierarchy(options: UseAcademicHierarchyOptions = {}):
   const {
     initial = {},
     includeExternalInstitutions = true,
+    storageKey,
   } = options;
 
   // Detect user role and college for data scoping
@@ -109,8 +111,28 @@ export function useAcademicHierarchy(options: UseAcademicHierarchyOptions = {}):
   const isScopedRole = mounted && (userRole === "college_admin" || userRole === "student");
 
   const [filters, setLocalFilters] = useState<AcademicFilters>(() => {
-    return mergeFilters(EMPTY_FILTERS, initial);
+    const defaultFilters = mergeFilters(EMPTY_FILTERS, initial);
+    if (typeof window === "undefined" || !storageKey) {
+      return defaultFilters;
+    }
+    try {
+      const item = window.sessionStorage.getItem(storageKey);
+      return item ? { ...defaultFilters, ...JSON.parse(item) } : defaultFilters;
+    } catch (error) {
+      console.warn(`Error reading sessionStorage key "${storageKey}":`, error);
+      return defaultFilters;
+    }
   });
+
+  // Sync filters to session storage whenever they change
+  useEffect(() => {
+    if (typeof window === "undefined" || !storageKey) return;
+    try {
+      window.sessionStorage.setItem(storageKey, JSON.stringify(filters));
+    } catch (error) {
+      console.warn(`Error setting sessionStorage key "${storageKey}":`, error);
+    }
+  }, [filters, storageKey]);
   const [tick, setTick] = useState(0);
 
   useEffect(() => {

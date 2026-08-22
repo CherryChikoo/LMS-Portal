@@ -6,7 +6,8 @@ import { toast } from "sonner";
 import { useErrorHandler } from "@/providers/error-provider";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import { ArrowLeft, Building2, FolderTree, Users, Plus, Trash2, Search, CheckCircle2, Pencil, Ban, Upload, FileSpreadsheet, FolderOpen, StopCircle, Download, X } from "lucide-react";
+import { ArrowLeft, Building2, FolderTree, Users, Plus, Trash2, Search, CheckCircle2, Pencil, Ban, Upload, FileSpreadsheet, FolderOpen, StopCircle, Download, X, RefreshCcw } from "lucide-react";
+import { useSessionStorage } from "@/hooks/use-session-storage";
 import { PageHeader } from "@/components/shared/page-header";
 import { FilterDropdown } from "@/components/shared/filter-dropdown";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -81,12 +82,12 @@ function getYearBadgeStyle(year?: string) {
 }
 
   // Filters
-  const [selectedDeptFilter, setSelectedDeptFilter] = useState("ALL");
-  const [selectedYearFilter, setSelectedYearFilter] = useState("ALL");
-  const [selectedSectionFilter, setSelectedSectionFilter] = useState("ALL");
-  const [timeFilter, setTimeFilter] = useState("ALL");
+  const [selectedDeptFilter, setSelectedDeptFilter] = useSessionStorage("college_detail_deptFilter", "ALL");
+  const [selectedYearFilter, setSelectedYearFilter] = useSessionStorage("college_detail_yearFilter", "ALL");
+  const [selectedSectionFilter, setSelectedSectionFilter] = useSessionStorage("college_detail_sectionFilter", "ALL");
+  const [timeFilter, setTimeFilter] = useSessionStorage("college_detail_timeFilter", "ALL");
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useSessionStorage("college_detail_searchQuery", "");
 
   // Add Department Modal
   const [showAddDeptModal, setShowAddDeptModal] = useState(false);
@@ -134,8 +135,8 @@ function getYearBadgeStyle(year?: string) {
   const cancelImportRef = useRef(false);
 
   // Pagination State (MUST BE BEFORE ANY EARLY RETURNS)
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 50; // Show 50 students per page (consistent with students page default)
+  const [currentPage, setCurrentPage] = useSessionStorage("college_detail_currentPage", 1);
+  const itemsPerPage = 25; // Show 25 students per page (improved performance)
 
   // Cascading subset: students narrowed by selected Department filter.
   const filteredByDepartment = useMemo(() =>
@@ -176,10 +177,34 @@ function getYearBadgeStyle(year?: string) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally exclude selected* values so the reset only fires when the parent filter narrows the option list
   }, [selectedDeptFilter, yearsList, sectionsList]);
 
-  // Reset page to 1 when filters change
+  // Bulletproof: Reset page to 1 when filters change
+  const prevFiltersRef = useRef({
+    search: searchQuery,
+    dept: selectedDeptFilter,
+    year: selectedYearFilter,
+    section: selectedSectionFilter,
+    time: timeFilter,
+  });
+
   useEffect(() => {
-    setCurrentPage(1);
-  }, [searchQuery, selectedDeptFilter, selectedYearFilter, selectedSectionFilter, timeFilter]);
+    const prev = prevFiltersRef.current;
+    if (
+      prev.search !== searchQuery ||
+      prev.dept !== selectedDeptFilter ||
+      prev.year !== selectedYearFilter ||
+      prev.section !== selectedSectionFilter ||
+      prev.time !== timeFilter
+    ) {
+      setCurrentPage(1);
+      prevFiltersRef.current = {
+        search: searchQuery,
+        dept: selectedDeptFilter,
+        year: selectedYearFilter,
+        section: selectedSectionFilter,
+        time: timeFilter,
+      };
+    }
+  }, [searchQuery, selectedDeptFilter, selectedYearFilter, selectedSectionFilter, timeFilter, setCurrentPage]);
 
   const handleFileUpload = async (filesOrEvent: React.ChangeEvent<HTMLInputElement> | File[]) => {
     let files: File[] = [];
@@ -886,11 +911,10 @@ function getYearBadgeStyle(year?: string) {
             const deptCount = students.filter((s) => s.department === dept).length;
             const isSelected = selectedDeptFilter === dept;
             return (
-              <motion.div
+              <div
                 key={idx}
-                whileHover={{ y: -3 }}
                 onClick={() => setSelectedDeptFilter(isSelected ? "ALL" : dept)}
-                className={`cursor-pointer rounded-2xl border p-5 transition-all flex flex-col justify-between space-y-4 ${
+                className={`cursor-pointer rounded-2xl border p-5 transition-all flex flex-col justify-between space-y-4 hover:-translate-y-1 ${
                   isSelected
                     ? "border-brand bg-brand/10 shadow-lg"
                     : "border-border bg-card/60 hover:border-brand/40"
@@ -956,7 +980,7 @@ function getYearBadgeStyle(year?: string) {
                     </button>
                   </div>
                 </div>
-              </motion.div>
+              </div>
             );
           })}
         </div>
@@ -965,15 +989,26 @@ function getYearBadgeStyle(year?: string) {
       {/* Students Roster Section */}
       <div className="space-y-4 pt-2">
         <div className="flex flex-col sm:flex-row gap-4 items-center justify-between bg-card/40 backdrop-blur-md p-4 rounded-2xl border border-border">
-          <div className="relative w-full sm:w-80">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search enrolled student..."
-              className="w-full h-9 pl-10 pr-4 rounded-xl bg-background border border-border text-xs focus:outline-none focus:ring-2 focus:ring-brand/50"
-            />
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <div className="relative w-full sm:w-80">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search enrolled student..."
+                className="w-full h-9 pl-10 pr-4 rounded-xl bg-background border border-border text-xs focus:outline-none focus:ring-2 focus:ring-brand/50"
+              />
+            </div>
+            {currentPage > 1 && (
+              <button
+                onClick={() => setCurrentPage(1)}
+                className="h-9 px-3 rounded-xl border border-border bg-background hover:bg-muted text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center shrink-0"
+                title="Jump back to Page 1"
+              >
+                <RefreshCcw className="w-4 h-4" />
+              </button>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">

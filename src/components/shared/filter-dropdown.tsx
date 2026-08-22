@@ -70,7 +70,7 @@ export function FilterDropdown({
   const isDisabled = !!disabled;
 
   return (
-    <div className={cn("flex flex-col gap-2 w-full", className)}>
+    <div className={cn("flex flex-col gap-2 w-full min-w-0", className)}>
       <label className={cn(
         "text-[11px] font-extrabold uppercase tracking-widest px-1",
         isBatch ? "text-amber-500" : "text-muted-foreground"
@@ -89,18 +89,18 @@ export function FilterDropdown({
             : "border-border text-foreground hover:border-brand/40 focus-visible:border-brand focus-visible:ring-brand/20 data-[state=open]:border-brand/40",
           isDisabled && "opacity-50 cursor-not-allowed bg-muted/50"
         )}>
-          <SelectValue placeholder={allLabel}>
-             {internalValue !== "ALL" ? triggerContent : undefined}
+          <SelectValue placeholder={allLabel} className="truncate">
+             <span className="truncate block max-w-full overflow-hidden text-ellipsis">{internalValue === "ALL" ? allLabel : triggerContent}</span>
           </SelectValue>
         </SelectTrigger>
         <SelectContent className={cn(
-          "rounded-xl shadow-xl border p-1 bg-popover",
+          "rounded-xl shadow-xl border p-1 bg-popover z-50",
           isBatch ? "border-amber-500/30" : "border-border"
         )}>
           <SelectItem 
             value="ALL" 
             className={cn(
-              "rounded-md cursor-pointer text-sm font-medium transition-colors py-2",
+              "rounded-md cursor-pointer text-sm font-medium transition-colors py-2 truncate",
               isBatch 
                 ? "focus:bg-amber-500/10 focus:text-amber-600 data-[state=checked]:bg-amber-500/20 data-[state=checked]:text-amber-600"
                 : "focus:bg-brand/10 focus:text-brand data-[state=checked]:bg-brand/10 data-[state=checked]:text-brand"
@@ -115,13 +115,13 @@ export function FilterDropdown({
               key={opt.value} 
               value={opt.value}
               className={cn(
-                "rounded-md cursor-pointer text-sm font-medium transition-colors py-2",
+                "rounded-md cursor-pointer text-sm font-medium transition-colors py-2 truncate",
                 isBatch 
                   ? "focus:bg-amber-500/10 focus:text-amber-600 data-[state=checked]:bg-amber-500/20 data-[state=checked]:text-amber-600"
                   : "focus:bg-brand/10 focus:text-brand data-[state=checked]:bg-brand/10 data-[state=checked]:text-brand"
               )}
             >
-              {opt.label}
+              <span className="truncate block">{opt.label}</span>
             </SelectItem>
           ))}
         </SelectContent>

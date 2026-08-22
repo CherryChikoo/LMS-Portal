@@ -36,9 +36,10 @@ export async function getStudentsPaginatedAction({
     // Build where clause
     const where: any = {};
 
-    // Role-based scoping
-    if ((userRole === "college_admin" || userRole === "student") && userCollegeId) {
+    // Role-based scoping (STRICT FILTERING FOR COLLEGE ADMINS)
+    if (userRole && (userRole.toLowerCase() === "college_admin" || userRole.toLowerCase() === "college") && userCollegeId) {
       where.collegeId = userCollegeId;
+      console.log('[GET_STUDENTS_PAGINATED] College admin filter applied:', { userRole, userCollegeId });
     }
 
     // Filter by college
@@ -219,9 +220,10 @@ export async function getStudentFilterOptionsAction({
     // Build where clause based on role and college filter
     const where: any = {};
 
-    // Role-based scoping
-    if ((userRole === "college_admin" || userRole === "student") && userCollegeId) {
+    // Role-based scoping (STRICT FILTERING FOR COLLEGE ADMINS)
+    if (userRole && (userRole.toLowerCase() === "college_admin" || userRole.toLowerCase() === "college") && userCollegeId) {
       where.collegeId = userCollegeId;
+      console.log('[GET_STUDENT_FILTER_OPTIONS] College admin filter applied:', { userRole, userCollegeId });
     }
 
     // Filter by specific college if provided
@@ -243,7 +245,7 @@ export async function getStudentFilterOptionsAction({
     const collegeWhere: any = {};
     if (collegeId && collegeId !== "ALL" && collegeId !== "GLOBAL") {
       collegeWhere.id = collegeId;
-    } else if ((userRole === "college_admin" || userRole === "student") && userCollegeId) {
+    } else if (userRole && (userRole.toLowerCase() === "college_admin" || userRole.toLowerCase() === "college") && userCollegeId) {
       collegeWhere.id = userCollegeId;
     }
 
@@ -258,7 +260,7 @@ export async function getStudentFilterOptionsAction({
     const batchWhere: any = {};
     if (collegeId && collegeId !== "ALL" && collegeId !== "GLOBAL") {
       batchWhere.collegeId = collegeId;
-    } else if ((userRole === "college_admin" || userRole === "student") && userCollegeId) {
+    } else if (userRole && (userRole.toLowerCase() === "college_admin" || userRole.toLowerCase() === "college") && userCollegeId) {
       batchWhere.collegeId = userCollegeId;
     }
 

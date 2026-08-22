@@ -17,6 +17,8 @@ import {
   RotateCcw,
   Calendar,
   Download,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -32,7 +34,9 @@ import {
   clearAllResults,
 } from "@/lib/services";
 import { useLMSData } from "@/lib/data/use-lms-data";
+import { getPaginatedResultsAction } from "@/lib/actions/results-actions";
 import { useEntityResolution } from "@/lib/data/use-entity-resolution";
+import { fetchFullLMSStateAction } from "@/lib/actions/lms-sync-actions";
 import { getCurrentUser } from "@/lib/utils/auth-session";
 import { uniqueOptions } from "@/lib/utils/array";
 import type { ExamAttempt, Exam, Student } from "@/types";
@@ -95,10 +99,19 @@ function toTimestampSeconds(val: unknown): number {
 export default function ResultsPage() {
   const router = useRouter();
   const pathname = usePathname();
-  const { filteredAttempts: attempts, filteredExams: exams, filteredStudents: students, loading: lmsLoading } = useLMSData();
+  const { filteredExams: exams, filteredStudents: students, loading: lmsLoading } = useLMSData();
+  const [attempts, setAttempts] = useState<any[]>([]);
+  const [attemptPage, setAttemptPage] = useState(1);
+  const [totalServerSubmissions, setTotalServerSubmissions] = useState(0);
+  const [serverStats, setServerStats] = useState({
+    passRate: 0,
+    avgScore: 0,
+    highestScore: 0,
+  });
   const { resolveStudent, resolveInstitution } = useEntityResolution();
   const [actualRole, setActualRole] = useState<string>("student");
   const [mounted, setMounted] = useState(false);
+  const [loadingResults, setLoadingResults] = useState(false);
   const [currentStudentUser, setCurrentStudentUser] = useState<Student | null>(null);
 
   // Compute the route for an attempt's answer sheet. Trainers/admins see
@@ -147,9 +160,82 @@ export default function ResultsPage() {
   } | null>(null);
 
   async function loadData() {
-    // The data is automatically kept in sync by useLMSData.
-    // We provide a mock manual refresh for the UI button.
+    // Handled by useEffect changing dependencies
+    setAttemptPage(1);
+    setSearchQuery("");
   }
+
+  // Fetch results from server with pagination
+  useEffect(() => {
+    let isMounted = true;
+    
+    const fetchResults = async () => {
+      if (!mounted || !currentStudentUser && actualRole === "student") return;
+      
+      setLoadingResults(true);
+      
+      try {
+        const result = await getPaginatedResultsAction({
+          collegeId: academicFilters.collegeId,
+          department: academicFilters.department,
+          academicYear: academicFilters.academicYear,
+          section: academicFilters.section,
+          batchId: academicFilters.batchId,
+          studentFilter,
+          examFilter,
+          outcomeFilter,
+          searchQuery,
+          sortBy,
+          page: attemptPage,
+          limit: 25,
+          userContext: {
+            role: actualRole,
+            id: currentStudentUser?.id,
+            authId: (currentStudentUser as any)?.authId,
+            email: currentStudentUser?.email,
+            collegeId: currentStudentUser?.collegeId,
+          },
+        });
+
+        if (isMounted && result.success && result.data) {
+          setAttempts(result.data.attempts);
+          setTotalServerSubmissions(result.data.totalCount);
+          setServerStats({
+            passRate: result.data.passRate || 0,
+            avgScore: result.data.avgScore || 0,
+            highestScore: result.data.highestScore || 0,
+          });
+        }
+      } catch (error) {
+        console.error("Failed to fetch results:", error);
+      } finally {
+        if (isMounted) {
+          setLoadingResults(false);
+        }
+      }
+    };
+
+    fetchResults();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [
+    mounted,
+    actualRole,
+    currentStudentUser,
+    academicFilters.collegeId,
+    academicFilters.department,
+    academicFilters.academicYear,
+    academicFilters.section,
+    academicFilters.batchId,
+    studentFilter,
+    examFilter,
+    outcomeFilter,
+    searchQuery,
+    sortBy,
+    attemptPage,
+  ]);
 
   useEffect(() => {
     setMounted(true);
@@ -191,9 +277,9 @@ export default function ResultsPage() {
 
   const getStudentName = useCallback(
     (attempt: ExamAttempt): string => {
-      const resolved = resolveStudent(attempt.studentId);
-      if (resolved === "Unknown Student" && attempt.studentName) {
-        return `${attempt.studentName} (Deleted)`;
+      let resolved = resolveStudent(attempt.studentId);
+      if ((resolved === "Unknown Student" || resolved === attempt.studentId) && (attempt as any).studentName) {
+        return (attempt as any).studentName;
       }
       return resolved;
     },
@@ -214,38 +300,8 @@ export default function ResultsPage() {
     return map;
   }, [attempts, exams]);
 
-  // Attempts narrowed by the cascading hierarchy filters. Used to derive the
-  // cascading Exam and Student dropdown options and the final filtered list.
-  const filteredAttemptsByHierarchy = useMemo(() => {
-    console.log("🔥 [RAW RESULTS DIAGNOSTIC] Total raw attempts passed to results page:", attempts?.length);
-    console.log("🔥 [RAW RESULTS DIAGNOSTIC] actualRole:", actualRole, "| currentStudentUser:", currentStudentUser);
-    const res = (attempts as ExamAttempt[]).filter((att: ExamAttempt) => {
-      // For student role, check direct ownership via studentId, uid, or email
-      if (actualRole === "student") {
-        if (!currentStudentUser) return true; // Show attempts while profile snapshot hydrates
-
-        const studEmail = (currentStudentUser.email || "").toLowerCase().trim();
-        const myId = (currentStudentUser.id || "").toLowerCase().trim();
-        const myUid = (((currentStudentUser as any).uid || "") as string).toLowerCase().trim();
-
-        const attEmail = (((att as any).studentEmail || "") as string).toLowerCase().trim();
-        const attStudId = (att.studentId || "").toLowerCase().trim();
-
-        const match = (
-          (myId && (attStudId === myId || attEmail === myId)) ||
-          (myUid && (attStudId === myUid || attEmail === myUid)) ||
-          (studEmail && (attStudId === studEmail || attEmail === studEmail))
-        );
-        return match;
-      }
-
-      const student = getStudentForAttempt(att);
-      if (!student) return false;
-      return filterStudentByAcademicFilters(student, academicFilters);
-    });
-    console.log("🔥 [RAW RESULTS DIAGNOSTIC] Filtered attempts result count:", res.length);
-    return res;
-  }, [attempts, academicFilters, getStudentForAttempt, actualRole, currentStudentUser]);
+  // Attempts are now fetched from server with filters applied, no need for client-side filtering
+  const filteredAttemptsByHierarchy = attempts;
 
   // Unique exam IDs / titles derived from the hierarchy-filtered attempts.
   const examSubjectsList = useMemo(() => {
@@ -282,12 +338,7 @@ export default function ResultsPage() {
     return uniqueOptions([...attemptNames, ...studentNames], (n: string) => n.toLowerCase());
   }, [filteredAttemptsByHierarchy, students]);
 
-  // Track which student accounts still exist so deleted-student records can be labelled
-  const existingStudentIds = useMemo(() => {
-    return new Set((students as Student[]).map((s: Student) => s.id).filter(Boolean));
-  }, [students]);
-
-  // Reset child filters (Exam, Student) when the hierarchy selection or the derived
+// Reset child filters (Exam, Student) when the hierarchy selection or the derived
   // cascading lists change such that the currently selected value is no longer valid.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- cascading reset: child filters must reset when the parent filter narrows the available options
@@ -303,88 +354,12 @@ export default function ResultsPage() {
     return () => clearTimeout(t);
   }, [searchQueryRaw]);
 
-  // Filter and sort logic. The cascading hierarchy filters have already narrowed
-  // the attempt list; apply exam/student/outcome/search filters on top.
-  const filteredAttempts = useMemo(() => {
-    return filteredAttemptsByHierarchy
-      .filter((att) => {
-        const name = getStudentName(att) || "";
-        const isAdminAttempt =
-          name.toLowerCase().includes("admin") ||
-          name.toLowerCase().includes("simulator") ||
-          name.toLowerCase().includes("ranti") ||
-          name.toLowerCase().includes("trainer") ||
-          att.studentId === "admin-1" ||
-          (att as unknown as { attemptedBy?: string }).attemptedBy === "admin";
-
-        if (actualRole === "student") {
-          if (isAdminAttempt) return false;
-          const sId = (currentStudentUser?.id || "").toLowerCase().trim();
-          const sUid = (((currentStudentUser as any)?.uid || "") as string).toLowerCase().trim();
-          const sEmail = (currentStudentUser?.email || "").toLowerCase().trim();
-
-          const attStudId = (att.studentId || "").toLowerCase().trim();
-          const attEmail = (((att as any).studentEmail || "") as string).toLowerCase().trim();
-
-          let belongsToMe = false;
-          if (sId && attStudId === sId) belongsToMe = true;
-          else if (sUid && attStudId === sUid) belongsToMe = true;
-          else if (sEmail && (attStudId === sEmail || attEmail === sEmail)) belongsToMe = true;
-          // Fallback: If currentStudentUser state is not set yet, retain attempts pre-filtered by data layer
-          else if (!sId && !sUid && !sEmail) belongsToMe = true;
-
-          if (!belongsToMe) return false;
-        } else if (userRole === "admin") {
-          if (!isAdminAttempt) return false;
-        } else {
-          if (isAdminAttempt) return false;
-          if (studentFilter !== "ALL" && name.toLowerCase() !== studentFilter.toLowerCase()) {
-            return false;
-          }
-        }
-
-        // Search Query filter (student name or exam title)
-        if (searchQuery.trim()) {
-          const q = searchQuery.trim().toLowerCase();
-          const nameMatch = name.toLowerCase().includes(q);
-          const examTitle = examTitleMap[att.examId] || "";
-          const examMatch = (att.examId || "").toLowerCase().includes(q) || examTitle.toLowerCase().includes(q);
-          if (!nameMatch && !examMatch) return false;
-        }
-
-        // Exam Section / Subject Filter
-        if (examFilter !== "ALL" && att.examId !== examFilter) return false;
-
-        // Outcome Filter
-        if (outcomeFilter === "PASSED" && !att.passed) return false;
-        if (outcomeFilter === "FAILED" && att.passed) return false;
-
-        return true;
-      })
-      .sort((a, b) => {
-        if (sortBy === "score_desc") return b.percentage - a.percentage;
-        if (sortBy === "score_asc") return a.percentage - b.percentage;
-        // date_desc
-        const timeA = toTimestampSeconds(a.submittedAt || a.createdAt);
-        const timeB = toTimestampSeconds(b.submittedAt || b.createdAt);
-        return timeB - timeA;
-      });
-  }, [
-    filteredAttemptsByHierarchy,
-    actualRole,
-    currentStudentUser,
-    userRole,
-    studentFilter,
-    searchQuery,
-    examFilter,
-    outcomeFilter,
-    sortBy,
-    examTitleMap,
-    resolveStudent,
-  ]);
+  // Since we moved to server-side pagination and filtering, just use the attempts from server directly
+  const filteredAttempts = attempts;
 
   const resetAllFilters = () => {
     setSearchQuery("");
+    setSearchQueryRaw("");
     setExamFilter("ALL");
     setStudentFilter("ALL");
     setAcademicFilters({
@@ -397,6 +372,7 @@ export default function ResultsPage() {
     });
     setOutcomeFilter("ALL");
     setSortBy("date_desc");
+    setAttemptPage(1);
   };
 
   const handleDeleteAttempt = (id: string, e: React.MouseEvent) => {
@@ -450,14 +426,12 @@ export default function ResultsPage() {
     ].join(",");
 
     const rows = filteredAttempts.map((attempt: ExamAttempt) => {
-      const examName = examTitleMap[attempt.examId] || attempt.examId;
-      const studentName = resolveStudent(attempt.studentId);
-      
-      const st = (students as Student[]).find((s: Student) => s.id === attempt.studentId);
-      const email = st?.email || "";
-      const college = st?.collegeName || "";
-      const dept = st?.department || "";
-      const batch = ""; // We don't have batch name directly on student, just IDs. Leave empty for now, or could map batchIds if we had batch list.
+      const examName = (attempt as any).examTitle || attempt.examTitle || "Unknown Exam";
+      const studentName = (attempt as any).studentName || "Unknown Student";
+      const email = (attempt as any).studentEmail || "";
+      const college = (attempt as any).collegeName || "";
+      const dept = (attempt as any).department || "";
+      const batch = ""; // We don't have batch name directly
       const date = formatLiveDate(attempt.submittedAt);
       const score = attempt.score || 0;
       const total = attempt.totalMarks || 0;
@@ -491,11 +465,10 @@ export default function ResultsPage() {
   };
 
 
-  const totalSubmissions = filteredAttempts.length;
-  const passCount = filteredAttempts.filter((a) => a.passed).length;
-  const passRate = totalSubmissions > 0 ? Math.round((passCount / totalSubmissions) * 100) : 0;
-  const highestScore = totalSubmissions > 0 ? Math.max(...filteredAttempts.map((a) => a.percentage)) : 0;
-  const avgScore = totalSubmissions > 0 ? Math.round(filteredAttempts.reduce((acc, curr) => acc + curr.percentage, 0) / totalSubmissions) : 0;
+  const totalSubmissions = totalServerSubmissions || 0;
+  const passRate = isNaN(serverStats.passRate) ? 0 : Math.min(100, Math.max(0, Math.round(serverStats.passRate)));
+  const avgScore = isNaN(serverStats.avgScore) ? 0 : Math.min(100, Math.max(0, Math.round(serverStats.avgScore)));
+  const highestScore = isNaN(serverStats.highestScore) ? 0 : Math.min(100, Math.max(0, Math.round(serverStats.highestScore)));
 
   if (!mounted) {
     return null;
@@ -512,27 +485,29 @@ export default function ResultsPage() {
         }
         actions={
           <div className="flex items-center gap-2.5 flex-wrap justify-end">
-            <Button
-              onClick={loadData}
-              variant="outline"
-              size="sm"
-              className="h-9 px-4 border-border hover:bg-accent text-foreground font-semibold flex items-center gap-1.5 shadow-sm"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              Refresh
-            </Button>
+            {actualRole !== "student" && actualRole !== "college_admin" && (
+              <>
+                <Button
+                  onClick={loadData}
+                  variant="outline"
+                  size="sm"
+                  className="h-9 px-4 border-border hover:bg-accent text-foreground font-semibold flex items-center gap-1.5 shadow-sm"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Refresh
+                </Button>
 
-            {actualRole !== "student" && (
-              <Button
-                onClick={handleExportCSV}
-                variant="default"
-                size="sm"
-                disabled={filteredAttempts.length === 0}
-                className="h-9 px-4 bg-brand hover:bg-brand/90 text-brand-foreground font-bold flex items-center gap-1.5 shadow-sm"
-              >
-                <Download className="w-3.5 h-3.5" />
-                Export Results
-              </Button>
+                <Button
+                  onClick={handleExportCSV}
+                  variant="default"
+                  size="sm"
+                  disabled={filteredAttempts.length === 0}
+                  className="h-9 px-4 bg-brand hover:bg-brand/90 text-brand-foreground font-bold flex items-center gap-1.5 shadow-sm"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Export Results
+                </Button>
+              </>
             )}
           </div>
         }
@@ -543,7 +518,7 @@ export default function ResultsPage() {
         <div className="p-5 rounded-2xl border border-border bg-card flex items-center justify-between shadow-sm">
           <div>
             <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Total Submissions</span>
-            <p className="text-3xl font-bold text-foreground mt-1">{totalSubmissions}</p>
+            <p className="text-3xl font-bold text-foreground mt-1">{totalSubmissions.toLocaleString()}</p>
           </div>
           <div className="w-12 h-12 rounded-xl bg-brand/10 text-brand flex items-center justify-center">
             <Users className="w-6 h-6" />
@@ -617,7 +592,6 @@ export default function ResultsPage() {
               filters={academicFilters}
               filterValidation={filterValidation}
               onChange={setAcademicFilters}
-              onReset={resetAcademicFilters}
               collegeOptions={collegeOptions}
               departmentOptions={departmentOptions}
               academicYearOptions={academicYearOptions}
@@ -631,7 +605,7 @@ export default function ResultsPage() {
         )}
 
         {/* Tier 3: Assessment & Outcome Filters */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-3 border-t border-border/60">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 pt-3 border-t border-border/60">
           {/* Exam Section */}
           <FilterDropdown
             label="Exam Section"
@@ -675,7 +649,7 @@ export default function ResultsPage() {
         </div>
       </div>
 
-      {lmsLoading ? (
+      {loadingResults ? (
         <div className="p-12 text-center text-sm text-muted-foreground flex flex-col items-center justify-center gap-3">
           <div className="w-8 h-8 rounded-full border-2 border-brand border-t-transparent animate-spin" />
           <span>Analyzing performance audit records...</span>
@@ -730,8 +704,8 @@ export default function ResultsPage() {
               </thead>
               <tbody className="divide-y divide-border">
                 {filteredAttempts.map((att) => {
-                  const sName = getStudentName(att);
-                  const isDeletedData = sName.includes("(Deleted)");
+                  const sName = (att as any).studentName || att.studentName || "Unknown Student";
+                  const isDeletedData = sName.includes("(Deleted)") || sName === "Unknown Student";
                   const liveDateStr = formatLiveDate(att.submittedAt || att.createdAt || att.updatedAt);
                   return (
                     <tr 
@@ -755,24 +729,17 @@ export default function ResultsPage() {
                             {actualRole !== "student" && (
                               <span className="text-[11px] text-muted-foreground font-normal">
                                 {(() => {
-                                  const student = getStudentForAttempt(att);
-                                  const cId = student?.collegeId || (att as any)?.collegeId || "";
-                                  const cName = student?.collegeName || (att as any)?.collegeName || "";
-                                  const resName = resolveInstitution(cId || cName || "");
-                                  if (resName && resName.toLowerCase() !== "unassigned" && !resName.toLowerCase().includes("unknown")) {
-                                    return resName.toLowerCase();
+                                  const cName = (att as any).collegeName || "";
+                                  const dept = (att as any).department || "";
+                                  if (cName && cName.toLowerCase() !== "unassigned") {
+                                    return cName;
                                   }
-                                  if (cName) return cName.toLowerCase();
-                                  if (cId && cId.toLowerCase() !== "global" && cId.toLowerCase() !== "unassigned") return cId.toLowerCase();
+                                  if (dept) return dept;
                                   return "unassigned";
                                 })()}
                               </span>
                             )}
-                            {!existingStudentIds.has(att.studentId) && (
-                              <span className="block text-[10px] text-destructive font-semibold uppercase tracking-wide mt-0.5">
-                                Student Deleted Data
-                              </span>
-                            )}
+
                           </div>
                         </td>
                       )}
@@ -875,6 +842,84 @@ export default function ResultsPage() {
               </tbody>
             </table>
           </div>
+
+          {/* Pagination Controls */}
+          {filteredAttempts.length > 0 && totalServerSubmissions > 25 && (
+            <div className="flex items-center justify-between border-t border-border p-4">
+              <div className="text-sm text-muted-foreground">
+                Showing{" "}
+                <span className="font-bold text-foreground">
+                  {(attemptPage - 1) * 25 + 1}
+                </span>{" "}
+                -{" "}
+                <span className="font-bold text-foreground">
+                  {Math.min(attemptPage * 25, totalServerSubmissions)}
+                </span>{" "}
+                of{" "}
+                <span className="font-bold text-foreground">
+                  {totalServerSubmissions.toLocaleString()}
+                </span>{" "}
+                results
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={() => setAttemptPage(p => Math.max(1, p - 1))}
+                  disabled={attemptPage === 1}
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5 h-9 px-3 text-xs font-semibold"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                  Previous
+                </Button>
+
+                {(() => {
+                  const totalPages = Math.ceil(totalServerSubmissions / 25);
+                  const pages = [];
+                  const maxVisible = 5;
+                  
+                  let start = Math.max(1, attemptPage - Math.floor(maxVisible / 2));
+                  let end = Math.min(totalPages, start + maxVisible - 1);
+                  
+                  if (end - start < maxVisible - 1) {
+                    start = Math.max(1, end - maxVisible + 1);
+                  }
+
+                  for (let i = start; i <= end; i++) {
+                    pages.push(
+                      <Button
+                        key={i}
+                        onClick={() => setAttemptPage(i)}
+                        variant={i === attemptPage ? "default" : "ghost"}
+                        size="sm"
+                        className={`h-9 w-9 p-0 text-xs font-bold ${
+                          i === attemptPage 
+                            ? "bg-brand text-brand-foreground hover:bg-brand/90" 
+                            : "hover:bg-accent"
+                        }`}
+                      >
+                        {i}
+                      </Button>
+                    );
+                  }
+
+                  return pages;
+                })()}
+
+                <Button
+                  onClick={() => setAttemptPage(p => p + 1)}
+                  disabled={attemptPage === Math.ceil(totalServerSubmissions / 25)}
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5 h-9 px-3 text-xs font-semibold"
+                >
+                  Next
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

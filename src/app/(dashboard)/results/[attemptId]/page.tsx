@@ -7,6 +7,8 @@ import {
   Award,
   Calendar,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   FileText,
   GraduationCap,
@@ -79,6 +81,8 @@ export default function AttemptAnswerSheetPage({
   const [exam, setExam] = useState<Exam | null>(null);
   const students = useLMSDataSelector((s) => s.students);
   const [loading, setLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const questionsPerPage = 5;
 
   const isAdminRoute = pathname?.startsWith("/admin") ?? false;
   const backHref = isAdminRoute ? "/admin/results" : "/results";
@@ -89,7 +93,31 @@ export default function AttemptAnswerSheetPage({
     async function loadAttempt() {
       setLoading(true);
       try {
-        const { data: fetched } = await supabase.from('exam_results').select('*').eq('id', attemptId).single();
+        // Fetch exam_results with joined student and exam data
+        const { data: fetched } = await supabase
+          .from('exam_results')
+          .select(`
+            *,
+            students (
+              users (
+                displayName,
+                email
+              ),
+              colleges (
+                name
+              ),
+              department,
+              academicYear,
+              section
+            ),
+            exams (
+              title,
+              collegeId
+            )
+          `)
+          .eq('id', attemptId)
+          .single();
+          
         if (cancelled) return;
 
         if (!fetched) {
@@ -98,7 +126,19 @@ export default function AttemptAnswerSheetPage({
           return;
         }
 
-        setAttempt(fetched);
+        // Flatten the student data into the attempt object for easier access
+        const attemptWithStudentData = {
+          ...fetched,
+          studentName: (fetched as any).students?.users?.displayName || fetched.studentName || "Unknown Student",
+          studentEmail: (fetched as any).students?.users?.email || "",
+          collegeName: (fetched as any).students?.colleges?.name || "",
+          department: (fetched as any).students?.department || "",
+          academicYear: (fetched as any).students?.academicYear || "",
+          section: (fetched as any).students?.section || "",
+          examTitle: (fetched as any).exams?.title || fetched.examTitle || "Unknown Exam",
+        };
+
+        setAttempt(attemptWithStudentData);
 
         const resolvedExam = await getExamById(fetched.examId).catch(() => null);
 
@@ -132,19 +172,15 @@ export default function AttemptAnswerSheetPage({
 
   const studentName = useMemo(() => {
     if (!attempt) return "Unknown Student";
-    if (attempt.studentName) return attempt.studentName;
-
-    const match = students.find(
-      (s) => s.id === attempt.studentId || s.email === attempt.studentId,
-    );
-    return match?.name ?? "Unknown Student";
-  }, [attempt, students]);
+    // Use the studentName from the flattened data (already resolved from join)
+    return (attempt as any).studentName || "Unknown Student";
+  }, [attempt]);
 
   const examTitle = useMemo(() => {
     if (!attempt) return "Deleted Assessment";
     if (exam?.title) return exam.title;
-    if (attempt.examTitle) return attempt.examTitle;
-    return "Deleted Assessment";
+    // Use the examTitle from the flattened data (already resolved from join)
+    return (attempt as any).examTitle || "Deleted Assessment";
   }, [attempt, exam]);
 
   const timeTaken = useMemo(() => {
@@ -183,6 +219,12 @@ export default function AttemptAnswerSheetPage({
   const passed = Boolean(attempt.passed);
   const questions = exam?.questions ?? [];
   const hasQuestions = questions.length > 0;
+  
+  // Pagination logic
+  const totalPages = Math.ceil(questions.length / questionsPerPage);
+  const startIndex = (currentPage - 1) * questionsPerPage;
+  const endIndex = startIndex + questionsPerPage;
+  const paginatedQuestions = questions.slice(startIndex, endIndex);
 
   return (
     <div
@@ -200,8 +242,6 @@ export default function AttemptAnswerSheetPage({
           <ArrowLeft className="w-3.5 h-3.5" />
           Back to Results
         </Button>
-
-
       </div>
 
       <PageHeader
@@ -308,19 +348,98 @@ export default function AttemptAnswerSheetPage({
         </div>
 
         {hasQuestions ? (
-          <div className="space-y-4">
-            {questions.map((q, idx) => (
-              <QuestionReview
-                key={q.id}
-                question={q}
-                index={idx}
-                studentAnswer={
-                  (attempt.answers?.[q.id] as string | string[] | undefined) ?? undefined
-                }
-                showCorrectAnswer={true}
-              />
-            ))}
-          </div>
+          <>
+            <div className="space-y-4">
+              {paginatedQuestions.map((q, idx) => (
+                <QuestionReview
+                  key={q.id}
+                  question={q}
+                  index={startIndex + idx}
+                  studentAnswer={
+                    (attempt.answers?.[q.id] as string | string[] | undefined) ?? undefined
+                  }
+                  showCorrectAnswer={true}
+                />
+              ))}
+            </div>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between border-t border-border pt-4 mt-6">
+                <div className="text-sm text-muted-foreground">
+                  Showing{" "}
+                  <span className="font-bold text-foreground">
+                    {startIndex + 1}
+                  </span>{" "}
+                  -{" "}
+                  <span className="font-bold text-foreground">
+                    {Math.min(endIndex, questions.length)}
+                  </span>{" "}
+                  of{" "}
+                  <span className="font-bold text-foreground">
+                    {questions.length}
+                  </span>{" "}
+                  questions
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1.5 h-9 px-3 text-xs font-semibold"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                    Previous
+                  </Button>
+
+                  {(() => {
+                    const pages = [];
+                    const maxVisible = 5;
+                    
+                    let start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+                    let end = Math.min(totalPages, start + maxVisible - 1);
+                    
+                    if (end - start < maxVisible - 1) {
+                      start = Math.max(1, end - maxVisible + 1);
+                    }
+
+                    for (let i = start; i <= end; i++) {
+                      pages.push(
+                        <Button
+                          key={i}
+                          onClick={() => setCurrentPage(i)}
+                          variant={i === currentPage ? "default" : "ghost"}
+                          size="sm"
+                          className={`h-9 w-9 p-0 text-xs font-bold ${
+                            i === currentPage 
+                              ? "bg-brand text-brand-foreground hover:bg-brand/90" 
+                              : "hover:bg-accent"
+                          }`}
+                        >
+                          {i}
+                        </Button>
+                      );
+                    }
+
+                    return pages;
+                  })()}
+
+                  <Button
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1.5 h-9 px-3 text-xs font-semibold"
+                  >
+                    Next
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
         ) : (
           <EmptyState
             icon={FileText}

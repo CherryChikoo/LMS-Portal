@@ -11,7 +11,7 @@ import {
 import { supabase } from "@/lib/supabase/client";
 import { getAuthProfileDataAction } from "@/lib/actions/auth-actions";
 import { getStudentAttemptsAction } from "@/lib/actions/exam-actions";
-import { fetchFullLMSStateAction } from "@/lib/actions/lms-sync-actions";
+import { fetchFullLMSStateAction, revalidateAllDataCachesAction } from "@/lib/actions/lms-sync-actions";
 import { fetchLMSInitialStateAction, fetchRemainingStudentsAction } from "@/lib/actions/progressive-lms-actions";
 import { getStudentCountWithFiltersAction, getStudentDashboardStatsAction } from "@/lib/actions/student-actions-optimized";
 import {
@@ -62,13 +62,14 @@ export interface LMSDataCacheState {
   unsubscribers: Array<() => void>;
   error: Error | null;
   loading: boolean;
+  isSyncing: boolean;
   
   _exportedState: any;
 }
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
-const CACHE_STORAGE_KEY = "lms_data_cache_v5";
+const CACHE_STORAGE_KEY = "lms_data_cache_v7";
 /** Base fallback poll interval */
 const DEFAULT_POLL_INTERVAL_MS = 60 * 1000;
 
@@ -105,7 +106,7 @@ function hydrateCacheFromStorage() {
   if (typeof window === "undefined") return;
   try {
     // Clear old cache versions
-    const oldVersions = ["lms_data_cache", "lms_data_cache_v2", "lms_data_cache_v3", "lms_data_cache_v4"];
+    const oldVersions = ["lms_data_cache", "lms_data_cache_v2", "lms_data_cache_v3", "lms_data_cache_v4", "lms_data_cache_v5", "lms_data_cache_v6"];
     oldVersions.forEach(key => {
       try {
         localStorage.removeItem(key);
@@ -163,6 +164,7 @@ const cache: LMSDataCacheState = {
   unsubscribers: [],
   error: null,
   loading: false,
+  isSyncing: false,
   _exportedState: null,
 };
 
@@ -194,7 +196,7 @@ function debouncedRecomputeAndNotify(type?: "colleges" | "batches" | "students" 
   recomputeTimer = setTimeout(() => {
     recomputeScopedData();
     notifyListeners();
-  }, 50);
+  }, 300);
 }
 
 function recomputeScopedData() {
@@ -253,15 +255,17 @@ function recomputeScopedData() {
   let fColleges = collegesData.filter((c) => isActive(c));
   let fBatches = batchesData.filter(isActive);
   let fStudents = studentsData.filter(isActive);
-  const activeStudentIds = new Set(fStudents.map((s) => s.id));
   
   // Filter exams: Apply active check
   let fExams = examsData.filter((e) => isActive(e));
   
   let fResources = resourcesData.filter((r) => isActive(r as any));
   
-  // Aggressively filter out attempts belonging to deleted students or ghost data
-  const fAttempts = attemptsData.filter((att) => isActive(att as any) && activeStudentIds.has(att.studentId));
+  // Only filter attempts by isActive. Do NOT filter by activeStudentIds because
+  // the students array may only contain a partial chunk (e.g. 100 of 1200 students)
+  // from progressive loading. The Prisma FK cascade (onDelete: Cascade) already
+  // ensures orphaned attempts cannot exist in the database.
+  const fAttempts = attemptsData.filter((att) => isActive(att as any));
 
   try {
     const uStr = typeof window !== "undefined" ? localStorage.getItem("lms_user") || localStorage.getItem("user") : null;
@@ -667,6 +671,13 @@ async function loadRemainingStudentsInBackground(currentSkip: number, total: num
 }
 
 export async function refreshCache(): Promise<void> {
+  // Await server cache invalidation so Next.js sends the invalidation headers
+  // back to the client BEFORE the user navigates away.
+  try {
+    await revalidateAllDataCachesAction();
+  } catch (e) {
+    console.error("Failed to revalidate caches", e);
+  }
   return fetchLMSData(true);
 }
 
@@ -735,6 +746,9 @@ async function performFetchLMSData(force = false): Promise<void> {
     cache.error = null;
     notifyListeners();
   }
+  
+  cache.isSyncing = true;
+  notifyListeners();
 
   // Safety timeout: if the fetch takes longer than 20 seconds, force loading=false
   // so the UI doesn't get stuck in an infinite loading state.
@@ -790,6 +804,7 @@ async function performFetchLMSData(force = false): Promise<void> {
 
   clearTimeout(safetyTimer);
   cache.loading = false;
+  cache.isSyncing = false;
   recomputeScopedData();
   notifyListeners();
 }
@@ -996,6 +1011,7 @@ function computeExportedState() {
     filteredAttempts: cache.filteredAttempts,
     error: cache.error,
     loading: cache.loading,
+    isSyncing: cache.isSyncing,
     hierarchy,
     institutions,
     externalInstitutions: externals,

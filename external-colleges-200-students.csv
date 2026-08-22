@@ -1,0 +1,201 @@
+Name,Email,College,Department,AcademicYear,Section,RollNumber
+Aarav Sharma,aarav.sharma@student.gtu.edu,Global Tech University,Computer Science,1st Year,A,GTU-001
+Vivaan Patel,vivaan.patel@student.gtu.edu,Global Tech University,Computer Science,1st Year,A,GTU-002
+Aditya Kumar,aditya.kumar@student.gtu.edu,Global Tech University,Computer Science,1st Year,B,GTU-003
+Vihaan Singh,vihaan.singh@student.gtu.edu,Global Tech University,Computer Science,1st Year,B,GTU-004
+Arjun Gupta,arjun.gupta@student.gtu.edu,Global Tech University,Computer Science,2nd Year,A,GTU-005
+Sai Reddy,sai.reddy@student.gtu.edu,Global Tech University,Computer Science,2nd Year,A,GTU-006
+Arnav Nair,arnav.nair@student.gtu.edu,Global Tech University,Computer Science,2nd Year,B,GTU-007
+Ayaan Verma,ayaan.verma@student.gtu.edu,Global Tech University,Computer Science,2nd Year,B,GTU-008
+Krishna Rao,krishna.rao@student.gtu.edu,Global Tech University,Computer Science,3rd Year,A,GTU-009
+Ishaan Joshi,ishaan.joshi@student.gtu.edu,Global Tech University,Computer Science,3rd Year,A,GTU-010
+Shaurya Mehta,shaurya.mehta@student.gtu.edu,Global Tech University,Computer Science,3rd Year,B,GTU-011
+Atharva Desai,atharva.desai@student.gtu.edu,Global Tech University,Computer Science,3rd Year,B,GTU-012
+Advik Iyer,advik.iyer@student.gtu.edu,Global Tech University,Information Technology,1st Year,A,GTU-013
+Pranav Agarwal,pranav.agarwal@student.gtu.edu,Global Tech University,Information Technology,1st Year,A,GTU-014
+Reyansh Choudhury,reyansh.choudhury@student.gtu.edu,Global Tech University,Information Technology,1st Year,B,GTU-015
+Aadhya Das,aadhya.das@student.gtu.edu,Global Tech University,Information Technology,1st Year,B,GTU-016
+Ananya Bose,ananya.bose@student.gtu.edu,Global Tech University,Information Technology,2nd Year,A,GTU-017
+Pari Shah,pari.shah@student.gtu.edu,Global Tech University,Information Technology,2nd Year,A,GTU-018
+Anika Kulkarni,anika.kulkarni@student.gtu.edu,Global Tech University,Information Technology,2nd Year,B,GTU-019
+Navya Pillai,navya.pillai@student.gtu.edu,Global Tech University,Information Technology,2nd Year,B,GTU-020
+Diya Menon,diya.menon@student.gtu.edu,Global Tech University,Information Technology,3rd Year,A,GTU-021
+Myra Saxena,myra.saxena@student.gtu.edu,Global Tech University,Information Technology,3rd Year,A,GTU-022
+Sara Pandey,sara.pandey@student.gtu.edu,Global Tech University,Information Technology,3rd Year,B,GTU-023
+Anaya Mishra,anaya.mishra@student.gtu.edu,Global Tech University,Information Technology,3rd Year,B,GTU-024
+Ira Sharma,ira.sharma@student.gtu.edu,Global Tech University,Electronics,1st Year,A,GTU-025
+Prisha Patel,prisha.patel@student.gtu.edu,Global Tech University,Electronics,1st Year,A,GTU-026
+Kavya Kumar,kavya.kumar@student.gtu.edu,Global Tech University,Electronics,1st Year,B,GTU-027
+Riya Singh,riya.singh@student.gtu.edu,Global Tech University,Electronics,1st Year,B,GTU-028
+Saanvi Gupta,saanvi.gupta@student.gtu.edu,Global Tech University,Electronics,2nd Year,A,GTU-029
+Kiara Reddy,kiara.reddy@student.gtu.edu,Global Tech University,Electronics,2nd Year,A,GTU-030
+Aarohi Nair,aarohi.nair@student.gtu.edu,Global Tech University,Electronics,2nd Year,B,GTU-031
+Tara Verma,tara.verma@student.gtu.edu,Global Tech University,Electronics,2nd Year,B,GTU-032
+Shanaya Rao,shanaya.rao@student.gtu.edu,Global Tech University,Electronics,3rd Year,A,GTU-033
+Mahika Joshi,mahika.joshi@student.gtu.edu,Global Tech University,Electronics,3rd Year,A,GTU-034
+Avni Mehta,avni.mehta@student.gtu.edu,Global Tech University,Electronics,3rd Year,B,GTU-035
+Zara Desai,zara.desai@student.gtu.edu,Global Tech University,Electronics,3rd Year,B,GTU-036
+Advika Iyer,advika.iyer@student.gtu.edu,Global Tech University,Computer Science,4th Year,A,GTU-037
+Ishita Agarwal,ishita.agarwal@student.gtu.edu,Global Tech University,Computer Science,4th Year,A,GTU-038
+Nisha Choudhury,nisha.choudhury@student.gtu.edu,Global Tech University,Computer Science,4th Year,B,GTU-039
+Dhruv Das,dhruv.das@student.gtu.edu,Global Tech University,Computer Science,4th Year,B,GTU-040
+Aryan Bose,aryan.bose@student.gtu.edu,Global Tech University,Information Technology,4th Year,A,GTU-041
+Rohan Shah,rohan.shah@student.gtu.edu,Global Tech University,Information Technology,4th Year,A,GTU-042
+Kabir Kulkarni,kabir.kulkarni@student.gtu.edu,Global Tech University,Information Technology,4th Year,B,GTU-043
+Aarav Pillai,aarav.pillai@student.gtu.edu,Global Tech University,Information Technology,4th Year,B,GTU-044
+Vivaan Menon,vivaan.menon@student.gtu.edu,Global Tech University,Electronics,4th Year,A,GTU-045
+Aditya Saxena,aditya.saxena@student.gtu.edu,Global Tech University,Electronics,4th Year,A,GTU-046
+Vihaan Pandey,vihaan.pandey@student.gtu.edu,Global Tech University,Electronics,4th Year,B,GTU-047
+Arjun Mishra,arjun.mishra@student.gtu.edu,Global Tech University,Electronics,4th Year,B,GTU-048
+Sai Sharma,sai.sharma@student.gtu.edu,Global Tech University,Computer Science,1st Year,C,GTU-049
+Arnav Patel,arnav.patel@student.gtu.edu,Global Tech University,Computer Science,1st Year,C,GTU-050
+Ayaan Kumar,ayaan.kumar@student.gtu.edu,Global Tech University,Computer Science,1st Year,D,GTU-051
+Krishna Singh,krishna.singh@student.gtu.edu,Global Tech University,Computer Science,1st Year,D,GTU-052
+Ishaan Gupta,ishaan.gupta@student.gtu.edu,Global Tech University,Information Technology,1st Year,C,GTU-053
+Shaurya Reddy,shaurya.reddy@student.gtu.edu,Global Tech University,Information Technology,1st Year,C,GTU-054
+Atharva Nair,atharva.nair@student.gtu.edu,Global Tech University,Information Technology,1st Year,D,GTU-055
+Advik Verma,advik.verma@student.gtu.edu,Global Tech University,Information Technology,1st Year,D,GTU-056
+Pranav Rao,pranav.rao@student.gtu.edu,Global Tech University,Electronics,1st Year,C,GTU-057
+Reyansh Joshi,reyansh.joshi@student.gtu.edu,Global Tech University,Electronics,1st Year,C,GTU-058
+Aadhya Mehta,aadhya.mehta@student.gtu.edu,Global Tech University,Electronics,1st Year,D,GTU-059
+Ananya Desai,ananya.desai@student.gtu.edu,Global Tech University,Electronics,1st Year,D,GTU-060
+Pari Iyer,pari.iyer@student.gtu.edu,Global Tech University,Computer Science,2nd Year,C,GTU-061
+Anika Agarwal,anika.agarwal@student.gtu.edu,Global Tech University,Computer Science,2nd Year,C,GTU-062
+Navya Choudhury,navya.choudhury@student.gtu.edu,Global Tech University,Computer Science,2nd Year,D,GTU-063
+Diya Das,diya.das@student.gtu.edu,Global Tech University,Computer Science,2nd Year,D,GTU-064
+Myra Bose,myra.bose@student.gtu.edu,Global Tech University,Information Technology,2nd Year,C,GTU-065
+Sara Shah,sara.shah@student.gtu.edu,Global Tech University,Information Technology,2nd Year,C,GTU-066
+Anaya Kulkarni,anaya.kulkarni@student.gtu.edu,Global Tech University,Information Technology,2nd Year,D,GTU-067
+Ira Pillai,ira.pillai@student.gtu.edu,Global Tech University,Information Technology,2nd Year,D,GTU-068
+Prisha Menon,prisha.menon@student.gtu.edu,Global Tech University,Electronics,2nd Year,C,GTU-069
+Kavya Saxena,kavya.saxena@student.gtu.edu,Global Tech University,Electronics,2nd Year,C,GTU-070
+Ravi Sharma,ravi.sharma@student.ibi.edu,International Business Institute,Business Administration,1st Year,A,IBI-001
+Anjali Patel,anjali.patel@student.ibi.edu,International Business Institute,Business Administration,1st Year,A,IBI-002
+Rahul Kumar,rahul.kumar@student.ibi.edu,International Business Institute,Business Administration,1st Year,B,IBI-003
+Priya Singh,priya.singh@student.ibi.edu,International Business Institute,Business Administration,1st Year,B,IBI-004
+Amit Gupta,amit.gupta@student.ibi.edu,International Business Institute,Business Administration,2nd Year,A,IBI-005
+Neha Reddy,neha.reddy@student.ibi.edu,International Business Institute,Business Administration,2nd Year,A,IBI-006
+Vikram Nair,vikram.nair@student.ibi.edu,International Business Institute,Business Administration,2nd Year,B,IBI-007
+Pooja Verma,pooja.verma@student.ibi.edu,International Business Institute,Business Administration,2nd Year,B,IBI-008
+Suresh Rao,suresh.rao@student.ibi.edu,International Business Institute,Business Administration,3rd Year,A,IBI-009
+Divya Joshi,divya.joshi@student.ibi.edu,International Business Institute,Business Administration,3rd Year,A,IBI-010
+Karthik Mehta,karthik.mehta@student.ibi.edu,International Business Institute,Business Administration,3rd Year,B,IBI-011
+Lakshmi Desai,lakshmi.desai@student.ibi.edu,International Business Institute,Business Administration,3rd Year,B,IBI-012
+Rajesh Iyer,rajesh.iyer@student.ibi.edu,International Business Institute,Marketing,1st Year,A,IBI-013
+Sneha Agarwal,sneha.agarwal@student.ibi.edu,International Business Institute,Marketing,1st Year,A,IBI-014
+Manoj Choudhury,manoj.choudhury@student.ibi.edu,International Business Institute,Marketing,1st Year,B,IBI-015
+Kavita Das,kavita.das@student.ibi.edu,International Business Institute,Marketing,1st Year,B,IBI-016
+Arun Bose,arun.bose@student.ibi.edu,International Business Institute,Marketing,2nd Year,A,IBI-017
+Meera Shah,meera.shah@student.ibi.edu,International Business Institute,Marketing,2nd Year,A,IBI-018
+Sanjay Kulkarni,sanjay.kulkarni@student.ibi.edu,International Business Institute,Marketing,2nd Year,B,IBI-019
+Deepa Pillai,deepa.pillai@student.ibi.edu,International Business Institute,Marketing,2nd Year,B,IBI-020
+Ramesh Menon,ramesh.menon@student.ibi.edu,International Business Institute,Marketing,3rd Year,A,IBI-021
+Sunita Saxena,sunita.saxena@student.ibi.edu,International Business Institute,Marketing,3rd Year,A,IBI-022
+Gopal Pandey,gopal.pandey@student.ibi.edu,International Business Institute,Marketing,3rd Year,B,IBI-023
+Rekha Mishra,rekha.mishra@student.ibi.edu,International Business Institute,Marketing,3rd Year,B,IBI-024
+Sunil Sharma,sunil.sharma@student.ibi.edu,International Business Institute,Finance,1st Year,A,IBI-025
+Asha Patel,asha.patel@student.ibi.edu,International Business Institute,Finance,1st Year,A,IBI-026
+Mahesh Kumar,mahesh.kumar@student.ibi.edu,International Business Institute,Finance,1st Year,B,IBI-027
+Geeta Singh,geeta.singh@student.ibi.edu,International Business Institute,Finance,1st Year,B,IBI-028
+Prakash Gupta,prakash.gupta@student.ibi.edu,International Business Institute,Finance,2nd Year,A,IBI-029
+Shalini Reddy,shalini.reddy@student.ibi.edu,International Business Institute,Finance,2nd Year,A,IBI-030
+Dinesh Nair,dinesh.nair@student.ibi.edu,International Business Institute,Finance,2nd Year,B,IBI-031
+Usha Verma,usha.verma@student.ibi.edu,International Business Institute,Finance,2nd Year,B,IBI-032
+Harish Rao,harish.rao@student.ibi.edu,International Business Institute,Finance,3rd Year,A,IBI-033
+Nirmala Joshi,nirmala.joshi@student.ibi.edu,International Business Institute,Finance,3rd Year,A,IBI-034
+Vinod Mehta,vinod.mehta@student.ibi.edu,International Business Institute,Finance,3rd Year,B,IBI-035
+Radha Desai,radha.desai@student.ibi.edu,International Business Institute,Finance,3rd Year,B,IBI-036
+Mukesh Iyer,mukesh.iyer@student.ibi.edu,International Business Institute,Business Administration,4th Year,A,IBI-037
+Savita Agarwal,savita.agarwal@student.ibi.edu,International Business Institute,Business Administration,4th Year,A,IBI-038
+Rajiv Choudhury,rajiv.choudhury@student.ibi.edu,International Business Institute,Business Administration,4th Year,B,IBI-039
+Padma Das,padma.das@student.ibi.edu,International Business Institute,Business Administration,4th Year,B,IBI-040
+Naresh Bose,naresh.bose@student.ibi.edu,International Business Institute,Marketing,4th Year,A,IBI-041
+Lalita Shah,lalita.shah@student.ibi.edu,International Business Institute,Marketing,4th Year,A,IBI-042
+Jagdish Kulkarni,jagdish.kulkarni@student.ibi.edu,International Business Institute,Marketing,4th Year,B,IBI-043
+Kamala Pillai,kamala.pillai@student.ibi.edu,International Business Institute,Marketing,4th Year,B,IBI-044
+Mohan Menon,mohan.menon@student.ibi.edu,International Business Institute,Finance,4th Year,A,IBI-045
+Shobha Saxena,shobha.saxena@student.ibi.edu,International Business Institute,Finance,4th Year,A,IBI-046
+Pawan Pandey,pawan.pandey@student.ibi.edu,International Business Institute,Finance,4th Year,B,IBI-047
+Veena Mishra,veena.mishra@student.ibi.edu,International Business Institute,Finance,4th Year,B,IBI-048
+Ashok Sharma,ashok.sharma@student.ibi.edu,International Business Institute,Business Administration,1st Year,C,IBI-049
+Manju Patel,manju.patel@student.ibi.edu,International Business Institute,Business Administration,1st Year,C,IBI-050
+Satish Kumar,satish.kumar@student.ibi.edu,International Business Institute,Business Administration,1st Year,D,IBI-051
+Lata Singh,lata.singh@student.ibi.edu,International Business Institute,Business Administration,1st Year,D,IBI-052
+Raju Gupta,raju.gupta@student.ibi.edu,International Business Institute,Marketing,1st Year,C,IBI-053
+Anita Reddy,anita.reddy@student.ibi.edu,International Business Institute,Marketing,1st Year,C,IBI-054
+Kishore Nair,kishore.nair@student.ibi.edu,International Business Institute,Marketing,1st Year,D,IBI-055
+Sudha Verma,sudha.verma@student.ibi.edu,International Business Institute,Marketing,1st Year,D,IBI-056
+Ramesh Rao,ramesh.rao@student.ibi.edu,International Business Institute,Finance,1st Year,C,IBI-057
+Sushma Joshi,sushma.joshi@student.ibi.edu,International Business Institute,Finance,1st Year,C,IBI-058
+Deepak Mehta,deepak.mehta@student.ibi.edu,International Business Institute,Finance,1st Year,D,IBI-059
+Suma Desai,suma.desai@student.ibi.edu,International Business Institute,Finance,1st Year,D,IBI-060
+Naveen Iyer,naveen.iyer@student.ibi.edu,International Business Institute,Business Administration,2nd Year,C,IBI-061
+Nandini Agarwal,nandini.agarwal@student.ibi.edu,International Business Institute,Business Administration,2nd Year,C,IBI-062
+Ganesh Choudhury,ganesh.choudhury@student.ibi.edu,International Business Institute,Business Administration,2nd Year,D,IBI-063
+Sita Das,sita.das@student.ibi.edu,International Business Institute,Business Administration,2nd Year,D,IBI-064
+Hemant Bose,hemant.bose@student.ibi.edu,International Business Institute,Marketing,2nd Year,C,IBI-065
+Dev Sharma,dev.sharma@student.asa.edu,Advanced Science Academy,Physics,1st Year,A,ASA-001
+Ananya Patel,ananya.patel@student.asa.edu,Advanced Science Academy,Physics,1st Year,A,ASA-002
+Rohan Kumar,rohan.kumar@student.asa.edu,Advanced Science Academy,Physics,1st Year,B,ASA-003
+Nisha Singh,nisha.singh@student.asa.edu,Advanced Science Academy,Physics,1st Year,B,ASA-004
+Aryan Gupta,aryan.gupta@student.asa.edu,Advanced Science Academy,Physics,2nd Year,A,ASA-005
+Priya Reddy,priya.reddy@student.asa.edu,Advanced Science Academy,Physics,2nd Year,A,ASA-006
+Karan Nair,karan.nair@student.asa.edu,Advanced Science Academy,Physics,2nd Year,B,ASA-007
+Divya Verma,divya.verma@student.asa.edu,Advanced Science Academy,Physics,2nd Year,B,ASA-008
+Aditya Rao,aditya.rao@student.asa.edu,Advanced Science Academy,Physics,3rd Year,A,ASA-009
+Riya Joshi,riya.joshi@student.asa.edu,Advanced Science Academy,Physics,3rd Year,A,ASA-010
+Varun Mehta,varun.mehta@student.asa.edu,Advanced Science Academy,Physics,3rd Year,B,ASA-011
+Sneha Desai,sneha.desai@student.asa.edu,Advanced Science Academy,Physics,3rd Year,B,ASA-012
+Raj Iyer,raj.iyer@student.asa.edu,Advanced Science Academy,Chemistry,1st Year,A,ASA-013
+Pooja Agarwal,pooja.agarwal@student.asa.edu,Advanced Science Academy,Chemistry,1st Year,A,ASA-014
+Nikhil Choudhury,nikhil.choudhury@student.asa.edu,Advanced Science Academy,Chemistry,1st Year,B,ASA-015
+Simran Das,simran.das@student.asa.edu,Advanced Science Academy,Chemistry,1st Year,B,ASA-016
+Vivek Bose,vivek.bose@student.asa.edu,Advanced Science Academy,Chemistry,2nd Year,A,ASA-017
+Anjali Shah,anjali.shah@student.asa.edu,Advanced Science Academy,Chemistry,2nd Year,A,ASA-018
+Rahul Kulkarni,rahul.kulkarni@student.asa.edu,Advanced Science Academy,Chemistry,2nd Year,B,ASA-019
+Neha Pillai,neha.pillai@student.asa.edu,Advanced Science Academy,Chemistry,2nd Year,B,ASA-020
+Amit Menon,amit.menon@student.asa.edu,Advanced Science Academy,Chemistry,3rd Year,A,ASA-021
+Priyanka Saxena,priyanka.saxena@student.asa.edu,Advanced Science Academy,Chemistry,3rd Year,A,ASA-022
+Sanjay Pandey,sanjay.pandey@student.asa.edu,Advanced Science Academy,Chemistry,3rd Year,B,ASA-023
+Kavya Mishra,kavya.mishra@student.asa.edu,Advanced Science Academy,Chemistry,3rd Year,B,ASA-024
+Suresh Sharma,suresh.sharma@student.asa.edu,Advanced Science Academy,Mathematics,1st Year,A,ASA-025
+Lakshmi Patel,lakshmi.patel@student.asa.edu,Advanced Science Academy,Mathematics,1st Year,A,ASA-026
+Vikram Kumar,vikram.kumar@student.asa.edu,Advanced Science Academy,Mathematics,1st Year,B,ASA-027
+Meera Singh,meera.singh@student.asa.edu,Advanced Science Academy,Mathematics,1st Year,B,ASA-028
+Karthik Gupta,karthik.gupta@student.asa.edu,Advanced Science Academy,Mathematics,2nd Year,A,ASA-029
+Deepa Reddy,deepa.reddy@student.asa.edu,Advanced Science Academy,Mathematics,2nd Year,A,ASA-030
+Manoj Nair,manoj.nair@student.asa.edu,Advanced Science Academy,Mathematics,2nd Year,B,ASA-031
+Sunita Verma,sunita.verma@student.asa.edu,Advanced Science Academy,Mathematics,2nd Year,B,ASA-032
+Ramesh Rao,ramesh.rao@student.asa.edu,Advanced Science Academy,Mathematics,3rd Year,A,ASA-033
+Kavita Joshi,kavita.joshi@student.asa.edu,Advanced Science Academy,Mathematics,3rd Year,A,ASA-034
+Arun Mehta,arun.mehta@student.asa.edu,Advanced Science Academy,Mathematics,3rd Year,B,ASA-035
+Geeta Desai,geeta.desai@student.asa.edu,Advanced Science Academy,Mathematics,3rd Year,B,ASA-036
+Rajesh Iyer,rajesh.iyer@student.asa.edu,Advanced Science Academy,Biology,1st Year,A,ASA-037
+Shalini Agarwal,shalini.agarwal@student.asa.edu,Advanced Science Academy,Biology,1st Year,A,ASA-038
+Dinesh Choudhury,dinesh.choudhury@student.asa.edu,Advanced Science Academy,Biology,1st Year,B,ASA-039
+Rekha Das,rekha.das@student.asa.edu,Advanced Science Academy,Biology,1st Year,B,ASA-040
+Harish Bose,harish.bose@student.asa.edu,Advanced Science Academy,Biology,2nd Year,A,ASA-041
+Usha Shah,usha.shah@student.asa.edu,Advanced Science Academy,Biology,2nd Year,A,ASA-042
+Vinod Kulkarni,vinod.kulkarni@student.asa.edu,Advanced Science Academy,Biology,2nd Year,B,ASA-043
+Nirmala Pillai,nirmala.pillai@student.asa.edu,Advanced Science Academy,Biology,2nd Year,B,ASA-044
+Mukesh Menon,mukesh.menon@student.asa.edu,Advanced Science Academy,Biology,3rd Year,A,ASA-045
+Radha Saxena,radha.saxena@student.asa.edu,Advanced Science Academy,Biology,3rd Year,A,ASA-046
+Naresh Pandey,naresh.pandey@student.asa.edu,Advanced Science Academy,Biology,3rd Year,B,ASA-047
+Savita Mishra,savita.mishra@student.asa.edu,Advanced Science Academy,Biology,3rd Year,B,ASA-048
+Rajiv Sharma,rajiv.sharma@student.asa.edu,Advanced Science Academy,Physics,4th Year,A,ASA-049
+Padma Patel,padma.patel@student.asa.edu,Advanced Science Academy,Physics,4th Year,A,ASA-050
+Jagdish Kumar,jagdish.kumar@student.asa.edu,Advanced Science Academy,Physics,4th Year,B,ASA-051
+Lalita Singh,lalita.singh@student.asa.edu,Advanced Science Academy,Physics,4th Year,B,ASA-052
+Mohan Gupta,mohan.gupta@student.asa.edu,Advanced Science Academy,Chemistry,4th Year,A,ASA-053
+Kamala Reddy,kamala.reddy@student.asa.edu,Advanced Science Academy,Chemistry,4th Year,A,ASA-054
+Pawan Nair,pawan.nair@student.asa.edu,Advanced Science Academy,Chemistry,4th Year,B,ASA-055
+Shobha Verma,shobha.verma@student.asa.edu,Advanced Science Academy,Chemistry,4th Year,B,ASA-056
+Ashok Rao,ashok.rao@student.asa.edu,Advanced Science Academy,Mathematics,4th Year,A,ASA-057
+Veena Joshi,veena.joshi@student.asa.edu,Advanced Science Academy,Mathematics,4th Year,A,ASA-058
+Satish Mehta,satish.mehta@student.asa.edu,Advanced Science Academy,Mathematics,4th Year,B,ASA-059
+Manju Desai,manju.desai@student.asa.edu,Advanced Science Academy,Mathematics,4th Year,B,ASA-060
+Raju Iyer,raju.iyer@student.asa.edu,Advanced Science Academy,Biology,4th Year,A,ASA-061
+Lata Agarwal,lata.agarwal@student.asa.edu,Advanced Science Academy,Biology,4th Year,A,ASA-062
+Kishore Choudhury,kishore.choudhury@student.asa.edu,Advanced Science Academy,Biology,4th Year,B,ASA-063
+Anita Das,anita.das@student.asa.edu,Advanced Science Academy,Biology,4th Year,B,ASA-064
+Sudha Bose,sudha.bose@student.asa.edu,Advanced Science Academy,Physics,1st Year,C,ASA-065

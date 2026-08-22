@@ -21,6 +21,7 @@ export interface LMSStoreState {
   externalInstitutions: Institution[];
   institutionOptions: SelectOption[];
   loading: boolean;
+  isSyncing: boolean;
   error: Error | null;
   getInstitutionName: (id: string) => string;
   lastRefreshTimestamp: number;
@@ -45,6 +46,7 @@ const defaultState: LMSStoreState = {
   externalInstitutions: [],
   institutionOptions: [],
   loading: true,
+  isSyncing: false,
   error: null,
   getInstitutionName: () => "Unknown Institution",
   lastRefreshTimestamp: Date.now(),

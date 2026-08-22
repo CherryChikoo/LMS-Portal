@@ -23,14 +23,20 @@ import {
   X, 
   Globe,
   Building2,
-  Users
+  Users,
+  ChevronLeft,
+  ChevronRight,
+  RotateCcw,
+  CheckSquare,
 } from "lucide-react";
+import { useSessionStorage } from "@/hooks/use-session-storage";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { AcademicHierarchyFilters } from "@/components/shared/academic-hierarchy-filters";
 import { useAcademicHierarchy } from "@/lib/hierarchy/use-academic-hierarchy";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { fadeInUp } from "@/lib/animations";
 import { createResource, deleteResource, filterResourcesForStudent } from "@/lib/services";
 import { getCurrentUser } from "@/lib/utils/auth-session";
@@ -42,7 +48,7 @@ import { useEntityResolution } from "@/lib/data/use-entity-resolution";
 import type { Resource, ResourceType, AssignmentTarget, Student } from "@/types";
 
 export default function ResourcesPage() {
-  const { filteredResources: resources, students, loading } = useLMSData();
+  const { filteredResources: resources, students, loading, isSyncing } = useLMSData();
   const [userRole, setUserRole] = useState<string>("student");
   const [mounted, setMounted] = useState(false);
   
@@ -65,12 +71,17 @@ export default function ResourcesPage() {
   const [links, setLinks] = useState<string[]>([""]);
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [resourceSearch, setResourceSearch] = useState("");
+  const [selectedResources, setSelectedResources] = useState<string[]>([]);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [resourceSearch, setResourceSearch] = useSessionStorage("resources_page_search", "");
+  const [currentPage, setCurrentPage] = useSessionStorage("resources_page_currentPage", 1);
+  const ITEMS_PER_PAGE = 9;
   const { resolveInstitution } = useEntityResolution();
 
   // Page filter hierarchy
   const pageHierarchy = useAcademicHierarchy({
     levels: userRole === "college_admin" ? ["department", "academicYear", "section", "batch"] : ["institution", "department", "academicYear", "section", "batch"],
+    storageKey: "resources_page_filters",
   });
 
   // Modal target selector hierarchy (independent state so it doesn't clash with page filter)
@@ -91,7 +102,16 @@ export default function ResourcesPage() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     const validLinks = links.map(l => l.trim()).filter(l => l.length > 0);
-    if (!title || validLinks.length === 0) return;
+    
+    if (!title.trim()) {
+      setConfirmConfig({ isOpen: true, title: "Validation Error", message: "Please provide a Resource Name", isAlert: true, variant: "destructive" });
+      return;
+    }
+    if (validLinks.length === 0) {
+      setConfirmConfig({ isOpen: true, title: "Validation Error", message: "Please provide at least one valid link", isAlert: true, variant: "destructive" });
+      return;
+    }
+
     setCreating(true);
     try {
       const target = modalHierarchy.buildAssignmentTarget();
@@ -161,6 +181,30 @@ export default function ResourcesPage() {
     });
   };
 
+  const handleBulkDelete = () => {
+    if (selectedResources.length === 0) return;
+    setConfirmConfig({
+      isOpen: true,
+      title: "Bulk Delete Resources",
+      message: `Are you sure you want to permanently delete ${selectedResources.length} resources? This action cannot be undone.`,
+      variant: "destructive",
+      onConfirm: async () => {
+        try {
+          setIsBulkDeleting(true);
+          await Promise.all(selectedResources.map(id => deleteResource(id)));
+          await refreshCache();
+          setSelectedResources([]);
+          toast.success(`${selectedResources.length} resources deleted successfully`);
+        } catch (err) {
+          console.error("Failed to bulk delete", err);
+          toast.error("Failed to delete some resources");
+        } finally {
+          setIsBulkDeleting(false);
+        }
+      }
+    });
+  };
+
   const getIconForType = (type: ResourceType) => {
     switch (type) {
       case "pdf": return <FileText className="w-5 h-5 text-red-500" />;
@@ -211,7 +255,23 @@ export default function ResourcesPage() {
         }
 
         return true;
-      }).sort((a, b) => (toMillis(b.createdAt) || 0) - (toMillis(a.createdAt) || 0));
+      }).sort((a, b) => {
+        const hasFilters = pageHierarchy.filters.collegeId && pageHierarchy.filters.collegeId !== "ALL" && pageHierarchy.filters.collegeId !== "GLOBAL";
+        
+        if (hasFilters) {
+          const aT = a.targets?.[0];
+          const bT = b.targets?.[0];
+          const aTargetCol = a.collegeId || aT?.collegeId;
+          const bTargetCol = b.collegeId || bT?.collegeId;
+          const aGlobal = !aTargetCol || String(aTargetCol).toLowerCase() === "global" || String(aTargetCol).toLowerCase() === "all";
+          const bGlobal = !bTargetCol || String(bTargetCol).toLowerCase() === "global" || String(bTargetCol).toLowerCase() === "all";
+          
+          if (!aGlobal && bGlobal) return -1;
+          if (aGlobal && !bGlobal) return 1;
+        }
+        
+        return (toMillis(b.createdAt) || 0) - (toMillis(a.createdAt) || 0);
+      });
     }
 
     const baseProfile = {
@@ -261,6 +321,14 @@ export default function ResourcesPage() {
 
   if (!mounted) return null;
 
+  const searchedResources = (displayResources as Resource[]).filter((res: Resource) => {
+    const q = resourceSearch.toLowerCase().trim();
+    return !q || res.title.toLowerCase().includes(q) || (res.category || "").toLowerCase().includes(q) || (res.description || "").toLowerCase().includes(q);
+  });
+
+  const totalPages = Math.ceil(searchedResources.length / ITEMS_PER_PAGE);
+  const paginatedResources = searchedResources.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+
   return (
     <motion.div initial="hidden" animate="visible" variants={fadeInUp} className="space-y-6">
       <PageHeader
@@ -278,18 +346,90 @@ export default function ResourcesPage() {
         }
       />
 
+      {/* Bulk Action Bar */}
+      {selectedResources.length > 0 && userRole !== "student" && (
+        <div className="flex items-center justify-between bg-card border border-border p-3 px-5 rounded-xl shadow-sm animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-brand/10 text-brand">
+              <CheckSquare className="w-4 h-4" />
+            </div>
+            <span className="text-sm font-semibold text-foreground">
+              {selectedResources.length} {selectedResources.length === 1 ? "resource" : "resources"} selected
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSelectedResources([])}
+              className="text-muted-foreground border-border"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleBulkDelete}
+              disabled={isBulkDeleting}
+              className="flex items-center gap-2"
+            >
+              {isBulkDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+              Delete Selected
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Search & Filter Bar for Resources */}
       {!loading && resources.length > 0 && (
         <div className="flex flex-col gap-3 bg-card p-4 rounded-xl border border-border" suppressHydrationWarning>
-          <div className="relative w-full">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input
-              type="text"
-              value={resourceSearch}
-              onChange={(e) => setResourceSearch(e.target.value)}
-              placeholder="Search resources by title or category..."
-              className="w-full h-10 pl-10 pr-4 rounded-xl bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand/50"
-            />
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="relative w-full">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <input
+                type="text"
+                value={resourceSearch}
+                onChange={(e) => {
+                  setResourceSearch(e.target.value);
+                  setCurrentPage(1);
+                }}
+                placeholder="Search resources by title or category..."
+                className="w-full h-10 pl-10 pr-10 rounded-xl bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand/50"
+              />
+              {resourceSearch && (
+                <button 
+                  onClick={() => {
+                    setResourceSearch("");
+                    setCurrentPage(1);
+                  }} 
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded-full bg-secondary text-muted-foreground hover:text-foreground hover:bg-secondary/80 transition-colors"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+            
+            {userRole !== "student" && (
+              <button
+                type="button"
+                onClick={() => {
+                  pageHierarchy.setFilters({
+                    institution: "",
+                    collegeId: "",
+                    department: "",
+                    academicYear: "",
+                    section: "",
+                    batchId: "",
+                  });
+                  setCurrentPage(1);
+                  setResourceSearch("");
+                }}
+                className="flex items-center justify-center gap-2 px-4 h-10 rounded-xl text-sm font-semibold bg-secondary/50 text-muted-foreground hover:text-foreground hover:bg-secondary transition-all whitespace-nowrap shrink-0 border border-transparent hover:border-border"
+              >
+                <RotateCcw className="w-4 h-4" />
+                Reset Filters
+              </button>
+            )}
           </div>
           {userRole !== "student" && (
             <AcademicHierarchyFilters
@@ -309,7 +449,7 @@ export default function ResourcesPage() {
         </div>
       )}
 
-      {loading ? (
+      {(loading || (isSyncing && displayResources.length === 0)) ? (
         <div className="p-12 text-center text-sm text-muted-foreground flex flex-col items-center justify-center gap-3">
           <div className="w-8 h-8 rounded-full border-2 border-brand border-t-transparent animate-spin" />
           <span>Loading resources...</span>
@@ -327,15 +467,15 @@ export default function ResourcesPage() {
           onAction={userRole !== "student" ? () => setShowUploadModal(true) : () => {}}
         />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {(displayResources as Resource[])
-            .filter((res: Resource) => {
-              const q = resourceSearch.toLowerCase().trim();
-              const matchesSearch = !q || res.title.toLowerCase().includes(q) || (res.category || "").toLowerCase().includes(q) || (res.description || "").toLowerCase().includes(q);
-              return matchesSearch;
-            })
-            .map((res: Resource) => {
-              const parsedLinks: string[] = res.type === "link" && res.url ? res.url.split(",").filter(Boolean) : [res.url].filter(Boolean);
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {paginatedResources.length === 0 && resourceSearch ? (
+              <div className="col-span-full py-12 text-center space-y-3">
+                <p className="text-muted-foreground">No resources match your search.</p>
+              </div>
+            ) : (
+              paginatedResources.map((res: Resource) => {
+                const parsedLinks: string[] = res.type === "link" && res.url ? res.url.split(",").filter(Boolean) : [res.url].filter(Boolean);
               
               const t = res.targets?.[0];
               const targetCollege = res.collegeId || t?.collegeId;
@@ -351,18 +491,40 @@ export default function ResourcesPage() {
               // Only truly global if NO specific targeting dimension exists
               const isGlobal = !hasSpecificCollege && !hasSpecificDept && !hasSpecificYear && !hasSpecificSection && !hasSpecificBatch && !hasSpecificStudent;
 
-              const collegeLabel = hasSpecificCollege ? (t?.collegeName || resolveInstitution(targetCollege!)) : "";
+              const collegeLabel = hasSpecificCollege ? resolveInstitution(targetCollege!) : "";
+              const canDelete = userRole !== "student" && (userRole !== "college_admin" || !isGlobal);
+              const isSelected = selectedResources.includes(res.id);
 
               return (
-                <motion.div
+                <div
                   key={res.id}
-                  whileHover={{ y: -4 }}
-                  className="rounded-3xl border border-border/60 bg-card p-6 sm:p-7 flex flex-col justify-between space-y-6 shadow-sm hover:shadow-lg transition-all"
+                  className={`relative rounded-3xl border ${isSelected ? 'border-brand ring-1 ring-brand bg-brand/5' : 'border-border/60 bg-card'} p-6 sm:p-7 flex flex-col justify-between space-y-6 shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-300 cursor-default`}
+                  onClick={(e) => {
+                    // Optional: clicking the card selects it, if not clicking a button/link inside
+                    if (canDelete) {
+                      const target = e.target as HTMLElement;
+                      if (target.closest('button') || target.closest('a')) return;
+                      setSelectedResources(prev => isSelected ? prev.filter(id => id !== res.id) : [...prev, res.id]);
+                    }
+                  }}
                 >
                   <div className="space-y-4">
                     <div className="flex items-start justify-between gap-4">
-                      <div className="w-12 h-12 shrink-0 rounded-2xl bg-brand/10 border border-brand/20 flex items-center justify-center text-brand">
-                        {getIconForType(res.type)}
+                      <div className="flex items-center gap-3">
+                        {canDelete && (
+                          <div className="flex items-center" onClick={(e) => e.stopPropagation()}>
+                            <Checkbox 
+                              checked={isSelected}
+                              onCheckedChange={(checked) => {
+                                setSelectedResources(prev => checked ? [...prev, res.id] : prev.filter(id => id !== res.id));
+                              }}
+                              className="w-5 h-5 rounded border-border data-[state=checked]:bg-brand data-[state=checked]:border-brand"
+                            />
+                          </div>
+                        )}
+                        <div className="w-12 h-12 shrink-0 rounded-2xl bg-brand/10 border border-brand/20 flex items-center justify-center text-brand">
+                          {getIconForType(res.type)}
+                        </div>
                       </div>
                       <div className="flex flex-col items-end gap-2">
                         <span className="px-3 py-1 rounded-full bg-secondary text-[10px] font-bold uppercase tracking-widest text-foreground shadow-sm">
@@ -483,9 +645,12 @@ export default function ResourcesPage() {
                     )}
 
                     <div className="flex justify-end gap-2 pt-2">
-                      {userRole !== "student" && (userRole !== "college_admin" || !isGlobal) && (
+                      {canDelete && (
                         <button
-                          onClick={() => handleDelete(res.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDelete(res.id);
+                          }}
                           disabled={deletingId === res.id}
                           className="px-4 py-2 rounded-xl bg-destructive/10 hover:bg-destructive/20 text-destructive text-sm font-semibold transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
@@ -495,27 +660,59 @@ export default function ResourcesPage() {
                       )}
                     </div>
                   </div>
-                </motion.div>
+                </div>
               );
-            })}
+            })
+          )}
+          </div>
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between pt-4 border-t border-border/40">
+              <div className="text-sm text-muted-foreground">
+                Showing <span className="font-bold text-foreground">{(currentPage - 1) * ITEMS_PER_PAGE + 1}</span> - <span className="font-bold text-foreground">{Math.min(currentPage * ITEMS_PER_PAGE, searchedResources.length)}</span> of <span className="font-bold text-foreground">{searchedResources.length}</span> Resources
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                  className="h-9 px-3 border-border hover:bg-card hover:text-foreground"
+                >
+                  <ChevronLeft className="w-4 h-4 mr-1" />
+                  Previous
+                </Button>
+                <div className="flex items-center gap-1">
+                  <div className="h-9 px-4 flex items-center justify-center rounded-lg bg-card border border-border text-sm font-semibold">
+                    {currentPage}
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={currentPage >= totalPages}
+                  className="h-9 px-3 border-border hover:bg-card hover:text-foreground"
+                >
+                  Next
+                  <ChevronRight className="w-4 h-4 ml-1" />
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
       {/* Upload Resource Modal */}
-      <AnimatePresence>
-        {showUploadModal && (
-          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl border border-border/80 bg-card p-6 sm:p-8 shadow-2xl space-y-6"
-            >
-              <div className="flex items-center justify-between border-b border-border/50 pb-4">
-                <div>
-                  <h3 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight">Distribute Learning Resource</h3>
-                  <p className="text-xs sm:text-sm text-muted-foreground mt-1">Share resources and materials with targeted institutions, departments, or cohorts</p>
-                </div>
+      {showUploadModal && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl border border-border/80 bg-card p-6 sm:p-8 shadow-2xl space-y-6 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-border/50 pb-4">
+              <div>
+                <h3 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight">Distribute Learning Resource</h3>
+                <p className="text-xs sm:text-sm text-muted-foreground mt-1">Share resources and materials with targeted institutions, departments, or cohorts</p>
+              </div>
                 <button onClick={() => setShowUploadModal(false)} className="w-8 h-8 flex items-center justify-center rounded-full bg-secondary/50 text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
                   <X className="w-4 h-4" />
                 </button>
@@ -616,6 +813,16 @@ export default function ResourcesPage() {
                     sectionOptions={modalHierarchy.sectionOptions}
                     batchOptions={modalHierarchy.batchOptions}
                     studentOptions={[]}
+                    onReset={() => {
+                      modalHierarchy.setFilters({
+                        institution: "",
+                        collegeId: "",
+                        department: "",
+                        academicYear: "",
+                        section: "",
+                        batchId: "",
+                      });
+                    }}
                   />
 
                   {/* Summary Badge */}
@@ -642,10 +849,9 @@ export default function ResourcesPage() {
                   </Button>
                 </div>
               </form>
-            </motion.div>
+            </div>
           </div>
         )}
-      </AnimatePresence>
 
       <ResourcePreviewModal
         resource={previewResource}
