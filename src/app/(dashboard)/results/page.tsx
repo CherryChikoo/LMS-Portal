@@ -487,34 +487,6 @@ export default function ResultsPage() {
             ? "View authenticated grading transcripts, AI performance breakdown, and verified institutional scores."
             : "Monitor proctored test evaluations, analyze multi-dimensional cohort performance, and inspect granular student transcripts."
         }
-        actions={
-          <div className="flex items-center gap-2.5 flex-wrap justify-end">
-            {actualRole !== "student" && actualRole !== "college_admin" && (
-              <>
-                <Button
-                  onClick={loadData}
-                  variant="outline"
-                  size="sm"
-                  className="h-9 px-4 border-border hover:bg-accent text-foreground font-semibold flex items-center gap-1.5 shadow-sm"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  Refresh
-                </Button>
-
-                <Button
-                  onClick={handleExportCSV}
-                  variant="default"
-                  size="sm"
-                  disabled={filteredAttempts.length === 0}
-                  className="h-9 px-4 bg-brand hover:bg-brand/90 text-brand-foreground font-bold flex items-center gap-1.5 shadow-sm"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  Export Results
-                </Button>
-              </>
-            )}
-          </div>
-        }
       />
 
       {/* Top Metrics Cards */}
