@@ -1375,8 +1375,8 @@ Showing <span className="text-foreground font-extrabold">
                         )}
                       </div>
 
-                      <div className="flex items-center justify-between pt-4 border-t border-gray-200 dark:border-gray-800 mt-2">
-                        <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center justify-between gap-y-3 gap-x-2 pt-4 border-t border-gray-200 dark:border-gray-800 mt-2">
+                        <div className="flex items-center gap-2 shrink-0">
                           <span className="text-sm text-gray-500 dark:text-gray-400">
                             Pass: <strong className="text-gray-900 dark:text-white font-bold">{exam.passingMarks}%</strong>
                           </span>

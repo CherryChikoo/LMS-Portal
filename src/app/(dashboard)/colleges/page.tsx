@@ -1209,13 +1209,7 @@ export default function CollegesPage() {
 
                   <div className="pt-2.5 border-t border-border flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground mt-4">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <button
-                        type="button"
-                        onClick={() => handleRegisterExternalCollege(col.name, col.departments || [])}
-                        className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 font-bold text-[11px] flex items-center gap-1 transition-all shadow-sm"
-                      >
-                        <Plus className="w-3 h-3" /> Register Official
-                      </button>
+
                       <button
                         type="button"
                         onClick={() => handleOpenEnrollForCollege(col)}
