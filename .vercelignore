@@ -1,0 +1,104 @@
+# Dependencies
+node_modules/
+
+# Next.js build output (Vercel builds fresh)
+.next/
+out/
+
+# Git
+.git/
+
+# Local env files
+.env
+.env.local
+.env.vercel
+
+# Dev/debug files
+dev-server.log
+dev-server.pid
+dev-output.txt
+dev-error.txt
+build-output.txt
+build-full.txt
+vercel_logs.txt
+err.html
+debug-payload.txt
+tsconfig.tsbuildinfo
+
+# Backup files
+*.backup
+*.backup-old
+students_page_backup.txt
+temp_modal.txt
+found_page.txt
+extracted_add.txt
+
+# One-off scripts (not needed in deployment)
+fix-*.js
+fix-*.ps1
+test-*.js
+test-*.ts
+test_*.js
+test_*.ts
+check-*.js
+check-*.sql
+check_*.js
+restore-*.js
+restore-*.ts
+delete-*.js
+delete-*.ts
+find-*.js
+find-*.ts
+insert-*.ts
+list-*.ts
+list-*.js
+create-*.js
+migrate-*.js
+import-pg.js
+update-*.js
+scrape*.js
+replace*.js
+refactor.js
+rewrite-*.js
+db-cleanup.*
+bump-cache.js
+console-refresh.js
+scratch-*.ts
+scratch/
+scratch_*.js
+add-vercel-env.ps1
+apply-all-fixes.ps1
+run-migration.ps1
+
+# SQL scripts
+*.sql
+
+# CSV data files
+*.csv
+
+# Documentation files (not needed at runtime)
+*.md
+!README.md
+
+# Firebase legacy
+firebase.json
+firestore.*
+storage.rules
+
+# Agent/AI files
+.agents/
+.claude/
+.windsurf/
+.kimchi/
+CLAUDE.md
+AGENTS.md
+skills-lock.json
+
+# Prisma generated (regenerated during build)
+src/generated/
+
+# Vercel config
+.vercel/
+
+# Gotrue
+gotrue-auth/
