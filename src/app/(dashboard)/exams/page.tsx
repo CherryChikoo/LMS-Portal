@@ -1204,7 +1204,10 @@ Showing <span className="text-foreground font-extrabold">
               let studentBadgeColor = "";
               
               if (userRole === "student") {
-                if (effStatus === "expired" || effStatus === "completed" || effStatus === "cancelled") {
+                if (att && att.status === "submitted") {
+                  studentBadgeText = "COMPLETED";
+                  studentBadgeColor = "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400";
+                } else if (effStatus === "expired" || effStatus === "completed" || effStatus === "cancelled") {
                   studentBadgeText = "NOT ATTEMPTED";
                   studentBadgeColor = "bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-900/50";
                 } else if (effStatus === "scheduled") {
