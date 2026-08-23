@@ -25,6 +25,7 @@ import { supabase } from "@/lib/supabase/client";
 import {
   getExamById,
   getAllExamsIncludingDeleted,
+  getExamWithQuestions,
 } from "@/lib/services";
 import { useLMSDataSelector } from "@/lib/data/use-lms-data";
 import { fadeInUp } from "@/lib/animations";
@@ -145,13 +146,22 @@ export default function AttemptAnswerSheetPage({
         if (cancelled) return;
 
         if (resolvedExam) {
-          setExam(resolvedExam);
+          // getExamById doesn't include questions in optimized version
+          // Load questions separately if needed
+          const examWithQuestions = await getExamWithQuestions(fetched.examId).catch(() => resolvedExam);
+          setExam(examWithQuestions);
         } else {
           try {
             const allExams = await getAllExamsIncludingDeleted();
             if (cancelled) return;
             const found = allExams.data.find((e) => e.id === fetched.examId) ?? null;
-            setExam(found);
+            if (found) {
+              // Found exam might not have questions, load them separately
+              const examWithQuestions = await getExamWithQuestions(fetched.examId).catch(() => found);
+              setExam(examWithQuestions);
+            } else {
+              setExam(null);
+            }
           } catch {
             if (!cancelled) setExam(null);
           }

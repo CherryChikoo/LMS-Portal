@@ -195,7 +195,7 @@ export function Sidebar() {
       <div className="flex items-center h-20 px-4 shrink-0 relative group/brand overflow-hidden">
         <Link href="/" className="flex items-center w-full min-w-0">
           <div className="w-11 h-11 flex items-center justify-center shrink-0">
-            {!mounted ? (
+            {!mounted || loading ? (
               <div className="w-9 h-9 rounded-xl bg-brand/10 animate-pulse shrink-0" />
             ) : branding.logoBase64 ? (
               <img
@@ -219,18 +219,18 @@ export function Sidebar() {
               transition: 'opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
             }}
           >
-            {!mounted ? (
+            {!mounted || loading ? (
                <div className="flex flex-col gap-1.5 w-32 py-1">
                  <div className="h-4 bg-brand/10 rounded animate-pulse w-full" />
                  <div className="h-2 bg-brand/10 rounded animate-pulse w-2/3" />
                </div>
             ) : (
               <>
-                <span className="font-bold text-base text-brand tracking-tight truncate">
-                  {branding.companyName || "Masters Academy"}
+                <span className="font-bold text-base text-brand tracking-tight truncate block w-full group-hover:text-brand-hover transition-colors">
+                  {branding.companyName || userCollegeName || (userRole === "student" || userRole === "college_admin" ? "College Portal" : APP_NAME)}
                 </span>
-                <span className="text-[9px] font-bold text-brand/60 uppercase tracking-widest truncate">
-                  {branding.companySubtitle || "Master Admin"}
+                <span className="text-[10px] font-bold text-brand/60 uppercase tracking-widest truncate block w-full">
+                  {branding.companySubtitle || (userRole === "student" || userRole === "college_admin" ? "College Platform" : "Master Admin")}
                 </span>
               </>
             )}
@@ -244,7 +244,7 @@ export function Sidebar() {
               e.preventDefault();
               setShowBrandModal(true);
             }}
-            title="Edit Company Branding"
+            aria-label="Edit Company Branding"
             className="opacity-0 group-hover/brand:opacity-100 p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground shrink-0 transition-opacity duration-200 ml-auto"
           >
             <Pencil className="w-3.5 h-3.5 text-brand" />
@@ -351,7 +351,7 @@ export function Sidebar() {
           <TooltipTrigger
             render={
               <Link
-                href={userRole === "student" ? "/student/settings" : "/admin/settings"}
+                href={!mounted ? "#" : userRole === "student" ? "/student/settings" : "/admin/settings"}
                 className={cn(
                   "group flex items-center h-11 rounded-xl text-sm font-medium transition-colors overflow-hidden text-muted-foreground hover:text-foreground hover:bg-secondary/80",
                   isExpanded ? "px-3 gap-3" : "justify-center px-0 w-11 mx-auto"

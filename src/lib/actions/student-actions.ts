@@ -37,7 +37,10 @@ export async function getStudentsPaginatedAction({
     const where: any = {};
 
     // Role-based scoping (STRICT FILTERING FOR COLLEGE ADMINS)
-    if (userRole && (userRole.toLowerCase() === "college_admin" || userRole.toLowerCase() === "college") && userCollegeId) {
+    if (userRole && (userRole.toLowerCase() === "college_admin" || userRole.toLowerCase() === "college")) {
+      if (!userCollegeId) {
+        throw new Error("Unauthorized: College Admin must have an assigned college ID");
+      }
       where.collegeId = userCollegeId;
       console.log('[GET_STUDENTS_PAGINATED] College admin filter applied:', { userRole, userCollegeId });
     }
@@ -207,6 +210,12 @@ export async function getStudentsPaginatedAction({
 }
 
 // Get unique filter options from actual student data + college departments + batch departments
+/**
+ * DEPRECATED: Loads ALL students, colleges, and batches to extract filter options
+ * Use getStudentFilterOptionsOptimizedAction() for database DISTINCT queries
+ * 
+ * @deprecated Use getStudentFilterOptionsOptimizedAction() with DISTINCT queries
+ */
 export async function getStudentFilterOptionsAction({
   userRole,
   userCollegeId,
@@ -216,12 +225,16 @@ export async function getStudentFilterOptionsAction({
   userCollegeId?: string;
   collegeId?: string;
 }) {
+  console.warn("[DEPRECATED] getStudentFilterOptionsAction() loads all records. Use getStudentFilterOptionsOptimizedAction() instead.");
   try {
     // Build where clause based on role and college filter
     const where: any = {};
 
     // Role-based scoping (STRICT FILTERING FOR COLLEGE ADMINS)
-    if (userRole && (userRole.toLowerCase() === "college_admin" || userRole.toLowerCase() === "college") && userCollegeId) {
+    if (userRole && (userRole.toLowerCase() === "college_admin" || userRole.toLowerCase() === "college")) {
+      if (!userCollegeId) {
+        throw new Error("Unauthorized: College Admin must have an assigned college ID");
+      }
       where.collegeId = userCollegeId;
       console.log('[GET_STUDENT_FILTER_OPTIONS] College admin filter applied:', { userRole, userCollegeId });
     }
@@ -318,40 +331,182 @@ export async function getStudentFilterOptionsAction({
   }
 }
 
-export async function getAllStudentsAction() {
-  // OPTIMIZED: Load all students but only select needed fields
-  // With proper indexes, this will be fast even for 50k students
-  return await prisma.students.findMany({
-    orderBy: { createdAt: 'desc' },
-    include: {
-      users: {
-        select: {
-          id: true,
-          displayName: true,
-          email: true,
-          role: true,
-          status: true,
-        }
-      },
-      colleges: {
-        select: {
-          id: true,
-          name: true,
-          type: true,
-        }
-      },
-      student_batches: {
-        include: { 
-          batches: {
-            select: {
-              id: true,
-              name: true,
-            }
-          }
-        }
+/**
+ * OPTIMIZED: Get filter options using database DISTINCT queries
+ * Uses raw SQL for efficient DISTINCT queries instead of loading all records
+ */
+export async function getStudentFilterOptionsOptimizedAction({
+  userRole,
+  userCollegeId,
+  collegeId,
+}: {
+  userRole?: string;
+  userCollegeId?: string;
+  collegeId?: string;
+}) {
+  try {
+    // Build where conditions for SQL
+    const whereConditions: string[] = [];
+    const params: any[] = [];
+    let paramIndex = 1;
+
+    // Role-based scoping
+    if (userRole && (userRole.toLowerCase() === "college_admin" || userRole.toLowerCase() === "college")) {
+      if (!userCollegeId) {
+        throw new Error("Unauthorized: College Admin must have an assigned college ID");
+      }
+      whereConditions.push(`"collegeId"::text = $${paramIndex}::text`);
+      params.push(userCollegeId);
+      paramIndex++;
+    }
+
+    // Filter by specific college if provided
+    if (collegeId && collegeId !== "ALL" && collegeId !== "GLOBAL" && collegeId !== "") {
+      if (collegeId === "UNASSIGNED") {
+        whereConditions.push(`"collegeId" IS NULL`);
+      } else {
+        whereConditions.push(`"collegeId"::text = $${paramIndex}::text`);
+        params.push(collegeId);
+        paramIndex++;
       }
     }
-  });
+
+    const whereClause = whereConditions.length > 0 
+      ? `WHERE ${whereConditions.join(' AND ')}`
+      : '';
+
+    // Execute DISTINCT queries in parallel
+    const [studentDepts, studentYears, studentSections, batchDepts, batchYears, batchSections] = await Promise.all([
+      // DISTINCT departments from students
+      prisma.$queryRawUnsafe(
+        `SELECT DISTINCT department FROM students ${whereClause} AND department IS NOT NULL ORDER BY department`,
+        ...params
+      ) as Promise<Array<{ department: string }>>,
+      
+      // DISTINCT academic years from students
+      prisma.$queryRawUnsafe(
+        `SELECT DISTINCT "academicYear" FROM students ${whereClause} AND "academicYear" IS NOT NULL ORDER BY "academicYear"`,
+        ...params
+      ) as Promise<Array<{ academicYear: string }>>,
+      
+      // DISTINCT sections from students
+      prisma.$queryRawUnsafe(
+        `SELECT DISTINCT section FROM students ${whereClause} AND section IS NOT NULL ORDER BY section`,
+        ...params
+      ) as Promise<Array<{ section: string }>>,
+      
+      // DISTINCT departments from batches
+      prisma.$queryRawUnsafe(
+        `SELECT DISTINCT department FROM batches ${whereClause} AND department IS NOT NULL ORDER BY department`,
+        ...params
+      ) as Promise<Array<{ department: string }>>,
+      
+      // DISTINCT academic years from batches
+      prisma.$queryRawUnsafe(
+        `SELECT DISTINCT "academicYear" FROM batches ${whereClause} AND "academicYear" IS NOT NULL ORDER BY "academicYear"`,
+        ...params
+      ) as Promise<Array<{ academicYear: string }>>,
+      
+      // DISTINCT sections from batches
+      prisma.$queryRawUnsafe(
+        `SELECT DISTINCT section FROM batches ${whereClause} AND section IS NOT NULL ORDER BY section`,
+        ...params
+      ) as Promise<Array<{ section: string }>>,
+    ]);
+
+    // Also get departments from colleges (departments array field)
+    const collegeWhere: any = {};
+    if (collegeId && collegeId !== "ALL" && collegeId !== "GLOBAL" && collegeId !== "") {
+      if (collegeId !== "UNASSIGNED") {
+        collegeWhere.id = collegeId;
+      }
+    } else if (userRole && (userRole.toLowerCase() === "college_admin" || userRole.toLowerCase() === "college") && userCollegeId) {
+      collegeWhere.id = userCollegeId;
+    }
+
+    const colleges = await prisma.colleges.findMany({
+      where: Object.keys(collegeWhere).length > 0 ? collegeWhere : undefined,
+      select: {
+        departments: true,
+      },
+    });
+
+    // Merge unique values from all sources
+    const departments = new Set<string>();
+    const years = new Set<string>();
+    const sections = new Set<string>();
+
+    // Add from students
+    studentDepts.forEach((row) => {
+      if (row.department) departments.add(row.department);
+    });
+    studentYears.forEach((row) => {
+      if (row.academicYear) years.add(row.academicYear);
+    });
+    studentSections.forEach((row) => {
+      if (row.section) sections.add(row.section);
+    });
+
+    // Add from batches
+    batchDepts.forEach((row) => {
+      if (row.department) departments.add(row.department);
+    });
+    batchYears.forEach((row) => {
+      if (row.academicYear) years.add(row.academicYear);
+    });
+    batchSections.forEach((row) => {
+      if (row.section) sections.add(row.section);
+    });
+
+    // Add from colleges
+    colleges.forEach((c) => {
+      if (c.departments && Array.isArray(c.departments)) {
+        c.departments.forEach((d: string) => {
+          if (d) departments.add(d);
+        });
+      }
+    });
+
+    console.log('[GET_STUDENT_FILTER_OPTIONS_OPTIMIZED] Results:', {
+      departments: departments.size,
+      years: years.size,
+      sections: sections.size,
+    });
+
+    return {
+      success: true,
+      departments: Array.from(departments).sort(),
+      years: Array.from(years).sort(),
+      sections: Array.from(sections).sort(),
+    };
+  } catch (error: any) {
+    console.error("[GET_STUDENT_FILTER_OPTIONS_OPTIMIZED] Error:", error);
+    return {
+      success: false,
+      departments: [],
+      years: [],
+      sections: [],
+    };
+  }
+}
+
+/**
+ * DEPRECATED: Loads ALL students without pagination - causes massive egress at scale
+ * 
+ * DO NOT USE THIS FUNCTION. Use getStudentsPaginatedAction() instead.
+ * This function is kept only for backward compatibility and will be removed.
+ * 
+ * @deprecated Use getStudentsPaginatedAction() with proper pagination
+ * @throws Error Always throws to prevent accidental usage
+ */
+export async function getAllStudentsAction(): Promise<never> {
+  throw new Error(
+    "[DEPRECATED] getAllStudentsAction() is deprecated and disabled. " +
+    "Use getStudentsPaginatedAction() with pagination instead. " +
+    "Loading all students causes massive egress at scale (20K+ students = 10MB+ transfer). " +
+    "For college-specific queries, use getStudentsByCollegeAction(). " +
+    "For external colleges with slug matching, use getStudentsByCollegeWithSlugAction()."
+  );
 }
 
 export async function getStudentCountAction() {
@@ -412,6 +567,88 @@ export async function getStudentCountByCollegeAction(collegeId: string) {
       ]
     }
   });
+}
+
+/**
+ * Get students for a college with fuzzy slug matching (for external colleges)
+ * Handles case-insensitive slug variations without loading all students
+ * 
+ * @param collegeId - College ID or slug to match
+ * @param collegeName - Optional college name for additional matching
+ * @returns Paginated students with database-level filtering
+ */
+export async function getStudentsByCollegeWithSlugAction(
+  collegeId: string,
+  collegeName?: string
+) {
+  try {
+    // Build slug-based OR conditions for database query
+    const cleanSlug = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, "");
+    const targetSlug = cleanSlug(collegeId);
+    
+    // Create flexible where conditions that handle:
+    // 1. Exact collegeId match
+    // 2. Case-insensitive name match
+    // 3. Slug-based fuzzy matching
+    const whereConditions: any[] = [
+      { collegeId: { equals: collegeId, mode: 'insensitive' } },
+    ];
+    
+    if (collegeName) {
+      whereConditions.push({ collegeName: { equals: collegeName, mode: 'insensitive' } });
+      // Add slug-based matching for college name
+      const nameSlug = cleanSlug(collegeName);
+      if (nameSlug !== targetSlug) {
+        whereConditions.push({ collegeId: { contains: nameSlug, mode: 'insensitive' } });
+        whereConditions.push({ collegeName: { contains: nameSlug, mode: 'insensitive' } });
+      }
+    }
+    
+    // Add slug-based matching for original ID
+    if (targetSlug) {
+      whereConditions.push({ collegeId: { contains: targetSlug, mode: 'insensitive' } });
+      whereConditions.push({ collegeName: { contains: targetSlug, mode: 'insensitive' } });
+    }
+    
+    // Execute query with all fuzzy matching conditions
+    const students = await prisma.students.findMany({
+      where: { OR: whereConditions },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        users: {
+          select: {
+            id: true,
+            displayName: true,
+            email: true,
+            role: true,
+            status: true,
+          }
+        },
+        colleges: {
+          select: {
+            id: true,
+            name: true,
+            type: true,
+          }
+        },
+        student_batches: {
+          include: { 
+            batches: {
+              select: {
+                id: true,
+                name: true,
+              }
+            }
+          }
+        }
+      }
+    });
+    
+    return students;
+  } catch (err: any) {
+    console.error("[GET_STUDENTS_BY_COLLEGE_SLUG] Failed:", err);
+    throw err;
+  }
 }
 
 export async function getStudentsByBatchAction(batchId: string) {

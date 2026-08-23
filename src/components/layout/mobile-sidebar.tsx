@@ -192,11 +192,11 @@ export function MobileSidebar() {
                </div>
             ) : (
               <div className="flex flex-col min-w-0">
-                <span className="font-bold text-base text-brand tracking-tight truncate">
-                  {branding.companyName || "Masters Academy"}
+                <span className="font-bold text-lg text-brand tracking-tight truncate block w-full">
+                  {branding.companyName || userCollegeName || (userRole === "student" || userRole === "college_admin" ? "College Portal" : APP_NAME)}
                 </span>
-                <span className="text-[10px] font-bold text-brand/60 uppercase tracking-widest truncate">
-                  {branding.companySubtitle || "Master Admin"}
+                <span className="text-[11px] font-bold text-brand/60 uppercase tracking-widest truncate block w-full mt-0.5">
+                  {branding.companySubtitle || (userRole === "student" || userRole === "college_admin" ? "College Platform" : "Master Admin")}
                 </span>
               </div>
             )}

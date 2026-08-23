@@ -187,7 +187,7 @@ export default function ResultsPage() {
           searchQuery,
           sortBy,
           page: attemptPage,
-          limit: 25,
+          limit: 15,
           userContext: {
             role: actualRole,
             id: currentStudentUser?.id,
@@ -243,10 +243,14 @@ export default function ResultsPage() {
       const role = localStorage.getItem("lms_role") || "admin";
        
       setActualRole(role.toLowerCase());
+      
+      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      if (uStr) {
+        setCurrentStudentUser(JSON.parse(uStr) as Student);
+      }
+
       if (role.toLowerCase() === "student") {
         setUserRole("student");
-        const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-        if (uStr) setCurrentStudentUser(JSON.parse(uStr) as Student);
       } else {
         setUserRole("student"); // Trainers look at students by default
       }

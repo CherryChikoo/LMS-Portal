@@ -2,7 +2,9 @@ import type { Batch } from "@/types";
 import { globalLoading } from "@/providers/global-loading-provider";
 import {
   getAllBatchesAction,
+  getAllBatchesOptimizedAction,
   getBatchByIdAction,
+  getBatchWithStudentsAction,
   getBatchesByCollegeAction,
   createBatchAction,
   updateBatchAction,
@@ -25,11 +27,29 @@ function mapBatchRow(row: any): Batch {
   } as Batch;
 }
 
+/**
+ * OPTIMIZED: Get all batches with student counts (no student IDs)
+ * Use getBatchWithStudents(batchId) to load student IDs for a specific batch when needed
+ */
 export async function getAllBatches(): Promise<{ data: Batch[], lastDoc: any }> {
-  const data = await getAllBatchesAction();
+  const data = await getAllBatchesOptimizedAction();
   const parsedData = JSON.parse(JSON.stringify(data));
-  const mappedData = parsedData.map(mapBatchRow);
+  const mappedData = parsedData.map((batch: any) => ({
+    ...batch,
+    studentCount: batch._count?.student_batches ?? 0,
+    studentIds: [], // Empty - use getBatchWithStudents() to load when needed
+    collegeName: batch.colleges?.name || null,
+  }));
   return { data: mappedData, lastDoc: mappedData.length > 0 ? mappedData[mappedData.length - 1] : null };
+}
+
+/**
+ * Get a single batch with all enrolled student IDs
+ */
+export async function getBatchWithStudents(id: string): Promise<Batch | null> {
+  const data = await getBatchWithStudentsAction(id);
+  if (!data) return null;
+  return mapBatchRow(JSON.parse(JSON.stringify(data)));
 }
 
 export async function getBatchById(id: string): Promise<Batch | null> {

@@ -8,6 +8,7 @@ import { Toaster } from "@/components/ui/sonner";
 
 import { ErrorProvider } from "./error-provider";
 import { BrandingHeadUpdater } from "@/components/shared/branding-head-updater";
+import { FaviconUpdater } from "@/components/shared/favicon-updater";
 import { GlobalLoadingProvider } from "./global-loading-provider";
 
 interface AppProvidersProps {
@@ -21,6 +22,7 @@ export function AppProviders({ children }: AppProvidersProps) {
         <GlobalLoadingProvider>
           <BrandingProvider>
             <BrandingHeadUpdater />
+            <FaviconUpdater />
             <SidebarProvider>
               {children}
               <Toaster

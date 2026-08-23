@@ -15,7 +15,7 @@ import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
 import { uniqueOptions } from "@/lib/utils/array";
-import { getCollegeById, updateCollege, createCollege, getAllStudents, createStudentProfile, createStudentAuthProfile, getAllBatches, deleteStudentProfile, getStudentByEmail, getStudentsByCollege, updateStudentProfile, deleteDepartmentAndMigrate, renameDepartmentAndMigrate, PREDEFINED_DEPARTMENTS, ensureGeneralDepartment, importStudentsCSV, parseStudentsCSV, generateCredentialsCSV, formatAuthError } from "@/lib/services";
+import { getCollegeById, updateCollege, createCollege, createStudentProfile, createStudentAuthProfile, getAllBatches, deleteStudentProfile, getStudentByEmail, getStudentsByCollege, getStudentsByCollegeWithSlug, updateStudentProfile, deleteDepartmentAndMigrate, renameDepartmentAndMigrate, PREDEFINED_DEPARTMENTS, ensureGeneralDepartment, importStudentsCSV, parseStudentsCSV, generateCredentialsCSV, formatAuthError } from "@/lib/services";
 import { upsertCollegeAction, fetchCollegesAction } from "@/lib/actions/college-actions";
 import { getBatchesByCollegeAction } from "@/lib/actions/batch-actions";
 import { getUsersByEmailAction } from "@/lib/actions/settings-actions";
@@ -306,15 +306,9 @@ function getYearBadgeStyle(year?: string) {
       if (colData) {
         if (colData.type === "external" || colData.id.startsWith("ext-")) {
           external = true;
-          // For external colleges in Firestore, we must fetch all students and filter by slug locally 
-          // to capture all case variations (e.g. "Even Hub" vs "even Hub") that students might have typed.
-          const allStudsRes = await getAllStudents();
-          const cleanSlug = (v?: string) => (v ? String(v).trim().toLowerCase().replace(/[^a-z0-9]+/g, "") : "");
-          const targetSlug = cleanSlug(colData!.name);
-          
-          allStuds = allStudsRes.data.filter(
-            (s) => s.collegeId === colData!.id || cleanSlug(s.collegeId) === targetSlug || cleanSlug(s.collegeName) === targetSlug
-          );
+          // OPTIMIZED: Use database-level slug matching instead of loading ALL students
+          const studentsRes = await getStudentsByCollegeWithSlug(colData.id, colData.name);
+          allStuds = studentsRes.data;
         } else {
           const studentsRes = await getStudentsByCollege(colData.id);
           allStuds = studentsRes.data;
@@ -322,15 +316,9 @@ function getYearBadgeStyle(year?: string) {
         const batchesRes = await getAllBatches();
         allBatches = batchesRes.data;
       } else {
-        // Fallback: For external colleges we cannot query by 'collegeName' directly if decodedId is a slug like 'ext-evenhub'.
-        // So we MUST fetch all students and filter locally to reliably capture slug matches.
-        const allStudsRes = await getAllStudents();
-        const cleanSlug = (v?: string) => (v ? String(v).trim().toLowerCase().replace(/[^a-z0-9]+/g, "") : "");
-        const targetSlug = decodedId.startsWith("ext-") ? decodedId.replace("ext-", "") : cleanSlug(decodedId);
-        
-        const extStuds = allStudsRes.data.filter(
-          (s) => s.collegeId === decodedId || cleanSlug(s.collegeId) === targetSlug || cleanSlug(s.collegeName) === targetSlug
-        );
+        // OPTIMIZED: Use database-level slug matching instead of loading ALL students
+        const studentsRes = await getStudentsByCollegeWithSlug(decodedId);
+        const extStuds = studentsRes.data;
         
         if (extStuds.length > 0) {
           external = true;

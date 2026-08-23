@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { staggerContainer, staggerItem } from "@/lib/animations";
 import { cn } from "@/lib/utils";
 import { useLMSData } from "@/lib/data/use-lms-data";
-import { getLeaderboardDataAction, type LeaderboardEntry } from "@/lib/actions/leaderboard-actions";
+import { getLeaderboardDataAction, getLeaderboardDataOptimizedAction, type LeaderboardEntry } from "@/lib/actions/leaderboard-actions";
 
 export default function LeaderboardPage() {
   const { filteredColleges: colleges } = useLMSData();
@@ -67,16 +67,16 @@ export default function LeaderboardPage() {
         userRole: normalizedRole || undefined,
         userCollegeId: userCollegeId || undefined,
         page: currentPage,
-        limit: 30,
+        limit: 15,
       });
       
-      const result = await getLeaderboardDataAction({
+      const result = await getLeaderboardDataOptimizedAction({
         collegeId: filterCollege === "all" ? undefined : filterCollege,
         search: search.trim() || undefined,
         userRole: normalizedRole || undefined,
         userCollegeId: userCollegeId || undefined,
         page: currentPage,
-        limit: 30,
+        limit: 15,
       });
 
       console.log("[LEADERBOARD] Result:", result);

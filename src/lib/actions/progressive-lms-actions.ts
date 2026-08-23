@@ -85,9 +85,13 @@ export async function fetchStudentsProgressiveAction(page = 0) {
 }
 
 /**
- * Fast initial load - gets counts + minimal data for instant UI
+ * DEPRECATED: Fast initial load - but still loads ALL exam_results
+ * Use fetchOptimizedLMSInitialStateAction() instead
+ * 
+ * @deprecated Use fetchOptimizedLMSInitialStateAction() instead
  */
 export async function fetchLMSInitialStateAction() {
+  console.warn("[DEPRECATED] fetchLMSInitialStateAction() loads ALL exam_results. Use fetchOptimizedLMSInitialStateAction() instead.");
   try {
     const startTime = Date.now();
     
@@ -273,6 +277,102 @@ export async function fetchLMSInitialStateAction() {
     return {
       success: false as const,
       error: err?.message || "Failed to load initial state",
+      data: null,
+    };
+  }
+}
+
+/**
+ * OPTIMIZED: Fast initial load - NO full student/attempt arrays
+ * Returns metadata and counts only - designed for 50K+ students
+ * 
+ * Returns EMPTY arrays for students and attempts
+ * Use specific queries (getStudentsPaginatedAction, etc.) to fetch actual data
+ */
+export async function fetchOptimizedLMSInitialStateAction() {
+  try {
+    const startTime = Date.now();
+    
+    const [
+      collegeCount,
+      studentCount,
+      batchCount,
+      examCount,
+      resourceCount,
+      attemptCount,
+    ] = await Promise.all([
+      // Counts (super fast with indexes)
+      prisma.colleges.count(),
+      prisma.students.count(),
+      prisma.batches.count(),
+      prisma.exams.count(),
+      prisma.resources.count(),
+      prisma.exam_results.count(),
+    ]);
+    
+    const [
+      colleges,
+      batches,
+      exams,
+      resources,
+    ] = await Promise.all([
+      // Full small datasets (colleges, batches, exams, resources are small)
+      prisma.colleges.findMany({
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.batches.findMany({
+        orderBy: { createdAt: "desc" },
+        include: {
+          _count: { select: { student_batches: true } },
+          // REMOVED: student_batches array - only count needed
+        },
+      }),
+      prisma.exams.findMany({
+        orderBy: { createdAt: "desc" },
+        include: {
+          _count: { select: { questions: true } }
+          // REMOVED: questions array - lazy load when needed
+        }
+      }),
+      prisma.resources.findMany({
+        orderBy: { createdAt: "desc" },
+      }),
+      // REMOVED: attempts query - use per-student queries instead
+      // REMOVED: students query - use paginated queries instead
+    ]);
+
+    const duration = Date.now() - startTime;
+    console.log(`[LMS_OPTIMIZED_INITIAL_STATE] Loaded in ${duration}ms (counts only)`);
+
+    return {
+      success: true as const,
+      data: {
+        colleges,
+        batches,
+        students: [], // Empty - use getStudentsPaginatedAction() instead
+        exams,
+        resources,
+        attempts: [], // Empty - use per-student queries instead
+        metadata: {
+          counts: {
+            colleges: collegeCount,
+            students: studentCount,
+            batches: batchCount,
+            exams: examCount,
+            resources: resourceCount,
+            attempts: attemptCount,
+          },
+          studentsLoaded: 0,
+          studentsTotal: studentCount,
+          loadTime: duration,
+        },
+      },
+    };
+  } catch (err: any) {
+    console.error("[LMS_OPTIMIZED_INITIAL_STATE] Failed:", err);
+    return {
+      success: false as const,
+      error: err?.message || "Failed to load optimized initial state",
       data: null,
     };
   }

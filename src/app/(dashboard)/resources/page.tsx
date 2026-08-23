@@ -49,15 +49,16 @@ import type { Resource, ResourceType, AssignmentTarget, Student } from "@/types"
 
 export default function ResourcesPage() {
   const { filteredResources: resources, students, loading, isSyncing } = useLMSData();
-  const [userRole, setUserRole] = useState<string>("student");
+  const [userRole, setUserRole] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      return (localStorage.getItem("lms_role") || "student").toLowerCase();
+    }
+    return "student";
+  });
   const [mounted, setMounted] = useState(false);
   
   useEffect(() => {
     setMounted(true);
-    try {
-      const role = localStorage.getItem("lms_role");
-      if (role) setUserRole(role.toLowerCase());
-    } catch {}
   }, []);
 
   const [currentUser, setCurrentUser] = useState<{ uid: string; email: string; profile: Record<string, unknown> } | null>(null);

@@ -20,23 +20,24 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const { isExpanded } = useSidebar();
-  const [isLoggingOut, setIsLoggingOut] = useState(() => {
-    if (typeof window !== "undefined" && (window as any).__isLoggingOut) return true;
-    return false;
-  });
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
-  const [isInitializingAuth, setIsInitializingAuth] = useState(() => {
-    if (typeof window === "undefined") return false;
-    const hasLocalUser = Boolean(localStorage.getItem("lms_user") || localStorage.getItem("user"));
-    const hasLocalAuth = Boolean(localStorage.getItem("lms_auth") || localStorage.getItem("lms_role"));
-    return !hasLocalUser && !hasLocalAuth;
-  });
+  const [isInitializingAuth, setIsInitializingAuth] = useState(false);
 
   // Used to throttle the storage event dispatch to at most once per 2 seconds.
   const lastDispatchRef = useRef<number>(0);
   const { branding } = useBranding();
 
   const pathname = usePathname();
+
+  // Initialize auth check state
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const hasLocalUser = Boolean(localStorage.getItem("lms_user") || localStorage.getItem("user"));
+      const hasLocalAuth = Boolean(localStorage.getItem("lms_auth") || localStorage.getItem("lms_role"));
+      setIsInitializingAuth(!hasLocalUser && !hasLocalAuth);
+    }
+  }, []);
 
   // Listen for logout freeze trigger and back/forward cache navigation
   useEffect(() => {
@@ -45,35 +46,14 @@ export default function DashboardLayout({
         setIsLoggingOut(true);
       }
     };
-    
-    const checkAuthStatus = () => {
-      if (typeof window !== "undefined") {
-        const hasAuth = localStorage.getItem("lms_auth") || localStorage.getItem("lms_role");
-        if (!hasAuth) {
-          window.location.replace("/login");
-        }
-      }
-    };
 
     handleLogout();
     window.addEventListener("lms_logout", () => setIsLoggingOut(true));
     window.addEventListener("storage", handleLogout);
-    
-    // Crucial for Next.js app router back-navigation (Router Cache) and browser bfcache
-    window.addEventListener("popstate", checkAuthStatus);
-    window.addEventListener("pageshow", checkAuthStatus);
-    window.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") checkAuthStatus();
-    });
-    window.addEventListener("focus", checkAuthStatus);
 
     return () => {
       window.removeEventListener("lms_logout", () => setIsLoggingOut(true));
       window.removeEventListener("storage", handleLogout);
-      window.removeEventListener("popstate", checkAuthStatus);
-      window.removeEventListener("pageshow", checkAuthStatus);
-      window.removeEventListener("visibilitychange", checkAuthStatus);
-      window.removeEventListener("focus", checkAuthStatus);
     };
   }, []);
 
@@ -124,19 +104,15 @@ export default function DashboardLayout({
       if (isCancelled) return;
       setIsInitializingAuth(false);
 
-      const hasAuthCookie = typeof document !== "undefined" && (document.cookie.includes("lms_auth=true") || document.cookie.includes("lms_role=") || document.cookie.includes("lms_token="));
-      const hasLocalStorageAuth = typeof localStorage !== "undefined" && Boolean(localStorage.getItem("lms_user") || localStorage.getItem("user") || localStorage.getItem("lms_role") || localStorage.getItem("lms_auth"));
-      if (!uStr && !hasLocalStorageAuth && !hasAuthCookie) {
+      if (!uStr) {
         try {
-          const { supabase } = await import("@/lib/supabase/client");
-          const { data } = await supabase.auth.getSession();
-          if (!data?.session?.user) {
-            window.location.replace("/login");
-          }
+          // If we couldn't rebuild the session, the client state is broken (e.g. wiped local storage).
+          // Force a logout to clear stale cookies and redirect to login.
+          window.location.replace("/login");
         } catch {
           // Network fluctuation, avoid logging user out
         }
-      } else if (uStr) {
+      } else {
         try {
           const parsed = JSON.parse(uStr);
           if (parsed.role === "college_admin") {

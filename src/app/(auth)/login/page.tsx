@@ -86,6 +86,7 @@ function LoginContent() {
       const uObj = {
         id: resolvedId,
         authId: resolvedAuthId,
+        displayName: (res as any)?.profile?.displayName || (res as any)?.user?.user_metadata?.full_name || (res as any)?.user?.displayName || email.split("@")[0] || "User",
         name: (res as any)?.profile?.displayName || (res as any)?.user?.user_metadata?.full_name || (res as any)?.user?.displayName || email.split("@")[0] || "User",
         email: (res as any)?.profile?.email || (res as any)?.user?.email || email,
         role: (res as any)?.role,
@@ -103,6 +104,15 @@ function LoginContent() {
       // Brief delay to ensure browser cookie jar commits cookies before HTTP navigation
       await new Promise((resolve) => setTimeout(resolve, 80));
 
+      // Check for return URL (for exam share links)
+      const returnUrl = searchParams.get('returnUrl');
+      if (returnUrl) {
+        // Redirect back to the original exam link
+        window.location.assign(returnUrl);
+        return;
+      }
+
+      // Default redirect based on role
       if ((res as any)?.role === "student") {
         window.location.assign("/student");
       } else if ((res as any)?.role === "college_admin") {
@@ -131,6 +141,7 @@ function LoginContent() {
       
       const uObj = {
         id: (res as any)?.user.uid,
+        displayName: (res as any)?.profile?.displayName || (res as any)?.user.displayName || linkEmail.split("@")[0] || "User",
         name: (res as any)?.profile?.displayName || (res as any)?.user.displayName || linkEmail.split("@")[0] || "User",
         email: (res as any)?.profile?.email || (res as any)?.user.email || linkEmail,
         role: (res as any)?.role,

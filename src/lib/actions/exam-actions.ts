@@ -37,7 +37,14 @@ function serializeExam(e: any) {
   };
 }
 
+/**
+ * DEPRECATED: Loads ALL exams with ALL questions - can be slow with many exams
+ * Use getAllExamsOptimizedAction() instead which uses _count for questions
+ * 
+ * @deprecated Use getAllExamsOptimizedAction() for listing, getExamWithQuestionsAction() for details
+ */
 export async function getAllExamsAction() {
+  console.warn("[DEPRECATED] getAllExamsAction() loads all questions. Use getAllExamsOptimizedAction() instead.");
   const exams = await prisma.exams.findMany({
     where: { deletedAt: null },
     include: {
@@ -53,7 +60,36 @@ export async function getAllExamsAction() {
   return exams.map(serializeExam);
 }
 
+/**
+ * OPTIMIZED: Get all exams with question count only (no question content)
+ * Use getExamWithQuestionsAction(examId) to lazy load questions for a specific exam
+ */
+export async function getAllExamsOptimizedAction() {
+  const exams = await prisma.exams.findMany({
+    where: { deletedAt: null },
+    include: {
+      _count: { select: { questions: true } },
+      colleges: {
+        select: { id: true, name: true, code: true }
+      }
+    },
+    orderBy: { createdAt: 'desc' }
+  });
+  return exams.map((exam) => ({
+    ...serializeExam(exam as any),
+    questions: [], // Empty array - lazy load when needed
+    questionCount: exam._count.questions,
+  }));
+}
+
+/**
+ * DEPRECATED: Loads ALL exams including deleted with ALL questions
+ * Use getAllExamsIncludingDeletedOptimizedAction() instead
+ * 
+ * @deprecated Use getAllExamsIncludingDeletedOptimizedAction() for listing
+ */
 export async function getAllExamsIncludingDeletedAction() {
+  console.warn("[DEPRECATED] getAllExamsIncludingDeletedAction() loads all questions. Use optimized version.");
   const exams = await prisma.exams.findMany({
     include: {
       questions: {
@@ -66,6 +102,50 @@ export async function getAllExamsIncludingDeletedAction() {
     orderBy: { createdAt: 'desc' }
   });
   return exams.map(serializeExam);
+}
+
+/**
+ * OPTIMIZED: Get all exams including deleted with question count only
+ */
+export async function getAllExamsIncludingDeletedOptimizedAction() {
+  const exams = await prisma.exams.findMany({
+    include: {
+      _count: { select: { questions: true } },
+      colleges: {
+        select: { id: true, name: true, code: true }
+      }
+    },
+    orderBy: { createdAt: 'desc' }
+  });
+  return exams.map((exam) => ({
+    ...serializeExam(exam as any),
+    questions: [], // Empty array - lazy load when needed
+    questionCount: exam._count.questions,
+  }));
+}
+
+/**
+ * Get a single exam with all its questions
+ * Use this when you need the full exam with questions (e.g., exam details page, taking exam)
+ */
+export async function getExamWithQuestionsAction(examId: string) {
+  const exam = await prisma.exams.findUnique({
+    where: { id: examId },
+    include: {
+      questions: {
+        orderBy: { sortOrder: 'asc' }
+      },
+      colleges: {
+        select: { id: true, name: true, code: true }
+      }
+    }
+  });
+  
+  if (!exam) {
+    throw new Error(`Exam not found: ${examId}`);
+  }
+  
+  return serializeExam(exam);
 }
 
 export async function getExamByIdAction(id: string) {
@@ -103,6 +183,10 @@ export async function createExamAction(data: any) {
   const createdBy = rest.createdBy || null;
   const createdAt = rest.createdAt ? new Date(rest.createdAt) : new Date();
   const updatedAt = rest.updatedAt ? new Date(rest.updatedAt) : new Date();
+  
+  // Generate secure share token for exam link
+  const { generateSecureShareToken } = await import('@/lib/utils/token-generator');
+  const shareToken = rest.shareToken || generateSecureShareToken();
 
   try {
     const inserted = await prisma.exams.create({
@@ -115,6 +199,7 @@ export async function createExamAction(data: any) {
         totalMarks,
         passingMarks,
         status,
+        shareToken,
         targets: rest.targets ?? undefined,
         settings: rest.settings ?? undefined,
         scheduledAt,
@@ -151,8 +236,8 @@ export async function createExamAction(data: any) {
   } catch (err: any) {
     // If Turbopack SSR cached client has a relation validation quirk, execute directly via SQL
     await prisma.$executeRawUnsafe(
-      `INSERT INTO exams (id, "collegeId", title, description, "durationMinutes", "totalMarks", "passingMarks", status, targets, settings, "scheduledAt", "startTime", "endTime", "createdBy", "createdAt", "updatedAt")
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11, $12, $13, $14, $15, $16)
+      `INSERT INTO exams (id, "collegeId", title, description, "durationMinutes", "totalMarks", "passingMarks", status, "shareToken", targets, settings, "scheduledAt", "startTime", "endTime", "createdBy", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12, $13, $14, $15, $16, $17)
        ON CONFLICT (id) DO UPDATE SET
          title = EXCLUDED.title,
          "collegeId" = EXCLUDED."collegeId",
@@ -161,6 +246,7 @@ export async function createExamAction(data: any) {
          "totalMarks" = EXCLUDED."totalMarks",
          "passingMarks" = EXCLUDED."passingMarks",
          status = EXCLUDED.status,
+         "shareToken" = EXCLUDED."shareToken",
          targets = EXCLUDED.targets,
          settings = EXCLUDED.settings,
          "scheduledAt" = EXCLUDED."scheduledAt",
@@ -175,6 +261,7 @@ export async function createExamAction(data: any) {
       totalMarks,
       passingMarks,
       status,
+      shareToken,
       targets,
       settings,
       scheduledAt,

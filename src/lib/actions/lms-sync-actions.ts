@@ -98,15 +98,14 @@ export async function fetchDashboardSummaryAction() {
 }
 
 /**
- * Single aggregate server action that fetches ALL LMS collections in one
- * serverless invocation. This prevents connection pool exhaustion by running
- * all queries within a single lambda instance sharing one DB connection.
- *
- * OPTIMIZED: Now limits students to recent 100 for initial load
- *
- * Includes retry logic for transient connection failures.
+ * DEPRECATED: This function loads ALL students which causes massive egress.
+ * Use fetchOptimizedLMSStateAction() instead for dashboard/cache.
+ * Only kept for backward compatibility with legacy code paths.
+ * 
+ * @deprecated Use fetchOptimizedLMSStateAction() for dashboard/cache operations
  */
 export async function fetchFullLMSStateAction() {
+  console.warn("[DEPRECATED] fetchFullLMSStateAction() called - this loads ALL students. Use fetchOptimizedLMSStateAction() instead.");
   const MAX_RETRIES = 2;
   let lastError: any = null;
 
@@ -272,6 +271,111 @@ export async function fetchFullLMSStateAction() {
   }
 
   console.error("[LMS_SYNC_ACTION] Failed to fetch aggregate state after retries:", lastError);
+  return {
+    success: false as const,
+    error: lastError?.message || "Failed to load LMS data",
+    data: null,
+  };
+}
+
+/**
+ * OPTIMIZED LMS State Action - Loads only metadata and counts
+ * Does NOT load all students - significantly reduces egress
+ * 
+ * Returns:
+ * - Full colleges array (small dataset ~30-100 records)
+ * - Full batches array with student counts (not student IDs)
+ * - EMPTY students array (use pagination endpoints instead)
+ * - Full exams array without questions (lazy load questions)
+ * - Full resources array  
+ * - EMPTY attempts array (use per-student/per-exam queries instead)
+ * - Metadata with total counts
+ */
+export async function fetchOptimizedLMSStateAction() {
+  const MAX_RETRIES = 2;
+  let lastError: any = null;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const [
+        colleges,
+        batches,
+        studentCount,
+        exams,
+        resources,
+        attemptCount,
+      ] = await Promise.all([
+        // Load ALL colleges (small dataset ~30-100 records)
+        prisma.colleges.findMany({
+          orderBy: { createdAt: "desc" },
+        }),
+        
+        // Load ALL batches with student COUNTS only (not full student arrays)
+        prisma.batches.findMany({
+          orderBy: { createdAt: "desc" },
+          include: {
+            _count: { select: { student_batches: true } },
+            // REMOVED: student_batches array - only count needed
+          },
+        }),
+        
+        // COUNT students instead of loading all
+        prisma.students.count(),
+        
+        // Load ALL exams WITHOUT questions (lazy load questions when exam is opened)
+        prisma.exams.findMany({
+          orderBy: { createdAt: "desc" },
+          include: {
+            _count: { select: { questions: true } },
+            // REMOVED: questions array - lazy load when needed
+          },
+        }),
+        
+        // Load ALL resources (small dataset)
+        prisma.resources.findMany({
+          orderBy: { createdAt: "desc" },
+        }),
+        
+        // COUNT exam_results instead of loading all
+        prisma.exam_results.count(),
+      ]);
+
+      return {
+        success: true as const,
+        data: {
+          colleges,
+          batches,
+          students: [], // Empty - use getStudentsPaginatedAction() instead
+          exams,
+          resources,
+          attempts: [], // Empty - use per-student queries instead
+          metadata: {
+            studentCount,
+            attemptCount,
+            timestamp: new Date().toISOString(),
+          },
+        },
+      };
+    } catch (err: any) {
+      lastError = err;
+      const isTransient =
+        err?.code === "ETIMEDOUT" ||
+        err?.code === "ECONNRESET" ||
+        err?.code === "ECONNREFUSED" ||
+        err?.message?.includes("Connection terminated") ||
+        err?.message?.includes("timeout") ||
+        err?.message?.includes("connection") ||
+        err?.message?.includes("FATAL");
+
+      if (isTransient && attempt < MAX_RETRIES) {
+        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+        continue;
+      }
+      break;
+    }
+  }
+
+  console.error("[LMS_SYNC_ACTION] Failed to fetch optimized state after retries:", lastError);
   return {
     success: false as const,
     error: lastError?.message || "Failed to load LMS data",

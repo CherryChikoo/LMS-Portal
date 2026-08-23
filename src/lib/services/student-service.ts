@@ -6,6 +6,7 @@ import type { Student, User } from "@/types";
 import {
   getAllStudentsAction,
   getStudentsByCollegeAction,
+  getStudentsByCollegeWithSlugAction,
   getStudentsByBatchAction,
   getStudentByIdAction,
   getStudentByEmailAction,
@@ -194,15 +195,36 @@ function mapStudentRow(row: any): Student {
   return mapped as Student;
 }
 
-export async function getAllStudents(): Promise<{ data: Student[], lastDoc: any }> {
-  const data = await getAllStudentsAction();
+/**
+ * DEPRECATED: Loads ALL students - causes massive egress
+ * 
+ * @deprecated Use paginated queries instead. This function is disabled to prevent accidental full-table loads.
+ * @throws Error Always throws to prevent usage
+ */
+export async function getAllStudents(): Promise<never> {
+  throw new Error(
+    "[DEPRECATED] getAllStudents() is deprecated and disabled. " +
+    "Use getStudentsPaginatedAction() from student-actions.ts for paginated queries. " +
+    "At 50K students, this would transfer 25MB+ of data per call."
+  );
+}
+
+export async function getStudentsByCollege(collegeId: string): Promise<{ data: Student[], lastDoc: any }> {
+  const data = await getStudentsByCollegeAction(collegeId);
   const parsedData = JSON.parse(JSON.stringify(data));
   const mappedData = parsedData.map(mapStudentRow);
   return { data: mappedData, lastDoc: mappedData.length > 0 ? mappedData[mappedData.length - 1] : null };
 }
 
-export async function getStudentsByCollege(collegeId: string): Promise<{ data: Student[], lastDoc: any }> {
-  const data = await getStudentsByCollegeAction(collegeId);
+/**
+ * Get students for a college with fuzzy slug matching (optimized for external colleges)
+ * Uses database-level filtering instead of loading all students
+ */
+export async function getStudentsByCollegeWithSlug(
+  collegeId: string,
+  collegeName?: string
+): Promise<{ data: Student[], lastDoc: any }> {
+  const data = await getStudentsByCollegeWithSlugAction(collegeId, collegeName);
   const parsedData = JSON.parse(JSON.stringify(data));
   const mappedData = parsedData.map(mapStudentRow);
   return { data: mappedData, lastDoc: mappedData.length > 0 ? mappedData[mappedData.length - 1] : null };

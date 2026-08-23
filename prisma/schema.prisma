@@ -116,6 +116,7 @@ model exams {
   totalMarks      Int
   passingMarks    Int?
   status          String
+  shareToken      String?        @unique
   targets         Json?
   settings        Json?
   scheduledAt     DateTime?      @db.Timestamptz(6)
@@ -131,6 +132,7 @@ model exams {
   questions       questions[]
 
   @@index([collegeId], map: "idx_exams_college")
+  @@index([shareToken], map: "idx_exams_share_token")
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.

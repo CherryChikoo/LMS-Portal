@@ -25,8 +25,25 @@ function BatchesContent() {
   // ===== ALL HOOKS AT THE TOP (NUCLEAR SAFETY) =====
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [userRole, setUserRole] = useState<string>("admin");
-  const [userCollegeId, setUserCollegeId] = useState<string>("");
+  const [userRole, setUserRole] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      return (localStorage.getItem("lms_role") || "admin").toLowerCase();
+    }
+    return "admin";
+  });
+  
+  const [userCollegeId, setUserCollegeId] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+        if (uStr) {
+          const profile = JSON.parse(uStr);
+          return profile.collegeId || "";
+        }
+      } catch (err) {}
+    }
+    return "";
+  });
   
   // Pagination state
   const [currentPage, setCurrentPage] = useSessionStorage("batches_page_currentPage", 1);
@@ -61,34 +78,27 @@ function BatchesContent() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [collegeId, setCollegeId] = useState(
-    initialCollegeId || ""
-  );
+  const [collegeId, setCollegeId] = useState(() => {
+    if (initialCollegeId) return initialCollegeId;
+    if (typeof window !== "undefined") {
+      try {
+        const role = (localStorage.getItem("lms_role") || "admin").toLowerCase();
+        if (role === "college_admin") {
+          const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+          if (uStr) {
+            const profile = JSON.parse(uStr);
+            return profile.collegeId || "";
+          }
+        }
+      } catch (err) {}
+    }
+    return "";
+  });
   const [department, setDepartment] = useState("Computer Science");
   const [academicYear, setAcademicYear] = useState("3rd Year");
   const [creating, setCreating] = useState(false);
 
-  // Load user role and college ID
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    
-    try {
-      const role = localStorage.getItem("lms_role") || "admin";
-      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-      const profile = uStr ? JSON.parse(uStr) : {};
-      const colId = profile.collegeId || "";
-      
-      setUserRole(role.toLowerCase());
-      setUserCollegeId(colId);
-      
-      // If college admin, set collegeId for modal
-      if (role.toLowerCase() === "college_admin" && colId) {
-        setCollegeId(colId);
-      }
-    } catch (err) {
-      console.error("Failed to load user data:", err);
-    }
-  }, []);
+
 
   // Set initial filters from URL
   useEffect(() => {
@@ -419,7 +429,7 @@ function BatchesContent() {
                   <button
                     onClick={() => setCurrentPage(1)}
                     className="ml-2 p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5"
-                    title="Jump back to Page 1"
+                    aria-label="Jump back to Page 1"
                   >
                     <RefreshCcw className="w-3.5 h-3.5" />
                     <span className="text-xs font-semibold">Page 1</span>
@@ -522,7 +532,7 @@ function BatchesContent() {
                         <button
                           onClick={() => handleDelete(b.id)}
                           className="text-muted-foreground hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-1 shrink-0"
-                          title="Delete Batch"
+                          aria-label="Delete Batch"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>

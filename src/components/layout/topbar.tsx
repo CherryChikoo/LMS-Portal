@@ -37,14 +37,14 @@ export function Topbar() {
     if (typeof window === "undefined") return "User";
     try {
       const savedUser = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      const savedRole = (localStorage.getItem("lms_role") || "").toLowerCase();
       if (savedUser) {
         const u = JSON.parse(savedUser);
-        const name = u.name || u.displayName || u.full_name || u.user_metadata?.full_name;
-        if (name) return formatDisplayName(name);
+        const name = u.displayName || u.name || u.full_name || u.user_metadata?.full_name;
+        if (name && name !== "User") return formatDisplayName(name);
       }
-      const savedRole = localStorage.getItem("lms_role");
       if (savedRole === "college_admin") return "College Admin";
-      if (savedRole === "admin" || savedRole === "main_admin" || savedRole === "super_admin" || savedRole === "master_admin") return "Master Admin";
+      if (savedRole === "admin" || savedRole === "main_admin" || savedRole === "super_admin" || savedRole === "master_admin" || savedRole === "trainer") return "Admin";
       if (savedRole === "student") return "Student";
     } catch {}
     return "User";
@@ -53,19 +53,16 @@ export function Topbar() {
   const [userRole, setUserRole] = useState(() => {
     if (typeof window === "undefined") return "Student";
     try {
-      const savedRole = localStorage.getItem("lms_role");
+      const savedRole = (localStorage.getItem("lms_role") || "").toLowerCase();
+      if (savedRole === "college_admin") return "College Admin";
+      if (savedRole === "admin" || savedRole === "main_admin" || savedRole === "super_admin" || savedRole === "master_admin" || savedRole === "trainer") return "Admin";
+      if (savedRole === "student") return "Student";
       const savedUser = localStorage.getItem("lms_user") || localStorage.getItem("user");
       if (savedUser) {
         const u = JSON.parse(savedUser);
-        const role = (u.role || savedRole || "student").toLowerCase();
-        if (role === "student") return "Student";
+        const role = (u.role || "").toLowerCase();
         if (role === "college_admin") return "College Admin";
-        if (role === "admin" || role === "main_admin" || role === "super_admin" || role === "master_admin") return "Master Admin";
-      }
-      if (savedRole) {
-        const role = savedRole.toLowerCase();
-        if (role === "college_admin") return "College Admin";
-        if (role === "admin" || role === "main_admin" || role === "super_admin" || role === "master_admin") return "Master Admin";
+        if (role === "admin" || role === "main_admin" || role === "super_admin" || role === "master_admin" || role === "trainer") return "Admin";
       }
     } catch {}
     return "Student";
@@ -75,15 +72,15 @@ export function Topbar() {
     if (typeof window === "undefined") return "US";
     try {
       const savedUser = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      const savedRole = localStorage.getItem("lms_role");
       if (savedUser) {
         const u = JSON.parse(savedUser);
-        const name = u.name || u.displayName || u.full_name || u.user_metadata?.full_name;
-        if (name) {
+        const name = u.displayName || u.name || u.full_name || u.user_metadata?.full_name;
+        if (name && name !== "User") {
           const parts = name.split(" ").filter(Boolean);
           return parts.length > 1 ? `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase() : parts[0]?.slice(0, 2).toUpperCase() || "US";
         }
       }
-      const savedRole = localStorage.getItem("lms_role");
       if (savedRole === "college_admin") return "CA";
       if (savedRole === "admin" || savedRole === "main_admin" || savedRole === "super_admin" || savedRole === "master_admin") return "MA";
       if (savedRole === "student") return "ST";
@@ -95,15 +92,38 @@ export function Topbar() {
     if (typeof window === "undefined") return;
     const savedUser = localStorage.getItem("lms_user") || localStorage.getItem("user");
     const savedRole = localStorage.getItem("lms_role");
+    
     if (savedUser) {
       try {
         const u = JSON.parse(savedUser);
-        const name = u.name || u.displayName || u.full_name || u.user_metadata?.full_name || "User";
-        setUserName(formatDisplayName(name));
-        const parts = name.split(" ").filter(Boolean);
-        const init = parts.length > 1 ? `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase() : parts[0]?.slice(0, 2).toUpperCase() || "US";
-        setInitials(init);
-        const role = (u.role || savedRole || "student").toLowerCase();
+        // CRITICAL: Prioritize lms_role over profile.role
+        const role = (savedRole || u.role || "student").toLowerCase();
+        
+        let finalName = u.displayName || u.name || u.full_name || u.user_metadata?.full_name;
+        let finalInitials = "US";
+
+        if (!finalName || finalName === "User") {
+          if (role === "college_admin") {
+            finalName = "College Admin";
+            finalInitials = "CA";
+          } else if (role === "admin" || role === "main_admin" || role === "super_admin" || role === "master_admin") {
+            finalName = "Master Admin";
+            finalInitials = "MA";
+          } else if (role === "student") {
+            finalName = "Student";
+            finalInitials = "ST";
+          } else {
+            finalName = "Trainer";
+            finalInitials = "TR";
+          }
+        } else {
+          const parts = finalName.split(" ").filter(Boolean);
+          finalInitials = parts.length > 1 ? `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase() : parts[0]?.slice(0, 2).toUpperCase() || "US";
+        }
+
+        setUserName(formatDisplayName(finalName));
+        setInitials(finalInitials);
+
         if (role === "student") {
           setUserRole("Student");
         } else if (role === "college_admin") {

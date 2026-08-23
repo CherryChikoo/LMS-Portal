@@ -112,6 +112,8 @@ export async function clearAuthSession(redirectPath?: string): Promise<void> {
   if (typeof window !== "undefined") {
     (window as any).__isLoggingOut = true;
     window.dispatchEvent(new Event("lms_logout"));
+    // HIDE DOCUMENT IMMEDIATELY SO BROWSER TAKES A BLANK SNAPSHOT FOR BFCache
+    document.documentElement.style.visibility = 'hidden';
   }
 
   const targetPath = redirectPath || "/login?logout=true";

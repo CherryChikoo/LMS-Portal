@@ -446,7 +446,7 @@ export default function BatchDetailPage({ params }: PageProps) {
                   variant="ghost" 
                   onClick={() => { setNewName(batch.name); setIsRenaming(true); }}
                   className="w-8 h-8 rounded-full bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                  title="Rename Batch"
+                  aria-label="Rename Batch"
                 >
                   <Edit2 className="w-4 h-4" />
                 </Button>
@@ -561,7 +561,7 @@ export default function BatchDetailPage({ params }: PageProps) {
                         disabled={removingId === student.id}
                         onClick={() => handleRemoveStudent(student)}
                         className="w-8 h-8 rounded-lg text-rose-500 hover:text-rose-600 hover:bg-rose-500/10 transition-colors"
-                        title="Remove from batch"
+                        aria-label="Remove from batch"
                       >
                         <Trash2 className="w-4 h-4" />
                       </Button>

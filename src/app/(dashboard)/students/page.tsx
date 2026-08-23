@@ -13,7 +13,7 @@ import { fadeInUp } from "@/lib/animations";
 import { toast } from "sonner";
 import { useSessionStorage } from "@/hooks/use-session-storage";
 import { useLMSDataSelector } from "@/lib/data/use-lms-data";
-import { getStudentsPaginatedAction, getStudentFilterOptionsAction } from "@/lib/actions/student-actions";
+import { getStudentsPaginatedAction, getStudentFilterOptionsAction, getStudentFilterOptionsOptimizedAction } from "@/lib/actions/student-actions";
 import { deleteStudentProfile, updateStudentProfile, formatAuthError } from "@/lib/services";
 import type { Student } from "@/types";
 import { AddStudentModal } from "@/components/students/add-student-modal";
@@ -26,14 +26,31 @@ function StudentsPageContent() {
   
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [userRole, setUserRole] = useState<string>("admin");
-  const [userCollegeId, setUserCollegeId] = useState<string>("");
+  const [userRole, setUserRole] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      return (localStorage.getItem("lms_role") || "admin").toLowerCase();
+    }
+    return "admin";
+  });
+  
+  const [userCollegeId, setUserCollegeId] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
+        if (uStr) {
+          const profile = JSON.parse(uStr);
+          return profile.collegeId || "";
+        }
+      } catch (err) {}
+    }
+    return "";
+  });
   
   // Pagination state
   const [currentPage, setCurrentPage] = useSessionStorage("students_page_currentPage", 1);
   const [totalCount, setTotalCount] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
-  const [pageSize, setPageSize] = useState(25); // Default 25 for better scroll performance
+  const [pageSize, setPageSize] = useState(15); // 15 students per page
   
   // Students data
   const [students, setStudents] = useState<any[]>([]);
@@ -102,28 +119,13 @@ function StudentsPageContent() {
   // Get metadata from cache (for filter options)
   const colleges = useLMSDataSelector((s) => s.filteredColleges);
 
-  // Load user role and college ID
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    
-    try {
-      const role = localStorage.getItem("lms_role") || "admin";
-      const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
-      const profile = uStr ? JSON.parse(uStr) : {};
-      const colId = profile.collegeId || "";
-      
-      setUserRole(role.toLowerCase());
-      setUserCollegeId(colId);
-    } catch (err) {
-      console.error("Failed to load user data:", err);
-    }
-  }, []);
+
 
   // Load filter options when college changes
   useEffect(() => {
     const loadFilterOptions = async () => {
       try {
-        const result = await getStudentFilterOptionsAction({
+        const result = await getStudentFilterOptionsOptimizedAction({
           userRole,
           userCollegeId,
           collegeId: collegeFilter,

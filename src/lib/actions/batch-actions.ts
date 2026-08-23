@@ -28,7 +28,10 @@ export async function getBatchesPaginatedAction({
     const where: any = {};
 
     // Role-based scoping
-    if ((userRole === "college_admin" || userRole === "student") && userCollegeId) {
+    if (userRole === "college_admin" || userRole === "student") {
+      if (!userCollegeId) {
+        throw new Error(`Unauthorized: ${userRole} must have an assigned college ID`);
+      }
       where.collegeId = userCollegeId;
     }
 
@@ -126,7 +129,14 @@ export async function getBatchesPaginatedAction({
 // LEGACY ACTIONS (Keep for backwards compatibility)
 // ============================================================================
 
+/**
+ * DEPRECATED: Loads ALL batches with ALL student_batches array - causes massive egress at scale
+ * Use getBatchesPaginatedAction() instead for listing
+ * 
+ * @deprecated Use getBatchesPaginatedAction() for paginated listing, getBatchWithStudentsAction() for details
+ */
 export async function getAllBatchesAction() {
+  console.warn("[DEPRECATED] getAllBatchesAction() loads all student_batches. Use getBatchesPaginatedAction() instead.");
   return await prisma.batches.findMany({
     include: {
       student_batches: {
@@ -137,6 +147,49 @@ export async function getAllBatchesAction() {
       }
     },
     orderBy: { createdAt: 'desc' }
+  });
+}
+
+/**
+ * OPTIMIZED: Get all batches with student count only (no student IDs)
+ * Use getBatchWithStudentsAction() or getStudentsInBatchAction() to load students for a specific batch
+ */
+export async function getAllBatchesOptimizedAction() {
+  return await prisma.batches.findMany({
+    include: {
+      _count: {
+        select: { student_batches: true }
+      },
+      colleges: {
+        select: {
+          name: true,
+        },
+      },
+    },
+    orderBy: { createdAt: 'desc' }
+  });
+}
+
+/**
+ * Get a single batch with all enrolled student IDs
+ * Use this when you need the full list of students in a batch
+ */
+export async function getBatchWithStudentsAction(batchId: string) {
+  return await prisma.batches.findUnique({
+    where: { id: batchId },
+    include: {
+      student_batches: {
+        select: { studentId: true }
+      },
+      _count: {
+        select: { student_batches: true }
+      },
+      colleges: {
+        select: {
+          name: true,
+        },
+      },
+    }
   });
 }
 

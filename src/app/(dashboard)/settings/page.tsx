@@ -401,7 +401,7 @@ function StudentAccountSettings() {
               <Label className="text-xs font-bold text-brand uppercase flex items-center gap-1">
                 <Mail className="w-3.5 h-3.5" /> Email Address (Login Email)
               </Label>
-              <Input value={email} onChange={(e) => setEmail(e.target.value)} required type="email" className="h-11 rounded-xl bg-background border-brand/40 font-medium" />
+              <Input value={email} onChange={(e) => setEmail(e.target.value)} required type="email" autoComplete="email" className="h-11 rounded-xl bg-background border-brand/40 font-medium" />
               {originalEmail && email.toLowerCase().trim() !== originalEmail && (
                 <p className="text-[11px] text-amber-500 font-medium flex items-center gap-1">
                   <AlertCircle className="w-3 h-3" />
@@ -458,12 +458,14 @@ function StudentAccountSettings() {
               <Label className="text-xs font-bold text-amber-600 dark:text-amber-400 uppercase flex items-center gap-1">
                 <Lock className="w-3.5 h-3.5" /> Current Password Required
               </Label>
+              <input type="password" name="fake_password_email" className="hidden" aria-hidden="true" tabIndex={-1} autoComplete="off" />
               <Input
                 type="password"
                 value={currentPasswordForEmail}
                 onChange={(e) => setCurrentPasswordForEmail(e.target.value)}
                 placeholder="Enter your current password to authorize email change"
                 className="h-11 rounded-xl bg-background border-amber-500/40"
+                autoComplete="current-password"
               />
               <p className="text-[11px] text-muted-foreground">
                 For security, Supabase requires your current password before changing your login email.
@@ -512,7 +514,8 @@ function StudentAccountSettings() {
           {hasPasswordProvider ? (
             <div className="space-y-1.5">
               <Label className="text-xs font-bold text-muted-foreground uppercase">Current Password</Label>
-              <Input type="password" value={curPwd} onChange={(e) => setCurPwd(e.target.value)} required placeholder="••••••••" className="h-11 rounded-xl bg-background" />
+              <input type="password" name="fake_password_current" className="hidden" aria-hidden="true" tabIndex={-1} autoComplete="off" />
+              <Input type="password" value={curPwd} onChange={(e) => setCurPwd(e.target.value)} required placeholder="••••••••" className="h-11 rounded-xl bg-background" autoComplete="current-password" />
             </div>
           ) : (
             <div className="p-3.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-400 font-bold flex items-center gap-2">
@@ -524,7 +527,7 @@ function StudentAccountSettings() {
             <Label className="text-xs font-bold text-emerald-500 uppercase flex items-center gap-1">
               <Key className="w-3.5 h-3.5" /> New Login Password
             </Label>
-            <Input type="password" value={newPwd} onChange={(e) => setNewPwd(e.target.value)} required placeholder="••••••••" className="h-11 rounded-xl bg-background border-emerald-500/40" />
+            <Input type="password" value={newPwd} onChange={(e) => setNewPwd(e.target.value)} required placeholder="••••••••" className="h-11 rounded-xl bg-background border-emerald-500/40" autoComplete="new-password" />
           </div>
           <div className="pt-2">
             <Button type="submit" className="h-11 px-6 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-2 shadow-md shadow-emerald-500/20">
@@ -836,7 +839,8 @@ export default function SettingsPage() {
     try {
       const targetEmail = email.toLowerCase().trim();
       const newEmail = loginEmail.trim().toLowerCase();
-      const emailChanged = newEmail && newEmail !== targetEmail;
+      // College admins are NOT allowed to change their email
+      const emailChanged = userRole !== "college_admin" && newEmail && newEmail !== targetEmail;
 
       const { data: authData } = await supabase.auth.getUser();
       const currentUser = authData?.user;
@@ -1134,16 +1138,34 @@ export default function SettingsPage() {
               </div>
 
               <div className="space-y-4">
+                {/* Aggressive Anti-Autofill Trap */}
+                <input type="email" name="fake_email" id="fake_email" className="hidden" aria-hidden="true" tabIndex={-1} autoComplete="off" />
+                <input type="password" name="fake_password" id="fake_password" className="hidden" aria-hidden="true" tabIndex={-1} autoComplete="off" />
+                
                 <div className="space-y-2">
-                  <Label htmlFor="loginEmail" className="text-xs font-bold text-foreground">Authorized Login Email</Label>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="loginEmail" className="text-xs font-bold text-foreground">Authorized Login Email</Label>
+                    {userRole === "college_admin" && (
+                      <span className="flex items-center gap-1 text-[10px] text-muted-foreground font-semibold uppercase tracking-wider bg-muted px-2 py-0.5 rounded">
+                        <Lock className="w-3 h-3 text-muted-foreground" /> Managed by Admin
+                      </span>
+                    )}
+                  </div>
                   <Input
                     id="loginEmail"
                     type="email"
                     value={loginEmail}
                     onChange={(e) => setLoginEmail(e.target.value)}
-                    className="glass-input h-11 rounded-xl font-mono"
+                    className={`glass-input h-11 rounded-xl font-mono ${userRole === "college_admin" ? "opacity-60 cursor-not-allowed bg-muted/40" : ""}`}
+                    autoComplete="email"
+                    readOnly={userRole === "college_admin"}
+                    disabled={userRole === "college_admin"}
                   />
-                  <p className="text-[11px] text-muted-foreground">This email will be used when signing in at `/login`.</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {userRole === "college_admin" 
+                      ? "Your login email is managed by the master administrator and cannot be changed." 
+                      : "This email will be used when signing in at `/login`."}
+                  </p>
                 </div>
 
                 <Separator className="opacity-40 py-2" />
@@ -1159,6 +1181,7 @@ export default function SettingsPage() {
                         onChange={(e) => setCurrentPassword(e.target.value)}
                         placeholder="Enter current password"
                         className="glass-input h-11 rounded-xl pr-10 font-mono"
+                        autoComplete="current-password"
                       />
                       <button
                         type="button"
@@ -1187,6 +1210,7 @@ export default function SettingsPage() {
                         onChange={(e) => setNewPassword(e.target.value)}
                         placeholder="At least 6 characters"
                         className="glass-input h-11 rounded-xl pr-10 font-mono"
+                        autoComplete="new-password"
                       />
                       <button
                         type="button"
@@ -1207,6 +1231,7 @@ export default function SettingsPage() {
                       onChange={(e) => setConfirmPassword(e.target.value)}
                       placeholder="Re-enter new password"
                       className="glass-input h-11 rounded-xl font-mono"
+                      autoComplete="new-password"
                     />
                   </div>
                 </div>

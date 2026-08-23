@@ -150,8 +150,8 @@ export function isAssignedToStudent(
       }
       return false;
     }
-    // If neither targets nor sharedWith are specified, consider it assigned to all students
-    return true;
+    // If neither targets nor sharedWith are specified, consider it unassigned and hidden from students
+    return false;
   }
 
   const sId = normalize(student.id);

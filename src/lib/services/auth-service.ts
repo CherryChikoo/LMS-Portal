@@ -76,7 +76,7 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
       ...profile,
       id: studentDoc.id || uid,
       email: profile.email || cleanEmail,
-      displayName: profile.displayName || "Student",
+      displayName: profile.displayName || profile.name || studentDoc.name || studentDoc.full_name || "Student",
       department: studentDoc.department || (profile as any).department || "Computer Science & Engineering",
       collegeId: studentDoc.collegeId || profile.collegeId || "",
       collegeName: (profile as any).collegeName || studentDoc.colleges?.name || "",
@@ -89,7 +89,8 @@ export async function unifiedLogin(email: string, pass: string): Promise<{ user:
   const sessionUser = {
     id: profile.id || uid,
     authId: uid,
-    name: profile.displayName || profile.name || "User",
+    name: profile.displayName || profile.name || cleanEmail.split("@")[0] || "User",
+    displayName: profile.displayName || profile.name || cleanEmail.split("@")[0] || "User",
     email: profile.email || cleanEmail,
     role,
     department: profile.department,

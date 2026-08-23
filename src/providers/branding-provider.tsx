@@ -30,7 +30,23 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
   const [tenantBranding, setTenantBranding] = useState<CompanyBranding | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
+  // Determine role synchronously for render logic
+  const [isCollegeRole, setIsCollegeRole] = useState<boolean>(false);
+
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const storedRole = (localStorage.getItem("lms_role") || "").toLowerCase().trim();
+      const storedUser = localStorage.getItem("lms_user") || localStorage.getItem("user");
+      let activeRole = storedRole;
+      if (!activeRole && storedUser) {
+        try {
+           activeRole = JSON.parse(storedUser).role?.toLowerCase().trim();
+        } catch {}
+      }
+      if (activeRole === "college_admin" || activeRole === "college_student" || activeRole === "student") {
+        setIsCollegeRole(true);
+      }
+    }
     // Load from localStorage on mount (client-side only) to avoid hydration mismatch
     try {
       const cachedMaster = localStorage.getItem("lms_branding");
@@ -47,19 +63,27 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
 
       if (storedUser) {
         const parsed = JSON.parse(storedUser);
-        const pRole = (parsed.role || role || "").toLowerCase().trim();
+        // CRITICAL: Prioritize lms_role (session role) over profile.role (database role)
+        // College admins have lms_role="college_admin" but profile.role may be "trainer"/"admin"
+        const pRole = (role || parsed.role || "").toLowerCase().trim();
         const enrollmentType = (parsed.enrollmentType || "").toLowerCase().trim();
+        
+        // College admins, college students, and normal students should ALWAYS see tenant branding
+        const isCollegeTenant = pRole === "college_admin" || pRole === "college_student" || pRole === "student";
+        
         if (
-          pRole === "admin" ||
-          pRole === "master_admin" ||
-          pRole === "main_admin" ||
-          pRole === "superadmin" ||
-          pRole === "super_admin" ||
-          pRole === "trainer" ||
-          enrollmentType === "self" ||
-          parsed.isExternal ||
-          !parsed.collegeId ||
-          parsed.collegeId === "global"
+          !isCollegeTenant && (
+            pRole === "admin" ||
+            pRole === "master_admin" ||
+            pRole === "main_admin" ||
+            pRole === "superadmin" ||
+            pRole === "super_admin" ||
+            pRole === "trainer" ||
+            enrollmentType === "self" ||
+            parsed.isExternal ||
+            !parsed.collegeId ||
+            parsed.collegeId === "global"
+          )
         ) {
           localStorage.removeItem("lms_college_branding");
           tenantAllowed = false;
@@ -99,15 +123,20 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
         if (storedUser) {
           const profile = JSON.parse(storedUser);
           const collegeId = profile.collegeId;
-          const normalizedRole = (profile.role || userRole || "").toLowerCase().trim();
+          // CRITICAL: Prioritize lms_role (session role) over profile.role (database role)
+          const normalizedRole = (userRole || profile.role || "").toLowerCase().trim();
           const enrollmentType = (profile.enrollmentType || "").toLowerCase().trim();
-          const isMainAdmin = normalizedRole === "admin" || 
+          
+          // College admins and college students should NEVER be classified as main admin
+          const isCollegeTenant = normalizedRole === "college_admin" || normalizedRole === "college_student" || normalizedRole === "student";
+          const isMainAdmin = !isCollegeTenant && (
+                              normalizedRole === "admin" || 
                               normalizedRole === "master_admin" || 
                               normalizedRole === "main_admin" || 
                               normalizedRole === "superadmin" || 
                               normalizedRole === "super_admin" || 
                               normalizedRole === "trainer" ||
-                              (!collegeId || collegeId === "global");
+                              (!collegeId || collegeId === "global"));
 
           // Outside colleges and self-registered students must see the canonical Main Admin Portal Name
           const isOutsideOrSelf = enrollmentType === "self" || profile.isExternal;
@@ -118,7 +147,7 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
               if (isCancelled) return;
               
               if (data && (data.type === "external" || (data as any).origin === "student" || (data as any).type === "outside")) {
-                setTenantBranding(null);
+                setTenantBranding(mBrand);
                 localStorage.removeItem("lms_college_branding");
               } else if (data) {
                 const officialColName = data.name?.trim() || profile.collegeName?.trim() || "College Portal";
@@ -135,7 +164,7 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
             }
           } else {
             // Main admin, self registered, or outside college: canonical Main Admin portal name
-            setTenantBranding(null);
+            setTenantBranding(mBrand);
             localStorage.removeItem("lms_college_branding");
           }
         } else {
@@ -166,7 +195,11 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const activeBranding = tenantBranding || masterBranding || emptyBranding;
+  // Strict isolation: College tenants should never see the main admin's branding.
+  // If their branding is still loading, show empty instead of flashing "Masters Academy".
+  const activeBranding = isCollegeRole 
+    ? (tenantBranding || emptyBranding) 
+    : (tenantBranding || masterBranding || emptyBranding);
 
   return (
     <BrandingContext.Provider value={{ branding: activeBranding, loading }}>

@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from '@/lib/prisma';
+import type { Student } from "@/types";
 
 
 /**
@@ -130,7 +131,78 @@ export async function getAdminDashboardStatsAction() {
 export async function getStudentDashboardStatsAction(studentId: string) {
   return (async () => {
       try {
-    const [
+        console.log('[STUDENT_DASHBOARD_STATS] Fetching stats for studentId:', studentId);
+        
+        // CRITICAL: Database schema analysis:
+        // - students.id = CUID (String)
+        // - students.authId = UUID
+        // - users.id = CUID (String)
+        // - users.authId = UUID
+        
+        const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(studentId);
+        const isEmail = studentId.includes('@');
+        
+        console.log('[STUDENT_DASHBOARD_STATS] ID analysis:', { studentId, isUUID, isEmail });
+        
+        // Build flexible where conditions based on ID type
+        const whereConditions: any[] = [];
+        
+        // If it's a UUID, it could be authId
+        if (isUUID) {
+          whereConditions.push({ authId: studentId });
+        }
+        
+        // If it's an email, search in users table
+        if (isEmail) {
+          whereConditions.push({ users: { email: studentId } });
+        }
+        
+        // If it's a CUID or other string format, it could be the primary key
+        if (!isUUID && !isEmail) {
+          whereConditions.push({ id: studentId });
+        }
+        
+        // Fallback: if no conditions, return empty stats
+        if (whereConditions.length === 0) {
+          console.warn('[STUDENT_DASHBOARD_STATS] No valid conditions for ID:', studentId);
+          return {
+            success: true as const,
+            stats: {
+              assignedExams: 0,
+              completedAttempts: 0,
+              assignedResources: 0,
+              averageScore: 0,
+              recentAttempts: [],
+            },
+          };
+        }
+        
+        // Try to find the student record first to get the correct ID
+        const studentRecord = await prisma.students.findFirst({
+          where: {
+            OR: whereConditions,
+          },
+        });
+        
+        if (!studentRecord) {
+          console.warn('[STUDENT_DASHBOARD_STATS] Student not found with ID:', studentId);
+          // Return empty stats instead of error so UI doesn't break
+          return {
+            success: true as const,
+            stats: {
+              assignedExams: 0,
+              completedAttempts: 0,
+              assignedResources: 0,
+              averageScore: 0,
+              recentAttempts: [],
+            },
+          };
+        }
+        
+        console.log('[STUDENT_DASHBOARD_STATS] Found student record:', studentRecord);
+        const actualStudentId = studentRecord.id;
+        
+        const [
       assignedExamsCount,
       completedAttemptsCount,
       assignedResourcesCount,
@@ -140,26 +212,26 @@ export async function getStudentDashboardStatsAction(studentId: string) {
       // Count assigned exams (simplified - counts all published/active exams)
       prisma.exams.count({
         where: {
-
           status: 'active',
         },
       }),
       
-      // Count completed attempts for this student
+      // Count completed attempts for this student - use actual student ID only
       prisma.exam_results.count({
         where: {
-          studentId,
+          studentId: actualStudentId,
           status: 'completed',
         },
       }),
       
       // Count assigned resources (simplified - counts all resources)
       prisma.resources.count(),
+
       
-      // Calculate average score
+      // Calculate average score - use actual student ID only
       prisma.exam_results.aggregate({
         where: {
-          studentId,
+          studentId: actualStudentId,
           status: 'completed',
         },
         _avg: {
@@ -167,9 +239,11 @@ export async function getStudentDashboardStatsAction(studentId: string) {
         },
       }),
       
-      // Get recent 5 attempts for the student
+      // Get recent 5 attempts for the student - use actual student ID only
       prisma.exam_results.findMany({
-        where: { studentId },
+        where: { 
+          studentId: actualStudentId,
+        },
         orderBy: { createdAt: 'desc' },
         take: 5,
         select: {
@@ -189,6 +263,14 @@ export async function getStudentDashboardStatsAction(studentId: string) {
     ]);
 
         const averageScore = Math.round(Number(avgScore._avg.percentage || 0));
+        
+        console.log('[STUDENT_DASHBOARD_STATS] Stats:', {
+          assignedExams: assignedExamsCount,
+          completedAttempts: completedAttemptsCount,
+          assignedResources: assignedResourcesCount,
+          averageScore,
+          recentAttemptsCount: recentAttempts.length,
+        });
 
         return {
           success: true as const,
@@ -228,10 +310,13 @@ export async function getCollegeAdminDashboardStatsAction(collegeId: string) {
       collegeStudentsCount,
       collegeBatchesCount,
       collegeExamsCount,
+      collegeActiveExamsCount,
       collegeResourcesCount,
       activeStudentsCount,
       recentStudentsCount,
       recentExamsCount,
+      collegeAttemptsCount,
+      collegeCompletedAttemptsCount,
     ] = await Promise.all([
       // Students in this college ONLY
       prisma.students.count({
@@ -254,26 +339,25 @@ export async function getCollegeAdminDashboardStatsAction(collegeId: string) {
         },
       }),
       
-      // Exams assigned to this college OR no specific college (treated as global)
+      // Exams assigned to this college ONLY
       prisma.exams.count({
         where: {
-          OR: [
-            { collegeId }, // Direct college assignment
-            { collegeId: null }, // No college = global
-            { collegeId: { in: ['', 'global', 'GLOBAL', 'all', 'ALL'] } }, // Explicit global markers
-          ],
+          collegeId,
+        },
+      }),
+      
+      // Active exams assigned to this college ONLY
+      prisma.exams.count({
+        where: {
+          collegeId,
           status: 'active',
         },
       }),
       
-      // Resources for this college OR no specific college (treated as global)
+      // Resources for this college ONLY
       prisma.resources.count({
         where: {
-          OR: [
-            { collegeId }, // Direct college assignment
-            { collegeId: null }, // No college = global
-            { collegeId: { in: ['', 'global', 'GLOBAL', 'all', 'ALL'] } }, // Explicit global markers
-          ],
+          collegeId,
         },
       }),
       
@@ -301,20 +385,45 @@ export async function getCollegeAdminDashboardStatsAction(collegeId: string) {
         },
       }),
       
-      // Recent exams (last 7 days) for this college OR global
+      // Recent exams (last 7 days) for this college ONLY
       prisma.exams.count({
         where: {
-          OR: [
-            { collegeId }, // Direct college assignment
-            { collegeId: null }, // No college = global
-            { collegeId: { in: ['', 'global', 'GLOBAL', 'all', 'ALL'] } }, // Explicit global markers
-          ],
+          collegeId,
           createdAt: {
             gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
           },
         },
       }),
+
+      // Total exam attempts by students in this college
+      prisma.exam_results.count({
+        where: {
+          students: {
+            OR: [
+              { collegeId },
+              { colleges: { id: collegeId } },
+            ],
+          },
+        },
+      }),
+
+      // Completed exam attempts by students in this college
+      prisma.exam_results.count({
+        where: {
+          status: 'completed',
+          students: {
+            OR: [
+              { collegeId },
+              { colleges: { id: collegeId } },
+            ],
+          },
+        },
+      }),
     ]);
+
+        const completionRate = collegeAttemptsCount > 0 
+          ? Math.round((collegeCompletedAttemptsCount / collegeAttemptsCount) * 100) 
+          : 0;
 
         return {
           success: true as const,
@@ -329,10 +438,16 @@ export async function getCollegeAdminDashboardStatsAction(collegeId: string) {
             },
             exams: {
               total: collegeExamsCount,
+              active: collegeActiveExamsCount,
               recent: recentExamsCount,
             },
             resources: {
               total: collegeResourcesCount,
+            },
+            attempts: {
+              total: collegeAttemptsCount,
+              completed: collegeCompletedAttemptsCount,
+              completionRate,
             },
           },
         };

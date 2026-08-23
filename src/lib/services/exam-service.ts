@@ -6,8 +6,11 @@ import { isAssignedToStudent } from "./assignment-engine";
 import { toMillis } from "@/lib/utils/date";
 import {
   getAllExamsAction,
+  getAllExamsOptimizedAction,
   getAllExamsIncludingDeletedAction,
+  getAllExamsIncludingDeletedOptimizedAction,
   getExamByIdAction,
+  getExamWithQuestionsAction,
   createExamAction,
   updateExamAction,
   getResultsByExamAction,
@@ -18,16 +21,36 @@ import {
   deleteResultByIdAction
 } from "@/lib/actions/exam-actions";
 
+/**
+ * OPTIMIZED: Get all exams with question counts (no question content)
+ * Use getExamWithQuestions(examId) to lazy load questions when needed
+ */
 export async function getAllExams(): Promise<{ data: Exam[], lastDoc: any }> {
-  const data = await getAllExamsAction();
+  const data = await getAllExamsOptimizedAction();
   const parsedData = JSON.parse(JSON.stringify(data));
   return { data: parsedData as Exam[], lastDoc: parsedData.length > 0 ? parsedData[parsedData.length - 1] : null };
 }
 
+/**
+ * OPTIMIZED: Get all exams including deleted with question counts
+ */
 export async function getAllExamsIncludingDeleted(): Promise<{ data: Exam[], lastDoc: any }> {
-  const data = await getAllExamsIncludingDeletedAction();
+  const data = await getAllExamsIncludingDeletedOptimizedAction();
   const parsedData = JSON.parse(JSON.stringify(data));
   return { data: parsedData as Exam[], lastDoc: parsedData.length > 0 ? parsedData[parsedData.length - 1] : null };
+}
+
+/**
+ * Get a single exam with all its questions
+ * Use this when you need questions (exam details, taking exam, viewing results)
+ */
+export async function getExamWithQuestions(id: string): Promise<Exam | null> {
+  try {
+    const data = await getExamWithQuestionsAction(id);
+    return JSON.parse(JSON.stringify(data)) as Exam;
+  } catch (error) {
+    return null;
+  }
 }
 
 export async function getExamById(id: string): Promise<Exam | null> {

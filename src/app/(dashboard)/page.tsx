@@ -45,9 +45,17 @@ import { useLMSDataSelector } from "@/lib/data/use-lms-data";
 function StudentPortalDashboard({ stats, loading }: { stats: any; loading: boolean }) {
   const [mounted, setMounted] = useState(false);
   const [studentProfile, setStudentProfile] = useState<any>({ 
-    id: "", name: "", email: ""
+    id: "", name: "", email: "", displayName: ""
   });
+  const [filteredAttempts, setFilteredAttempts] = useState<any[]>([]);
 
+  const filteredExams = useLMSDataSelector(state => state.filteredExams);
+  const filteredResources = useLMSDataSelector(state => state.filteredResources);
+  const lmsLoading = useLMSDataSelector(state => state.loading);
+
+  const rawExams = useLMSDataSelector(state => state.exams);
+  const rawResources = useLMSDataSelector(state => state.resources);
+  
   useEffect(() => {
     setMounted(true);
     try {
@@ -55,9 +63,42 @@ function StudentPortalDashboard({ stats, loading }: { stats: any; loading: boole
       if (uStr) {
         const parsed = JSON.parse(uStr);
         setStudentProfile(parsed);
+        console.log('[DEBUG] Student profile:', parsed);
+        console.log('[DEBUG] Total raw exams in cache:', rawExams?.length);
+        console.log('[DEBUG] Filtered exams for student:', filteredExams?.length);
+        console.log('[DEBUG] Total raw resources in cache:', rawResources?.length);
+        console.log('[DEBUG] Filtered resources for student:', filteredResources?.length);
+        
+        // Fetch student attempts separately
+        const sId = parsed.id || parsed.uid;
+        const sEmail = parsed.email;
+        if (sId) {
+          import("@/lib/services").then(({ getStudentAttemptsForCurrentUser }) => {
+            getStudentAttemptsForCurrentUser(sId, sEmail).then((attempts) => {
+              console.log('[DEBUG] Loaded student attempts:', attempts?.length);
+              setFilteredAttempts(attempts || []);
+            }).catch((err) => {
+              console.error('[DEBUG] Failed to load attempts:', err);
+              setFilteredAttempts([]);
+            });
+          });
+        }
       }
     } catch (_) {}
-  }, []);
+  }, [filteredExams, filteredResources, rawExams, rawResources]);
+
+  // Use client-side filtered data for accuracy
+  const assignedExamsCount = filteredExams?.length || 0;
+  const assignedResourcesCount = filteredResources?.length || 0;
+  
+  const completedAttempts = filteredAttempts?.filter(a => a.status === "completed" || a.status === "graded" || a.status === "submitted") || [];
+  const completedAttemptsCount = completedAttempts.length;
+  const averageScore = completedAttemptsCount > 0 
+    ? Math.round(completedAttempts.reduce((acc, curr) => acc + (curr.percentage || 0), 0) / completedAttemptsCount)
+    : 0;
+  const recentAttempts = [...completedAttempts].sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()).slice(0, 5);
+    
+  const isDataLoading = loading || lmsLoading;
 
   return (
     <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="space-y-6 sm:space-y-8 font-sans">
@@ -67,7 +108,7 @@ function StudentPortalDashboard({ stats, loading }: { stats: any; loading: boole
           <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
             <div className="space-y-3 max-w-2xl">
               <h1 className="text-2xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight font-heading text-foreground">
-                Welcome back, <span className="text-emerald-400">{formatDisplayName(studentProfile.name || "Student")}</span>
+                Welcome back, <span className="text-emerald-400">{formatDisplayName(studentProfile.displayName || studentProfile.name || "Student")}</span>
               </h1>
               <p className="text-sm sm:text-base text-muted-foreground font-normal leading-relaxed">
                 Access assigned evaluation papers, study notes for your department, and review real-time academic grade transcripts.
@@ -97,7 +138,7 @@ function StudentPortalDashboard({ stats, loading }: { stats: any; loading: boole
         <motion.div variants={staggerItem}>
           <StatCard
             title="Assigned Assessments"
-            value={loading ? 0 : (stats?.assignedExams || 0)}
+            value={isDataLoading ? 0 : assignedExamsCount}
             icon={ClipboardList}
             iconClassName="stat-icon-emerald"
           />
@@ -105,7 +146,7 @@ function StudentPortalDashboard({ stats, loading }: { stats: any; loading: boole
         <motion.div variants={staggerItem}>
           <StatCard
             title="Completed Attempts"
-            value={loading ? 0 : (stats?.completedAttempts || 0)}
+            value={isDataLoading ? 0 : completedAttemptsCount}
             icon={Trophy}
             iconClassName="stat-icon-blue"
           />
@@ -113,7 +154,7 @@ function StudentPortalDashboard({ stats, loading }: { stats: any; loading: boole
         <motion.div variants={staggerItem}>
           <StatCard
             title="Average Evaluation Score"
-            value={loading ? 0 : (stats?.averageScore || 0)}
+            value={isDataLoading ? 0 : averageScore}
             suffix="%"
             icon={TrendingUp}
             iconClassName="stat-icon-amber"
@@ -122,7 +163,7 @@ function StudentPortalDashboard({ stats, loading }: { stats: any; loading: boole
         <motion.div variants={staggerItem}>
           <StatCard
             title="Department Study Notes"
-            value={loading ? 0 : (stats?.assignedResources || 0)}
+            value={isDataLoading ? 0 : assignedResourcesCount}
             icon={FolderOpen}
             iconClassName="stat-icon-purple"
           />
@@ -130,7 +171,7 @@ function StudentPortalDashboard({ stats, loading }: { stats: any; loading: boole
       </motion.div>
 
       {/* Recent Attempts */}
-      {stats?.recentAttempts && stats.recentAttempts.length > 0 && (
+      {recentAttempts && recentAttempts.length > 0 && (
         <motion.div variants={staggerItem}>
           <GlassCard className="p-6">
             <div className="flex items-center justify-between mb-4">
@@ -148,10 +189,10 @@ function StudentPortalDashboard({ stats, loading }: { stats: any; loading: boole
               </Link>
             </div>
             <div className="space-y-3">
-              {stats.recentAttempts.map((att: any) => (
+              {recentAttempts.map((att: any) => (
                 <div key={att.id} className="p-3.5 rounded-xl bg-card/60 border border-border/60 flex items-center justify-between">
                   <div>
-                    <h4 className="text-sm font-bold text-foreground">{att.exams?.title || "Assessment"}</h4>
+                    <h4 className="text-sm font-bold text-foreground">{att.examTitle || "Assessment"}</h4>
                     <p className="text-xs text-muted-foreground">
                       {new Date(att.createdAt).toLocaleDateString()}
                     </p>
@@ -161,7 +202,7 @@ function StudentPortalDashboard({ stats, loading }: { stats: any; loading: boole
                       {att.percentage}%
                     </span>
                     <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                      {att.status === "completed" ? "COMPLETED" : "PENDING"}
+                      {att.percentage >= 40 ? "Pass" : "Fail"}
                     </p>
                   </div>
                 </div>
@@ -448,7 +489,7 @@ function AdminDashboard({ stats, recentActivity, userName, userRole, userCollege
                       <div className="flex items-center justify-between">
                         <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
                           <Users className="w-3.5 h-3.5" />
-                          {batch._count?.students?.toLocaleString() || 0} students
+                          {(batch._count?.student_batches || batch._count?.students || 0).toLocaleString()} students
                         </div>
                         <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-brand transition-colors" />
                       </div>
@@ -480,7 +521,7 @@ export default function DashboardPageOptimized() {
   const [userCollegeId, setUserCollegeId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string>("");
   const [userName, setUserName] = useState<string>("User");
-  const lastRefreshTimestamp = useLMSDataSelector((s) => s.lastRefreshTimestamp);
+  // Removed lastRefreshTimestamp - it was causing infinite refresh loops
   
   const [stats, setStats] = useState<any>(null);
   const [recentActivity, setRecentActivity] = useState<any>(null);
@@ -495,7 +536,11 @@ export default function DashboardPageOptimized() {
         const uStr = localStorage.getItem("lms_user") || localStorage.getItem("user");
         if (uStr) {
           const parsed = JSON.parse(uStr);
-          setUserId(parsed.id || parsed.uid || "");
+          
+          // For students, try multiple ID sources in priority order
+          const extractedUserId = parsed.id || parsed.uid || parsed.authId || parsed.email || "";
+          console.log('[DASHBOARD] Extracted userId:', extractedUserId, 'from parsed:', { id: parsed.id, uid: parsed.uid, authId: parsed.authId, email: parsed.email });
+          setUserId(extractedUserId);
           setUserCollegeId(parsed.collegeId || null);
           
           if (parsed.role) {
@@ -518,6 +563,7 @@ export default function DashboardPageOptimized() {
           setUserRole("student");
         }
       } catch (e) {
+        console.error('[DASHBOARD] Error syncing user:', e);
         setUserRole("student");
       }
     };
@@ -593,11 +639,22 @@ export default function DashboardPageOptimized() {
             setRecentActivity(activityResult.data);
           }
         } else if (userRole === "student") {
+          console.log('[DASHBOARD] Loading student stats for userId:', userId);
+          
+          if (!userId) {
+            console.error('[DASHBOARD] No userId available for student');
+            setError("Unable to load dashboard: Student ID not found");
+            return;
+          }
+          
           const statsResult = await getStudentDashboardStatsAction(userId);
+          
+          console.log('[DASHBOARD] Student stats result:', statsResult);
           
           if (statsResult.success) {
             setStats(statsResult.stats);
           } else {
+            console.error('[DASHBOARD] Student stats load failed:', statsResult.error);
             setError(statsResult.error || "Failed to load student dashboard stats");
           }
         }
@@ -610,7 +667,7 @@ export default function DashboardPageOptimized() {
     };
     
     loadStats();
-  }, [mounted, userId, userRole, userCollegeId, lastRefreshTimestamp]); // fetch accurate server stats on mount and whenever cache refreshes
+  }, [mounted, userId, userRole, userCollegeId]); // Removed lastRefreshTimestamp to prevent constant reloading
   // Loading state
   if (!mounted || loading) {
     return (

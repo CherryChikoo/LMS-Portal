@@ -11,8 +11,8 @@ import {
 import { supabase } from "@/lib/supabase/client";
 import { getAuthProfileDataAction } from "@/lib/actions/auth-actions";
 import { getStudentAttemptsAction } from "@/lib/actions/exam-actions";
-import { fetchFullLMSStateAction, revalidateAllDataCachesAction } from "@/lib/actions/lms-sync-actions";
-import { fetchLMSInitialStateAction, fetchRemainingStudentsAction } from "@/lib/actions/progressive-lms-actions";
+import { fetchFullLMSStateAction, fetchOptimizedLMSStateAction, revalidateAllDataCachesAction } from "@/lib/actions/lms-sync-actions";
+import { fetchLMSInitialStateAction, fetchOptimizedLMSInitialStateAction, fetchRemainingStudentsAction } from "@/lib/actions/progressive-lms-actions";
 import { getStudentCountWithFiltersAction, getStudentDashboardStatsAction } from "@/lib/actions/student-actions-optimized";
 import {
   buildHierarchy,
@@ -28,9 +28,9 @@ import {
 } from "@/lib/hierarchy/hierarchy-data";
 import type { College, Batch, Student, SelectOption, Exam, Resource, ExamAttempt } from "@/types";
 import { setLMSStoreState } from "./lms-store";
+import { toMillis } from "@/lib/utils/date";
 import { logger } from "@/lib/utils/logger";
 import { isAssignedToStudent } from "@/lib/services/assignment-engine";
-import { toMillis } from "@/lib/utils/date";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -265,7 +265,7 @@ function recomputeScopedData() {
   // the students array may only contain a partial chunk (e.g. 100 of 1200 students)
   // from progressive loading. The Prisma FK cascade (onDelete: Cascade) already
   // ensures orphaned attempts cannot exist in the database.
-  const fAttempts = attemptsData.filter((att) => isActive(att as any));
+  let fAttempts = attemptsData.filter((att) => isActive(att as any));
 
   try {
     const uStr = typeof window !== "undefined" ? localStorage.getItem("lms_user") || localStorage.getItem("user") : null;
@@ -310,9 +310,17 @@ function recomputeScopedData() {
         const userCollegeId = parsed.collegeId || matchedInDb?.collegeId;
         const userCollegeName = parsed.collegeName || matchedInDb?.collegeName;
         
+        const studentCreatedMillis = toMillis(currentUserAsStudent.createdAt) ?? toMillis((currentUserAsStudent as any).users?.createdAt) ?? 0;
+
         // Filter exams for college admins and students
         fExams = fExams.filter((exam) => {
           if (r === "student") {
+            if (studentCreatedMillis > 0) {
+              const examCreatedMillis = toMillis(exam.createdAt) ?? toMillis((exam as any).assignedAt) ?? 0;
+              if (examCreatedMillis > 0 && examCreatedMillis < studentCreatedMillis) {
+                return false;
+              }
+            }
             return isAssignedToStudent(exam.targets, currentUserAsStudent, (exam as any).sharedWith);
           }
           
@@ -349,8 +357,14 @@ function recomputeScopedData() {
         });
         
         // Filter resources for college admins and students
-        fResources = fResources.filter((resource) => {
+        fResources = fResources.filter((resource: any) => {
           if (r === "student") {
+            if (studentCreatedMillis > 0) {
+              const resCreatedMillis = toMillis(resource.createdAt) ?? toMillis(resource.assignedAt) ?? 0;
+              if (resCreatedMillis > 0 && resCreatedMillis < studentCreatedMillis) {
+                return false;
+              }
+            }
             return isAssignedToStudent(resource.targets, currentUserAsStudent, resource.sharedWith);
           }
           
@@ -359,7 +373,6 @@ function recomputeScopedData() {
           const isGlobal = !tCol || tCol === "global" || tCol === "GLOBAL" || tCol === "all" || tCol === "ALL";
           
           if (isGlobal) return true;
-          
           if (userCollegeId && tCol === userCollegeId) return true;
           if (userCollegeName && String(tCol).toLowerCase() === String(userCollegeName).toLowerCase()) return true;
           if (userCollegeName && tColName && String(tColName).toLowerCase() === String(userCollegeName).toLowerCase()) return true;
@@ -371,28 +384,40 @@ function recomputeScopedData() {
                 resource.sharedWith.includes("*")) return true;
                 
             if (userCollegeId && resource.sharedWith.includes(userCollegeId)) return true;
-            if (userCollegeName && resource.sharedWith.some(s => String(s).toLowerCase() === String(userCollegeName).toLowerCase())) return true;
+            if (userCollegeName && resource.sharedWith.some((s: any) => String(s).toLowerCase() === String(userCollegeName).toLowerCase())) return true;
           }
           
           if (resource.targets && Array.isArray(resource.targets)) {
-            if (resource.targets.some(t => 
+            if (resource.targets.some((t: any) => 
               t.ids?.includes("global") || t.ids?.includes("GLOBAL") ||
               t.names?.includes("global") || t.names?.includes("GLOBAL") ||
               t.collegeId === "global" || t.collegeId === "GLOBAL" || t.collegeId === "all" || t.collegeId === "ALL"
             )) return true;
             
-            if (resource.targets.some(t => {
+            if (resource.targets.some((t: any) => {
               if (userCollegeId && t.collegeId === userCollegeId) return true;
               if (userCollegeName && String(t.collegeId || "").toLowerCase() === String(userCollegeName).toLowerCase()) return true;
               if (userCollegeName && String(t.collegeName || "").toLowerCase() === String(userCollegeName).toLowerCase()) return true;
               if (userCollegeId && t.ids?.includes(userCollegeId)) return true;
-              if (userCollegeName && t.ids?.some(id => String(id).toLowerCase() === String(userCollegeName).toLowerCase())) return true;
-              if (userCollegeName && t.names?.some(n => String(n).toLowerCase() === String(userCollegeName).toLowerCase())) return true;
+              if (userCollegeName && t.ids?.some((id: any) => String(id).toLowerCase() === String(userCollegeName).toLowerCase())) return true;
+              if (userCollegeName && t.names?.some((n: any) => String(n).toLowerCase() === String(userCollegeName).toLowerCase())) return true;
               return false;
             })) return true;
           }
           
           return false;
+        });
+        
+        // Filter attempts for college admins and students
+        fAttempts = fAttempts.filter((attempt) => {
+          if (r === "student") {
+            const userId = parsed.id || parsed.uid || "";
+            return attempt.studentId === userId;
+          }
+          if (r === "college_admin" || r === "college") {
+            return attempt.collegeId === userCollegeId || (attempt.collegeName && userCollegeName && String(attempt.collegeName).toLowerCase() === String(userCollegeName).toLowerCase());
+          }
+          return true; // Main admins see everything
         });
       }
       if ((r === "college_admin" || r === "college") && (parsed.collegeId || parsed.collegeName)) {
@@ -539,6 +564,12 @@ export function subscribeToLMSCache(callback: () => void): () => void {
 let realtimeChannel: any = null;
 
 function startRealtimeSubscription() {
+  // EMERGENCY FIX: Temporarily disable realtime subscriptions to stop infinite loading
+  // TODO: Re-enable after verifying cache stability
+  console.log("[REALTIME] Realtime subscriptions temporarily disabled for debugging");
+  return;
+  
+  /* DISABLED CODE - Re-enable after testing
   if (typeof window === "undefined" || realtimeChannel) {
     if (realtimeChannel) {
       console.log("[REALTIME] Channel already exists, skipping duplicate subscription");
@@ -547,11 +578,24 @@ function startRealtimeSubscription() {
   }
 
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastRefreshTime = 0;
+  const MIN_REFRESH_INTERVAL = 10000; // Minimum 10 seconds between refreshes
+  
   const triggerFastRefresh = () => {
+    const now = Date.now();
+    const timeSinceLastRefresh = now - lastRefreshTime;
+    
+    // Only trigger refresh if enough time has passed
+    if (timeSinceLastRefresh < MIN_REFRESH_INTERVAL) {
+      console.log(`[REALTIME] Skipping refresh - only ${timeSinceLastRefresh}ms since last refresh`);
+      return;
+    }
+    
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
+      lastRefreshTime = Date.now();
       fetchLMSData(true).catch(() => {});
-    }, 2000); // 2-second debounce prevents rapid-fire queries
+    }, 5000); // Increased debounce to 5 seconds to reduce frequency
   };
 
   try {
@@ -569,6 +613,7 @@ function startRealtimeSubscription() {
   } catch (err) {
     console.warn("[REALTIME] Failed to subscribe to postgres changes:", err);
   }
+  */
 }
 
 function stopRealtimeSubscription() {
@@ -716,8 +761,9 @@ async function fetchLMSData(force = false): Promise<void> {
 async function performFetchLMSData(force = false): Promise<void> {
   console.log("[CACHE] performFetchLMSData called - force:", force);
   
-  // TTL Check: 60 seconds for cached data, or instant if forced
-  const TTL = 60 * 1000;
+  // TTL Check: 120 seconds (2 minutes) for cached data, or instant if forced
+  // Increased from 60 seconds to reduce fetch frequency
+  const TTL = 120 * 1000;
   const now = Date.now();
   const cacheAge = cache.colleges?.updatedAt ? now - cache.colleges.updatedAt : Infinity;
   console.log("[CACHE] Cache age:", cacheAge, "ms, TTL:", TTL, "ms");
@@ -762,20 +808,21 @@ async function performFetchLMSData(force = false): Promise<void> {
   }, 20000);
 
   try {
-    // Use fast initial load (only 100 students) - remaining students load in background
-    console.log("[CACHE] Calling fetchLMSInitialStateAction()...");
-    const res = await fetchLMSInitialStateAction();
-    console.log("[CACHE] fetchLMSInitialStateAction result:", { success: res.success, hasData: !!res.data });
+    // Use OPTIMIZED initial load (counts only, no full student/attempt arrays)
+    console.log("[CACHE] Calling fetchOptimizedLMSInitialStateAction()...");
+    const res = await fetchOptimizedLMSInitialStateAction();
+    console.log("[CACHE] fetchOptimizedLMSInitialStateAction result:", { success: res.success, hasData: !!res.data });
     
     if (res.success && res.data) {
       const { colleges, batches, students, exams, resources, attempts, metadata } = res.data;
       console.log("[CACHE] Received data counts:", {
         colleges: colleges?.length || 0,
         batches: batches?.length || 0,
-        students: students?.length || 0,
+        students: students?.length || 0, // Will be 0 with optimized version
         exams: exams?.length || 0,
         resources: resources?.length || 0,
-        attempts: attempts?.length || 0,
+        attempts: attempts?.length || 0, // Will be 0 with optimized version
+        metadata: metadata?.counts,
       });
       
       const parsedColleges = JSON.parse(JSON.stringify(colleges || [])) as College[];
@@ -787,13 +834,16 @@ async function performFetchLMSData(force = false): Promise<void> {
 
       cache.colleges = { data: parsedColleges, updatedAt: now };
       cache.batches = { data: parsedBatches, updatedAt: now };
+      // CRITICAL: Students and attempts are now empty arrays from optimized version
+      // Components that need students must use getStudentsPaginatedAction()
+      // Components that need attempts must use per-student queries
       cache.students = { data: parsedStudents, updatedAt: now };
       cache.exams = { data: parsedExams, updatedAt: now };
       cache.resources = { data: parsedResources, updatedAt: now };
       cache.attempts = { data: parsedAttempts, updatedAt: now };
       cache.error = null;
       
-      console.log("[CACHE] Cache populated successfully");
+      console.log("[CACHE] Cache populated successfully (optimized - counts only)");
     } else {
       // Fetch returned success=false but we have stale cache — don't leave loading=true
       console.warn("[CACHE] Fetch returned no data, keeping stale cache", res);
@@ -817,7 +867,7 @@ function recomputeAndNotify() {
 function startAuthListener() {
   // CRITICAL FIX: Always trigger ONE initial fetch if we haven't fetched from network yet
   // The hasAnyData check was preventing fetches when localStorage had stale data
-  const hasRecentData = cache.colleges?.updatedAt && cache.colleges.updatedAt > 0 && (Date.now() - cache.colleges.updatedAt) < 60000;
+  const hasRecentData = cache.colleges?.updatedAt && cache.colleges.updatedAt > 0 && (Date.now() - cache.colleges.updatedAt) < 120000; // 2 minutes
   
   console.log("[CACHE] startAuthListener - hasRecentData:", hasRecentData, "globalAuthUnsub:", !!globalAuthUnsub);
   
@@ -832,6 +882,13 @@ function startAuthListener() {
   cache.error = null;
 
   const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    // CRITICAL FIX: Ignore TOKEN_REFRESHED to prevent heavy re-syncing on window focus/tab change
+    // This was causing continuous GET /student requests and infinite loading loops
+    if (event === "TOKEN_REFRESHED") {
+      console.log("[AUTH] Ignoring TOKEN_REFRESHED event to prevent unnecessary reloads");
+      return;
+    }
+    
     const user = session?.user;
     if (!user) return;
 

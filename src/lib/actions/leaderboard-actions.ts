@@ -28,11 +28,13 @@ export interface LeaderboardFilters {
 }
 
 /**
- * Get leaderboard data aggregated from database
- * This is more efficient than loading all students + attempts client-side
- * LIMITED TO TOP 100 STUDENTS for performance
+ * DEPRECATED: Get leaderboard data - loads ALL exam_results then aggregates in JavaScript
+ * Use getLeaderboardDataOptimizedAction() instead for database-level aggregation
+ * 
+ * @deprecated Use getLeaderboardDataOptimizedAction() for better performance
  */
 export async function getLeaderboardDataAction(filters: LeaderboardFilters = {}) {
+  console.warn("[DEPRECATED] getLeaderboardDataAction() loads ALL exam_results. Use getLeaderboardDataOptimizedAction() instead.");
   try {
     const { collegeId, department, search, userRole, userCollegeId, page = 1, limit = 30 } = filters;
 
@@ -224,6 +226,184 @@ export async function getLeaderboardDataAction(filters: LeaderboardFilters = {})
     };
   } catch (error: any) {
     console.error("[LEADERBOARD_ACTION] Error:", error);
+    return {
+      success: false as const,
+      error: error.message || "Failed to load leaderboard",
+      data: [],
+      pagination: {
+        page: 1,
+        limit: 30,
+        totalCount: 0,
+        totalPages: 0,
+        hasMore: false,
+      },
+    };
+  }
+}
+
+/**
+ * OPTIMIZED: Get leaderboard data using Prisma aggregation instead of raw SQL
+ * More efficient than raw SQL with text casting, works better with indexes
+ */
+export async function getLeaderboardDataOptimizedAction(filters: LeaderboardFilters = {}) {
+  try {
+    const { collegeId, department, search, userRole, userCollegeId, page = 1, limit = 30 } = filters;
+
+    console.log("[LEADERBOARD_OPTIMIZED] Starting with filters:", filters);
+
+    // Build where clause for students
+    const whereStudent: any = {};
+
+    // Role-based filtering
+    const isCollegeScoped = userRole === "student" || userRole === "college_admin";
+    if (isCollegeScoped && userCollegeId) {
+      whereStudent.collegeId = userCollegeId;
+    } else if (collegeId && collegeId !== "all") {
+      whereStudent.collegeId = collegeId;
+    }
+
+    if (department && department !== "all") {
+      whereStudent.department = department;
+    }
+
+    // Build where clause for exam_results
+    const whereResults: any = {};
+    if (Object.keys(whereStudent).length > 0) {
+      whereResults.students = whereStudent;
+    }
+
+    // Get aggregated results using Prisma groupBy
+    // This is much faster than raw SQL with text casts
+    const aggregatedResults = await prisma.exam_results.groupBy({
+      by: ['studentId'],
+      where: whereResults,
+      _count: {
+        id: true,
+      },
+      _sum: {
+        score: true,
+        totalMarks: true,
+      },
+      _avg: {
+        percentage: true,
+      },
+      orderBy: {
+        _sum: {
+          score: 'desc',
+        },
+      },
+      take: 100, // Limit to top 100 students
+    });
+
+    console.log("[LEADERBOARD_OPTIMIZED] Aggregated results:", aggregatedResults.length);
+
+    // Get student details for the top 100
+    const studentIds = aggregatedResults.map(r => r.studentId).filter(Boolean);
+    
+    const students = await prisma.students.findMany({
+      where: {
+        id: { in: studentIds },
+      },
+      select: {
+        id: true,
+        collegeId: true,
+        department: true,
+        rollNumber: true,
+        users: {
+          select: {
+            displayName: true,
+            email: true,
+          },
+        },
+        colleges: {
+          select: {
+            name: true,
+          },
+        },
+      },
+    });
+
+    // Create a map for quick lookup
+    const studentMap = new Map(students.map(s => [s.id, s]));
+
+    // Combine aggregated data with student details
+    let leaderboard: LeaderboardEntry[] = aggregatedResults
+      .map((result) => {
+        const student = studentMap.get(result.studentId);
+        if (!student) return null;
+
+        // Filter out admin/test accounts
+        const name = student.users?.displayName || "";
+        if (name.toLowerCase().includes("admin") || 
+            name.toLowerCase().includes("simulator") || 
+            name.toLowerCase().includes("trainer")) {
+          return null;
+        }
+
+        const totalScore = Number(result._sum.score || 0);
+        const totalMaxMarks = Number(result._sum.totalMarks || 0);
+        const avgPercentage = totalMaxMarks > 0 
+          ? (totalScore / totalMaxMarks) * 100 
+          : Number(result._avg.percentage || 0);
+
+        return {
+          studentId: result.studentId,
+          studentName: student.users?.displayName || "Unnamed Student",
+          studentEmail: student.users?.email || "",
+          collegeId: student.collegeId || "",
+          collegeName: student.colleges?.name || "",
+          department: student.department || "",
+          rollNumber: student.rollNumber || "",
+          totalAttempts: result._count.id,
+          totalScore,
+          totalMaxMarks,
+          averagePercentage: Number((Math.round(avgPercentage * 10) / 10).toFixed(1)),
+          rank: 0,
+        };
+      })
+      .filter((entry): entry is LeaderboardEntry => entry !== null);
+
+    console.log("[LEADERBOARD_OPTIMIZED] After filtering:", leaderboard.length);
+
+    // Apply search filter
+    if (search && search.trim()) {
+      const searchLower = search.toLowerCase().trim();
+      leaderboard = leaderboard.filter((entry) =>
+        entry.studentName.toLowerCase().includes(searchLower) ||
+        entry.studentEmail.toLowerCase().includes(searchLower) ||
+        entry.department.toLowerCase().includes(searchLower) ||
+        entry.rollNumber.toLowerCase().includes(searchLower)
+      );
+      console.log("[LEADERBOARD_OPTIMIZED] After search filter:", leaderboard.length);
+    }
+
+    // Assign ranks
+    leaderboard.forEach((entry, index) => {
+      entry.rank = index + 1;
+    });
+
+    // Apply pagination
+    const totalCount = leaderboard.length;
+    const totalPages = Math.ceil(totalCount / limit);
+    const startIndex = (page - 1) * limit;
+    const endIndex = startIndex + limit;
+    const paginatedData = leaderboard.slice(startIndex, endIndex);
+
+    console.log("[LEADERBOARD_OPTIMIZED] Returning:", paginatedData.length, "of", totalCount);
+
+    return {
+      success: true as const,
+      data: paginatedData,
+      pagination: {
+        page,
+        limit,
+        totalCount,
+        totalPages,
+        hasMore: page < totalPages,
+      },
+    };
+  } catch (error: any) {
+    console.error("[LEADERBOARD_OPTIMIZED] Error:", error);
     return {
       success: false as const,
       error: error.message || "Failed to load leaderboard",

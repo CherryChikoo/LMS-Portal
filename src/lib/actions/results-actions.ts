@@ -63,7 +63,10 @@ export async function getPaginatedResultsAction(filters: ResultsFilters) {
       }
     } else {
       // Role-based college scoping
-      if (user.role === "college_admin" && user.collegeId) {
+      if (user.role === "college_admin") {
+        if (!user.collegeId) {
+          throw new Error("Unauthorized: College Admin must have an assigned college ID");
+        }
         where.students = { ...where.students, collegeId: user.collegeId };
       } else if (collegeId && collegeId !== "ALL") {
         where.students = { ...where.students, collegeId };

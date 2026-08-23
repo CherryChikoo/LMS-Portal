@@ -14,7 +14,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { Button } from "@/components/ui/button";
 import { fadeInUp } from "@/lib/animations";
-import { getAllColleges, createCollege, deleteCollege, getAllStudents, deleteStudentProfile, updateCollege, updateStudentProfile, renameCollegeAndMigrate, PREDEFINED_DEPARTMENTS, ensureGeneralDepartment, createStudentAuthProfile, importStudentsCSV, parseStudentsCSV, generateCredentialsCSV } from "@/lib/services";
+import { getAllColleges, createCollege, deleteCollege, deleteStudentProfile, updateCollege, updateStudentProfile, renameCollegeAndMigrate, PREDEFINED_DEPARTMENTS, ensureGeneralDepartment, createStudentAuthProfile, importStudentsCSV, parseStudentsCSV, generateCredentialsCSV } from "@/lib/services";
 import { useLMSDataSelector } from "@/lib/data/use-lms-data";
 import { refreshCache, optimisticUpdateCollegeInCache, optimisticDeleteCollegeFromCache as optimisticDeleteCollege } from "@/lib/data/lms-data-cache";
 import { markCollegeAsDeleted } from "@/lib/hierarchy/hierarchy-data";
@@ -38,7 +38,7 @@ export default function CollegesPage() {
     error: metricsError 
   } = useDatabaseMetrics();
 
-  const ITEMS_PER_PAGE = 10;
+  const ITEMS_PER_PAGE = 6;
   const [currentPage, setCurrentPage] = useSessionStorage("colleges_main_page", 1);
   const [searchQuery, setSearchQuery] = useSessionStorage("colleges_main_search", "");
 
@@ -926,7 +926,7 @@ export default function CollegesPage() {
                             setRenameCollegeName(col.name);
                           }}
                           className="h-8 w-8 p-0 text-brand hover:text-brand/90 hover:bg-brand/10 rounded-lg cursor-pointer"
-                          title="Rename College"
+                          aria-label="Rename College"
                         >
                           <Pencil className="w-4 h-4" />
                         </Button>
@@ -951,7 +951,7 @@ export default function CollegesPage() {
                             } catch {}
                           }}
                           className="h-8 w-8 p-0 text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 rounded-lg cursor-pointer"
-                          title="Manage Admin Credentials"
+                          aria-label="Manage Admin Credentials"
                         >
                           <KeyRound className="w-4 h-4" />
                         </Button>
@@ -961,7 +961,7 @@ export default function CollegesPage() {
                           onClick={() => handleDeleteAdminCollege(col)}
                           disabled={deletingIds.includes(col.id)}
                           className="h-8 w-8 p-0 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10 rounded-lg cursor-pointer disabled:opacity-50"
-                          title="Delete College"
+                          aria-label="Delete College"
                         >
                           {deletingIds.includes(col.id) ? (
                             <Loader2 className="w-4 h-4 animate-spin text-rose-500" />
@@ -1158,7 +1158,7 @@ export default function CollegesPage() {
                             setEditExternalName(col.name);
                           }}
                           className="h-8 w-8 p-0 text-amber-500 hover:text-amber-600 hover:bg-amber-500/10 rounded-lg"
-                          title="Rename Institution"
+                          aria-label="Rename Institution"
                         >
                           <Pencil className="w-4 h-4" />
                         </Button>

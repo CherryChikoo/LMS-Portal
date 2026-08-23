@@ -5,7 +5,7 @@ import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { useErrorHandler } from "@/providers/error-provider";
-import { ClipboardList, Plus, FileCode, Play, Eye, Edit3, Trash2, Target, Clock, CheckCircle2, ArrowLeft, ArrowRight, Sparkles, Send, Search, Calendar, Building2, Ban, Zap, Globe, Loader2, RotateCcw, X } from "lucide-react";
+import { ClipboardList, Plus, FileCode, Play, Eye, Edit3, Trash2, Target, Clock, CheckCircle2, ArrowLeft, ArrowRight, Sparkles, Send, Search, Calendar, Building2, Ban, Zap, Globe, Loader2, RotateCcw, X, Link2, Copy } from "lucide-react";
 import { useSessionStorage } from "@/hooks/use-session-storage";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -48,8 +48,11 @@ export default function ExamsPage() {
   const { showError } = useErrorHandler();
   const router = useRouter();
 
-  const { filteredExams: allExams, filteredAttempts: attempts, filteredStudents: students, loading, isSyncing } = useLMSData();
+  const { filteredExams: allExams, filteredStudents: students, loading, isSyncing } = useLMSData();
   const { resolveInstitution, resolveStudent, resolveBatch } = useEntityResolution();
+  
+  // Fetch student attempts separately (not included in optimized initial load)
+  const [attempts, setAttempts] = useState<ExamAttempt[]>([]);
 
   const { userRole: currentRole, userCollegeId } = useMemo(() => {
     if (typeof window === "undefined") return { userRole: "student", userCollegeId: "" };
@@ -210,6 +213,13 @@ export default function ExamsPage() {
           createdAt: canonical?.createdAt || parsed?.createdAt,
         } as Student;
         setStudentUser(mergedStudent);
+        
+        // Fetch student attempts
+        if (storedRole?.toLowerCase() === "student" && sId) {
+          import("@/lib/services").then(({ getStudentAttemptsForCurrentUser }) => {
+            getStudentAttemptsForCurrentUser(sId, sEmail).then(setAttempts).catch(() => {});
+          });
+        }
       } else {
         setStudentUser({ id: "", name: "", email: "", department: "", collegeId: "", collegeName: "", batchIds: [], semester: 0, section: "", rollNumber: "", status: "active" as const, createdAt: new Date(), updatedAt: new Date() } as unknown as Student);
       }
@@ -537,6 +547,39 @@ export default function ExamsPage() {
     });
   };
 
+  const handleCopyExamLink = async (exam: Exam) => {
+    try {
+      // Get or generate share token
+      const { generateExamShareTokenAction } = await import('@/lib/actions/exam-share-actions');
+      const { generateExamShareUrl } = await import('@/lib/utils/token-generator');
+      
+      let shareToken = (exam as any).shareToken;
+      
+      // If no token exists, generate one
+      if (!shareToken) {
+        const result = await generateExamShareTokenAction(exam.id);
+        if (!result.success || !result.token) {
+          toast.error(result.error || "Failed to generate share link");
+          return;
+        }
+        shareToken = result.token;
+      }
+      
+      // Generate URL
+      const baseUrl = typeof window !== 'undefined' 
+        ? window.location.origin 
+        : process.env.NEXT_PUBLIC_APP_URL || '';
+      const shareUrl = generateExamShareUrl(shareToken, baseUrl);
+      
+      // Copy to clipboard
+      await navigator.clipboard.writeText(shareUrl);
+      toast.success("Exam link copied to clipboard!");
+    } catch (error) {
+      console.error("Failed to copy exam link:", error);
+      toast.error("Failed to copy link. Please try again.");
+    }
+  };
+
   if (!mounted) {
     return null;
   }
@@ -600,7 +643,8 @@ export default function ExamsPage() {
               if (!isAssigned && !att) return false;
 
               const eff = getEffectiveExamStatus(e);
-              const isSubmitted = att && att.status === "submitted";
+              // Check for all completion statuses: submitted, graded
+              const isSubmitted = att && (att.status === "submitted" || att.status === "graded");
               const isExpiredAndNotAttempted = !isSubmitted && (eff === "expired" || eff === "completed" || eff === "cancelled");
               
               const effectivelyExpired = isExpiredAndNotAttempted || (!isAssigned && !!att && !isSubmitted);
@@ -797,7 +841,8 @@ Showing <span className="text-foreground font-extrabold">
                 if (!isAssigned && !att) return false;
 
                 const eff = getEffectiveExamStatus(exam);
-                const isSubmitted = att && att.status === "submitted";
+                // Check for all completion statuses: submitted, graded
+                const isSubmitted = att && (att.status === "submitted" || att.status === "graded");
                 const isExpiredAndNotAttempted = !isSubmitted && (eff === "expired" || eff === "completed" || eff === "cancelled");
                 
                 // If they are no longer assigned but have an attempt, force it to act like a completed/expired exam
@@ -1342,6 +1387,16 @@ Showing <span className="text-foreground font-extrabold">
                           )}
                         </div>
                         <div className="flex items-center gap-2">
+                          <Button
+                            onClick={() => handleCopyExamLink(exam)}
+                            variant="outline"
+                            size="sm"
+                            className="h-9 px-4 text-sm font-medium border-blue-200 text-blue-700 hover:bg-blue-50 dark:border-blue-900/50 dark:text-blue-400 dark:hover:bg-blue-900/20 flex items-center gap-1.5 rounded-lg"
+                            title="Copy Exam Share Link"
+                          >
+                            <Copy className="w-4 h-4" />
+                            <span>Copy Link</span>
+                          </Button>
                           <Button
                             onClick={() => {
                               setNavigatingId(exam.id);
