@@ -12,9 +12,16 @@ import { prisma } from "@/lib/prisma";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60; // Each chunk processes in under 60s
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://rramkmudzrxaipukueuq.supabase.co";
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+
+let _supabase: ReturnType<typeof createClient> | null = null;
+function getSupabase() {
+  if (!_supabase) {
+    _supabase = createClient(supabaseUrl, supabaseServiceKey);
+  }
+  return _supabase;
+}
 
 const CHUNK_SIZE = 300; // Process 300 students per API call
 const DEFAULT_PASSWORD = process.env.DEFAULT_STUDENT_PASSWORD || "Welcome@123";
@@ -39,7 +46,7 @@ async function processChunk(rows: any[], enrollmentType: string): Promise<Proces
   try {
     // Get existing emails to check duplicates
     const emails = rows.map(r => r.collegeEmail?.toLowerCase()).filter(Boolean);
-    const { data: existingUsers } = await supabase
+    const { data: existingUsers } = await getSupabase()
       .from("users")
       .select("email")
       .in("email", emails);
@@ -70,7 +77,7 @@ async function processChunk(rows: any[], enrollmentType: string): Promise<Proces
         const password = generateSecurePassword();
 
         // Create auth user
-        const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
+        const { data: authUser, error: authError } = await getSupabase().auth.admin.createUser({
           email,
           password,
           email_confirm: true,
@@ -142,7 +149,7 @@ export async function POST(request: NextRequest) {
     const { jobId } = await request.json();
 
     // Get the job
-    const { data: job, error: jobError } = await supabase
+    const { data: job, error: jobError } = await getSupabase()
       .from("import_jobs")
       .select("*")
       .eq("job_id", jobId)
@@ -164,7 +171,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Mark as processing
-    await supabase
+    await getSupabase()
       .from("import_jobs")
       .update({
         status: "processing",
@@ -180,7 +187,7 @@ export async function POST(request: NextRequest) {
 
     if (currentChunk.length === 0) {
       // All done!
-      await supabase
+      await getSupabase()
         .from("import_jobs")
         .update({
           status: "completed",
@@ -205,7 +212,7 @@ export async function POST(request: NextRequest) {
 
     const isComplete = newProcessedRows >= allRows.length;
 
-    await supabase
+    await getSupabase()
       .from("import_jobs")
       .update({
         processed_rows: newProcessedRows,
@@ -242,7 +249,7 @@ export async function POST(request: NextRequest) {
     // Mark job as failed
     const { jobId } = await request.json();
     if (jobId) {
-      await supabase
+      await getSupabase()
         .from("import_jobs")
         .update({
           status: "failed",

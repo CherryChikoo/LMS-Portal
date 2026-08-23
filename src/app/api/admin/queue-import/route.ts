@@ -9,9 +9,16 @@ import { createClient } from "@supabase/supabase-js";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60; // This endpoint just queues, doesn't process
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://rramkmudzrxaipukueuq.supabase.co";
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+
+let _supabase: ReturnType<typeof createClient> | null = null;
+function getSupabase() {
+  if (!_supabase) {
+    _supabase = createClient(supabaseUrl, supabaseServiceKey);
+  }
+  return _supabase;
+}
 
 interface QueueImportRequest {
   adminIdToken: string;
@@ -36,7 +43,7 @@ export async function POST(request: NextRequest) {
     // Create import job in database
     const jobId = `import_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
-    const { data: job, error: jobError } = await supabase
+    const { data: job, error: jobError } = await getSupabase()
       .from("import_jobs")
       .insert({
         job_id: jobId,
@@ -95,7 +102,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const { data: job, error } = await supabase
+    const { data: job, error } = await getSupabase()
       .from("import_jobs")
       .select("*")
       .eq("job_id", jobId)
