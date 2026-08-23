@@ -77,55 +77,32 @@ export function FilterDropdown({
       )}>
         {label}
       </label>
-      <Select 
-        value={displayValue} 
-        onValueChange={(val) => onChange(!val || val === "ALL" ? "" : val)} 
-        disabled={isDisabled}
-      >
-        <SelectTrigger className={cn(
-          "w-full h-12 px-4 rounded-xl bg-card border shadow-sm text-sm font-semibold transition-all",
-          isBatch 
-            ? "border-amber-500/40 text-amber-500 hover:border-amber-500/60 focus-visible:border-amber-500 focus-visible:ring-amber-500/20 data-[state=open]:border-amber-500/60" 
-            : "border-border text-foreground hover:border-brand/40 focus-visible:border-brand focus-visible:ring-brand/20 data-[state=open]:border-brand/40",
-          isDisabled && "opacity-50 cursor-not-allowed bg-muted/50"
-        )}>
-          <SelectValue placeholder={allLabel} className="truncate">
-             <span className="truncate block max-w-full overflow-hidden text-ellipsis">{internalValue === "ALL" ? allLabel : triggerContent}</span>
-          </SelectValue>
-        </SelectTrigger>
-        <SelectContent className={cn(
-          "rounded-xl shadow-xl border p-1 bg-popover z-50",
-          isBatch ? "border-amber-500/30" : "border-border"
-        )}>
-          <SelectItem 
-            value="ALL" 
-            className={cn(
-              "rounded-md cursor-pointer text-sm font-medium transition-colors py-2 truncate",
-              isBatch 
-                ? "focus:bg-amber-500/10 focus:text-amber-600 data-[state=checked]:bg-amber-500/20 data-[state=checked]:text-amber-600"
-                : "focus:bg-brand/10 focus:text-brand data-[state=checked]:bg-brand/10 data-[state=checked]:text-brand"
-            )}
-          >
-            {allLabel}
-          </SelectItem>
+      <div className="relative">
+        <select
+          value={displayValue}
+          onChange={(e) => onChange(!e.target.value || e.target.value === "ALL" ? "" : e.target.value)}
+          disabled={isDisabled}
+          className={cn(
+            "w-full h-12 px-4 pr-10 rounded-xl bg-card border shadow-sm text-sm font-semibold transition-all appearance-none outline-none cursor-pointer truncate",
+            isBatch 
+              ? "border-amber-500/40 text-amber-500 hover:border-amber-500/60 focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20" 
+              : "border-border text-foreground hover:border-brand/40 focus:border-brand focus:ring-1 focus:ring-brand/20",
+            isDisabled && "opacity-50 cursor-not-allowed bg-muted/50"
+          )}
+        >
+          <option value="ALL">{allLabel}</option>
           {options
-            .filter(opt => opt.value !== "") // Ensure we don't map an empty string option if provided
+            .filter(opt => opt.value !== "")
             .map((opt) => (
-            <SelectItem 
-              key={opt.value} 
-              value={opt.value}
-              className={cn(
-                "rounded-md cursor-pointer text-sm font-medium transition-colors py-2 truncate",
-                isBatch 
-                  ? "focus:bg-amber-500/10 focus:text-amber-600 data-[state=checked]:bg-amber-500/20 data-[state=checked]:text-amber-600"
-                  : "focus:bg-brand/10 focus:text-brand data-[state=checked]:bg-brand/10 data-[state=checked]:text-brand"
-              )}
-            >
-              <span className="truncate block">{opt.label}</span>
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+        </select>
+        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-muted-foreground">
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 opacity-50"><path d="M3.13523 6.15803C3.3241 5.95657 3.64052 5.94637 3.84197 6.13523L7.5 9.56464L11.158 6.13523C11.3595 5.94637 11.6759 5.95657 11.8648 6.15803C12.0536 6.35949 12.0434 6.67591 11.842 6.86477L7.84197 10.6148C7.64964 10.7951 7.35036 10.7951 7.15803 10.6148L3.15803 6.86477C2.95657 6.67591 2.94637 6.35949 3.13523 6.15803Z" fill="currentColor" fillRule="evenodd" clipRule="evenodd"></path></svg>
+        </div>
+      </div>
     </div>
   );
 }
