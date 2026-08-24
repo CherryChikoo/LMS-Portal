@@ -595,19 +595,15 @@ export async function getStudentsByCollegeWithSlugAction(
     ];
     
     if (collegeName) {
-      whereConditions.push({ collegeName: { equals: collegeName, mode: 'insensitive' } });
-      // Add slug-based matching for college name
       const nameSlug = cleanSlug(collegeName);
       if (nameSlug !== targetSlug) {
         whereConditions.push({ collegeId: { contains: nameSlug, mode: 'insensitive' } });
-        whereConditions.push({ collegeName: { contains: nameSlug, mode: 'insensitive' } });
       }
     }
     
     // Add slug-based matching for original ID
     if (targetSlug) {
       whereConditions.push({ collegeId: { contains: targetSlug, mode: 'insensitive' } });
-      whereConditions.push({ collegeName: { contains: targetSlug, mode: 'insensitive' } });
     }
     
     // Execute query with all fuzzy matching conditions
