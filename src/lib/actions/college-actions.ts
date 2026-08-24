@@ -20,7 +20,21 @@ export async function getCollegeCountAction() {
 }
 
 export async function fetchCollegeByIdAction(id: string) {
-  return await prisma.colleges.findUnique({ where: { id } });
+  // First try exact ID match
+  let result = await prisma.colleges.findUnique({ where: { id } });
+  if (result) return result;
+  
+  // Fallback: try case-insensitive name match (handles external colleges linked by name)
+  const decodedId = decodeURIComponent(id);
+  result = await prisma.colleges.findFirst({ 
+    where: { 
+      OR: [
+        { name: { equals: decodedId, mode: 'insensitive' } },
+        { id: { equals: decodedId, mode: 'insensitive' } },
+      ]
+    } 
+  });
+  return result;
 }
 
 export async function createCollegeAction(data: any) {

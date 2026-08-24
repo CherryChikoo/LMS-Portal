@@ -406,7 +406,7 @@ function AdminDashboard({ stats, recentActivity, userName, userRole, userCollege
               <div>
                 <div className="text-3xl font-bold font-heading">{(stats?.attempts?.total || 0).toLocaleString()}</div>
                 <div className="flex items-center justify-between mt-1">
-                  <span className="text-xs text-muted-foreground">{stats?.attempts?.completionRate || 0}% completion rate</span>
+                  <span className="text-xs text-muted-foreground">Total submissions</span>
                   <ArrowRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
                 </div>
               </div>

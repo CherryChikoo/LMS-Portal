@@ -1219,7 +1219,7 @@ export default function CollegesPage() {
                       </button>
                     </div>
                     <Link
-                      href={col.isPromoted ? `/colleges/${col.id}` : `/colleges/${encodeURIComponent(col.name)}`}
+                      href={`/colleges/${col.id}`}
                       className="text-amber-500 font-semibold flex items-center gap-0.5 hover:underline cursor-pointer text-[11px]"
                     >
                       Manage Students <ChevronRight className="w-3.5 h-3.5" />
