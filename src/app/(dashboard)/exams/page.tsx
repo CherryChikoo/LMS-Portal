@@ -455,34 +455,54 @@ export default function ExamsPage() {
       toast.success("Assessment & AI Explanations created successfully!");
       refreshCache().catch(() => {});
 
-      // Background Gemini upgrade (non-blocking)
+      // Background Gemini upgrade in chunks to prevent Vercel timeouts
       const { supabase } = await import('@/lib/supabase/client');
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
-      fetch("/api/ai-explanation", {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          ...(token ? { "Authorization": `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({ examId: newExamId }),
-      }).then(async res => {
-          if (!res.ok) {
+      
+      const CHUNK_SIZE = 5;
+      const chunks = [];
+      for (let i = 0; i < finalQuestions.length; i += CHUNK_SIZE) {
+        chunks.push(finalQuestions.slice(i, i + CHUNK_SIZE));
+      }
+
+      // Process sequentially in background to avoid API rate limits
+      (async () => {
+        let totalGenerated = 0;
+        let totalFailed = 0;
+        
+        for (const chunk of chunks) {
+          try {
+            const res = await fetch("/api/ai-explanation", {
+              method: "POST",
+              headers: { 
+                "Content-Type": "application/json",
+                ...(token ? { "Authorization": `Bearer ${token}` } : {})
+              },
+              body: JSON.stringify({ examId: newExamId, questions: chunk }),
+            });
+            
+            if (!res.ok) {
               const text = await res.text();
-              console.error("[BACKGROUND AI PIPELINE] Server Error:", res.status, text);
-              toast.error("AI Generation failed: " + text);
-          } else {
+              console.error("[BACKGROUND AI PIPELINE] Chunk Server Error:", res.status, text);
+              totalFailed += chunk.length;
+            } else {
               const data = await res.json();
-              if (data.failedCount > 0) {
-                  toast.warning(`AI generated ${data.generatedCount} explanations, but fell back to basic templates for ${data.failedCount} due to Gemini API limits.`);
-              } else {
-                  console.log("[BACKGROUND AI PIPELINE] Success:", data);
-              }
+              if (data.failedCount > 0) totalFailed += data.failedCount;
+              if (data.generatedCount > 0) totalGenerated += data.generatedCount;
+            }
+          } catch (err) {
+            console.error("[BACKGROUND AI PIPELINE] Chunk Fetch error:", err);
+            totalFailed += chunk.length;
           }
-      }).catch((err) => {
-          console.error("[BACKGROUND AI PIPELINE] Fetch error:", err);
-          toast.error("AI Generation failed: " + err.message);
-      });
+        }
+        
+        if (totalFailed > 0) {
+          toast.warning(`AI generated ${totalGenerated} explanations, but fell back to basic templates for ${totalFailed} due to API limits.`);
+        } else if (totalGenerated > 0) {
+          console.log(`[BACKGROUND AI PIPELINE] Successfully generated ${totalGenerated} AI explanations.`);
+        }
+      })();
 
       if (userRole !== "student") {
         router.push("/admin/exams");
