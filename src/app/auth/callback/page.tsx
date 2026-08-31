@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { syncGoogleUserAction } from "@/lib/actions/auth-actions";
 import { setAuthSession } from "@/lib/utils/auth-session";
+import { resetInactivityTimer } from "@/lib/utils/inactivity-tracker";
 import type { UserRole } from "@/types";
 
 function CallbackHandler() {
@@ -63,6 +64,7 @@ function CallbackHandler() {
         const role = (syncRes.role || "student") as UserRole;
         if (syncRes.userProfile) {
           await setAuthSession(syncRes.userProfile, role);
+          resetInactivityTimer();
         }
 
         // Check if this was an account linking (not a new registration)

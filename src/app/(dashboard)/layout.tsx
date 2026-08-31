@@ -12,6 +12,7 @@ import { subscribeToLMSCache } from "@/lib/data/lms-data-cache";
 import { getStudentByIdAction, getUserByIdAction } from "@/lib/actions/auth-actions";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { NAVIGATION } from "@/lib/constants";
+import { startInactivityTracker, stop as stopInactivityTracker } from "@/lib/utils/inactivity-tracker";
 import { useBranding } from "@/providers/branding-provider";
 
 export default function DashboardLayout({
@@ -30,13 +31,20 @@ export default function DashboardLayout({
 
   const pathname = usePathname();
 
-  // Initialize auth check state
+  // Initialize auth check state & start inactivity tracking
   useEffect(() => {
     if (typeof window !== "undefined") {
       const hasLocalUser = Boolean(localStorage.getItem("lms_user") || localStorage.getItem("user"));
       const hasLocalAuth = Boolean(localStorage.getItem("lms_auth") || localStorage.getItem("lms_role"));
       setIsInitializingAuth(!hasLocalUser && !hasLocalAuth);
+
+      // Start tracking user inactivity — will auto-logout after 2 hours idle
+      startInactivityTracker();
     }
+
+    return () => {
+      stopInactivityTracker();
+    };
   }, []);
 
   // Listen for logout freeze trigger and back/forward cache navigation

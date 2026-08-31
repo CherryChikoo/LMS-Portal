@@ -34,8 +34,8 @@ export async function setAuthSession(
       : (roleStr === "college_admin" || roleStr === "college" ? "college_admin" : "student");
 
   const isSecure = typeof window !== "undefined" && window.location.protocol === "https:";
-  // 30 days session persistence (2592000 seconds)
-  const cookieOptions = `path=/; max-age=2592000; SameSite=Lax${isSecure ? "; Secure" : ""}`;
+  // 2 hour session persistence (7200 seconds) — matches inactivity timeout
+  const cookieOptions = `path=/; max-age=7200; SameSite=Lax${isSecure ? "; Secure" : ""}`;
 
   let userToStore: Record<string, unknown> | null = null;
   if (typeof session === "string") {
@@ -136,6 +136,7 @@ export async function clearAuthSession(redirectPath?: string): Promise<void> {
       document.cookie = `lms_auth=; ${cookieOptions}`;
       document.cookie = `lms_role=; ${cookieOptions}`;
       document.cookie = `lms_status=; ${cookieOptions}`;
+      document.cookie = `lms_token=; ${cookieOptions}`;
     });
   }
 

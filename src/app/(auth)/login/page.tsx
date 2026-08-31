@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { ConfirmModal } from "@/components/shared/confirm-modal";
 import { unifiedLogin, unifiedGoogleLogin, formatAuthError } from "@/lib/services/auth-service";
 import { setAuthSession } from "@/lib/utils/auth-session";
+import { resetInactivityTimer } from "@/lib/utils/inactivity-tracker";
 import { toMillis } from "@/lib/utils/date";
 import { UserRole } from "@/types";
 import { useBranding } from "@/providers/branding-provider";
@@ -56,6 +57,8 @@ function LoginContent() {
       setError("This account is already registered. Please sign in below or use Google Sign In.");
     } else if (errorParam === "account_deleted") {
       setError("This account has been permanently removed by an administrator.");
+    } else if (errorParam === "session_timeout") {
+      setError("Your session has expired due to inactivity. Please sign in again.");
     } else if (errorParam === "oauth_timeout") {
       setError("The authentication process took too long. Please try again.");
     } else {
@@ -100,6 +103,7 @@ function LoginContent() {
       };
       
       await setAuthSession(uObj, (res as any)?.role as UserRole);
+      resetInactivityTimer();
 
       // Brief delay to ensure browser cookie jar commits cookies before HTTP navigation
       await new Promise((resolve) => setTimeout(resolve, 80));
