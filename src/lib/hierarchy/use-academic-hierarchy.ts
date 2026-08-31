@@ -340,14 +340,18 @@ export function useAcademicHierarchy(options: UseAcademicHierarchyOptions = {}):
     if (filters.batchId) {
       const selectedBatch = (hierarchy.batches as Batch[]).find(b => b.id === filters.batchId);
       if (selectedBatch) {
-        seen.add(selectedBatch.id);
+        const nameKey = (selectedBatch.name || selectedBatch.id).toLowerCase().trim();
+        seen.add(nameKey);
         uniqueList.push(selectedBatch);
       }
     }
 
     list.forEach((b: Batch) => {
-      if (!seen.has(b.id)) {
-        seen.add(b.id);
+      // Deduplicate by name (not ID) since many batches share the same name
+      // across different colleges/departments (e.g. "2023-2027" x 25 colleges)
+      const nameKey = (b.name || b.id).toLowerCase().trim();
+      if (!seen.has(nameKey)) {
+        seen.add(nameKey);
         uniqueList.push(b);
       }
     });
