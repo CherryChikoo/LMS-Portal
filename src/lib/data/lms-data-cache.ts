@@ -163,7 +163,7 @@ const cache: LMSDataCacheState = {
   listeners: 0,
   unsubscribers: [],
   error: null,
-  loading: false,
+  loading: true,
   isSyncing: false,
   _exportedState: null,
 };
